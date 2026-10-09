@@ -8,6 +8,8 @@
 FROM kalilinux/kali-rolling:latest
 
 ARG DEBIAN_FRONTEND=noninteractive
+# Container runtime may inject a host proxy that apt cannot use (socks5); clear it.
+ENV http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY=
 
 # Core toolchain: recon/enumeration, web exploitation, brute force / intranet.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,26 +17,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		nmap \
 		masscan \
 		dnsrecon \
-		dnsenum \
 		whatweb \
-		nikto \
 		subfinder \
-		amass \
 		enum4linux \
 		# web exploitation
 		ffuf \
 		dirsearch \
-		gobuster \
 		wafw00f \
-		testssl \
+		testssl.sh \
 		sqlmap \
 		# brute force / intranet movement
 		hashcat \
 		john \
 		hydra \
-		medusa \
 		netexec \
-		impacket-metapackages \
+		impacket-scripts \
 		# fundamentals
 		curl \
 		wget \
@@ -51,17 +48,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		fd-find \
 		zip \
 		unzip \
-		vim \
-	less \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Extended tools: availability varies by Kali release; failures are tolerated.
 RUN apt-get update && apt-get install -y --no-install-recommends \
 		responder \
 		chisel \
-		httpx-toolkit \
-		enum4linux-ng \
-		fdns \
 	|| echo "[zgagent] extended tools partially unavailable (ok)" \
 	&& rm -rf /var/lib/apt/lists/*
 
