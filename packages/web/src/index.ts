@@ -19,7 +19,9 @@ const port = Number(argValue("--port") ?? process.env.ZG_PORT ?? 7777);
 const host = argValue("--host") ?? process.env.ZG_HOST ?? "127.0.0.1";
 const cwd = argValue("--cwd") ?? process.env.ZG_CWD ?? process.cwd();
 
-const { url } = await startZGServer({ port, host, cwd });
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+
+const { url } = await startZGServer({ port, host, cwd, agentDir: getAgentDir() });
 
 console.log(`ZGAgent Web 控制台已启动: ${url}`);
 console.log(`工作目录: ${cwd}`);

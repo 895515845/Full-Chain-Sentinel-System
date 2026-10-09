@@ -296,7 +296,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 				}
 				case "add_project": {
 					if (!agentDir) {
-						sendError(socket, "自定义 agentDir 下暂不支持项目管理");
+						sendError(socket, "内部错误：agentDir 未初始化");
 						return;
 					}
 					const result = await addProject(agentDir, { name: message.name });
@@ -309,7 +309,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 				}
 				case "remove_project": {
 					if (!agentDir) {
-						sendError(socket, "自定义 agentDir 下暂不支持项目管理");
+						sendError(socket, "内部错误：agentDir 未初始化");
 						return;
 					}
 					const registry = listProjects(agentDir);
@@ -339,7 +339,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 				}
 				case "switch_project": {
 					if (!agentDir) {
-						sendError(socket, "自定义 agentDir 下暂不支持项目管理");
+						sendError(socket, "内部错误：agentDir 未初始化");
 						return;
 					}
 					const registry = listProjects(agentDir);

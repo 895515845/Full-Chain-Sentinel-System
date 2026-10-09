@@ -70,6 +70,9 @@ export class ZGAgentRuntime {
 		this.activeProjectId = options.activeProject?.id;
 		this.activeProjectName = options.activeProject?.name;
 		this.activeContainer = options.activeProject?.container;
+		if (options.activeProject) {
+			this.cwd = options.activeProject.cwd ?? this.cwd;
+		}
 		this.agentDir = options.agentDir ?? getAgentDir();
 		this.hooks = options.hooks;
 		this.approvals = new ApprovalGate(() => this.hooks.onStateChange());
