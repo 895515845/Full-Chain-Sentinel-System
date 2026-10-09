@@ -2126,6 +2126,12 @@ button.small {
 
 .markdown-body {
 	line-height: inherit;
+	white-space: normal;
+}
+
+.markdown-body pre,
+.markdown-body code {
+	white-space: pre-wrap;
 }
 
 .markdown-body > :first-child {
@@ -2368,4 +2374,8 @@ button.small {
 .markdown-body img {
 	max-width: 100%;
 	border-radius: 8px;
+}
+
+.markdown-body li > p {
+	margin: 0;
 }
