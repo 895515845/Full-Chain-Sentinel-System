@@ -2918,16 +2918,6 @@ button.small {
 	color: #b45309;
 }
 
-.subagent-mode {
-	font-family: var(--mono);
-	font-size: 10px;
-	color: var(--purple);
-	background: #f5f3ff;
-	border-radius: 5px;
-	padding: 1px 5px;
-	flex-shrink: 0;
-}
-
 .subagent-task {
 	flex: 1;
 	min-width: 0;
@@ -3184,4 +3174,45 @@ button.small {
 svg.lucide {
 	vertical-align: middle;
 	flex-shrink: 0;
+}
+
+/* ---------- Settings sections ---------- */
+.settings-sections {
+	display: flex;
+	gap: 4px;
+	border-bottom: 1px solid var(--border);
+	margin-bottom: 18px;
+}
+
+.settings-section {
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	color: var(--dim);
+	font-size: 13px;
+	padding: 6px 12px;
+	margin-bottom: -1px;
+}
+
+.settings-section:hover:not(.active) {
+	color: var(--text);
+}
+
+.settings-section.active {
+	color: var(--accent);
+	border-bottom-color: var(--accent);
+}
+
+/* Checkbox rows keep the label and its box on one line. */
+.settings label.check-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--text);
+}
+
+.settings label.check-row input {
+	width: auto;
+	margin-top: 0;
 }

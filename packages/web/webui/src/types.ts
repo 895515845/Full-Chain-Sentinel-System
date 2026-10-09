@@ -56,7 +56,6 @@ export interface ZGSubagentRun {
 	id: string;
 	sessionId: string;
 	task: string;
-	mode: "explore" | "act";
 	status: ZGSubagentStatus;
 	turns: number;
 	startedAt: string;
@@ -76,6 +75,22 @@ export interface ZGTestResult {
 	ok: boolean;
 	message: string;
 	detail?: string;
+}
+
+/** DingTalk notification configuration (mirrors notifications.json). */
+export interface ZGNotifyConfig {
+	enabled: boolean;
+	webhook: string;
+	secret: string;
+	keyword: string;
+}
+
+/** Outcome of the most recent notification send. */
+export interface ZGNotifyStatus {
+	at: number | null;
+	ok: boolean;
+	error?: string;
+	subject?: string;
 }
 
 export interface ZGApprovalRequest {
@@ -184,6 +199,8 @@ export type ZGClientMessage =
 			text: string;
 			streamingBehavior?: "steer" | "followUp";
 			images?: ZGImageAttachment[];
+			/** Composer choice: force a notification for this run. */
+			notify?: boolean;
 	  }
 	| { type: "abort" }
 	| { type: "compact" }
@@ -205,6 +222,9 @@ export type ZGClientMessage =
 	| { type: "get_state" }
 	| { type: "save_config"; config: ZGModelConfig }
 	| { type: "test_config"; config: ZGModelConfig }
+	| { type: "get_notify_config" }
+	| { type: "save_notify_config"; config: ZGNotifyConfig }
+	| { type: "test_notify"; config: ZGNotifyConfig }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }
@@ -230,6 +250,8 @@ export type ZGServerMessage =
 	| { type: "tree"; tree: SessionTreeNodeView[]; leafId: string | null; forkPoints: ZGForkPoint[] }
 	| { type: "config"; config: ZGModelConfig | null }
 	| { type: "test_result"; result: ZGTestResult }
+	| { type: "notify_config"; config: ZGNotifyConfig; status: ZGNotifyStatus }
+	| { type: "notify_test_result"; result: ZGTestResult }
 	| { type: "stats"; stats: ZGStatsView }
 	| { type: "projects"; projects: ZGProjectInfo[]; activeProjectId: string | null }
 	| { type: "files"; path: string; entries: ZGFileEntry[] }

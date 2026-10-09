@@ -132,6 +132,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 			onSessionEvent: (event) => broadcast({ type: "session_event", event }),
 			onStateChange: () => broadcastSnapshot(),
 			onSubagentEvent: (runId, event) => broadcast({ type: "subagent_event", runId, event }),
+			onNotifyStatus: (status) => broadcast({ type: "notify_config", config: runtime.getNotifyConfig(), status }),
 		},
 	});
 
@@ -215,7 +216,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						sendError(socket, "消息不能为空");
 						return;
 					}
-					await runtime.prompt(message.text, message.streamingBehavior, images);
+					await runtime.prompt(message.text, message.streamingBehavior, images, message.notify);
 					return;
 				}
 				case "compact":
@@ -317,6 +318,30 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 				case "test_config": {
 					const result = await testModelConfig(message.config);
 					socket.send(JSON.stringify({ type: "test_result", result } satisfies ZGServerMessage));
+					return;
+				}
+				case "get_notify_config":
+					socket.send(
+						JSON.stringify({
+							type: "notify_config",
+							config: runtime.getNotifyConfig(),
+							status: runtime.getNotifyStatus(),
+						} satisfies ZGServerMessage),
+					);
+					return;
+				case "save_notify_config":
+					runtime.saveNotifyConfig(message.config);
+					socket.send(
+						JSON.stringify({
+							type: "notify_config",
+							config: runtime.getNotifyConfig(),
+							status: runtime.getNotifyStatus(),
+						} satisfies ZGServerMessage),
+					);
+					return;
+				case "test_notify": {
+					const result = await runtime.testNotify(message.config);
+					socket.send(JSON.stringify({ type: "notify_test_result", result } satisfies ZGServerMessage));
 					return;
 				}
 				case "get_stats": {

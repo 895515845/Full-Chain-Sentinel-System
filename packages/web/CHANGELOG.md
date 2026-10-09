@@ -17,7 +17,7 @@
 - Session branching UI: tree drawer plus inline "fork from here" on user messages
 - Usage panel (input/output/cache tokens and cost) refreshed after each run
 - `get_state` protocol message for pulling a fresh snapshot on demand
-- Added the `spawn_agent` tool: the main agent can delegate self-contained tasks (e.g. per-host recon) to isolated in-memory sub-agent sessions with a turn budget; "explore" mode is read-only, "act" mode shares the operator approval gate (approval requests are labeled with their source), and sub-agents cannot spawn further sub-agents
+- Added the `spawn_agent` tool: the main agent can delegate self-contained tasks (e.g. per-host recon) to isolated in-memory sub-agent sessions with a turn budget; both modes can run commands through the operator approval gate (approval requests are labeled with their source), "explore" excludes the edit/write tools, and sub-agents cannot spawn further sub-agents
 - Added project management: named working directories persisted in `~/.zgagent/agent/projects.json`, selected from a picker at the top of the sidebar; sessions, context files, and the bash cwd follow the project automatically
 - Switching projects rebuilds the agent session and is locked while a run is active; the server restores the last active project on startup
 - Deleting a project requires typing its name, unregisters it, and removes its session directory; the model endpoint stays global
@@ -32,14 +32,19 @@
 - Sub-agent runs and their process steps are stored permanently in SQLite (`<agentDir>/subagents.db`, `node:sqlite`), so a finished run stays reviewable after its in-memory session was disposed and across restarts; runs left `running` by a previous process are closed as interrupted
 - Sub-agent controls: abort one run, or steer it with an appended instruction (`streamingBehavior: "steer"`)
 - Added an end-to-end smoke suite that drives the full stack against a scripted local OpenAI-compatible endpoint: review-mode gating with an edited command, final-answer streaming, auto-mode passthrough, the container file panel, and sub-agent history. It installs a fake `docker` on PATH so the real container scripts run without Docker
+- DingTalk notifications: a finished run posts a markdown message to a group robot with the status (完成/失败/已中止), project, session title, duration, token usage and cost, the closing reply (truncated to 500 characters), and the error when it failed. The settings page configures the webhook, an optional signing secret ("加签"), and an optional custom keyword for keyword-secured robots; a "发送测试消息" button verifies the robot without waiting for a task
+- The composer's 通知 pill decides per message whether the run reports to DingTalk. It follows the global switch by default and can force a notification while the switch is off
 
 ### Changed
 
+- `spawn_agent` no longer takes a `mode`. A sub-agent now gets the same tools as the session that spawned it, including the ones the loaded extensions contribute (`codemode`, `tool_search`, MCP servers), plus the approval-gated bash. `spawn_agent` is the one tool withheld, which is what keeps delegation from recursing. The sub-agent panel no longer shows a mode, and `subagents.db` drops its `mode` column (existing databases are migrated in place on open)
+- The settings page is now split into 模型 and 通知 sections, so the endpoint form and the notification form share one screen; the sidebar entry and the failure hints that pointed at "模型设置" now say "设置"
 - Deleting the active project now detaches the runtime from it, so the console returns to the project-required screen instead of pointing at a deleted container
 - Replaced the emoji and text glyphs the UI used as icons (⑂, ⤓, 🗀, ⛬, 🖼, ✏, ×, ▸/▾, ⌃/⌄, ↑) with `lucide-react`. All icons go through `webui/src/components/icons.tsx`, which pins size and stroke weight, so the composer pills, sidebar tabs, tool cards, branch tree, project picker, drawer and file panel now share one icon set
 
 ### Fixed
 
+- Sub-agents could not execute commands at all: the `explore` mode's tool set was `read`/`grep`/`find`/`ls`, so a delegated task that had to run something (the common case, e.g. recon) came back with "no bash tool mounted"
 - Fixed sessions running with only `bash` and `spawn_agent`: the runtime's `baseToolsOverride` replaces the whole base tool set, so `read`, `edit`, and `write` must be named explicitly alongside the gated bash. The system prompt's tool section now lists all four with their snippets and guidelines instead of the custom tools alone.
 - Fixed the context-overflow hint pointing at `/compact`, which pi only handles in interactive mode; the console now honors that command itself
 - Concurrent bash tool calls previously surfaced only one approval at a time

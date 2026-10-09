@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { ZGImageAttachment, ZGMode, ZGStatsView, ZGThinkingLevel } from "../types.ts";
-import { BranchIcon, CompactIcon, FilesIcon, ImageIcon, SubagentIcon } from "./icons.tsx";
+import { BellIcon, BranchIcon, CompactIcon, FilesIcon, ImageIcon, SubagentIcon } from "./icons.tsx";
 
 function formatTokens(count: number): string {
 	if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
@@ -40,6 +40,8 @@ export function Composer({
 	sidePanel,
 	hasProject,
 	subagentRunning,
+	notifyRun,
+	onToggleNotifyRun,
 	onToggleSidePanel,
 	thinkingLevel,
 	availableThinkingLevels,
@@ -59,6 +61,9 @@ export function Composer({
 	sidePanel: "files" | "subagents" | null;
 	hasProject: boolean;
 	subagentRunning: number;
+	/** Whether the run started from here reports to the notification channel. */
+	notifyRun: boolean;
+	onToggleNotifyRun: () => void;
 	onToggleSidePanel: (tab: "files" | "subagents") => void;
 	thinkingLevel: ZGThinkingLevel;
 	availableThinkingLevels: ZGThinkingLevel[];
@@ -178,6 +183,15 @@ export function Composer({
 						>
 							<ImageIcon />
 							图片
+						</button>
+						<button
+							type="button"
+							className={`tool-pill ${notifyRun ? "on" : ""}`}
+							onClick={onToggleNotifyRun}
+							title={notifyRun ? "本次运行完成后发送钉钉通知（点击关闭）" : "本次运行完成后不通知（点击开启）"}
+						>
+							<BellIcon />
+							通知
 						</button>
 						<input
 							ref={fileInputRef}

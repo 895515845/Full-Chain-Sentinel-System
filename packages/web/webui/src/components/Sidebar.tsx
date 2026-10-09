@@ -143,7 +143,7 @@ export function Sidebar({
 					<button
 						type="button"
 						className={`sb-item ${activeTab === "settings" ? "active" : ""}`}
-						title="模型设置"
+						title="设置"
 						onClick={() => onTab("settings")}
 					>
 						<SettingsIcon />
@@ -205,7 +205,7 @@ export function Sidebar({
 					onClick={() => onTab("settings")}
 				>
 					<SettingsIcon />
-					<span>模型设置</span>
+					<span>设置</span>
 					{!modelConfigured ? (
 						<span className="warn-dot" title="未配置">
 							!

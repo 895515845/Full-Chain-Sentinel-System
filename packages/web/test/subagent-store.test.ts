@@ -6,6 +6,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test } from "vitest";
 import type { ZGSubagentEvent } from "../src/protocol.ts";
 import { SubagentStore, subagentDbPath } from "../src/subagent-store.ts";
@@ -37,14 +38,13 @@ function step(seq: number, kind: ZGSubagentEvent["kind"], extra: Partial<ZGSubag
 	return { seq, kind, at: 1700000000000 + seq, ...extra };
 }
 
-test("a run keeps its task, mode, steps, and outcome", () => {
+test("a run keeps its task, steps, and outcome", () => {
 	const { store } = openStore();
 	store.createRun({
 		id: "run-1",
 		sessionId: "session-a",
 		projectId: "project-1",
 		task: "recon 10.10.10.5",
-		mode: "act",
 		startedAt: "2024-01-01T00:00:00.000Z",
 	});
 	store.appendEvent("run-1", step(1, "status", { status: "running", note: "子代理启动" }));
@@ -67,7 +67,6 @@ test("a run keeps its task, mode, steps, and outcome", () => {
 		id: "run-1",
 		sessionId: "session-a",
 		task: "recon 10.10.10.5",
-		mode: "act",
 		status: "done",
 		turns: 1,
 		startedAt: "2024-01-01T00:00:00.000Z",
@@ -89,7 +88,7 @@ test("runs are listed newest first and scoped to one session", () => {
 		["middle", "session-a", "2024-01-02T00:00:00.000Z"],
 		["other", "session-b", "2024-01-04T00:00:00.000Z"],
 	] as const) {
-		store.createRun({ id, sessionId, task: `task ${id}`, mode: "explore", startedAt });
+		store.createRun({ id, sessionId, task: `task ${id}`, startedAt });
 	}
 
 	expect(store.listRuns("session-a").map((run) => run.id)).toEqual(["new", "middle", "old"]);
@@ -107,7 +106,6 @@ test("a run left running by a previous process is closed on restart", () => {
 		id: "orphan",
 		sessionId: "session-a",
 		task: "long recon",
-		mode: "act",
 		startedAt: "2024-01-01T00:00:00.000Z",
 	});
 	store.appendEvent("orphan", step(1, "text", { text: "still working" }));
@@ -133,7 +131,6 @@ test("oversized steps and results are truncated instead of dropped", () => {
 		id: "run-big",
 		sessionId: "session-a",
 		task: "dump a lot",
-		mode: "act",
 		startedAt: "2024-01-01T00:00:00.000Z",
 	});
 	const huge = "A".repeat(200 * 1024);
@@ -160,4 +157,51 @@ test("oversized steps and results are truncated instead of dropped", () => {
 	expect((run?.result ?? "").length).toBeLessThan(huge.length);
 	expect(run?.result).toContain("已截断");
 	expect(run?.error).toContain("已截断");
+});
+
+test("a database with the legacy mode column still opens and loses only that column", () => {
+	const root = mkdtempSync(join(tmpdir(), "zgagent-subagent-legacy-"));
+	roots.push(root);
+	const path = subagentDbPath(root);
+	const legacy = new DatabaseSync(path);
+	legacy.exec(`
+CREATE TABLE subagent_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  project_id TEXT,
+  task TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  turns INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  result TEXT,
+  error TEXT
+);
+CREATE TABLE subagent_events (
+  run_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY (run_id, seq)
+);
+`);
+	legacy
+		.prepare(
+			"INSERT INTO subagent_runs (id, session_id, task, mode, status, turns, started_at, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run("legacy-run", "session-a", "old recon", "act", "done", 2, "2024-01-01T00:00:00.000Z", "kept");
+	legacy.close();
+
+	const store = new SubagentStore(path);
+	stores.push(store);
+	const run = store.getRun("legacy-run");
+	expect(run?.task).toBe("old recon");
+	expect(run?.result).toBe("kept");
+	expect(run?.turns).toBe(2);
+	expect(store.listRuns("session-a").map((row) => row.id)).toEqual(["legacy-run"]);
+	// And new runs write to the migrated table.
+	store.createRun({ id: "fresh", sessionId: "session-a", task: "new", startedAt: "2024-01-02T00:00:00.000Z" });
+	expect(store.listRuns("session-a").map((row) => row.id)).toEqual(["fresh", "legacy-run"]);
 });

@@ -60,10 +60,10 @@ function Entry({
 /** Turn common provider/endpoint failures into an actionable Chinese hint. */
 function hintForError(message: string): string {
 	if (/502|upstream/i.test(message)) {
-		return "端点网关连不上上游模型服务：检查中转渠道是否被禁用、上游服务是否存活。可用「模型设置 → 测试连接」验证。";
+		return "端点网关连不上上游模型服务：检查中转渠道是否被禁用、上游服务是否存活。可用「设置 → 模型 → 测试连接」验证。";
 	}
 	if (/401|403|unauthorized|api key|authentication/i.test(message)) {
-		return "认证失败：检查 API Key 是否有效，或在「模型设置」中重新填写。";
+		return "认证失败：检查 API Key 是否有效，或在「设置 → 模型」中重新填写。";
 	}
 	if (/404|not found/i.test(message)) {
 		return "路径或模型不存在：确认 Base URL 以 /v1 结尾、模型 ID 拼写正确。";
@@ -72,12 +72,12 @@ function hintForError(message: string): string {
 		return "限流或额度不足：稍后重试，或检查端点的令牌额度。";
 	}
 	if (/timeout|timed out|econnrefused|enotfound|fetch failed|network/i.test(message)) {
-		return "网络问题：确认端点地址可达、服务已启动。可用「模型设置 → 测试连接」定位。";
+		return "网络问题：确认端点地址可达、服务已启动。可用「设置 → 模型 → 测试连接」定位。";
 	}
 	if (/context|token limit|too long/i.test(message)) {
 		return "上下文超限：先压缩会话（输入 /compact 或点击「压缩上下文」）后重试。";
 	}
-	return "运行失败：可重试；持续失败请用「模型设置 → 测试连接」检查端点。";
+	return "运行失败：可重试；持续失败请用「设置 → 模型 → 测试连接」检查端点。";
 }
 
 export function MessageView({

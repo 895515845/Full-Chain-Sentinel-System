@@ -2,11 +2,9 @@
  * The spawn_agent tool: lets the main agent delegate a self-contained task to
  * an isolated sub-agent session with its own transcript and turn budget.
  *
- * Safety properties:
- * - Sub-agents never receive spawn_agent themselves (no recursive spawning).
- * - Their bash tool goes through the same operator approval gate as the main
- *   session's, so delegation cannot bypass review.
- * - "explore" mode (the default) is read-only: no bash, edit, or write.
+ * Sub-agents get the same tools as the main session: the coding tools, the
+ * gated bash, and whatever the loaded extensions contribute. The only tool they
+ * are denied is spawn_agent, so delegation cannot recurse.
  */
 
 import type { Model } from "@earendil-works/pi-ai";
@@ -17,11 +15,11 @@ import {
 	createEditTool,
 	createReadTool,
 	createWriteTool,
-	DefaultResourceLoader,
+	type DefaultResourceLoader,
 	defineTool,
 	type ModelRuntime,
 	SessionManager,
-	SettingsManager,
+	type SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -44,6 +42,13 @@ export interface SubagentToolOptions {
 	getModelRuntime: () => ModelRuntime | undefined;
 	/** Builds a bash tool wired to the shared approval gate. */
 	createGatedBash: () => ReturnType<typeof createBashTool>;
+	/** Builds the resource loader and settings the main session uses, so the
+	 * sub-agent loads the same extensions and activates the same tools. The
+	 * extra system prompt is appended on top of the loaded one. */
+	createSessionContext: (appendSystemPrompt: string[]) => Promise<{
+		resourceLoader: DefaultResourceLoader;
+		settingsManager: SettingsManager;
+	}>;
 	/** Records the run so the console can show its process and control it. */
 	registry: SubagentRegistry;
 	/** Session the spawn_agent call belongs to; scopes the run list. */
@@ -58,12 +63,6 @@ const subagentSchema = Type.Object({
 		minLength: 1,
 		description: "The self-contained task for the sub-agent, including any target scope it needs.",
 	}),
-	mode: Type.Optional(
-		Type.Union([Type.Literal("explore"), Type.Literal("act")], {
-			description:
-				'"explore" (default): read-only reconnaissance. "act": full tooling including approved bash execution.',
-		}),
-	),
 });
 
 export function createSubagentTool(options: SubagentToolOptions): ToolDefinition<typeof subagentSchema> {
@@ -73,13 +72,12 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 		name: "spawn_agent",
 		label: "Sub-agent",
 		description:
-			'Spawn an isolated sub-agent to complete one delegated task and return its result. Use for parallelizable or self-contained work such as reconnaissance of a single host, log triage, or researching one question. The sub-agent has its own conversation and cannot spawn further sub-agents; in "explore" mode it is read-only, in "act" mode its bash commands still pass operator approval.',
+			"Spawn an isolated sub-agent to complete one delegated task and return its result. Use for parallelizable or self-contained work such as reconnaissance of a single host, log triage, or researching one question. The sub-agent has the same tools as this session, minus spawn_agent, so it cannot delegate further. Every bash command it runs passes operator approval.",
 		promptSnippet:
 			"Delegate a self-contained task (e.g. recon of one host) to an isolated sub-agent and get its result",
 		promptGuidelines: [
 			"Prefer spawn_agent for independent per-target work (e.g. recon several hosts in parallel) instead of doing everything in this conversation",
-			"Give each sub-agent a complete, self-contained task with explicit target scope; it cannot ask you questions",
-			'Use mode "explore" for reconnaissance and only escalate to "act" when the sub-agent must run commands',
+			"Give each sub-agent a complete, self-contained task with explicit target scope; it cannot ask you questions and cannot delegate further",
 		],
 		parameters: subagentSchema,
 		executionMode: "parallel",
@@ -94,27 +92,16 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				};
 			}
 
-			const exploreOnly = params.mode !== "act";
-			const log: string[] = [
-				`子代理启动（${exploreOnly ? "explore 只读" : "act 全工具"}）：${params.task.slice(0, 120)}`,
-			];
+			const log: string[] = [`子代理启动：${params.task.slice(0, 120)}`];
 			const pushLog = (line: string): void => {
 				log.push(line);
 				onUpdate?.({ content: [{ type: "text", text: log.join("\n") }], details: undefined });
 			};
 
-			const settingsManager = SettingsManager.inMemory();
-			const resourceLoader = new DefaultResourceLoader({
-				cwd: options.cwd,
-				agentDir: options.agentDir,
-				settingsManager,
-				noExtensions: true,
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: true,
-				appendSystemPrompt: SUBAGENT_APPEND_PROMPT,
-			});
-			await resourceLoader.reload();
+			// Same resource loading as the main session, so the sub-agent sees the
+			// same extension-contributed tools. Only the custom tool set differs:
+			// spawn_agent is not passed, which is what stops delegation from recursing.
+			const { resourceLoader, settingsManager } = await options.createSessionContext(SUBAGENT_APPEND_PROMPT);
 
 			const created = await createAgentSession({
 				cwd: options.cwd,
@@ -124,32 +111,26 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				settingsManager,
 				resourceLoader,
 				sessionManager: SessionManager.inMemory(options.cwd),
-				...(exploreOnly
-					? { tools: ["read", "grep", "find", "ls"] }
-					: {
-							// Same base set as the main session: the default coding tools plus
-							// the gated bash. `baseToolsOverride` replaces the whole set.
-							baseToolsOverride: {
-								read: createReadTool(options.cwd),
-								bash: options.createGatedBash(),
-								edit: createEditTool(options.cwd),
-								write: createWriteTool(options.cwd),
-							},
-						}),
+				// `baseToolsOverride` replaces the whole base set, so the coding tools
+				// must be listed explicitly alongside the gated bash.
+				baseToolsOverride: {
+					read: createReadTool(options.cwd),
+					bash: options.createGatedBash(),
+					edit: createEditTool(options.cwd),
+					write: createWriteTool(options.cwd),
+				},
 			});
 			const session = created.session;
+			// Emits session_start, which connects MCP servers and lets extensions
+			// contribute their tools.
+			await session.bindExtensions({});
 			const handle = options.registry.beginRun({
 				sessionId: options.getParentSessionId() ?? "unknown",
 				projectId: options.getProjectId(),
 				task: params.task,
-				mode: exploreOnly ? "explore" : "act",
 				session,
 			});
-			handle.push({
-				kind: "status",
-				status: "running",
-				note: `子代理启动（${exploreOnly ? "explore 只读" : "act 全工具"}）`,
-			});
+			handle.push({ kind: "status", status: "running", note: "子代理启动" });
 
 			let turns = 0;
 			let aborted = false;
@@ -226,7 +207,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 						: resultText;
 			return {
 				content: [{ type: "text", text: outcome || "（子代理结束但没有输出文本）" }],
-				details: { runId: handle.id, turns, mode: exploreOnly ? "explore" : "act", log },
+				details: { runId: handle.id, turns, log },
 				...(status === "done" ? {} : { isError: true }),
 			};
 		},

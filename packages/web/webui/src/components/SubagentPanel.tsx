@@ -130,7 +130,6 @@ export function SubagentPanel({
 					<div key={run.id} className={`subagent-run ${open ? "open" : ""}`}>
 						<button type="button" className="subagent-head" onClick={() => toggle(run.id)}>
 							<span className={`subagent-badge ${run.status}`}>{STATUS_LABELS[run.status]}</span>
-							<span className="subagent-mode">{run.mode === "act" ? "act" : "explore"}</span>
 							<span className="subagent-task" title={run.task}>
 								{run.task}
 							</span>

@@ -9,6 +9,7 @@
  */
 
 import {
+	Bell,
 	Bot,
 	ChevronDown,
 	ChevronRight,
@@ -38,6 +39,11 @@ const NAV_SIZE = 18;
 const NAV_STROKE = 1.8;
 
 type IconProps = LucideProps;
+
+/** Notification: whether a finished run reports to DingTalk. */
+export function BellIcon(props: IconProps) {
+	return <Bell size={SIZE} strokeWidth={STROKE} {...props} />;
+}
 
 /** Branch / fork: the branch drawer and a fork point in the tree. */
 export function BranchIcon(props: IconProps) {

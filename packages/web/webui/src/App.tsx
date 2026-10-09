@@ -3,6 +3,7 @@ import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { type FilePanelState, FilePanel, saveDownload } from "./components/FilePanel.tsx";
 import { MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { type SidePanelTab, SidePanel } from "./components/SidePanel.tsx";
@@ -22,6 +23,8 @@ import type {
 	ZGForkPoint,
 	ZGModelConfig,
 	ZGMode,
+	ZGNotifyConfig,
+	ZGNotifyStatus,
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGStatsView,
@@ -63,6 +66,20 @@ export function App() {
 	const [snapshot, setSnapshot] = useState<ZGStateSnapshot | null>(null);
 	const [sessions, setSessions] = useState<SessionInfoView[]>([]);
 	const [config, setConfig] = useState<ZGModelConfig | null>(null);
+	const [notifyConfig, setNotifyConfig] = useState<ZGNotifyConfig>({
+		enabled: false,
+		webhook: "",
+		secret: "",
+		keyword: "",
+	});
+	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });
+	/** Settings page section: model endpoint or DingTalk notifications. */
+	const [settingsSection, setSettingsSection] = useState<"model" | "notify">("model");
+	/**
+	 * Composer choice for the next run: true/false once the operator toggles the
+	 * pill, null while it simply follows the global switch.
+	 */
+	const [notifyRun, setNotifyRun] = useState<boolean | null>(null);
 	const [stats, setStats] = useState<ZGStatsView | null>(null);
 	const [liveText, setLiveText] = useState("");
 	const [liveThinking, setLiveThinking] = useState("");
@@ -96,6 +113,7 @@ export function App() {
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
 	const testResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
+	const notifyTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
 	const snapshotRef = useRef<ZGStateSnapshot | null>(null);
 	/** Directory the file panel is showing; read by handlers that must re-list it. */
 	const filePathRef = useRef("/work");
@@ -160,6 +178,17 @@ export function App() {
 					if (testResolverRef.current) {
 						const resolve = testResolverRef.current;
 						testResolverRef.current = null;
+						resolve(message.result);
+					}
+					break;
+				case "notify_config":
+					setNotifyConfig(message.config);
+					setNotifyStatus(message.status);
+					break;
+				case "notify_test_result":
+					if (notifyTestResolverRef.current) {
+						const resolve = notifyTestResolverRef.current;
+						notifyTestResolverRef.current = null;
 						resolve(message.result);
 					}
 					break;
@@ -297,6 +326,7 @@ export function App() {
 		}, 15000);
 		connection.send({ type: "list_sessions" });
 		connection.send({ type: "get_config" });
+		connection.send({ type: "get_notify_config" });
 		connection.send({ type: "get_stats" });
 		connection.send({ type: "list_projects" });
 		return () => {
@@ -469,7 +499,7 @@ export function App() {
 								{visibleMessages.length === 0 && !liveText && !streaming ? (
 									<div className="empty">
 										{needsConfig
-											? "请先在左侧「模型设置」中配置 OpenAI 兼容端点。\n输入目标范围和任务，开始渗透测试。"
+											? "请先在左侧「设置 → 模型」中配置 OpenAI 兼容端点。\n输入目标范围和任务，开始渗透测试。"
 											: "输入目标范围和任务，开始渗透测试。\n例如：对 10.10.10.5 进行全端口侦察，或派子代理并行侦察多个目标。"}
 									</div>
 								) : null}
@@ -546,6 +576,8 @@ export function App() {
 								sidePanel={sidePanel}
 								hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 								subagentRunning={subagentRunning}
+								notifyRun={notifyRun ?? notifyConfig.enabled}
+								onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
 								onToggleSidePanel={toggleSidePanel}
 								thinkingLevel={snapshot?.thinkingLevel ?? "off"}
 								availableThinkingLevels={snapshot?.availableThinkingLevels ?? []}
@@ -568,31 +600,74 @@ export function App() {
 										...prev,
 										{ text, imageCount: images?.length ?? 0, userCountAtSend: userCount },
 									]);
-									send({ type: "prompt", text, streamingBehavior: behavior, images });
+									send({
+										type: "prompt",
+										text,
+										streamingBehavior: behavior,
+										images,
+										notify: notifyRun ?? notifyConfig.enabled,
+									});
 								}}
 								onAbort={() => send({ type: "abort" })}
 							/>
 						</div>
 				) : (
 					<div className="page-card">
-						<h2>模型设置</h2>
-						<SettingsPanel
-							config={config}
-							onSave={(next) => send({ type: "save_config", config: next })}
-							onTest={async (candidate) => {
-								const result = await new Promise<ZGTestResult | null>((resolve) => {
-									testResolverRef.current = resolve;
-									connectionRef.current?.send({ type: "test_config", config: candidate });
-									window.setTimeout(() => {
-										if (testResolverRef.current === resolve) {
-											testResolverRef.current = null;
-											resolve(null);
-										}
-									}, 20000);
-								});
-								return result;
-							}}
-						/>
+						<h2>设置</h2>
+						<div className="settings-sections">
+							<button
+								type="button"
+								className={`settings-section${settingsSection === "model" ? " active" : ""}`}
+								onClick={() => setSettingsSection("model")}
+							>
+								模型
+							</button>
+							<button
+								type="button"
+								className={`settings-section${settingsSection === "notify" ? " active" : ""}`}
+								onClick={() => setSettingsSection("notify")}
+							>
+								通知
+							</button>
+						</div>
+						{settingsSection === "model" ? (
+							<SettingsPanel
+								config={config}
+								onSave={(next) => send({ type: "save_config", config: next })}
+								onTest={async (candidate) => {
+									const result = await new Promise<ZGTestResult | null>((resolve) => {
+										testResolverRef.current = resolve;
+										connectionRef.current?.send({ type: "test_config", config: candidate });
+										window.setTimeout(() => {
+											if (testResolverRef.current === resolve) {
+												testResolverRef.current = null;
+												resolve(null);
+											}
+										}, 20000);
+									});
+									return result;
+								}}
+							/>
+						) : (
+							<NotifyPanel
+								config={notifyConfig}
+								status={notifyStatus}
+								onSave={(next) => send({ type: "save_notify_config", config: next })}
+								onTest={async (candidate) => {
+									const result = await new Promise<ZGTestResult | null>((resolve) => {
+										notifyTestResolverRef.current = resolve;
+										connectionRef.current?.send({ type: "test_notify", config: candidate });
+										window.setTimeout(() => {
+											if (notifyTestResolverRef.current === resolve) {
+												notifyTestResolverRef.current = null;
+												resolve(null);
+											}
+										}, 40000);
+									});
+									return result;
+								}}
+							/>
+						)}
 					</div>
 				)}
 			</main>

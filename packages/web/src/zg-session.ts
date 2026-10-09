@@ -36,15 +36,20 @@ import { ApprovalGate } from "./approval.ts";
 import { dockerBashOperations } from "./docker.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
 import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
+import { buildRunNotification, sendDingTalk, shouldNotifyRun, testDingTalk } from "./notify.ts";
+import { readNotifyConfig, writeNotifyConfig } from "./notify-config.ts";
 import type {
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGForkPoint,
 	ZGMode,
 	ZGModelConfig,
+	ZGNotifyConfig,
+	ZGNotifyStatus,
 	ZGStateSnapshot,
 	ZGSubagentEvent,
 	ZGSubagentRun,
+	ZGTestResult,
 } from "./protocol.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
@@ -57,6 +62,8 @@ export interface ZGRuntimeHooks {
 	onStateChange(): void;
 	/** One live sub-agent step, for the sub-agent panel. */
 	onSubagentEvent(runId: string, event: ZGSubagentEvent): void;
+	/** Fired after a notification send, so the settings screen can show its outcome. */
+	onNotifyStatus(status: ZGNotifyStatus): void;
 }
 
 interface ManagedSession {
@@ -82,6 +89,16 @@ export class ZGAgentRuntime {
 	private sessions = new Map<string, ManagedSession>();
 	private activeKey: string | undefined;
 	private modelRuntime: ModelRuntime | undefined;
+	/** The run in flight for the viewed session, used to report it when it settles. */
+	private currentRun:
+		| {
+				startedAt: number;
+				/** Composer's per-message choice; undefined when it did not send one. */
+				notify: boolean | undefined;
+				instruction: string;
+		  }
+		| undefined;
+	private notifyStatus: ZGNotifyStatus = { at: null, ok: true };
 
 	constructor(options: {
 		cwd: string;
@@ -157,6 +174,34 @@ export class ZGAgentRuntime {
 	 * Create a session and register it. Returns its key. Existing sessions are
 	 * never touched: switching views must not interrupt background runs.
 	 */
+	/**
+	 * Resource loader and settings shared by the main session and its sub-agents,
+	 * so both load the same extensions and activate the same tools.
+	 *
+	 * The CLI loads codemode, tool search, and MCP as built-in extensions; SDK
+	 * sessions have to add them explicitly. codemode and tool_search register
+	 * inactive, so the default-tools override activates them while keeping the
+	 * coding tools. The MCP extension reads mcp.json from the agent directory and
+	 * connects its servers on session_start, which `bindExtensions` emits.
+	 */
+	private async createSessionContext(
+		cwd: string,
+		appendSystemPrompt?: string[],
+	): Promise<{ resourceLoader: DefaultResourceLoader; settingsManager: SettingsManager }> {
+		const resourceLoader = new DefaultResourceLoader({
+			cwd,
+			agentDir: this.agentDir,
+			extensionFactories: [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension()],
+			...(appendSystemPrompt ? { appendSystemPrompt } : {}),
+		});
+		await resourceLoader.reload();
+		const settingsManager = SettingsManager.create(cwd, this.agentDir);
+		// Modifier-only entries append to the configured default tools instead of
+		// replacing them, so an operator's own `defaultTools` setting still applies.
+		settingsManager.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
+		return { resourceLoader, settingsManager };
+	}
+
 	private async createSessionInto(manager: SessionManager): Promise<string> {
 		// Every tool call runs in the project container; there is no host backend.
 		const container = this.requireContainer();
@@ -180,22 +225,7 @@ export class ZGAgentRuntime {
 			dockerBashOperations(container),
 		);
 
-		// The CLI loads codemode, tool search, and MCP as built-in extensions; SDK
-		// sessions have to add them explicitly. codemode and tool_search register
-		// inactive, so the default-tools override below activates them while keeping
-		// the coding tools. The MCP extension reads mcp.json from the agent directory
-		// and connects its servers on session_start, which `bindExtensions` emits.
-		const resourceLoader = new DefaultResourceLoader({
-			cwd: manager.getCwd(),
-			agentDir: this.agentDir,
-			extensionFactories: [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension()],
-		});
-		await resourceLoader.reload();
-
-		const settingsManager = SettingsManager.create(manager.getCwd(), this.agentDir);
-		// Modifier-only entries append to the configured default tools instead of
-		// replacing them, so an operator's own `defaultTools` setting still applies.
-		settingsManager.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
+		const { resourceLoader, settingsManager } = await this.createSessionContext(manager.getCwd());
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
 		// tools must be listed explicitly alongside the gated bash. Passing only bash
@@ -226,6 +256,8 @@ export class ZGAgentRuntime {
 					getProjectId: () => this.activeProjectId,
 					createGatedBash: () =>
 						this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
+					createSessionContext: (appendSystemPrompt) =>
+						this.createSessionContext(manager.getCwd(), appendSystemPrompt),
 				}),
 			],
 		});
@@ -238,6 +270,7 @@ export class ZGAgentRuntime {
 			// Only the viewed session streams events; background sessions run silently.
 			if (managed.key === this.activeKey) this.hooks.onSessionEvent(event);
 			if (event.type === "agent_settled" || event.type === "agent_end") this.hooks.onStateChange();
+			if (event.type === "agent_settled") this.reportRunSettled(managed, event.aborted);
 		});
 		this.sessions.set(managed.key, managed);
 		return managed.key;
@@ -300,7 +333,12 @@ export class ZGAgentRuntime {
 		return this.modelRuntime.getModel(ZG_PROVIDER_ID, config.modelId);
 	}
 
-	async prompt(text: string, streamingBehavior?: "steer" | "followUp", images?: ImageContent[]): Promise<void> {
+	async prompt(
+		text: string,
+		streamingBehavior?: "steer" | "followUp",
+		images?: ImageContent[],
+		notify?: boolean,
+	): Promise<void> {
 		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
@@ -310,10 +348,73 @@ export class ZGAgentRuntime {
 			await this.compact();
 			return;
 		}
+		// A steer joins the run already in flight: keep its start time, let the
+		// operator's latest choice decide whether the run is reported.
+		this.currentRun = {
+			startedAt: this.currentRun?.startedAt ?? Date.now(),
+			notify,
+			instruction: this.currentRun?.instruction ?? text,
+		};
 		await active.session.prompt(text, {
 			...(streamingBehavior ? { streamingBehavior } : {}),
 			...(images && images.length > 0 ? { images } : {}),
 		});
+	}
+
+	/**
+	 * Report a settled run to the notification channel. Only the viewed session
+	 * notifies, and the send is fire-and-forget: a failing webhook must never
+	 * affect the run.
+	 */
+	private reportRunSettled(managed: ManagedSession, aborted: boolean): void {
+		const run = this.currentRun;
+		this.currentRun = undefined;
+		if (!run || managed.key !== this.activeKey) return;
+		const config = readNotifyConfig(this.agentDir);
+		if (!shouldNotifyRun(run.notify, config.enabled)) return;
+		if (!config.webhook.trim()) return;
+
+		const last = [...managed.session.messages]
+			.reverse()
+			.find((message) => (message as { role?: string }).role === "assistant") as
+			| { stopReason?: string; errorMessage?: string; content?: unknown }
+			| undefined;
+		const status =
+			aborted || last?.stopReason === "aborted" ? "aborted" : last?.stopReason === "error" ? "failed" : "done";
+		const stats = managed.session.getSessionStats();
+		const report = buildRunNotification({
+			status,
+			projectName: this.activeProjectName ?? "",
+			sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? run.instruction,
+			durationMs: Date.now() - run.startedAt,
+			summary: messageText(last),
+			...(status === "failed" && last?.errorMessage ? { error: last.errorMessage } : {}),
+			tokens: stats?.tokens
+				? { input: stats.tokens.input, output: stats.tokens.output, total: stats.tokens.total }
+				: undefined,
+			...(typeof stats?.cost === "number" ? { cost: stats.cost } : {}),
+		});
+		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+			this.notifyStatus = { ...result, subject: report.title };
+			this.hooks.onNotifyStatus(this.notifyStatus);
+		});
+	}
+
+	/** Notification configuration, for the settings screen. */
+	getNotifyConfig(): ZGNotifyConfig {
+		return readNotifyConfig(this.agentDir);
+	}
+
+	getNotifyStatus(): ZGNotifyStatus {
+		return this.notifyStatus;
+	}
+
+	saveNotifyConfig(config: ZGNotifyConfig): void {
+		writeNotifyConfig(this.agentDir, config);
+	}
+
+	async testNotify(config: ZGNotifyConfig): Promise<ZGTestResult> {
+		return await testDingTalk(config);
 	}
 
 	/** Manually compact the viewed session's context into a summary. */
@@ -592,6 +693,26 @@ export class ZGAgentRuntime {
 		this.activeKey = undefined;
 		this.subagentStore.close();
 	}
+}
+
+/** Concatenated text blocks of a message, ignoring thinking and tool calls. */
+function messageText(message: { content?: unknown } | undefined): string {
+	const content = message?.content;
+	if (!Array.isArray(content)) return "";
+	return (content as Array<{ type?: string; text?: string }>)
+		.filter((block) => block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text)
+		.join("");
+}
+
+/** First operator instruction, used as the notification subject when unnamed. */
+function firstUserText(messages: readonly unknown[]): string | undefined {
+	for (const message of messages) {
+		if ((message as { role?: string }).role !== "user") continue;
+		const text = messageText(message as { content?: unknown }).trim();
+		if (text) return text.slice(0, 80);
+	}
+	return undefined;
 }
 
 /** JSON-clone the message list, dropping it entirely when it is not serializable. */

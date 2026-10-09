@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
   session_id TEXT NOT NULL,
   project_id TEXT,
   task TEXT NOT NULL,
-  mode TEXT NOT NULL,
   status TEXT NOT NULL,
   turns INTEGER NOT NULL DEFAULT 0,
   started_at TEXT NOT NULL,
@@ -45,7 +44,6 @@ interface RunRow {
 	id: string;
 	session_id: string;
 	task: string;
-	mode: string;
 	status: string;
 	turns: number;
 	started_at: string;
@@ -63,7 +61,6 @@ function toRun(row: RunRow): ZGSubagentRun {
 		id: row.id,
 		sessionId: row.session_id,
 		task: row.task,
-		mode: row.mode === "act" ? "act" : "explore",
 		status: row.status as ZGSubagentStatus,
 		turns: row.turns,
 		startedAt: row.started_at,
@@ -86,22 +83,23 @@ export class SubagentStore {
 		// WAL keeps reads (panel history) from blocking the run that is writing.
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		this.dropLegacyModeColumn();
 	}
 
-	createRun(input: {
-		id: string;
-		sessionId: string;
-		projectId?: string;
-		task: string;
-		mode: "explore" | "act";
-		startedAt: string;
-	}): void {
+	/** Older databases recorded a mode per run; the concept is gone. */
+	private dropLegacyModeColumn(): void {
+		const columns = this.db.prepare("PRAGMA table_info(subagent_runs)").all() as unknown as Array<{ name: string }>;
+		if (!columns.some((column) => column.name === "mode")) return;
+		this.db.exec("ALTER TABLE subagent_runs DROP COLUMN mode");
+	}
+
+	createRun(input: { id: string; sessionId: string; projectId?: string; task: string; startedAt: string }): void {
 		this.db
 			.prepare(
-				`INSERT INTO subagent_runs (id, session_id, project_id, task, mode, status, turns, started_at)
-				 VALUES (?, ?, ?, ?, ?, 'running', 0, ?)`,
+				`INSERT INTO subagent_runs (id, session_id, project_id, task, status, turns, started_at)
+				 VALUES (?, ?, ?, ?, 'running', 0, ?)`,
 			)
-			.run(input.id, input.sessionId, input.projectId ?? null, input.task, input.mode, input.startedAt);
+			.run(input.id, input.sessionId, input.projectId ?? null, input.task, input.startedAt);
 	}
 
 	appendEvent(runId: string, event: ZGSubagentEvent): void {
@@ -134,7 +132,7 @@ export class SubagentStore {
 	listRuns(sessionId: string, limit = 100): ZGSubagentRun[] {
 		const rows = this.db
 			.prepare(
-				`SELECT id, session_id, task, mode, status, turns, started_at, ended_at, result, error
+				`SELECT id, session_id, task, status, turns, started_at, ended_at, result, error
 				 FROM subagent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`,
 			)
 			.all(sessionId, limit) as unknown as RunRow[];
@@ -144,7 +142,7 @@ export class SubagentStore {
 	getRun(id: string): ZGSubagentRun | undefined {
 		const row = this.db
 			.prepare(
-				`SELECT id, session_id, task, mode, status, turns, started_at, ended_at, result, error
+				`SELECT id, session_id, task, status, turns, started_at, ended_at, result, error
 				 FROM subagent_runs WHERE id = ?`,
 			)
 			.get(id) as unknown as RunRow | undefined;

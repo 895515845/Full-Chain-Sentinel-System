@@ -48,13 +48,7 @@ export class SubagentRegistry {
 		this.store.closeOrphanRuns();
 	}
 
-	beginRun(input: {
-		sessionId: string;
-		projectId?: string;
-		task: string;
-		mode: "explore" | "act";
-		session: LiveSession;
-	}): SubagentRunHandle {
+	beginRun(input: { sessionId: string; projectId?: string; task: string; session: LiveSession }): SubagentRunHandle {
 		const id = randomUUID();
 		const startedAt = new Date().toISOString();
 		this.store.createRun({
@@ -62,14 +56,12 @@ export class SubagentRegistry {
 			sessionId: input.sessionId,
 			projectId: input.projectId,
 			task: input.task,
-			mode: input.mode,
 			startedAt,
 		});
 		const run: ZGSubagentRun = {
 			id,
 			sessionId: input.sessionId,
 			task: input.task,
-			mode: input.mode,
 			status: "running",
 			turns: 0,
 			startedAt,

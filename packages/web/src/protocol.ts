@@ -19,6 +19,29 @@ export interface ZGModelConfig {
 	modelId: string;
 }
 
+/** DingTalk notification configuration persisted in notifications.json. */
+export interface ZGNotifyConfig {
+	/** Master switch. A run may still force a notification from the composer. */
+	enabled: boolean;
+	/** Custom-robot webhook URL, including its access_token. */
+	webhook: string;
+	/** Optional signing secret ("加签"). Empty sends an unsigned request. */
+	secret: string;
+	/** Optional custom keyword, prepended to the body for keyword-secured robots. */
+	keyword: string;
+}
+
+/** Outcome of the most recent notification send, for the settings screen. */
+export interface ZGNotifyStatus {
+	/** Epoch milliseconds of the attempt, or null when nothing was sent yet. */
+	at: number | null;
+	ok: boolean;
+	/** Failure reason, or the DingTalk error code when the robot rejected it. */
+	error?: string;
+	/** What the notification was for, e.g. the session title. */
+	subject?: string;
+}
+
 /** Result of probing an endpoint configuration without saving it. */
 export interface ZGTestResult {
 	ok: boolean;
@@ -95,7 +118,6 @@ export interface ZGSubagentRun {
 	id: string;
 	sessionId: string;
 	task: string;
-	mode: "explore" | "act";
 	status: ZGSubagentStatus;
 	turns: number;
 	startedAt: string;
@@ -140,7 +162,13 @@ export interface ZGForkPoint {
 
 /** Client-to-server messages. */
 export type ZGClientMessage =
-	| { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] }
+	| {
+			type: "prompt";
+			text: string;
+			streamingBehavior?: "steer" | "followUp";
+			images?: ImageContent[];
+			notify?: boolean;
+	  }
 	| { type: "abort" }
 	| { type: "compact" }
 	| { type: "set_thinking_level"; level: ThinkingLevel }
@@ -164,6 +192,9 @@ export type ZGClientMessage =
 	| { type: "get_state" }
 	| { type: "save_config"; config: ZGModelConfig }
 	| { type: "test_config"; config: ZGModelConfig }
+	| { type: "get_notify_config" }
+	| { type: "save_notify_config"; config: ZGNotifyConfig }
+	| { type: "test_notify"; config: ZGNotifyConfig }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }
@@ -190,6 +221,8 @@ export type ZGServerMessage =
 	| { type: "tree"; tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] }
 	| { type: "config"; config: ZGModelConfig | null }
 	| { type: "test_result"; result: ZGTestResult }
+	| { type: "notify_config"; config: ZGNotifyConfig; status: ZGNotifyStatus }
+	| { type: "notify_test_result"; result: ZGTestResult }
 	| { type: "stats"; stats: SessionStats }
 	| { type: "projects"; projects: ZGProjectInfo[]; activeProjectId: string | null }
 	| { type: "files"; path: string; entries: ZGFileEntry[] }

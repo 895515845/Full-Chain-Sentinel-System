@@ -31,7 +31,7 @@ type ScriptStep = {
 	toolCallCommand?: string;
 	secondToolCallCommand?: string;
 	text?: string;
-	spawnAgent?: { task: string; mode: "explore" | "act" };
+	spawnAgent?: { task: string };
 };
 
 const SCRIPT: ScriptStep[] = [
@@ -45,8 +45,8 @@ const SCRIPT: ScriptStep[] = [
 	{ text: "WHITELIST_FIRST_COMPLETE" },
 	{ toolCallCommand: "echo zg-whitelisted-b" },
 	{ text: "WHITELIST_SECOND_COMPLETE" },
-	// Sub-agent scenario: parent spawns (act mode), sub-agent runs bash, both finish.
-	{ spawnAgent: { task: "recon the target", mode: "act" } },
+	// Sub-agent scenario: parent spawns, the sub-agent runs bash, both finish.
+	{ spawnAgent: { task: "recon the target" } },
 	{ toolCallCommand: "echo zg-subagent-command" },
 	{ text: "SUBAGENT_DONE" },
 	{ text: "PARENT_SUMMARY" },
@@ -61,6 +61,10 @@ const PROJECT_NAME = "e2e-project";
 const SECOND_SCENARIO_PROMPT = "delegate a read-only recon";
 /** Task the sub-agent of that scenario receives. */
 const SECOND_SCENARIO_TASK = "recon the second target";
+/** Command the second scenario's sub-agent runs, to prove it can execute. */
+const SECOND_SCENARIO_COMMAND = "echo zg-subagent-command-2";
+/** Output marker of that command, used to detect its tool result. */
+const SECOND_SCENARIO_OUTPUT = "zg-subagent-command-2";
 /** Marker present in every sub-agent system prompt. */
 const SUBAGENT_MARKER = "sub-agent of ZGAgent";
 
@@ -73,8 +77,23 @@ let ws: WebSocket | undefined;
 let fakeDocker: FakeDocker | undefined;
 /** Host directory mounted at /work for the suite's project. */
 let workDir = "";
+/** Tool names a chat request advertised, in wire order. */
+function toolNamesOf(body: string): string[] {
+	let parsed: { tools?: Array<{ function?: { name?: string }; name?: string }> };
+	try {
+		parsed = JSON.parse(body) as typeof parsed;
+	} catch {
+		return [];
+	}
+	return (parsed.tools ?? []).map((tool) => tool.function?.name ?? tool.name ?? "").filter(Boolean);
+}
+
 /** Body of the most recent completion request, for asserting what reached the model. */
 let lastRequestBody = "";
+/** Tools the newest main-session request advertised. */
+let mainTools: string[] = [];
+/** Tools the newest sub-agent request advertised. */
+let subagentTools: string[] = [];
 /** The out-of-band image response is served once, then the script resumes. */
 let imageTurnServed = false;
 
@@ -131,8 +150,8 @@ function toolCallResponse(id: string, command: string, secondCommand?: string): 
 	].join("");
 }
 
-function spawnAgentResponse(id: string, task: string, mode: "explore" | "act"): string {
-	const call = functionCall(id, "spawn_agent", { task, mode });
+function spawnAgentResponse(id: string, task: string): string {
+	const call = functionCall(id, "spawn_agent", { task });
 	return [
 		sseChunk({
 			id,
@@ -184,6 +203,27 @@ function textResponse(id: string, text: string): string {
 
 let requestCount = 0;
 
+/** Text of the newest user message in a chat request. */
+function lastUserText(body: string): string {
+	let parsed: { messages?: Array<{ role?: string; content?: unknown }> };
+	try {
+		parsed = JSON.parse(body) as typeof parsed;
+	} catch {
+		return "";
+	}
+	const users = (parsed.messages ?? []).filter((message) => message.role === "user");
+	const last = users[users.length - 1];
+	if (!last) return "";
+	if (typeof last.content === "string") return last.content;
+	if (Array.isArray(last.content)) {
+		return (last.content as Array<{ type?: string; text?: string }>)
+			.filter((block) => block.type === "text" && typeof block.text === "string")
+			.map((block) => block.text)
+			.join(" ");
+	}
+	return "";
+}
+
 function startFakeEndpoint(): Promise<void> {
 	endpoint = createHttpServer((request, response) => {
 		if (!(request.method === "POST" && request.url?.includes("/chat/completions"))) {
@@ -205,26 +245,41 @@ function startFakeEndpoint(): Promise<void> {
 			// The second sub-agent scenario is routed by content rather than by script
 			// index, so it does not depend on how many turns the earlier tests used.
 			const fromSubagent = body.includes(SUBAGENT_MARKER);
+			if (fromSubagent) subagentTools = toolNamesOf(body);
+			else mainTools = toolNamesOf(body);
 			const inSecondScenario = fromSubagent
 				? body.includes(SECOND_SCENARIO_TASK)
 				: body.includes(SECOND_SCENARIO_PROMPT);
+			const newestPrompt = lastUserText(body);
+			const notifyStep: ScriptStep | undefined =
+				newestPrompt === "notify me when this finishes"
+					? { text: "NOTIFY_RUN_COMPLETE" }
+					: newestPrompt === "force a notification"
+						? { text: "FORCED_NOTIFY_COMPLETE" }
+						: newestPrompt === "stay quiet"
+							? { text: "QUIET_RUN_COMPLETE" }
+							: undefined;
 			const step = isImageTurn
 				? { text: "IMAGE_TURN_OK" }
-				: inSecondScenario
-					? fromSubagent
-						? { text: "SECOND_SUBAGENT_DONE" }
-						: body.includes("SECOND_SUBAGENT_DONE")
-							? { text: "SECOND_PARENT_SUMMARY" }
-							: { spawnAgent: { task: SECOND_SCENARIO_TASK, mode: "explore" as const } }
-					: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
-			if (!isImageTurn && !inSecondScenario) requestCount += 1;
+				: notifyStep
+					? notifyStep
+					: inSecondScenario
+						? fromSubagent
+							? body.includes(SECOND_SCENARIO_OUTPUT)
+								? { text: "SECOND_SUBAGENT_DONE" }
+								: { toolCallCommand: SECOND_SCENARIO_COMMAND }
+							: body.includes("SECOND_SUBAGENT_DONE")
+								? { text: "SECOND_PARENT_SUMMARY" }
+								: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
+						: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
+			if (!isImageTurn && !inSecondScenario && !notifyStep) requestCount += 1;
 			const id = `chatcmpl-${isImageTurn ? "image" : inSecondScenario ? "second" : requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCallCommand
 					? toolCallResponse(id, step.toolCallCommand, step.secondToolCallCommand)
 					: step.spawnAgent
-						? spawnAgentResponse(id, step.spawnAgent.task, step.spawnAgent.mode)
+						? spawnAgentResponse(id, step.spawnAgent.task)
 						: textResponse(id, step.text ?? ""),
 			);
 		});
@@ -236,6 +291,11 @@ function startFakeEndpoint(): Promise<void> {
 		});
 	});
 }
+
+/** Notifications the fake DingTalk robot received. */
+const dingtalk: Array<{ url: string; text: string; title: string }> = [];
+let dingtalkServer: Server | undefined;
+let dingtalkUrl = "";
 
 /** Queue of incoming server messages plus waiters. */
 const incoming: ZGServerMessage[] = [];
@@ -328,6 +388,30 @@ function snapshotWhere(predicate: (snapshot: ZGStateSnapshot) => boolean): Promi
 	);
 }
 
+/** Wait past the point where a fire-and-forget webhook POST would have landed. */
+function settleWebhook(ms = 800): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Poll a local condition: used for out-of-band effects such as a webhook POST. */
+function waitUntil(predicate: () => boolean, timeoutMs = 15000): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const startedAt = Date.now();
+		const tick = (): void => {
+			if (predicate()) {
+				resolve();
+				return;
+			}
+			if (Date.now() - startedAt > timeoutMs) {
+				reject(new Error("Timed out waiting for a local condition"));
+				return;
+			}
+			setTimeout(tick, 50);
+		};
+		tick();
+	});
+}
+
 function toolResultText(snapshot: ZGStateSnapshot): string {
 	return snapshot.messages
 		.filter((message) => (message as { role?: string }).role === "toolResult")
@@ -340,6 +424,27 @@ function toolResultText(snapshot: ZGStateSnapshot): string {
 
 beforeAll(async () => {
 	await startFakeEndpoint();
+	// Plays the DingTalk custom robot: records the markdown it is sent.
+	dingtalkServer = createHttpServer((request, response) => {
+		let raw = "";
+		request.on("data", (chunk: Buffer) => {
+			raw += chunk.toString();
+		});
+		request.on("end", () => {
+			const body = JSON.parse(raw) as { markdown?: { title?: string; text?: string } };
+			dingtalk.push({
+				url: request.url ?? "",
+				text: body.markdown?.text ?? "",
+				title: body.markdown?.title ?? "",
+			});
+			response.setHeader("content-type", "application/json");
+			response.end(JSON.stringify({ errcode: 0, errmsg: "ok" }));
+		});
+	});
+	await new Promise<void>((resolve) => dingtalkServer?.listen(0, "127.0.0.1", resolve));
+	const dingtalkAddress = dingtalkServer.address();
+	const dingtalkPort = typeof dingtalkAddress === "object" && dingtalkAddress ? dingtalkAddress.port : 0;
+	dingtalkUrl = `http://127.0.0.1:${dingtalkPort}/robot/send?access_token=e2e-token`;
 	tempRoot = mkdtempSync(join(tmpdir(), "zgagent-web-e2e-"));
 	const agentDir = join(tempRoot, "agent");
 	const cwd = join(tempRoot, "workspace");
@@ -382,6 +487,7 @@ beforeAll(async () => {
 afterAll(() => {
 	ws?.close();
 	closeServer?.();
+	dingtalkServer?.close();
 	endpoint?.close();
 	fakeDocker?.restore();
 	if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
@@ -682,8 +788,8 @@ test("compact reports a readable message when the session has nothing to compact
 	expect((error as { message: string }).message).toContain("无需压缩");
 });
 
-// Runs after the sub-agent scenarios above, which is what puts a finished act-mode
-// run in this session's history.
+// Runs after the sub-agent scenarios above, which is what puts a finished run in
+// this session's history.
 test("sub-agent runs stream live, keep their process, and stay readable as history", async () => {
 	drainIncoming();
 	send({ type: "prompt", text: "delegate a read-only recon" });
@@ -693,6 +799,13 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 	const liveEvent = (live as { event: ZGSubagentEvent }).event;
 	expect(liveEvent.kind).toBeTruthy();
 	expect(liveEvent.seq).toBeGreaterThan(0);
+
+	// A sub-agent's command lands in the shared approval queue, labeled as a
+	// sub-agent request.
+	const gated = await snapshotWhere((snapshot_) => snapshot_.pendingApprovals.length > 0);
+	expect(gated.pendingApprovals[0]?.source).toBe("子代理");
+	expect(gated.pendingApprovals[0]?.command).toContain(SECOND_SCENARIO_OUTPUT);
+	send({ type: "decide", decision: { id: gated.pendingApprovals[0]?.id ?? "", approved: true } });
 
 	const settled = await snapshotWhere(
 		(snapshot_) =>
@@ -710,7 +823,6 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 	const runs = settled.subagents;
 	expect(runs.length).toBeGreaterThanOrEqual(2);
 	const newest = runs[0];
-	expect(newest.mode).toBe("explore");
 	expect(newest.status).toBe("done");
 	expect(newest.task).toContain("recon the second target");
 	expect(newest.turns).toBeGreaterThanOrEqual(1);
@@ -723,28 +835,49 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 	const events = (loaded as { run: ZGSubagentRun }).run.events ?? [];
 	expect(events[0]?.kind).toBe("status");
 	expect(events.some((event) => event.kind === "turn")).toBe(true);
+	// The sub-agent's command ran: the recorded process holds the bash call and
+	// its output.
+	expect(events.some((event) => event.kind === "tool_start" && event.toolName === "bash")).toBe(true);
+	expect(
+		events.some(
+			(event) =>
+				event.kind === "tool_end" &&
+				event.toolName === "bash" &&
+				(event.output ?? "").includes(SECOND_SCENARIO_OUTPUT),
+		),
+	).toBe(true);
 	expect(events.some((event) => event.kind === "text" && (event.text ?? "").includes("SECOND_SUBAGENT_DONE"))).toBe(
 		true,
 	);
 	expect(events[events.length - 1]?.kind).toBe("status");
 	expect(events[events.length - 1]?.status).toBe("done");
 
-	// The earlier act-mode run kept its tool calls, so a finished run is reviewable
+	// A sub-agent is offered the same tools as the session that spawned it, which
+	// includes what the loaded extensions contribute. spawn_agent is the one
+	// exception, and withholding it is what stops delegation from recursing.
+	for (const name of ["read", "bash", "edit", "write", "codemode", "tool_search"]) {
+		expect(subagentTools).toContain(name);
+	}
+	expect(subagentTools).not.toContain("spawn_agent");
+	// The parent keeps it, so the difference is the sub-agent's, not a global one.
+	expect(mainTools).toContain("spawn_agent");
+
+	// The first scenario's run kept its tool calls, so a finished run is reviewable
 	// long after its in-memory session was disposed.
-	const actRun = runs.find((run) => run.mode === "act");
-	expect(actRun).toBeDefined();
-	send({ type: "get_subagent", id: actRun?.id ?? "" });
-	const actLoaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === actRun?.id);
-	const actEvents = (actLoaded as { run: ZGSubagentRun }).run.events ?? [];
-	const started = actEvents.find((event) => event.kind === "tool_start" && event.toolName === "bash");
+	const firstRun = runs.find((run) => run.task.includes("recon the target"));
+	expect(firstRun).toBeDefined();
+	send({ type: "get_subagent", id: firstRun?.id ?? "" });
+	const firstLoaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === firstRun?.id);
+	const firstEvents = (firstLoaded as { run: ZGSubagentRun }).run.events ?? [];
+	const started = firstEvents.find((event) => event.kind === "tool_start" && event.toolName === "bash");
 	expect(started).toBeDefined();
-	const finished = actEvents.find((event) => event.kind === "tool_end" && event.toolCallId === started?.toolCallId);
+	const finished = firstEvents.find((event) => event.kind === "tool_end" && event.toolCallId === started?.toolCallId);
 	expect(finished?.output ?? "").toContain("zg-subagent-command");
 
 	// Reading it again returns the same steps: the record is durable, not a buffer.
-	send({ type: "get_subagent", id: actRun?.id ?? "" });
-	const reread = await waitFor((message) => message.type === "subagent_run" && message.run.id === actRun?.id);
-	expect(((reread as { run: ZGSubagentRun }).run.events ?? []).length).toBe(actEvents.length);
+	send({ type: "get_subagent", id: firstRun?.id ?? "" });
+	const reread = await waitFor((message) => message.type === "subagent_run" && message.run.id === firstRun?.id);
+	expect(((reread as { run: ZGSubagentRun }).run.events ?? []).length).toBe(firstEvents.length);
 });
 
 test("a finished sub-agent cannot be aborted or steered", async () => {
@@ -874,4 +1007,89 @@ test("sessions can be renamed and deleted from the sidebar", async () => {
 	drainIncoming();
 	send({ type: "delete_session", path: "/etc/passwd" });
 	await waitFor((message) => message.type === "error" && message.message.includes("拒绝"));
+});
+
+test("a finished run notifies the DingTalk group, and the composer flag can force one", async () => {
+	// The session-management test deleted the viewed session, so start a fresh one.
+	send({ type: "new_session" });
+	await snapshotWhere((snapshot_) => snapshot_.activeSessionId !== null && snapshot_.messages.length === 0);
+	drainIncoming();
+
+	// Nothing has been sent yet: notifications are off by default.
+	send({ type: "get_notify_config" });
+	const initial = await waitFor((message) => message.type === "notify_config");
+	expect((initial as { config: { enabled: boolean } }).config.enabled).toBe(false);
+	expect(dingtalk).toHaveLength(0);
+
+	// Enable notifications against the local robot.
+	drainIncoming();
+	send({
+		type: "save_notify_config",
+		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent" },
+	});
+	const saved = await waitFor((message) => message.type === "notify_config");
+	expect((saved as { config: { enabled: boolean; keyword: string } }).config).toMatchObject({
+		enabled: true,
+		keyword: "ZGAgent",
+	});
+
+	// One ordinary run. The send is fire-and-forget, so wait on the robot.
+	send({ type: "prompt", text: "notify me when this finishes" });
+	await snapshotWhere(
+		(snapshot_) =>
+			!snapshot_.streaming &&
+			snapshot_.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes("NOTIFY_RUN_COMPLETE"),
+					),
+			),
+	);
+	await waitUntil(() => dingtalk.length > 0);
+	const notice = dingtalk[0];
+	expect(notice?.title).toBe("ZGAgent 任务完成");
+	// The keyword rides along for a keyword-secured robot, and the signature is added.
+	expect(notice?.text.startsWith("ZGAgent\n")).toBe(true);
+	expect(notice?.text).toContain("**状态**：完成");
+	expect(notice?.text).toContain(`**项目**：${PROJECT_NAME}`);
+	expect(notice?.text).toContain("**耗时**：");
+	expect(notice?.text).toContain("NOTIFY_RUN_COMPLETE");
+	expect(notice?.url).toContain("timestamp=");
+	expect(notice?.url).toContain("sign=");
+
+	// The settings screen learns the outcome.
+	const reported = await waitFor((message) => message.type === "notify_config" && message.status.at !== null);
+	expect((reported as { status: { ok: boolean; subject?: string } }).status).toMatchObject({
+		ok: true,
+		subject: "ZGAgent 任务完成",
+	});
+
+	// An explicit opt-out wins even while the switch is on.
+	dingtalk.length = 0;
+	drainIncoming();
+	send({ type: "prompt", text: "stay quiet", notify: false });
+	await snapshotWhere(
+		(snapshot_) =>
+			!snapshot_.streaming &&
+			snapshot_.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes("QUIET_RUN_COMPLETE"),
+					),
+			),
+	);
+	// The POST is fire-and-forget: give it time to land before asserting absence.
+	await settleWebhook();
+	expect(dingtalk).toHaveLength(0);
+
+	// With the switch off, the composer flag still forces a notification.
+	dingtalk.length = 0;
+	drainIncoming();
+	send({ type: "save_notify_config", config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "" } });
+	await waitFor((message) => message.type === "notify_config" && !message.config.enabled);
+	send({ type: "prompt", text: "force a notification", notify: true });
+	await waitUntil(() => dingtalk.length > 0);
+	expect(dingtalk[0]?.text).toContain("**状态**：完成");
 });
