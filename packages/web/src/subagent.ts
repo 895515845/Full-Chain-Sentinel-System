@@ -1,0 +1,171 @@
+/**
+ * The spawn_agent tool: lets the main agent delegate a self-contained task to
+ * an isolated sub-agent session with its own transcript and turn budget.
+ *
+ * Safety properties:
+ * - Sub-agents never receive spawn_agent themselves (no recursive spawning).
+ * - Their bash tool goes through the same operator approval gate as the main
+ *   session's, so delegation cannot bypass review.
+ * - "explore" mode (the default) is read-only: no bash, edit, or write.
+ */
+
+import type { Model } from "@earendil-works/pi-ai";
+import {
+	type AgentSessionEvent,
+	createAgentSession,
+	DefaultResourceLoader,
+	defineTool,
+	type ModelRuntime,
+	SessionManager,
+	SettingsManager,
+	type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+/** Turn budget before a sub-agent is aborted. */
+const DEFAULT_MAX_TURNS = 15;
+
+const SUBAGENT_APPEND_PROMPT = [
+	"You are running as a sub-agent of ZGAgent. You were spawned to complete one delegated task.",
+	"Work autonomously, keep output focused on the task, and finish with a concise result summary the parent agent can use directly.",
+	"Do not ask the operator questions; state assumptions instead.",
+];
+
+export interface SubagentToolOptions {
+	cwd: string;
+	agentDir: string;
+	/** Resolves the model the sub-agent should use (same endpoint as the parent). */
+	getModel: () => Model<any> | undefined;
+	getModelRuntime: () => ModelRuntime | undefined;
+	/** Builds a bash tool wired to the shared approval gate. */
+	createGatedBash: () => ReturnType<typeof import("@earendil-works/pi-coding-agent")["createBashTool"]>;
+	maxTurns?: number;
+}
+
+const subagentSchema = Type.Object({
+	task: Type.String({
+		minLength: 1,
+		description: "The self-contained task for the sub-agent, including any target scope it needs.",
+	}),
+	mode: Type.Optional(
+		Type.Union([Type.Literal("explore"), Type.Literal("act")], {
+			description:
+				'"explore" (default): read-only reconnaissance. "act": full tooling including approved bash execution.',
+		}),
+	),
+});
+
+export function createSubagentTool(options: SubagentToolOptions): ToolDefinition<typeof subagentSchema> {
+	const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
+
+	return defineTool({
+		name: "spawn_agent",
+		label: "Sub-agent",
+		description:
+			'Spawn an isolated sub-agent to complete one delegated task and return its result. Use for parallelizable or self-contained work such as reconnaissance of a single host, log triage, or researching one question. The sub-agent has its own conversation and cannot spawn further sub-agents; in "explore" mode it is read-only, in "act" mode its bash commands still pass operator approval.',
+		promptSnippet:
+			"Delegate a self-contained task (e.g. recon of one host) to an isolated sub-agent and get its result",
+		promptGuidelines: [
+			"Prefer spawn_agent for independent per-target work (e.g. recon several hosts in parallel) instead of doing everything in this conversation",
+			"Give each sub-agent a complete, self-contained task with explicit target scope; it cannot ask you questions",
+			'Use mode "explore" for reconnaissance and only escalate to "act" when the sub-agent must run commands',
+		],
+		parameters: subagentSchema,
+		executionMode: "parallel",
+		async execute(_toolCallId, params, signal, onUpdate) {
+			const model = options.getModel();
+			const modelRuntime = options.getModelRuntime();
+			if (!model || !modelRuntime) {
+				return {
+					content: [{ type: "text", text: "No model configured for sub-agents. Configure the endpoint first." }],
+					details: { error: "no-model" as const },
+					isError: true,
+				};
+			}
+
+			const exploreOnly = params.mode !== "act";
+			const log: string[] = [
+				`子代理启动（${exploreOnly ? "explore 只读" : "act 全工具"}）：${params.task.slice(0, 120)}`,
+			];
+			const pushLog = (line: string): void => {
+				log.push(line);
+				onUpdate?.({ content: [{ type: "text", text: log.join("\n") }], details: undefined });
+			};
+
+			const settingsManager = SettingsManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({
+				cwd: options.cwd,
+				agentDir: options.agentDir,
+				settingsManager,
+				noExtensions: true,
+				noSkills: true,
+				noPromptTemplates: true,
+				noThemes: true,
+				appendSystemPrompt: SUBAGENT_APPEND_PROMPT,
+			});
+			await resourceLoader.reload();
+
+			const created = await createAgentSession({
+				cwd: options.cwd,
+				agentDir: options.agentDir,
+				modelRuntime,
+				model,
+				settingsManager,
+				resourceLoader,
+				sessionManager: SessionManager.inMemory(options.cwd),
+				...(exploreOnly
+					? { tools: ["read", "grep", "find", "ls"] }
+					: { baseToolsOverride: { bash: options.createGatedBash() } }),
+			});
+			const session = created.session;
+
+			let turns = 0;
+			let aborted = false;
+			const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+				if (event.type === "turn_end") {
+					turns += 1;
+					const text = textHead(event.message);
+					if (text) pushLog(`第 ${turns} 轮：${text.slice(0, 160)}`);
+					if (turns >= maxTurns) {
+						aborted = true;
+						pushLog(`已达轮次上限（${maxTurns}），中止子代理。`);
+						void session.abort();
+					}
+				} else if (event.type === "tool_execution_start") {
+					pushLog(`执行 ${event.toolName} …`);
+				}
+			});
+
+			const onAbort = () => {
+				aborted = true;
+				void session.abort();
+			};
+			signal?.addEventListener("abort", onAbort, { once: true });
+
+			try {
+				await session.prompt(params.task, undefined);
+			} finally {
+				signal?.removeEventListener("abort", onAbort);
+				unsubscribe();
+				session.dispose();
+			}
+
+			const resultText = session.getLastAssistantText() ?? "";
+			const outcome = aborted && !resultText ? "（子代理被中止，未产出结果）" : resultText;
+			return {
+				content: [{ type: "text", text: outcome || "（子代理结束但没有输出文本）" }],
+				details: { turns, mode: exploreOnly ? "explore" : "act", log },
+				...(aborted ? { isError: true } : {}),
+			};
+		},
+	});
+}
+
+function textHead(message: unknown): string {
+	const content = (message as { content?: Array<{ type?: string; text?: string }> }).content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((block) => block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text)
+		.join(" ");
+}
