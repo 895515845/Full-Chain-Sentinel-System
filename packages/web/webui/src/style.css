@@ -697,11 +697,8 @@ button.full {
 }
 
 .entry.agent .entry-body:not(.failed):not(.streaming), .entry.subagent .entry-body:not(.failed):not(.streaming) {
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 3px 12px 12px 12px;
-	padding: 9px 14px;
-	max-width: 92%;
+	max-width: none;
+	padding: 0 2px;
 }
 
 .entry-body.failed {
