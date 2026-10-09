@@ -401,8 +401,9 @@ button.full {
 	color: var(--nav-text);
 	border: none;
 	background: transparent;
-	padding: 2px 4px;
-	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	padding: 3px 4px;
 }
 
 .child-ops button:hover:not(:disabled) {
@@ -502,10 +503,10 @@ button.full {
 	background: none;
 	border: none;
 	color: inherit;
+	display: inline-flex;
+	align-items: center;
 	padding: 0 2px;
 	cursor: pointer;
-	font-size: 12px;
-	line-height: 1;
 }
 
 .prefix-form {
@@ -765,8 +766,9 @@ button.full {
 
 .tool-caret {
 	color: var(--dim);
-	font-size: 10px;
-	width: 12px;
+	width: 14px;
+	display: inline-flex;
+	align-items: center;
 	flex-shrink: 0;
 }
 
@@ -1745,6 +1747,8 @@ button.small {
 	background: transparent;
 	border: none;
 	color: var(--nav-text-dim);
+	display: inline-flex;
+	align-items: center;
 	padding: 4px 8px;
 	border-radius: 6px;
 	cursor: pointer;
@@ -2010,12 +2014,8 @@ button.small {
 
 .fork-head .caret {
 	color: var(--dim);
-	font-size: 10px;
-	transition: transform 120ms;
-}
-
-.fork-head .caret.open {
-	transform: rotate(90deg);
+	display: inline-flex;
+	align-items: center;
 }
 
 .fork-summary {
@@ -2523,9 +2523,9 @@ button.small {
 	border: none;
 	background: transparent;
 	color: var(--dim);
-	font-size: 18px;
-	line-height: 1;
-	padding: 4px 8px;
+	display: inline-flex;
+	align-items: center;
+	padding: 5px 7px;
 	border-radius: 6px;
 	cursor: pointer;
 }
@@ -2721,7 +2721,9 @@ button.small {
 
 .file-icon {
 	color: var(--dim);
-	width: 12px;
+	width: 14px;
+	display: inline-flex;
+	align-items: center;
 	flex-shrink: 0;
 }
 
@@ -3175,4 +3177,11 @@ button.small {
 	font-size: 11px;
 	color: var(--warn);
 	padding: 2px 0 0;
+}
+
+/* ---------- Icons (lucide) ---------- */
+/* The stroke colour is inherited, so an icon always matches its control. */
+svg.lucide {
+	vertical-align: middle;
+	flex-shrink: 0;
 }

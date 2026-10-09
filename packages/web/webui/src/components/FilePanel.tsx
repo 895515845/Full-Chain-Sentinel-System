@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ZGFileEntry, ZGFilePreview } from "../types.ts";
+import { DirIcon, FileIcon, ParentDirIcon } from "./icons.tsx";
 
 /** Bytes of the container work directory the panel is currently showing. */
 export interface FilePanelState {
@@ -133,7 +134,8 @@ export function FilePanel({
 		<div className="file-panel">
 			<div className="panel-toolbar">
 				<button type="button" onClick={() => onOpen(parentOf(state.path))} disabled={state.path === "/work"}>
-					↑ 上级
+					<ParentDirIcon />
+					上级
 				</button>
 				<button type="button" onClick={() => onOpen(state.path)} disabled={state.busy}>
 					刷新
@@ -240,7 +242,7 @@ export function FilePanel({
 									title={entry.path}
 									onClick={() => (entry.type === "dir" ? onOpen(entry.path) : onPreview(entry.path))}
 								>
-									<span className="file-icon">{entry.type === "dir" ? "▸" : "·"}</span>
+									<span className="file-icon">{entry.type === "dir" ? <DirIcon /> : <FileIcon />}</span>
 									<span className="file-name">{entry.name}</span>
 									<span className="file-meta">
 										{entry.type === "dir" ? "目录" : formatSize(entry.size)} · {formatTime(entry.mtime)}

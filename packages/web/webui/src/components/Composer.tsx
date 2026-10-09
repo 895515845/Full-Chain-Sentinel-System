@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { ZGImageAttachment, ZGMode, ZGStatsView, ZGThinkingLevel } from "../types.ts";
+import { BranchIcon, CompactIcon, FilesIcon, ImageIcon, SubagentIcon } from "./icons.tsx";
 
 function formatTokens(count: number): string {
 	if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
@@ -115,7 +116,8 @@ export function Composer({
 							onClick={onToggleBranch}
 							title={branchOpen ? "收起分支面板" : "展开分支面板"}
 						>
-							⑂ 分支
+							<BranchIcon />
+							分支
 						</button>
 						<button
 							type="button"
@@ -128,7 +130,8 @@ export function Composer({
 									: "把当前上下文压缩成摘要，保留结论、丢弃过程（也可直接输入 /compact）"
 							}
 						>
-							⤓ 压缩上下文
+							<CompactIcon />
+							压缩上下文
 						</button>
 						<label className="thinking-picker" title="模型的推理强度（仅对本次会话生效）">
 							思考
@@ -153,7 +156,8 @@ export function Composer({
 							disabled={!hasProject}
 							title={hasProject ? "浏览容器工作目录 /work" : "请先创建或选择项目"}
 						>
-							🗀 文件
+							<FilesIcon />
+							文件
 						</button>
 						<button
 							type="button"
@@ -162,7 +166,8 @@ export function Composer({
 							disabled={!hasProject}
 							title={hasProject ? "查看子代理的实时过程并控制它" : "请先创建或选择项目"}
 						>
-							⛬ 子代理
+							<SubagentIcon />
+							子代理
 							{subagentRunning > 0 ? <span className="pill-count">{subagentRunning}</span> : null}
 						</button>
 						<button
@@ -171,7 +176,8 @@ export function Composer({
 							onClick={() => fileInputRef.current?.click()}
 							title="附加图片（也可直接粘贴截图）"
 						>
-							🖼 图片
+							<ImageIcon />
+							图片
 						</button>
 						<input
 							ref={fileInputRef}

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { SessionTreeNodeView, ZGForkPoint } from "../types.ts";
+import { BranchIcon, CaretDownIcon, CaretRightIcon, CloseIcon } from "./icons.tsx";
 
 interface PathEntry {
 	id: string;
@@ -124,7 +125,7 @@ export function BranchModal({
 				<h2>
 					会话分支
 					<button type="button" className="ghost small" style={{ float: "right" }} onClick={onClose}>
-						×
+						<CloseIcon />
 					</button>
 				</h2>
 				<p className="modal-hint">点击分支立即跳转，原分支完整保留，可随时切回。</p>
@@ -165,8 +166,12 @@ export function BranchModal({
 									onClick={() => setExpandedFork(open ? null : fork.id)}
 									title={fork.summary}
 								>
-									<span className={`caret ${open ? "open" : ""}`}>▸</span>
-									<span className="fork-summary">⑂ {fork.summary.slice(0, 30)}</span>
+									<span className={`caret ${open ? "open" : ""}`}>
+										{open ? <CaretDownIcon /> : <CaretRightIcon />}
+									</span>
+									<span className="fork-summary">
+										<BranchIcon size={12} /> {fork.summary.slice(0, 30)}
+									</span>
 									<span className="fork-count">{fork.branches.length} 条分支</span>
 								</button>
 								{open ? (

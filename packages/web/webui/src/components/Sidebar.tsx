@@ -1,36 +1,8 @@
 import { useState } from "react";
 import type { SessionInfoView, ZGMode, ZGStatsView } from "../types.ts";
+import { ChatIcon, CloseIcon, DeleteIcon, HistoryIcon, RenameIcon, SettingsIcon } from "./icons.tsx";
 
 export type SidebarTab = "chat" | "settings";
-
-function IconChat() {
-	return (
-		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-			<path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconHistory() {
-	return (
-		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-			<circle cx="12" cy="12" r="8.5" />
-			<path d="M12 7.5V12l3 2" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconSettings() {
-	return (
-		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-			<circle cx="12" cy="12" r="3" />
-			<path
-				d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"
-				strokeLinecap="round"
-			/>
-		</svg>
-	);
-}
 
 export function Sidebar({
 	activeTab,
@@ -127,7 +99,7 @@ export function Sidebar({
 				{!isEditing ? (
 					<div className="child-ops">
 						<button type="button" className="ghost small" title="重命名" onClick={() => startRename(session)}>
-							✏
+							<RenameIcon />
 						</button>
 						<button
 							type="button"
@@ -139,7 +111,7 @@ export function Sidebar({
 								}
 							}}
 						>
-							×
+							<DeleteIcon />
 						</button>
 					</div>
 				) : null}
@@ -163,7 +135,7 @@ export function Sidebar({
 							onTab("chat");
 						}}
 					>
-						<IconChat />
+						<ChatIcon />
 						{pendingApprovals > 0 ? (
 							<span className="badge-dot">{pendingApprovals > 9 ? "9+" : pendingApprovals}</span>
 						) : null}
@@ -174,7 +146,7 @@ export function Sidebar({
 						title="模型设置"
 						onClick={() => onTab("settings")}
 					>
-						<IconSettings />
+						<SettingsIcon />
 					</button>
 				</nav>
 				<div className="sb-spacer" />
@@ -199,7 +171,7 @@ export function Sidebar({
 
 			<nav className="sb-menu">
 				<button type="button" className={`sb-item ${activeTab === "chat" ? "active" : ""}`} onClick={() => onTab("chat")}>
-					<IconChat />
+					<ChatIcon />
 					<span>对话</span>
 					{pendingApprovals > 0 ? (
 						<span className="badge-dot">{pendingApprovals > 9 ? "9+" : pendingApprovals}</span>
@@ -211,7 +183,7 @@ export function Sidebar({
 					className={`sb-item group ${activeTab === "chat" ? "lit" : ""}`}
 					onClick={() => setHistoryOpen((prev) => !prev)}
 				>
-					<IconHistory />
+					<HistoryIcon />
 					<span>会话历史</span>
 					<span className={`caret ${historyOpen ? "open" : ""}`}>^</span>
 				</button>
@@ -232,7 +204,7 @@ export function Sidebar({
 					className={`sb-item ${activeTab === "settings" ? "active" : ""}`}
 					onClick={() => onTab("settings")}
 				>
-					<IconSettings />
+					<SettingsIcon />
 					<span>模型设置</span>
 					{!modelConfigured ? (
 						<span className="warn-dot" title="未配置">
@@ -251,7 +223,7 @@ export function Sidebar({
 							<span key={prefix} className="prefix-chip">
 								{prefix}
 								<button type="button" className="chip-remove" onClick={() => onRemoveAllowedPrefix(prefix)}>
-									×
+									<CloseIcon size={12} />
 								</button>
 							</span>
 						))}

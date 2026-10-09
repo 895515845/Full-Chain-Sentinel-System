@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CloseIcon } from "./icons.tsx";
 
 export type SidePanelTab = "files" | "subagents";
 
@@ -43,7 +44,7 @@ export function SidePanel({
 					</button>
 				</div>
 				<button type="button" className="side-panel-close" title="收起面板" onClick={onClose}>
-					×
+					<CloseIcon size={16} />
 				</button>
 			</div>
 			<div className="side-panel-context" title={projectName ?? ""}>

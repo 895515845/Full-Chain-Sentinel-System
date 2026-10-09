@@ -36,6 +36,7 @@
 ### Changed
 
 - Deleting the active project now detaches the runtime from it, so the console returns to the project-required screen instead of pointing at a deleted container
+- Replaced the emoji and text glyphs the UI used as icons (⑂, ⤓, 🗀, ⛬, 🖼, ✏, ×, ▸/▾, ⌃/⌄, ↑) with `lucide-react`. All icons go through `webui/src/components/icons.tsx`, which pins size and stroke weight, so the composer pills, sidebar tabs, tool cards, branch tree, project picker, drawer and file panel now share one icon set
 
 ### Fixed
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ZGProjectInfo } from "../types.ts";
+import { CaretDownIcon, CaretUpIcon, CloseIcon } from "./icons.tsx";
 
 export function ProjectPicker({
 	projects,
@@ -76,7 +77,7 @@ export function ProjectPicker({
 			>
 				<span className="project-badge">P</span>
 				<span className="project-name">{activeProject?.name ?? "未选择项目"}</span>
-				<span className="caret open">{open ? "⌃" : "⌄"}</span>
+				<span className="caret open">{open ? <CaretUpIcon /> : <CaretDownIcon />}</span>
 			</button>
 
 			{open ? (
@@ -107,7 +108,7 @@ export function ProjectPicker({
 											setFormError(null);
 										}}
 									>
-										×
+										<CloseIcon size={12} />
 									</button>
 								</div>
 							))}

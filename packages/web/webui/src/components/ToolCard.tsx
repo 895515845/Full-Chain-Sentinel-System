@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CaretDownIcon, CaretRightIcon } from "./icons.tsx";
 
 /** First non-empty line of a text block, truncated for the collapsed summary row. */
 function summaryLine(text: string, max = 110): string {
@@ -60,7 +61,7 @@ export function ToolCard({
 					if (event.key === "Enter" || event.key === " ") setExpanded((prev) => !prev);
 				}}
 			>
-				<span className="tool-caret">{expanded ? "▾" : "▸"}</span>
+				<span className="tool-caret">{expanded ? <CaretDownIcon /> : <CaretRightIcon />}</span>
 				<span className="tool-name">{name}</span>
 				{!expanded && preview ? <span className="tool-summary">{preview}</span> : null}
 				<span className="tool-actions">
