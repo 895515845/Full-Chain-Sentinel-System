@@ -73,5 +73,6 @@
 	"version": "0.0.3",
 	"overrides": {
 		"protobufjs": "7.6.6"
-	}
+	},
+	"dependencies": {}
 }

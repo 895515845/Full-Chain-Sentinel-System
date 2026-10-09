@@ -1,5 +1,18 @@
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ContentBlockView, AgentMessageView } from "../types.ts";
 import { ToolCard } from "./ToolCard.tsx";
+
+/** Markdown renderer for model output; raw HTML is never rendered. */
+export function MarkdownText({ text }: { text: string }) {
+	return (
+		<div className="markdown-body">
+			<Markdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer" /> }}>
+				{text}
+			</Markdown>
+		</div>
+	);
+}
 
 function blockText(block: ContentBlockView): string {
 	if (typeof block !== "object" || block === null) return "";
@@ -98,7 +111,11 @@ export function MessageView({
 						<pre>{thinking.map((block) => (block as { thinking?: string }).thinking ?? "").join("\n")}</pre>
 					</details>
 				) : null}
-				{text ? <div className={`entry-body${failed ? " failed" : ""}`}>{text}</div> : null}
+				{text ? (
+					<div className={`entry-body${failed ? " failed" : ""}`}>
+						<MarkdownText text={text} />
+					</div>
+				) : null}
 				{failed && !text ? <div className="entry-body failed">（本次运行失败或被中止）</div> : null}
 				{message.errorMessage ? (
 					<div className="entry-body failed">

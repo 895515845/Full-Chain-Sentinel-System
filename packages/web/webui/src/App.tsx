@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { Composer } from "./components/Composer.tsx";
-import { MessageView } from "./components/MessageView.tsx";
+import { MarkdownText, MessageView } from "./components/MessageView.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
@@ -408,7 +408,9 @@ export function App() {
 										<div className="entry-head">
 											<span className="role-tag agent">AGENT</span>
 										</div>
-										<div className="entry-body streaming">{liveText}</div>
+										<div className="entry-body streaming">
+										<MarkdownText text={liveText} />
+									</div>
 									</div>
 								) : null}
 							</div>
