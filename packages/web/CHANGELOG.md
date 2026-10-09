@@ -27,9 +27,17 @@
 - Switching projects rebuilds the agent session and is locked while a run is active; the server restores the last active project on startup
 - Deleting a project requires typing its name, unregisters it, and removes its session directory; the model endpoint stays global
 
+### Added
+
+- Manual context compaction: a "压缩上下文" button and a typed `/compact` both compact the viewed session, with pi's English refusal messages ("session too small", "already compacted") reported in Chinese
+- Thinking-level control: the composer lists the levels the active model accepts and switches between them for the current session only
+- Image input: paste a screenshot or pick image files, sent as base64 attachments and rendered in the transcript. The endpoint config now declares `input: ["text", "image"]`; without it pi silently dropped every attachment because the provider-model default is text only
+- Built-in codemode and tool_search extensions, plus the MCP extension reading `mcp.json` from the agent directory and the project. Sessions now call `bindExtensions()`, which emits `session_start` and lets extensions contribute skills, prompt templates, and MCP servers
+
 ### Fixed
 
 - Fixed sessions running with only `bash` and `spawn_agent`: the runtime's `baseToolsOverride` replaces the whole base tool set, so `read`, `edit`, and `write` must be named explicitly alongside the gated bash. The system prompt's tool section now lists all four with their snippets and guidelines instead of the custom tools alone.
+- Fixed the context-overflow hint pointing at `/compact`, which pi only handles in interactive mode; the console now honors that command itself
 
 ### Fixed (round 2 polish)
 

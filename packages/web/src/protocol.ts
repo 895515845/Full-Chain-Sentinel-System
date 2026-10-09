@@ -1,6 +1,13 @@
 /** Wire protocol shared by the ZGAgent web console server and browser client. */
 
-import type { AgentSessionEvent, SessionInfo, SessionStats, SessionTreeNode } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentSessionEvent,
+	ImageContent,
+	SessionInfo,
+	SessionStats,
+	SessionTreeNode,
+	ThinkingLevel,
+} from "@earendil-works/pi-coding-agent";
 
 /** Operator approval mode for bash tool calls. */
 export type ZGMode = "review" | "auto";
@@ -48,6 +55,10 @@ export interface ZGStateSnapshot {
 	project: ZGProjectInfo | null;
 	model: { provider: string; id: string } | null;
 	modelConfigured: boolean;
+	/** Reasoning effort for the active session; "off" when the model has no reasoning. */
+	thinkingLevel: ThinkingLevel;
+	/** Levels the active model accepts, in ascending effort order. */
+	availableThinkingLevels: ThinkingLevel[];
 	activeSessionId: string | null;
 	/** Serialized AgentMessage[] for the active session. */
 	messages: unknown[];
@@ -67,8 +78,10 @@ export interface ZGForkPoint {
 
 /** Client-to-server messages. */
 export type ZGClientMessage =
-	| { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp" }
+	| { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp"; images?: ImageContent[] }
 	| { type: "abort" }
+	| { type: "compact" }
+	| { type: "set_thinking_level"; level: ThinkingLevel }
 	| { type: "set_mode"; mode: ZGMode }
 	| {
 			type: "decide";

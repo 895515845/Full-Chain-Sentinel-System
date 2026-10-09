@@ -1004,6 +1004,97 @@ button.small {
 	font-weight: 600;
 }
 
+.tool-pill:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.thinking-picker {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.thinking-picker select {
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	color: var(--text);
+	font-family: inherit;
+	font-size: 12px;
+	padding: 3px 8px;
+	cursor: pointer;
+}
+
+.thinking-picker select:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* ---------- Image attachments ---------- */
+
+.attachment-strip {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 0 2px;
+}
+
+.attachment {
+	position: relative;
+	line-height: 0;
+}
+
+.attachment img {
+	height: 52px;
+	max-width: 120px;
+	object-fit: cover;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+}
+
+.attachment-remove {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	width: 18px;
+	height: 18px;
+	line-height: 1;
+	background: var(--card);
+	border: 1px solid var(--border-strong);
+	border-radius: 50%;
+	color: var(--dim);
+	cursor: pointer;
+	padding: 0;
+}
+
+.attachment-remove:hover {
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+.attachment-count {
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.message-images {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.message-images img {
+	max-height: 180px;
+	max-width: 100%;
+	border: 1px solid var(--border-strong);
+	border-radius: 8px;
+}
+
 /* ---------- Modals ---------- */ .modal-backdrop {
 	position: fixed;
 	inset: 0;

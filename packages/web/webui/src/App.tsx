@@ -72,7 +72,9 @@ export function App() {
 	const [viewer, setViewer] = useState<{ title: string; output: string } | null>(null);
 	const [connected, setConnected] = useState(false);
 	/** Messages sent from this console, shown optimistically until the snapshot absorbs them. */
-	const [optimisticUserMessages, setOptimisticUserMessages] = useState<{ text: string; userCountAtSend: number }[]>([]);
+	const [optimisticUserMessages, setOptimisticUserMessages] = useState<
+		{ text: string; imageCount: number; userCountAtSend: number }[]
+	>([]);
 	/** Queued steering/follow-up texts reported by queue_update events. */
 	const [queuedMessages, setQueuedMessages] = useState<{ kind: "steer" | "followUp"; text: string }[]>([]);
 	const connectionRef = useRef<ZGConnection | null>(null);
@@ -367,7 +369,10 @@ export function App() {
 										<div className="entry-head">
 											<span className="role-tag operator">OPERATOR</span>
 										</div>
-										<div className="entry-body pending">{item.text}</div>
+										<div className="entry-body pending">
+											{item.text}
+											{item.imageCount > 0 ? `（附 ${item.imageCount} 张图片）` : ""}
+										</div>
 									</div>
 								))}
 								{queuedMessages.map((item, index) => (
@@ -420,7 +425,11 @@ export function App() {
 								pendingApprovals={pendingApprovals.length}
 								stats={stats}
 								branchOpen={branchOpen}
+								thinkingLevel={snapshot?.thinkingLevel ?? "off"}
+								availableThinkingLevels={snapshot?.availableThinkingLevels ?? []}
 								onSetMode={(next) => send({ type: "set_mode", mode: next })}
+								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
+								onCompact={() => send({ type: "compact" })}
 								onToggleBranch={() => {
 									setBranchOpen((prev) => {
 										const next = !prev;
@@ -429,12 +438,15 @@ export function App() {
 									});
 									send({ type: "get_tree" });
 								}}
-								onSend={(text, behavior) => {
+								onSend={(text, behavior, images) => {
 									const userCount = (snapshotRef.current?.messages ?? []).filter(
 										(entry) => (entry as { role?: string }).role === "user",
 									).length;
-									setOptimisticUserMessages((prev) => [...prev, { text, userCountAtSend: userCount }]);
-									send({ type: "prompt", text, streamingBehavior: behavior });
+									setOptimisticUserMessages((prev) => [
+										...prev,
+										{ text, imageCount: images?.length ?? 0, userCountAtSend: userCount },
+									]);
+									send({ type: "prompt", text, streamingBehavior: behavior, images });
 								}}
 								onAbort={() => send({ type: "abort" })}
 							/>

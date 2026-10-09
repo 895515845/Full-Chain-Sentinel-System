@@ -2,6 +2,16 @@
 
 export type ZGMode = "review" | "auto";
 
+/** Reasoning effort levels pi accepts, ascending. */
+export type ZGThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/** Image attachment carried with a prompt (base64 payload, no data-URL prefix). */
+export interface ZGImageAttachment {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+
 export interface ZGModelConfig {
 	baseUrl: string;
 	apiKey: string;
@@ -36,6 +46,8 @@ export interface ZGStateSnapshot {
 	project: ZGProjectInfo | null;
 	model: { provider: string; id: string } | null;
 	modelConfigured: boolean;
+	thinkingLevel: ZGThinkingLevel;
+	availableThinkingLevels: ZGThinkingLevel[];
 	activeSessionId: string | null;
 	messages: AgentMessageView[];
 	pendingApprovals: ZGApprovalRequest[];
@@ -107,12 +119,19 @@ export type ContentBlockView =
 	| { type: "text"; text: string }
 	| { type: "thinking"; thinking: string }
 	| { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
-	| { type: "image"; source: { type: string; data: string; mediaType: string } }
+	| { type: "image"; data: string; mimeType: string }
 	| { type: string };
 
 export type ZGClientMessage =
-	| { type: "prompt"; text: string; streamingBehavior?: "steer" | "followUp" }
+	| {
+			type: "prompt";
+			text: string;
+			streamingBehavior?: "steer" | "followUp";
+			images?: ZGImageAttachment[];
+	  }
 	| { type: "abort" }
+	| { type: "compact" }
+	| { type: "set_thinking_level"; level: ZGThinkingLevel }
 	| { type: "set_mode"; mode: ZGMode }
 	| { type: "decide"; decision: { id: string; approved: boolean; command?: string; alwaysAllowPrefix?: boolean } }
 	| { type: "decide_all"; approved: boolean }

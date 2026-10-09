@@ -183,13 +183,20 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 		try {
 			switch (message.type) {
 				case "prompt": {
-					if (!message.text.trim()) {
+					const images = message.images ?? [];
+					if (!message.text.trim() && images.length === 0) {
 						sendError(socket, "消息不能为空");
 						return;
 					}
-					await runtime.prompt(message.text, message.streamingBehavior);
+					await runtime.prompt(message.text, message.streamingBehavior, images);
 					return;
 				}
+				case "compact":
+					await runtime.compact();
+					return;
+				case "set_thinking_level":
+					runtime.setThinkingLevel(message.level);
+					return;
 				case "abort":
 					await runtime.abort();
 					return;

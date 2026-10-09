@@ -18,6 +18,14 @@ export const NO_AUTH_PLACEHOLDER_KEY = "zgagent-no-auth";
 const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_MAX_TOKENS = 16384;
 
+/**
+ * Capabilities declared for the configured model. Pi drops image attachments for
+ * models whose `input` omits "image" (the provider-model default is text only), so
+ * a vision-capable endpoint must opt in here or screenshots never reach it. A
+ * text-only endpoint that receives an image reports it upstream.
+ */
+const DEFAULT_MODEL_INPUT = ["text", "image"];
+
 interface ModelsJson {
 	$schema?: string;
 	providers: Record<
@@ -70,6 +78,7 @@ export function writeModelConfig(agentDir: string, config: ZGModelConfig): void 
 		}
 	}
 	if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
+	const previous = parsed.providers[ZG_PROVIDER_ID];
 	parsed.providers[ZG_PROVIDER_ID] = {
 		name: "ZGAgent Endpoint",
 		baseUrl: config.baseUrl,
@@ -78,13 +87,15 @@ export function writeModelConfig(agentDir: string, config: ZGModelConfig): void 
 		// pi docs recommend for Ollama). An empty string would be invalid.
 		apiKey: config.apiKey || NO_AUTH_PLACEHOLDER_KEY,
 		api: "openai-completions",
-		...(parsed.providers[ZG_PROVIDER_ID]?.headers ? { headers: parsed.providers[ZG_PROVIDER_ID]?.headers } : {}),
+		...(previous?.headers ? { headers: previous.headers } : {}),
 		models: [
 			{
 				id: config.modelId,
 				name: config.modelId,
 				contextWindow: DEFAULT_CONTEXT_WINDOW,
 				maxTokens: DEFAULT_MAX_TOKENS,
+				// An operator-edited capability list is kept as-is.
+				input: previous?.models?.[0]?.input ?? DEFAULT_MODEL_INPUT,
 			},
 		],
 	};

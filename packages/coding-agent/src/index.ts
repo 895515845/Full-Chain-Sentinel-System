@@ -1,7 +1,10 @@
 // Core session management
 
+// Value types a host needs to drive a session: image attachments for prompts and
+// the thinking levels accepted by `setThinkingLevel`.
+export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+export type { ImageContent } from "@earendil-works/pi-ai/compat";
 export { type Args, parseArgs } from "./cli/args.ts";
-
 // Config paths
 export {
 	CONFIG_DIR_NAME,

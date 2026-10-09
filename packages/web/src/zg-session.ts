@@ -15,16 +15,23 @@ import {
 	type BashOperations,
 	createAgentSession,
 	createBashTool,
+	createCodemodeExtension,
 	createEditTool,
 	createLocalBashOperations,
+	createMcpExtension,
 	createReadTool,
+	createToolSearchExtension,
 	createWriteTool,
+	DefaultResourceLoader,
 	getAgentDir,
 	getDefaultSessionDir,
+	type ImageContent,
 	ModelRuntime,
 	type SessionInfo,
 	SessionManager,
 	type SessionTreeNode,
+	SettingsManager,
+	type ThinkingLevel,
 } from "@earendil-works/pi-coding-agent";
 import { ApprovalGate } from "./approval.ts";
 import { dockerBashOperations } from "./docker.ts";
@@ -150,6 +157,23 @@ export class ZGAgentRuntime {
 		const operations = this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined;
 		const bash = this.createGatedBash(manager.getCwd(), () => this.sessionLabel(managed), operations);
 
+		// The CLI loads codemode, tool search, and MCP as built-in extensions; SDK
+		// sessions have to add them explicitly. codemode and tool_search register
+		// inactive, so the default-tools override below activates them while keeping
+		// the coding tools. The MCP extension reads mcp.json from the agent directory
+		// and connects its servers on session_start, which `bindExtensions` emits.
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: manager.getCwd(),
+			agentDir: this.agentDir,
+			extensionFactories: [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension()],
+		});
+		await resourceLoader.reload();
+
+		const settingsManager = SettingsManager.create(manager.getCwd(), this.agentDir);
+		// Modifier-only entries append to the configured default tools instead of
+		// replacing them, so an operator's own `defaultTools` setting still applies.
+		settingsManager.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
+
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
 		// tools must be listed explicitly alongside the gated bash. Passing only bash
 		// would leave the session with bash and the custom tools, and the system
@@ -160,6 +184,8 @@ export class ZGAgentRuntime {
 			modelRuntime: this.modelRuntime,
 			model,
 			sessionManager: manager,
+			resourceLoader,
+			settingsManager,
 			baseToolsOverride: {
 				read: createReadTool(manager.getCwd()),
 				bash,
@@ -182,6 +208,9 @@ export class ZGAgentRuntime {
 			],
 		});
 		managed.session = created.session;
+		// Emits session_start, which connects MCP servers and lets extensions
+		// contribute skills and prompt templates.
+		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
 		managed.unsubscribe = created.session.subscribe((event) => {
 			// Only the viewed session streams events; background sessions run silently.
@@ -229,13 +258,51 @@ export class ZGAgentRuntime {
 		return process.env.ZG_ALLOW_HOST_SESSIONS === "1";
 	}
 
-	async prompt(text: string, streamingBehavior?: "steer" | "followUp"): Promise<void> {
+	async prompt(text: string, streamingBehavior?: "steer" | "followUp", images?: ImageContent[]): Promise<void> {
 		const active = this.active;
 		if (!active) throw new Error("Session not initialized");
 		if (!this.activeContainer && !this.allowHostSessions) {
 			throw new Error("没有可用的项目容器。请先在左上角创建或选择一个项目。");
 		}
-		await active.session.prompt(text, streamingBehavior ? { streamingBehavior } : undefined);
+		// pi's built-in slash commands only exist in interactive mode, so the console
+		// honors the one its own context-overflow hint references.
+		if (text.trim() === "/compact") {
+			await this.compact();
+			return;
+		}
+		await active.session.prompt(text, {
+			...(streamingBehavior ? { streamingBehavior } : {}),
+			...(images && images.length > 0 ? { images } : {}),
+		});
+	}
+
+	/** Manually compact the viewed session's context into a summary. */
+	async compact(): Promise<void> {
+		const active = this.active;
+		if (!active) throw new Error("Session not initialized");
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再压缩上下文");
+		try {
+			await active.session.compact();
+		} catch (error) {
+			// pi reports these two cases in English; the console is Chinese-first.
+			// Anything else is rethrown unchanged.
+			const message = error instanceof Error ? error.message : String(error);
+			if (message.includes("too small")) throw new Error("当前会话内容太少，无需压缩");
+			if (message.includes("Already compacted")) throw new Error("该会话已经压缩过，无需重复压缩");
+			throw error;
+		}
+		this.hooks.onStateChange();
+	}
+
+	/** Set the viewed session's reasoning effort. Persists for this session only. */
+	setThinkingLevel(level: ThinkingLevel): void {
+		const active = this.active;
+		if (!active) throw new Error("Session not initialized");
+		if (!active.session.getAvailableThinkingLevels().includes(level)) {
+			throw new Error(`当前模型不支持思考等级「${level}」`);
+		}
+		active.session.setThinkingLevel(level);
+		this.hooks.onStateChange();
 	}
 
 	async abort(): Promise<void> {
@@ -405,6 +472,8 @@ export class ZGAgentRuntime {
 				: null,
 			model: model ? { provider: model.provider, id: model.id } : null,
 			modelConfigured: config !== null && model !== undefined,
+			thinkingLevel: active?.session.thinkingLevel ?? "off",
+			availableThinkingLevels: active?.session.getAvailableThinkingLevels() ?? [],
 			activeSessionId: this.currentSessionId,
 			messages: active ? safeClone(active.session.messages) : [],
 			pendingApprovals: this.approvals.listPending(),

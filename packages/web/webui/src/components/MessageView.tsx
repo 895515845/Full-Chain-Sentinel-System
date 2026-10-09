@@ -20,6 +20,18 @@ function blockText(block: ContentBlockView): string {
 	return "";
 }
 
+/** Image attachments stored on a user message, rendered from their base64 payload. */
+function messageImages(content: unknown): { data: string; mimeType: string }[] {
+	if (!Array.isArray(content)) return [];
+	return content.filter(
+		(block): block is { type: "image"; data: string; mimeType: string } =>
+			typeof block === "object" &&
+			block !== null &&
+			(block as { type?: string }).type === "image" &&
+			typeof (block as { data?: unknown }).data === "string",
+	);
+}
+
 function formatTime(timestamp?: number): string {
 	if (!timestamp) return "";
 	return new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false });
@@ -63,7 +75,7 @@ function hintForError(message: string): string {
 		return "网络问题：确认端点地址可达、服务已启动。可用「模型设置 → 测试连接」定位。";
 	}
 	if (/context|token limit|too long/i.test(message)) {
-		return "上下文超限：输入 /compact 压缩会话后重试。";
+		return "上下文超限：先压缩会话（输入 /compact 或点击「压缩上下文」）后重试。";
 	}
 	return "运行失败：可重试；持续失败请用「模型设置 → 测试连接」检查端点。";
 }
@@ -83,9 +95,22 @@ export function MessageView({
 		const text = Array.isArray(message.content)
 			? message.content.map(blockText).join("")
 			: String(message.content ?? "");
+		const images = messageImages(message.content);
 		return (
 			<Entry role="operator" timestamp={message.timestamp}>
-				<div className="entry-body">{text}</div>
+				{images.length > 0 ? (
+					<div className="message-images">
+						{images.map((image, index) => (
+							<img
+								key={index}
+								src={`data:${image.mimeType};base64,${image.data}`}
+								alt={`附件 ${index + 1}`}
+								loading="lazy"
+							/>
+						))}
+					</div>
+				) : null}
+				{text ? <div className="entry-body">{text}</div> : null}
 				{forkEntryId && onFork ? (
 					<button type="button" className="ghost small fork-button" onClick={() => onFork(forkEntryId)}>
 						↩ 从此分叉

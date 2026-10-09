@@ -51,6 +51,10 @@ let tempRoot = "";
 let closeServer: (() => void) | undefined;
 let serverUrl = "";
 let ws: WebSocket | undefined;
+/** Body of the most recent completion request, for asserting what reached the model. */
+let lastRequestBody = "";
+/** The out-of-band image response is served once, then the script resumes. */
+let imageTurnServed = false;
 
 function sseChunk(payload: Record<string, unknown>): string {
 	return `data: ${JSON.stringify(payload)}\n\n`;
@@ -170,9 +174,14 @@ function startFakeEndpoint(): Promise<void> {
 		});
 		request.on("end", () => {
 			// Consume the request so keep-alive does not stall.
-			void body;
-			const step = SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1];
-			const id = `chatcmpl-${++requestCount}`;
+			lastRequestBody = body;
+			// An image turn answers out of band so it does not consume a scripted step.
+			// Only the first request carrying an image is special-cased: the image stays
+			// in the session history, so later requests also mention one.
+			const isImageTurn = !imageTurnServed && body.includes("image_url");
+			if (isImageTurn) imageTurnServed = true;
+			const step = isImageTurn ? { text: "IMAGE_TURN_OK" } : (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
+			const id = `chatcmpl-${isImageTurn ? "image" : ++requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCallCommand
@@ -557,6 +566,68 @@ test("spawn_agent delegates to a sub-agent whose bash goes through the same appr
 			(message as { toolName?: string }).toolName === "spawn_agent",
 	);
 	expect(JSON.stringify(spawnResult)).toContain('"turns":2');
+});
+
+test("an image attachment reaches the model and the turn completes", async () => {
+	drainIncoming();
+	// 4x4 PNG. pi re-encodes prompt images, so the assertion checks the wire shape
+	// rather than the exact payload the operator sent.
+	const png =
+		"iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR42mNUTX7NAANMDEgANwcASLQBeyNXiAIAAAAASUVORK5CYII=";
+	send({
+		type: "prompt",
+		text: "look at this screenshot",
+		images: [{ type: "image", data: png, mimeType: "image/png" }],
+	});
+
+	const settled = await snapshotWhere(
+		(snapshot_) =>
+			!snapshot_.streaming &&
+			snapshot_.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes("IMAGE_TURN_OK"),
+					),
+			),
+	);
+	// The image survived the wire hop and reached the provider as an OpenAI image part.
+	expect(lastRequestBody).toContain('"type":"image_url"');
+	expect(lastRequestBody).toContain("data:image/png;base64,");
+	// The operator's own message keeps the attachment for rendering.
+	const userMessage = settled.messages.find(
+		(message) =>
+			(message as { role?: string }).role === "user" && JSON.stringify(message).includes("look at this screenshot"),
+	);
+	expect(JSON.stringify(userMessage)).toContain('"type":"image"');
+});
+
+test("thinking level is reported, validated, and changeable", async () => {
+	drainIncoming();
+	send({ type: "get_state" });
+	const snapshot = await snapshotWhere((snapshot_) => snapshot_.modelConfigured);
+	expect(snapshot.availableThinkingLevels.length).toBeGreaterThan(0);
+	expect(snapshot.availableThinkingLevels).toContain(snapshot.thinkingLevel);
+
+	// A level the model does not accept is rejected instead of silently clamped.
+	send({ type: "set_thinking_level", level: "max" });
+	if (!snapshot.availableThinkingLevels.includes("max")) {
+		const error = await waitFor((message) => message.type === "error" && message.message.includes("思考等级"));
+		expect((error as { message: string }).message).toContain("max");
+	}
+
+	drainIncoming();
+	send({ type: "set_thinking_level", level: snapshot.thinkingLevel });
+	await snapshotWhere((snapshot_) => snapshot_.thinkingLevel === snapshot.thinkingLevel);
+});
+
+test("compact reports a readable message when the session has nothing to compact", async () => {
+	drainIncoming();
+	send({ type: "compact" });
+	// The fake session is far below the compaction threshold, so pi refuses; the
+	// point is that the refusal reaches the operator as a Chinese message.
+	const error = await waitFor((message) => message.type === "error");
+	expect((error as { message: string }).message).toContain("无需压缩");
 });
 
 test("sessions can be renamed and deleted from the sidebar", async () => {

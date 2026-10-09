@@ -14,6 +14,7 @@
 ### Added
 
 - Added `baseToolsOverride` to `createAgentSession()` options so custom runtimes can replace built-in base tools (used by the ZGAgent web console to wrap the bash tool with an approval gate)
+- Exported the `ThinkingLevel` and `ImageContent` types, which hosts need to call `setThinkingLevel()` and to pass `images` to `prompt()`
 
 ### Changed
 
