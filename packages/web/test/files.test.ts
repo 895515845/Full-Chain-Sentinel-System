@@ -1,0 +1,171 @@
+/**
+ * Unit tests for the container file layer.
+ *
+ * `execInContainer` is mocked: these tests pin the contract the console relies on
+ * (path bounds, argument passing, exit-code mapping, preview classification)
+ * without needing Docker. The scripts themselves run for real in e2e.test.ts.
+ */
+
+import { beforeEach, expect, test, vi } from "vitest";
+
+const { execInContainer } = vi.hoisted(() => ({ execInContainer: vi.fn() }));
+vi.mock("../src/docker.ts", () => ({ execInContainer }));
+
+import {
+	deletePath,
+	downloadFile,
+	guessMimeType,
+	listFiles,
+	makeDirectory,
+	readFilePreview,
+	renamePath,
+	resolveWorkPath,
+	writeFile,
+} from "../src/files.ts";
+
+/** One successful container run. */
+function ok(stdout = "", stderr = ""): { code: number; stdout: string; stdoutBytes: Buffer; stderr: string } {
+	return { code: 0, stdout, stdoutBytes: Buffer.from(stdout, "binary"), stderr };
+}
+
+/** One failed container run. */
+function bad(code: number, stderr = ""): { code: number; stdout: string; stdoutBytes: Buffer; stderr: string } {
+	return { code, stdout: "", stdoutBytes: Buffer.alloc(0), stderr };
+}
+
+beforeEach(() => {
+	execInContainer.mockReset();
+	execInContainer.mockResolvedValue(ok());
+});
+
+test("resolveWorkPath accepts work-directory paths and collapses dot segments", () => {
+	expect(resolveWorkPath("/work")).toBe("/work");
+	expect(resolveWorkPath("/work/reports")).toBe("/work/reports");
+	expect(resolveWorkPath("/work/reports/../notes.txt")).toBe("/work/notes.txt");
+	expect(resolveWorkPath("/work/./a//b")).toBe("/work/a/b");
+	// A bare relative path is resolved against the work directory.
+	expect(resolveWorkPath("reports")).toBe("/work/reports");
+	expect(resolveWorkPath("")).toBe("/work");
+});
+
+test("resolveWorkPath rejects anything that leaves the work directory", () => {
+	expect(() => resolveWorkPath("/etc/passwd")).toThrow(/路径越界/);
+	expect(() => resolveWorkPath("/work/../etc/passwd")).toThrow(/路径越界/);
+	expect(() => resolveWorkPath("/work/../../tmp/x")).toThrow(/路径越界/);
+	expect(() => resolveWorkPath("../secrets")).toThrow(/路径越界/);
+	// Prefix lookalikes must not pass the /work boundary check.
+	expect(() => resolveWorkPath("/workshop/notes.txt")).toThrow(/路径越界/);
+	expect(() => resolveWorkPath("/work/..")).toThrow(/路径越界/);
+	expect(() => resolveWorkPath("/work/a\0b")).toThrow(/非法字符/);
+});
+
+test("guessMimeType maps images, text formats, and falls back to a blob", () => {
+	expect(guessMimeType("/work/shot.PNG")).toBe("image/png");
+	expect(guessMimeType("/work/notes.txt")).toBe("text/plain; charset=utf-8");
+	expect(guessMimeType("/work/report.md")).toBe("text/markdown; charset=utf-8");
+	expect(guessMimeType("/work/dump.bin")).toBe("application/octet-stream");
+	expect(guessMimeType("/work/archive")).toBe("application/octet-stream");
+});
+
+test("listFiles parses the tab-separated listing and puts directories first", async () => {
+	execInContainer.mockResolvedValue(
+		ok("f\t8\t1700000001\tmy notes.txt\nd\t0\t1700000002\treports\nf\t12\t1700000003\tz.sh\n"),
+	);
+
+	const listed = await listFiles("zgagent-test", "/work");
+	expect(listed.path).toBe("/work");
+	expect(listed.entries).toEqual([
+		{ name: "reports", path: "/work/reports", type: "dir", size: 0, mtime: 1700000002 },
+		{ name: "my notes.txt", path: "/work/my notes.txt", type: "file", size: 8, mtime: 1700000001 },
+		{ name: "z.sh", path: "/work/z.sh", type: "file", size: 12, mtime: 1700000003 },
+	]);
+
+	// The path is passed as a positional parameter, never interpolated.
+	const [container, script, args] = execInContainer.mock.calls[0];
+	expect(container).toBe("zgagent-test");
+	expect(script).toContain('cd "$1"');
+	expect(script).not.toContain("/work");
+	expect(args).toEqual(["/work"]);
+});
+
+test("listFiles reports a missing directory and passes other codes through", async () => {
+	execInContainer.mockResolvedValue(bad(2));
+	await expect(listFiles("c", "/work/gone")).rejects.toThrow(/目录不存在或不可读/);
+
+	execInContainer.mockResolvedValue(bad(1, "permission denied"));
+	await expect(listFiles("c", "/work/secret")).rejects.toThrow(/读取目录失败：permission denied/);
+});
+
+test("readFilePreview returns text, classifies binaries, and truncates", async () => {
+	execInContainer.mockResolvedValue({ code: 0, stdout: "hello", stdoutBytes: Buffer.from("hello"), stderr: "5" });
+	expect(await readFilePreview("c", "/work/notes.txt")).toEqual({
+		path: "/work/notes.txt",
+		kind: "text",
+		size: 5,
+		truncated: false,
+		text: "hello",
+	});
+
+	// A NUL byte marks a binary file; without an image extension it is not inlined.
+	const binaryBytes = Buffer.from([0x50, 0x4b, 0x00, 0x01]);
+	execInContainer.mockResolvedValue({ code: 0, stdout: "", stdoutBytes: binaryBytes, stderr: "4" });
+	expect(await readFilePreview("c", "/work/blob.bin")).toEqual({
+		path: "/work/blob.bin",
+		kind: "binary",
+		size: 4,
+		truncated: false,
+	});
+
+	// The same bytes with an image extension come back as base64 for <img>.
+	execInContainer.mockResolvedValue({ code: 0, stdout: "", stdoutBytes: binaryBytes, stderr: "4" });
+	const image = await readFilePreview("c", "/work/shot.png");
+	expect(image.kind).toBe("image");
+	expect(image.data).toBe(binaryBytes.toString("base64"));
+	expect(image.mimeType).toBe("image/png");
+
+	// Beyond the inline limit only the first chunk is returned, and it is flagged.
+	const big = Buffer.alloc(256 * 1024 + 10, 0x41);
+	execInContainer.mockResolvedValue({
+		code: 0,
+		stdout: "",
+		stdoutBytes: big,
+		stderr: String(big.length),
+	});
+	const truncated = await readFilePreview("c", "/work/big.log");
+	expect(truncated.truncated).toBe(true);
+	expect(truncated.size).toBe(big.length);
+	expect(truncated.text?.length).toBe(256 * 1024);
+});
+
+test("writeFile streams bytes to the container and creates parents", async () => {
+	const content = Buffer.from("payload");
+	const written = await writeFile("c", "/work/deep/dir/file.txt", content);
+	expect(written).toEqual({ path: "/work/deep/dir/file.txt", size: 7 });
+
+	const [, script, args, options] = execInContainer.mock.calls[0];
+	expect(script).toContain('mkdir -p "$(dirname "$1")"');
+	expect(args).toEqual(["/work/deep/dir/file.txt"]);
+	expect(options.stdin).toBe(content);
+});
+
+test("writeFile refuses an oversized upload without touching the container", async () => {
+	const oversized = Buffer.alloc(32 * 1024 * 1024 + 1);
+	await expect(writeFile("c", "/work/big.bin", oversized)).rejects.toThrow(/超过 32MB 上限/);
+	expect(execInContainer).not.toHaveBeenCalled();
+});
+
+test("mutations refuse the work root and map container exit codes", async () => {
+	await expect(deletePath("c", "/work")).rejects.toThrow(/不允许操作 \/work 根目录/);
+	await expect(renamePath("c", "/work", "/work/x")).rejects.toThrow(/不允许操作 \/work 根目录/);
+	await expect(makeDirectory("c", "/work")).rejects.toThrow(/目录已存在/);
+	expect(execInContainer).not.toHaveBeenCalled();
+
+	execInContainer.mockResolvedValue(bad(5));
+	await expect(renamePath("c", "/work/a.txt", "/work/b.txt")).rejects.toThrow(/目标已存在/);
+
+	execInContainer.mockResolvedValue(bad(3));
+	await expect(downloadFile("c", "/work/huge.bin")).rejects.toThrow(/超过 32MB 上限/);
+
+	execInContainer.mockResolvedValue(bad(2));
+	await expect(deletePath("c", "/work/gone.txt")).rejects.toThrow(/删除失败：文件不存在或不可读/);
+});

@@ -98,7 +98,11 @@ function repoRoot(): string {
 	return join(import.meta.dirname, "..", "..");
 }
 
-/** Host-side working directory for a project (mounted at /work in the container). */
+/**
+ * Host-side working directory for a project (mounted at /work in the container).
+ * `ZG_PROJECTS_DIR` relocates the root; tests point it at a temp directory so
+ * project creation never touches the operator's real projects.
+ */
 export function projectWorkDir(name: string): string {
 	const slug =
 		name
@@ -106,9 +110,59 @@ export function projectWorkDir(name: string): string {
 			.toLowerCase()
 			.replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, "-")
 			.slice(0, 40) || "project";
-	const dir = join(homedir(), ".zgagent", "projects", slug);
+	const root = process.env.ZG_PROJECTS_DIR ?? join(homedir(), ".zgagent", "projects");
+	const dir = join(root, slug);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	return dir;
+}
+
+/**
+ * Run a POSIX shell script inside a project container.
+ *
+ * `args` are passed as positional parameters ($1, $2, ...), never interpolated
+ * into `script`, so operator-supplied paths cannot inject shell syntax. stdout
+ * is collected as bytes because file downloads are binary.
+ */
+export function execInContainer(
+	containerName: string,
+	script: string,
+	args: string[] = [],
+	options: { stdin?: Buffer; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<{ code: number; stdout: string; stdoutBytes: Buffer; stderr: string }> {
+	return new Promise((resolve) => {
+		const child = spawn("docker", ["exec", "-i", containerName, "sh", "-c", script, "zg", ...args], {
+			stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+		});
+		const chunks: Buffer[] = [];
+		let stderr = "";
+		let settled = false;
+		const timer = options.timeoutMs ? setTimeout(() => child.kill("SIGKILL"), options.timeoutMs) : undefined;
+		const onAbort = () => child.kill("SIGKILL");
+		options.signal?.addEventListener("abort", onAbort, { once: true });
+		const finish = (code: number): void => {
+			if (settled) return;
+			settled = true;
+			if (timer) clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
+			const stdoutBytes = Buffer.concat(chunks);
+			resolve({ code, stdout: stdoutBytes.toString("utf-8"), stdoutBytes, stderr });
+		};
+		child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+		});
+		if (options.stdin !== undefined) {
+			child.stdin?.on("error", () => {
+				// The container may exit before consuming stdin; the exit code carries the failure.
+			});
+			child.stdin?.end(options.stdin);
+		}
+		child.on("close", (code) => finish(code ?? 1));
+		child.on("error", (error) => {
+			stderr = String(error);
+			finish(1);
+		});
+	});
 }
 
 /** Create the project container: detached, privileged for raw sockets, workdir mounted. */

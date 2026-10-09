@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { Composer } from "./components/Composer.tsx";
+import { type FilePanelState, FilePanel, saveDownload } from "./components/FilePanel.tsx";
 import { MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
+import { type SidePanelTab, SidePanel } from "./components/SidePanel.tsx";
+import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
 import { type SidebarTab, Sidebar } from "./components/Sidebar.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import type {
 	AgentMessageView,
+	ZGFileEntry,
+	ZGFilePreview,
 	ZGProjectInfo,
 	SessionEventView,
 	SessionInfoView,
@@ -19,6 +25,8 @@ import type {
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGStatsView,
+	ZGSubagentEvent,
+	ZGSubagentRun,
 	ZGTestResult,
 } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
@@ -77,10 +85,24 @@ export function App() {
 	>([]);
 	/** Queued steering/follow-up texts reported by queue_update events. */
 	const [queuedMessages, setQueuedMessages] = useState<{ kind: "steer" | "followUp"; text: string }[]>([]);
+	/** Right-hand drawer: null when closed. */
+	const [sidePanel, setSidePanel] = useState<SidePanelTab | null>(null);
+	const [filePath, setFilePath] = useState("/work");
+	const [fileEntries, setFileEntries] = useState<ZGFileEntry[]>([]);
+	const [filePreview, setFilePreview] = useState<ZGFilePreview | null>(null);
+	const [fileBusy, setFileBusy] = useState(false);
+	/** Loaded process steps per sub-agent run; a run absent here is not expanded. */
+	const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ZGSubagentEvent[]>>({});
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
 	const testResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
 	const snapshotRef = useRef<ZGStateSnapshot | null>(null);
+	/** Directory the file panel is showing; read by handlers that must re-list it. */
+	const filePathRef = useRef("/work");
+	/** Open drawer tab, readable from effects that must not re-run when it changes. */
+	const sidePanelRef = useRef<SidePanelTab | null>(null);
+	/** Path the preview pane is showing, so a write can refresh it. */
+	const previewPathRef = useRef<string | null>(null);
 
 	const pushError = useCallback((message: string) => {
 		setErrors((prev) => [...prev.slice(-4), message]);
@@ -89,6 +111,16 @@ export function App() {
 
 	const refreshStats = useCallback(() => {
 		connectionRef.current?.send({ type: "get_stats" });
+	}, []);
+
+	/** Show a directory in the file panel (also used to refresh the current one). */
+	const loadFiles = useCallback((path: string) => {
+		filePathRef.current = path;
+		setFilePath(path);
+		setFileBusy(true);
+		setFilePreview(null);
+		previewPathRef.current = null;
+		connectionRef.current?.send({ type: "list_files", path });
 	}, []);
 
 	const handleServerMessage = useCallback(
@@ -142,6 +174,52 @@ export function App() {
 				case "projects":
 					setProjects(message.projects);
 					setActiveProject((prev) => message.projects.find((project) => project.id === message.activeProjectId) ?? (message.activeProjectId === null ? null : prev));
+					break;
+				case "files":
+					filePathRef.current = message.path;
+					setFilePath(message.path);
+					setFileEntries(message.entries);
+					setFileBusy(false);
+					break;
+				case "file_preview":
+					previewPathRef.current = message.preview.path;
+					setFilePreview(message.preview);
+					setFileBusy(false);
+					break;
+				case "file_download":
+					saveDownload(message.path, message.data, message.mimeType);
+					setFileBusy(false);
+					break;
+				case "file_result":
+					setFileBusy(false);
+					if (!message.ok) {
+						if (message.error) pushError(message.error);
+					} else if (message.action === "删除" || message.action === "重命名") {
+						// The previewed path is gone or moved; drop the pane.
+						previewPathRef.current = null;
+						setFilePreview(null);
+					} else if (message.action === "保存" || message.action === "上传") {
+						// Re-read so the pane shows what was actually written.
+						if (previewPathRef.current) {
+							connectionRef.current?.send({ type: "read_file", path: previewPathRef.current });
+						}
+					}
+					// Any mutation changes the listing; re-read it and refresh the snapshot.
+					connectionRef.current?.send({ type: "list_files", path: filePathRef.current });
+					connectionRef.current?.send({ type: "get_state" });
+					break;
+				case "subagent_run":
+					setSubagentTranscripts((prev) => ({ ...prev, [message.run.id]: message.run.events ?? [] }));
+					break;
+				case "subagent_event":
+					setSubagentTranscripts((prev) => {
+						const existing = prev[message.runId];
+						if (!existing) return prev;
+						return { ...prev, [message.runId]: [...existing, message.event] };
+					});
+					break;
+				case "subagent_result":
+					if (!message.ok && message.error) pushError(message.error);
 					break;
 				case "error":
 					pushError(message.message);
@@ -231,6 +309,23 @@ export function App() {
 		connectionRef.current?.send(message);
 	}, []);
 
+	/** Create a project and resolve with the server's error message, if any. */
+	const addProject = useCallback(
+		async (name: string): Promise<string | null> => {
+			return await new Promise<string | null>((resolve) => {
+				projectErrorRef.current = resolve;
+				send({ type: "add_project", name });
+				window.setTimeout(() => {
+					if (projectErrorRef.current === resolve) {
+						projectErrorRef.current = null;
+						resolve(null);
+					}
+				}, 60000);
+			});
+		},
+		[send],
+	);
+
 	const openPanelTab = useCallback(
 		(tab: SidebarTab) => {
 			setPanelTab(tab);
@@ -250,10 +345,37 @@ export function App() {
 		setViewer({ title: command ? command.slice(0, 80) : "工具输出", output });
 	}, []);
 
+	const toggleSidePanel = useCallback(
+		(tab: SidePanelTab) => {
+			setSidePanel((prev) => {
+				const next = prev === tab ? null : tab;
+				sidePanelRef.current = next;
+				return next;
+			});
+			if (tab === "files") loadFiles(filePathRef.current);
+		},
+		[loadFiles],
+	);
+
+	// A different project means a different container: drop anything cached from
+	// the previous one and re-read the work directory if the panel is open.
+	useEffect(() => {
+		setFilePath("/work");
+		filePathRef.current = "/work";
+		setFileEntries([]);
+		setFilePreview(null);
+		setSubagentTranscripts({});
+		if (sidePanelRef.current === "files") loadFiles("/work");
+	}, [snapshot?.project?.id, loadFiles]);
+
 	const mode: ZGMode = snapshot?.mode ?? "review";
 	const streaming = snapshot?.streaming ?? false;
 	const pendingApprovals = snapshot?.pendingApprovals ?? [];
 	const needsConfig = snapshot !== null && !snapshot.modelConfigured;
+	/** No project means no container, so the console blocks the chat entirely. */
+	const needsProject = snapshot !== null && snapshot.project === null;
+	const subagentRuns = snapshot?.subagents ?? [];
+	const subagentRunning = subagentRuns.filter((run) => run.status === "running").length;
 
 	const visibleMessages = useMemo(
 		() => (snapshot?.messages ?? []).filter((message) => message.role !== "system"),
@@ -286,19 +408,7 @@ export function App() {
 						activeProject={snapshot?.project ?? null}
 						streaming={streaming}
 						onSwitch={(id) => send({ type: "switch_project", id })}
-						onClear={() => send({ type: "switch_project", id: null })}
-						onAdd={async (name) => {
-							return await new Promise<string | null>((resolve) => {
-								projectErrorRef.current = resolve;
-								send({ type: "add_project", name });
-								window.setTimeout(() => {
-									if (projectErrorRef.current === resolve) {
-										projectErrorRef.current = null;
-										resolve(null);
-									}
-								}, 10000);
-							});
-						}}
+						onAdd={addProject}
 						onRemove={async (id, confirmName) => {
 							return await new Promise<string | null>((resolve) => {
 								projectErrorRef.current = resolve;
@@ -308,7 +418,7 @@ export function App() {
 										projectErrorRef.current = null;
 										resolve(null);
 									}
-								}, 10000);
+								}, 60000);
 							});
 						}}
 					/>
@@ -345,7 +455,15 @@ export function App() {
 				onRemoveAllowedPrefix={(prefix) => send({ type: "remove_allowed_prefix", prefix })}
 			/>
 			<main className="main">
-				{panelTab === "chat" ? (
+				{needsProject ? (
+					<ProjectGate
+						projects={projects}
+						busy={streaming}
+						onCreate={addProject}
+						onSwitch={(id) => send({ type: "switch_project", id })}
+						onOpenSettings={() => setPanelTab("settings")}
+					/>
+				) : panelTab === "chat" ? (
 					<div className="chat-wrap">
 							<div className="transcript" ref={transcriptRef}>
 								{visibleMessages.length === 0 && !liveText && !streaming ? (
@@ -425,6 +543,10 @@ export function App() {
 								pendingApprovals={pendingApprovals.length}
 								stats={stats}
 								branchOpen={branchOpen}
+								sidePanel={sidePanel}
+								hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+								subagentRunning={subagentRunning}
+								onToggleSidePanel={toggleSidePanel}
 								thinkingLevel={snapshot?.thinkingLevel ?? "off"}
 								availableThinkingLevels={snapshot?.availableThinkingLevels ?? []}
 								onSetMode={(next) => send({ type: "set_mode", mode: next })}
@@ -474,6 +596,61 @@ export function App() {
 					</div>
 				)}
 			</main>
+			<SidePanel
+				open={sidePanel !== null && !needsProject}
+				tab={sidePanel ?? "files"}
+				projectName={snapshot?.project?.name ?? null}
+				fileCount={fileEntries.length}
+				runningCount={subagentRunning}
+				onTab={(tab) => toggleSidePanel(tab)}
+				onClose={() => {
+					setSidePanel(null);
+					sidePanelRef.current = null;
+				}}
+			>
+				{sidePanel === "files" ? (
+					<FilePanel
+						state={{ path: filePath, entries: fileEntries, preview: filePreview, busy: fileBusy }}
+						onOpen={loadFiles}
+						onPreview={(path) => {
+							setFileBusy(true);
+							send({ type: "read_file", path });
+						}}
+						onSave={(path, text) => {
+							setFileBusy(true);
+							send({ type: "write_file", path, text });
+						}}
+						onUpload={(path, data) => {
+							setFileBusy(true);
+							send({ type: "upload_file", path, data });
+						}}
+						onDelete={(path) => {
+							setFileBusy(true);
+							send({ type: "delete_path", path });
+						}}
+						onRename={(from, to) => {
+							setFileBusy(true);
+							send({ type: "rename_path", from, to });
+						}}
+						onMkdir={(path) => {
+							setFileBusy(true);
+							send({ type: "make_directory", path });
+						}}
+						onDownload={(path) => {
+							setFileBusy(true);
+							send({ type: "download_file", path });
+						}}
+					/>
+				) : (
+					<SubagentPanel
+						runs={subagentRuns}
+						transcripts={subagentTranscripts}
+						onLoad={(id) => send({ type: "get_subagent", id })}
+						onAbort={(id) => send({ type: "abort_subagent", id })}
+						onSteer={(id, text) => send({ type: "steer_subagent", id, text })}
+					/>
+				)}
+			</SidePanel>
 			{branchOpen && panelTab === "chat" ? (
 				<BranchModal
 					tree={tree}

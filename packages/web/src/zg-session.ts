@@ -17,7 +17,6 @@ import {
 	createBashTool,
 	createCodemodeExtension,
 	createEditTool,
-	createLocalBashOperations,
 	createMcpExtension,
 	createReadTool,
 	createToolSearchExtension,
@@ -35,15 +34,29 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { ApprovalGate } from "./approval.ts";
 import { dockerBashOperations } from "./docker.ts";
+import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
 import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
-import type { ZGForkPoint, ZGMode, ZGModelConfig, ZGStateSnapshot } from "./protocol.ts";
+import type {
+	ZGFileEntry,
+	ZGFilePreview,
+	ZGForkPoint,
+	ZGMode,
+	ZGModelConfig,
+	ZGStateSnapshot,
+	ZGSubagentEvent,
+	ZGSubagentRun,
+} from "./protocol.ts";
 import { createSubagentTool } from "./subagent.ts";
+import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
+import { SubagentRegistry } from "./subagents.ts";
 
 export interface ZGRuntimeHooks {
 	/** Events of the currently viewed session only. */
 	onSessionEvent(event: AgentSessionEvent): void;
 	/** Fired whenever operator-visible state changes (approvals, mode, model, run lifecycle). */
 	onStateChange(): void;
+	/** One live sub-agent step, for the sub-agent panel. */
+	onSubagentEvent(runId: string, event: ZGSubagentEvent): void;
 }
 
 interface ManagedSession {
@@ -62,7 +75,8 @@ export class ZGAgentRuntime {
 	private sessionDir: string;
 	private readonly hooks: ZGRuntimeHooks;
 	private readonly approvals: ApprovalGate;
-	private readonly startupCwd: string;
+	private readonly subagentStore: SubagentStore;
+	private readonly subagents: SubagentRegistry;
 
 	private mode: ZGMode = "review";
 	private sessions = new Map<string, ManagedSession>();
@@ -76,7 +90,6 @@ export class ZGAgentRuntime {
 		hooks: ZGRuntimeHooks;
 	}) {
 		this.cwd = options.cwd;
-		this.startupCwd = options.cwd;
 		this.activeProjectId = options.activeProject?.id;
 		this.activeProjectName = options.activeProject?.name;
 		this.activeContainer = options.activeProject?.container;
@@ -87,6 +100,11 @@ export class ZGAgentRuntime {
 		this.hooks = options.hooks;
 		this.approvals = new ApprovalGate(() => this.hooks.onStateChange());
 		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
+		this.subagentStore = new SubagentStore(subagentDbPath(this.agentDir));
+		this.subagents = new SubagentRegistry(this.subagentStore, {
+			onEvent: (runId, event) => this.hooks.onSubagentEvent(runId, event),
+			onRunChange: () => this.hooks.onStateChange(),
+		});
 	}
 
 	private get active(): ManagedSession | undefined {
@@ -105,19 +123,19 @@ export class ZGAgentRuntime {
 		return this.active?.session.isStreaming ?? false;
 	}
 
-	/** Create (or re-create) the viewed session. */
+	/**
+	 * Create the viewed session for the active project. Without a project no
+	 * session exists at all: the console is not a host-shell runner, so there is
+	 * no default directory to fall back to.
+	 */
 	async init(): Promise<void> {
+		if (!this.activeProjectId) return;
 		this.activeKey = await this.createSessionInto(SessionManager.create(this.cwd, this.sessionDir || undefined));
 	}
 
 	/** Activate a container project: sessions live on the host under its workDir, tools exec in the container. */
 	async switchProject(project: { id: string; name: string; container?: string; cwd: string }): Promise<void> {
 		await this.applyProject(project.id, project.name, project.cwd, project.container);
-	}
-
-	/** Leave the active project and fall back to the server's startup directory. */
-	async clearProject(): Promise<void> {
-		await this.applyProject(undefined, undefined, this.startupCwd, undefined);
 	}
 
 	private async applyProject(
@@ -140,6 +158,8 @@ export class ZGAgentRuntime {
 	 * never touched: switching views must not interrupt background runs.
 	 */
 	private async createSessionInto(manager: SessionManager): Promise<string> {
+		// Every tool call runs in the project container; there is no host backend.
+		const container = this.requireContainer();
 		if (!this.modelRuntime) {
 			this.modelRuntime = await ModelRuntime.create({
 				authPath: `${this.agentDir}/auth.json`,
@@ -154,8 +174,11 @@ export class ZGAgentRuntime {
 			manager,
 			unsubscribe: () => {},
 		};
-		const operations = this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined;
-		const bash = this.createGatedBash(manager.getCwd(), () => this.sessionLabel(managed), operations);
+		const bash = this.createGatedBash(
+			manager.getCwd(),
+			() => this.sessionLabel(managed),
+			dockerBashOperations(container),
+		);
 
 		// The CLI loads codemode, tool search, and MCP as built-in extensions; SDK
 		// sessions have to add them explicitly. codemode and tool_search register
@@ -198,12 +221,11 @@ export class ZGAgentRuntime {
 					agentDir: this.agentDir,
 					getModel: () => this.resolveModel(),
 					getModelRuntime: () => this.modelRuntime,
+					registry: this.subagents,
+					getParentSessionId: () => manager.getSessionId(),
+					getProjectId: () => this.activeProjectId,
 					createGatedBash: () =>
-						this.createGatedBash(
-							manager.getCwd(),
-							() => "子代理",
-							this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined,
-						),
+						this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
 				}),
 			],
 		});
@@ -227,24 +249,49 @@ export class ZGAgentRuntime {
 	}
 
 	/** Bash tool whose every command passes the shared approval gate (unless prefix-allowed). */
-	private createGatedBash(cwd: string, label: () => string, operations?: BashOperations) {
-		const localOps = operations ?? createLocalBashOperations();
+	private createGatedBash(cwd: string, label: () => string, operations: BashOperations) {
 		const gatedOps: BashOperations = {
 			exec: (command, commandCwd, options) => {
 				// Prefix-allowed commands skip the queue; everything else waits for a decision.
 				if (this.mode !== "review" || this.approvals.isAutoAllowed(command)) {
-					return localOps.exec(command, commandCwd, options);
+					return operations.exec(command, commandCwd, options);
 				}
 				return this.approvals
 					.request(command, commandCwd, options?.signal, label())
 					.then((outcome) =>
 						outcome.approved && outcome.command !== undefined
-							? localOps.exec(outcome.command, commandCwd, options)
+							? operations.exec(outcome.command, commandCwd, options)
 							: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`)),
 					);
 			},
 		};
 		return createBashTool(cwd, { operations: gatedOps });
+	}
+
+	private requireContainer(): string {
+		if (!this.activeContainer) throw new Error("没有可用的项目容器，请先创建或选择一个项目");
+		return this.activeContainer;
+	}
+
+	/**
+	 * Forget a project and drop its sessions. Used when the project is deleted:
+	 * its container is gone, so nothing of it can run any more. The runtime ends
+	 * up with no project, which the console renders as the project-required state.
+	 */
+	async detachProject(workDir?: string): Promise<void> {
+		for (const [key, managed] of [...this.sessions]) {
+			if (workDir !== undefined && managed.manager.getCwd() !== workDir) continue;
+			managed.unsubscribe();
+			managed.session.dispose();
+			this.sessions.delete(key);
+			if (this.activeKey === key) this.activeKey = undefined;
+		}
+		if (workDir === undefined || this.cwd === workDir) {
+			this.activeProjectId = undefined;
+			this.activeProjectName = undefined;
+			this.activeContainer = undefined;
+		}
+		this.hooks.onStateChange();
 	}
 
 	private resolveModel() {
@@ -253,17 +300,10 @@ export class ZGAgentRuntime {
 		return this.modelRuntime.getModel(ZG_PROVIDER_ID, config.modelId);
 	}
 
-	/** Escape hatch for tests: host-dir sessions without a container project. */
-	private get allowHostSessions(): boolean {
-		return process.env.ZG_ALLOW_HOST_SESSIONS === "1";
-	}
-
 	async prompt(text: string, streamingBehavior?: "steer" | "followUp", images?: ImageContent[]): Promise<void> {
+		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
 		const active = this.active;
-		if (!active) throw new Error("Session not initialized");
-		if (!this.activeContainer && !this.allowHostSessions) {
-			throw new Error("没有可用的项目容器。请先在左上角创建或选择一个项目。");
-		}
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
 		// pi's built-in slash commands only exist in interactive mode, so the console
 		// honors the one its own context-overflow hint references.
 		if (text.trim() === "/compact") {
@@ -481,12 +521,65 @@ export class ZGAgentRuntime {
 			runningSessions: [...this.sessions.values()]
 				.filter((managed) => managed.session.isStreaming)
 				.map((managed) => managed.key),
+			subagents: this.listSubagents(),
 		};
 	}
 
 	/** Usage and cost statistics for the viewed session. */
 	getStats() {
 		return this.active?.session.getSessionStats();
+	}
+
+	/** Directory listing in the project container's /work. */
+	async listFiles(path: string): Promise<{ path: string; entries: ZGFileEntry[] }> {
+		return await listFiles(this.requireContainer(), path);
+	}
+
+	async readFile(path: string): Promise<ZGFilePreview> {
+		return await readFilePreview(this.requireContainer(), path);
+	}
+
+	async writeFile(path: string, text: string): Promise<{ path: string; size: number }> {
+		return await writeFile(this.requireContainer(), path, Buffer.from(text, "utf-8"));
+	}
+
+	async uploadFile(path: string, base64: string): Promise<{ path: string; size: number }> {
+		return await writeFile(this.requireContainer(), path, Buffer.from(base64, "base64"));
+	}
+
+	async downloadFile(path: string): Promise<{ path: string; size: number; data: string }> {
+		return await downloadFile(this.requireContainer(), path);
+	}
+
+	async deletePath(path: string): Promise<void> {
+		await deletePath(this.requireContainer(), path);
+	}
+
+	async renamePath(from: string, to: string): Promise<{ from: string; to: string }> {
+		return await renamePath(this.requireContainer(), from, to);
+	}
+
+	async makeDirectory(path: string): Promise<{ path: string }> {
+		return await makeDirectory(this.requireContainer(), path);
+	}
+
+	/** Sub-agent runs of the viewed session, newest first, without process steps. */
+	listSubagents(): ZGSubagentRun[] {
+		const sessionId = this.currentSessionId;
+		if (!sessionId) return [];
+		return this.subagents.list(sessionId);
+	}
+
+	getSubagent(id: string): ZGSubagentRun | undefined {
+		return this.subagents.get(id);
+	}
+
+	async abortSubagent(id: string): Promise<boolean> {
+		return await this.subagents.abort(id);
+	}
+
+	async steerSubagent(id: string, text: string): Promise<boolean> {
+		return await this.subagents.steer(id, text);
 	}
 
 	dispose(): void {
@@ -497,6 +590,7 @@ export class ZGAgentRuntime {
 		}
 		this.sessions.clear();
 		this.activeKey = undefined;
+		this.subagentStore.close();
 	}
 }
 

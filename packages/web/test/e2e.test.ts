@@ -14,8 +14,17 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
 import { writeModelConfig } from "../src/model-config.ts";
-import type { ZGClientMessage, ZGServerMessage, ZGStateSnapshot } from "../src/protocol.ts";
+import type {
+	ZGClientMessage,
+	ZGFileEntry,
+	ZGFilePreview,
+	ZGServerMessage,
+	ZGStateSnapshot,
+	ZGSubagentEvent,
+	ZGSubagentRun,
+} from "../src/protocol.ts";
 import { startZGServer } from "../src/server.ts";
+import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
 
 /** Scripted assistant turns the fake endpoint serves in order. */
 type ScriptStep = {
@@ -45,12 +54,25 @@ const SCRIPT: ScriptStep[] = [
 	{ text: "FORK_TURN" },
 ];
 
+/** Project the suite creates; its work directory backs the file-panel assertions. */
+const PROJECT_NAME = "e2e-project";
+
+/** Prompt that identifies the sub-agent scenario served out of band. */
+const SECOND_SCENARIO_PROMPT = "delegate a read-only recon";
+/** Task the sub-agent of that scenario receives. */
+const SECOND_SCENARIO_TASK = "recon the second target";
+/** Marker present in every sub-agent system prompt. */
+const SUBAGENT_MARKER = "sub-agent of ZGAgent";
+
 let endpoint: Server;
 let endpointPort = 0;
 let tempRoot = "";
 let closeServer: (() => void) | undefined;
 let serverUrl = "";
 let ws: WebSocket | undefined;
+let fakeDocker: FakeDocker | undefined;
+/** Host directory mounted at /work for the suite's project. */
+let workDir = "";
 /** Body of the most recent completion request, for asserting what reached the model. */
 let lastRequestBody = "";
 /** The out-of-band image response is served once, then the script resumes. */
@@ -180,8 +202,23 @@ function startFakeEndpoint(): Promise<void> {
 			// in the session history, so later requests also mention one.
 			const isImageTurn = !imageTurnServed && body.includes("image_url");
 			if (isImageTurn) imageTurnServed = true;
-			const step = isImageTurn ? { text: "IMAGE_TURN_OK" } : (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
-			const id = `chatcmpl-${isImageTurn ? "image" : ++requestCount}`;
+			// The second sub-agent scenario is routed by content rather than by script
+			// index, so it does not depend on how many turns the earlier tests used.
+			const fromSubagent = body.includes(SUBAGENT_MARKER);
+			const inSecondScenario = fromSubagent
+				? body.includes(SECOND_SCENARIO_TASK)
+				: body.includes(SECOND_SCENARIO_PROMPT);
+			const step = isImageTurn
+				? { text: "IMAGE_TURN_OK" }
+				: inSecondScenario
+					? fromSubagent
+						? { text: "SECOND_SUBAGENT_DONE" }
+						: body.includes("SECOND_SUBAGENT_DONE")
+							? { text: "SECOND_PARENT_SUMMARY" }
+							: { spawnAgent: { task: SECOND_SCENARIO_TASK, mode: "explore" as const } }
+					: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
+			if (!isImageTurn && !inSecondScenario) requestCount += 1;
+			const id = `chatcmpl-${isImageTurn ? "image" : inSecondScenario ? "second" : requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCallCommand
@@ -312,6 +349,10 @@ beforeAll(async () => {
 		apiKey: "test-key",
 		modelId: "zg-fake-model",
 	});
+	// The console refuses to run without a project, and projects need a container.
+	// The fake docker supplies one on PATH so the real container scripts still run.
+	workDir = join(tempRoot, "projects", projectSlug(PROJECT_NAME));
+	fakeDocker = installFakeDocker(tempRoot, workDir);
 	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0 });
 	closeServer = started.close;
 	serverUrl = started.url;
@@ -326,12 +367,23 @@ beforeAll(async () => {
 		ws.once("open", () => resolve());
 		ws.once("error", reject);
 	});
+
+	// Create and enter the project every other test runs inside.
+	send({ type: "add_project", name: PROJECT_NAME });
+	const created = await waitFor((message) => message.type === "projects" && message.projects.length === 1);
+	const projectId = (created as { projects: Array<{ id: string }> }).projects[0]?.id ?? "";
+	expect(projectId).not.toBe("");
+	send({ type: "switch_project", id: projectId });
+	const entered = await snapshotWhere((snapshot_) => snapshot_.project?.id === projectId);
+	expect(entered.project?.name).toBe(PROJECT_NAME);
+	drainIncoming();
 });
 
 afterAll(() => {
 	ws?.close();
 	closeServer?.();
 	endpoint?.close();
+	fakeDocker?.restore();
 	if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
 });
 
@@ -628,6 +680,167 @@ test("compact reports a readable message when the session has nothing to compact
 	// point is that the refusal reaches the operator as a Chinese message.
 	const error = await waitFor((message) => message.type === "error");
 	expect((error as { message: string }).message).toContain("无需压缩");
+});
+
+// Runs after the sub-agent scenarios above, which is what puts a finished act-mode
+// run in this session's history.
+test("sub-agent runs stream live, keep their process, and stay readable as history", async () => {
+	drainIncoming();
+	send({ type: "prompt", text: "delegate a read-only recon" });
+
+	// The panel is fed live, before the run finishes.
+	const live = await waitFor((message) => message.type === "subagent_event");
+	const liveEvent = (live as { event: ZGSubagentEvent }).event;
+	expect(liveEvent.kind).toBeTruthy();
+	expect(liveEvent.seq).toBeGreaterThan(0);
+
+	const settled = await snapshotWhere(
+		(snapshot_) =>
+			!snapshot_.streaming &&
+			snapshot_.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes("SECOND_PARENT_SUMMARY"),
+					),
+			),
+	);
+
+	// The snapshot carries the run list for the active session, newest first.
+	const runs = settled.subagents;
+	expect(runs.length).toBeGreaterThanOrEqual(2);
+	const newest = runs[0];
+	expect(newest.mode).toBe("explore");
+	expect(newest.status).toBe("done");
+	expect(newest.task).toContain("recon the second target");
+	expect(newest.turns).toBeGreaterThanOrEqual(1);
+	// Summaries stay small: process steps are fetched per run.
+	expect(newest.events).toBeUndefined();
+
+	// Expanding one run loads its recorded process.
+	send({ type: "get_subagent", id: newest.id });
+	const loaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === newest.id);
+	const events = (loaded as { run: ZGSubagentRun }).run.events ?? [];
+	expect(events[0]?.kind).toBe("status");
+	expect(events.some((event) => event.kind === "turn")).toBe(true);
+	expect(events.some((event) => event.kind === "text" && (event.text ?? "").includes("SECOND_SUBAGENT_DONE"))).toBe(
+		true,
+	);
+	expect(events[events.length - 1]?.kind).toBe("status");
+	expect(events[events.length - 1]?.status).toBe("done");
+
+	// The earlier act-mode run kept its tool calls, so a finished run is reviewable
+	// long after its in-memory session was disposed.
+	const actRun = runs.find((run) => run.mode === "act");
+	expect(actRun).toBeDefined();
+	send({ type: "get_subagent", id: actRun?.id ?? "" });
+	const actLoaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === actRun?.id);
+	const actEvents = (actLoaded as { run: ZGSubagentRun }).run.events ?? [];
+	const started = actEvents.find((event) => event.kind === "tool_start" && event.toolName === "bash");
+	expect(started).toBeDefined();
+	const finished = actEvents.find((event) => event.kind === "tool_end" && event.toolCallId === started?.toolCallId);
+	expect(finished?.output ?? "").toContain("zg-subagent-command");
+
+	// Reading it again returns the same steps: the record is durable, not a buffer.
+	send({ type: "get_subagent", id: actRun?.id ?? "" });
+	const reread = await waitFor((message) => message.type === "subagent_run" && message.run.id === actRun?.id);
+	expect(((reread as { run: ZGSubagentRun }).run.events ?? []).length).toBe(actEvents.length);
+});
+
+test("a finished sub-agent cannot be aborted or steered", async () => {
+	drainIncoming();
+	send({ type: "get_state" });
+	const snapshot = await snapshotWhere((snapshot_) => snapshot_.subagents.length > 0);
+	const done = snapshot.subagents.find((run) => run.status !== "running");
+	expect(done).toBeDefined();
+
+	send({ type: "abort_subagent", id: done?.id ?? "" });
+	const aborted = await waitFor((message) => message.type === "subagent_result" && message.action === "中止");
+	expect((aborted as { ok: boolean }).ok).toBe(false);
+
+	send({ type: "steer_subagent", id: done?.id ?? "", text: "keep going" });
+	const steered = await waitFor((message) => message.type === "subagent_result" && message.action === "追加指令");
+	expect((steered as { ok: boolean }).ok).toBe(false);
+});
+
+test("the file panel reads and writes inside the container work directory", async () => {
+	drainIncoming();
+	const listWork = async (path: string): Promise<ZGFileEntry[]> => {
+		send({ type: "list_files", path });
+		const listed = await waitFor((message) => message.type === "files" && message.path === path);
+		return (listed as { entries: ZGFileEntry[] }).entries;
+	};
+	const preview = async (path: string): Promise<ZGFilePreview> => {
+		send({ type: "read_file", path });
+		const read = await waitFor((message) => message.type === "file_preview" && message.preview.path === path);
+		return (read as { preview: ZGFilePreview }).preview;
+	};
+	const expectOk = async (action: string): Promise<void> => {
+		const result = await waitFor((message) => message.type === "file_result" && message.action === action);
+		expect((result as { ok: boolean; error?: string }).error ?? "").toBe("");
+		expect((result as { ok: boolean }).ok).toBe(true);
+	};
+
+	// Write, including parent directories the panel has to create itself.
+	send({ type: "write_file", path: "/work/reports/notes.txt", text: "hello zg" });
+	await expectOk("保存");
+	expect(await listWork("/work")).toEqual([expect.objectContaining({ name: "reports", type: "dir" })]);
+	expect(await listWork("/work/reports")).toEqual([
+		expect.objectContaining({ name: "notes.txt", type: "file", size: 8 }),
+	]);
+
+	// Preview returns the text, and editing replaces it.
+	const first = await preview("/work/reports/notes.txt");
+	expect(first.kind).toBe("text");
+	expect(first.text).toBe("hello zg");
+	expect(first.truncated).toBe(false);
+	send({ type: "write_file", path: "/work/reports/notes.txt", text: "edited by the panel" });
+	await expectOk("保存");
+	expect((await preview("/work/reports/notes.txt")).text).toBe("edited by the panel");
+
+	// Upload decodes base64 into the container, and binary files are flagged.
+	const binary = Buffer.from([0x00, 0x01, 0x02, 0xff]).toString("base64");
+	send({ type: "upload_file", path: "/work/reports/blob.bin", data: binary });
+	await expectOk("上传");
+	const uploaded = await preview("/work/reports/blob.bin");
+	expect(uploaded.kind).toBe("binary");
+	expect(uploaded.size).toBe(4);
+
+	// Download round-trips the bytes back out.
+	send({ type: "download_file", path: "/work/reports/blob.bin" });
+	const downloaded = await waitFor((message) => message.type === "file_download");
+	expect((downloaded as { data: string }).data).toBe(binary);
+	expect((downloaded as { size: number }).size).toBe(4);
+
+	// Rename moves the entry; an existing target is refused rather than overwritten.
+	send({ type: "rename_path", from: "/work/reports/blob.bin", to: "/work/reports/renamed.bin" });
+	await expectOk("重命名");
+	expect((await listWork("/work/reports")).map((entry) => entry.name)).toContain("renamed.bin");
+	send({ type: "rename_path", from: "/work/reports/renamed.bin", to: "/work/reports/notes.txt" });
+	const refused = await waitFor((message) => message.type === "file_result" && message.action === "重命名");
+	expect((refused as { ok: boolean; error?: string }).error).toContain("目标已存在");
+
+	// Delete removes files and directories recursively.
+	send({ type: "delete_path", path: "/work/reports" });
+	await expectOk("删除");
+	expect(await listWork("/work")).toEqual([]);
+});
+
+test("the file panel refuses paths outside /work", async () => {
+	drainIncoming();
+	const expectRejected = async (send: () => void): Promise<void> => {
+		drainIncoming();
+		send();
+		const error = await waitFor((message) => message.type === "error" || message.type === "file_result");
+		const text = error.type === "error" ? error.message : ((error as { error?: string }).error ?? "");
+		expect(text).toMatch(/路径越界|不允许操作|已存在/);
+	};
+
+	await expectRejected(() => send({ type: "read_file", path: "/work/../etc/passwd" }));
+	await expectRejected(() => send({ type: "list_files", path: "/etc" }));
+	await expectRejected(() => send({ type: "write_file", path: "/work/../../tmp/zg-escape.txt", text: "nope" }));
+	await expectRejected(() => send({ type: "delete_path", path: "/work" }));
+	await expectRejected(() => send({ type: "make_directory", path: "/work" }));
 });
 
 test("sessions can be renamed and deleted from the sidebar", async () => {

@@ -12,6 +12,7 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { testModelConfig } from "./endpoint-probe.ts";
+import { guessMimeType } from "./files.ts";
 import {
 	addProject,
 	ensureProjectReady,
@@ -61,6 +62,31 @@ function sendJson(response: ServerResponse, payload: unknown): void {
 	response.end(JSON.stringify(payload));
 }
 
+function sendTo(socket: WebSocket, message: ZGServerMessage): void {
+	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+}
+
+/** File mutations report their own outcome so the panel can show it in place. */
+async function runFileAction(
+	socket: WebSocket,
+	action: string,
+	path: string,
+	run: () => Promise<unknown>,
+): Promise<void> {
+	try {
+		await run();
+		sendTo(socket, { type: "file_result", action, path, ok: true });
+	} catch (error) {
+		sendTo(socket, {
+			type: "file_result",
+			action,
+			path,
+			ok: false,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 function serveStatic(distDir: string, requestPath: string, response: ServerResponse): void {
 	let relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
 	relative = normalize(relative).replace(/^(\.\.[/\\])+/, "");
@@ -105,6 +131,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 		hooks: {
 			onSessionEvent: (event) => broadcast({ type: "session_event", event }),
 			onStateChange: () => broadcastSnapshot(),
+			onSubagentEvent: (runId, event) => broadcast({ type: "subagent_event", runId, event }),
 		},
 	});
 
@@ -329,17 +356,17 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						sendError(socket, `确认失败：请输入完整项目名「${target.name}」`);
 						return;
 					}
-					// Leave the active project first (falls back to the startup directory).
-					if (runtime.snapshot().project?.id === message.id) {
-						await runtime.clearProject();
-					}
 					// Unregister, stop+remove the container; sessions for its workDir stay
 					// on the host until the operator removes them from the sidebar.
+					const wasActive = runtime.snapshot().project?.id === message.id;
 					const result = await removeProject(agentDir, message.id);
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
 					}
+					// The removed project's container is gone, so its sessions cannot run;
+					// the console falls back to the project-required state.
+					if (wasActive) await runtime.detachProject(target.workDir);
 					broadcastProjects();
 					broadcastSnapshot();
 					return;
@@ -350,30 +377,100 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						return;
 					}
 					const registry = listProjects(agentDir);
-					if (message.id === null) {
-						setLastActiveProject(agentDir, undefined);
-						await runtime.clearProject();
-					} else {
-						const target = registry.projects.find((project) => project.id === message.id);
-						if (!target) {
-							sendError(socket, "项目不存在");
-							return;
-						}
-						if (!(await ensureProjectReady(target))) {
-							sendError(socket, `项目容器 ${target.container} 无法启动，请检查 Docker`);
-							return;
-						}
-						setLastActiveProject(agentDir, target.id);
-						await runtime.switchProject({
-							id: target.id,
-							name: target.name,
-							container: target.container,
-							cwd: target.workDir,
-						});
+					const target = registry.projects.find((project) => project.id === message.id);
+					if (!target) {
+						sendError(socket, "项目不存在");
+						return;
 					}
+					if (!(await ensureProjectReady(target))) {
+						sendError(socket, `项目容器 ${target.container} 无法启动，请检查 Docker`);
+						return;
+					}
+					setLastActiveProject(agentDir, target.id);
+					await runtime.switchProject({
+						id: target.id,
+						name: target.name,
+						container: target.container,
+						cwd: target.workDir,
+					});
 					broadcastProjects();
 					const sessions = await runtime.listSessions();
 					broadcast({ type: "sessions", sessions });
+					return;
+				}
+				case "list_files": {
+					const listing = await runtime.listFiles(message.path);
+					sendTo(socket, { type: "files", path: listing.path, entries: listing.entries });
+					return;
+				}
+				case "read_file": {
+					const preview = await runtime.readFile(message.path);
+					sendTo(socket, { type: "file_preview", preview });
+					return;
+				}
+				case "download_file": {
+					const file = await runtime.downloadFile(message.path);
+					sendTo(socket, {
+						type: "file_download",
+						path: file.path,
+						size: file.size,
+						data: file.data,
+						mimeType: guessMimeType(file.path),
+					});
+					return;
+				}
+				case "write_file":
+					await runFileAction(socket, "保存", message.path, () => runtime.writeFile(message.path, message.text));
+					return;
+				case "upload_file":
+					await runFileAction(socket, "上传", message.path, () => runtime.uploadFile(message.path, message.data));
+					return;
+				case "delete_path":
+					await runFileAction(socket, "删除", message.path, () => runtime.deletePath(message.path));
+					return;
+				case "rename_path":
+					await runFileAction(socket, "重命名", message.from, () => runtime.renamePath(message.from, message.to));
+					return;
+				case "make_directory":
+					await runFileAction(socket, "新建目录", message.path, () => runtime.makeDirectory(message.path));
+					return;
+				case "list_subagents": {
+					sendTo(socket, { type: "subagents", runs: runtime.listSubagents() });
+					return;
+				}
+				case "get_subagent": {
+					const run = runtime.getSubagent(message.id);
+					if (!run) {
+						sendError(socket, "该子代理记录不存在");
+						return;
+					}
+					sendTo(socket, { type: "subagent_run", run });
+					return;
+				}
+				case "abort_subagent": {
+					const ok = await runtime.abortSubagent(message.id);
+					sendTo(socket, {
+						type: "subagent_result",
+						action: "中止",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该子代理已结束，无需中止" }),
+					});
+					return;
+				}
+				case "steer_subagent": {
+					if (!message.text.trim()) {
+						sendError(socket, "追加指令不能为空");
+						return;
+					}
+					const ok = await runtime.steerSubagent(message.id, message.text);
+					sendTo(socket, {
+						type: "subagent_result",
+						action: "追加指令",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该子代理已结束，无法追加指令" }),
+					});
 					return;
 				}
 				default:

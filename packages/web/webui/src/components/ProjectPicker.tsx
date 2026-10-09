@@ -6,7 +6,6 @@ export function ProjectPicker({
 	activeProject,
 	streaming,
 	onSwitch,
-	onClear,
 	onAdd,
 	onRemove,
 }: {
@@ -14,7 +13,6 @@ export function ProjectPicker({
 	activeProject: ZGProjectInfo | null;
 	streaming: boolean;
 	onSwitch: (id: string) => void;
-	onClear: () => void;
 	onAdd: (name: string) => Promise<string | null>;
 	onRemove: (id: string, confirmName: string) => Promise<string | null>;
 }) {
@@ -74,10 +72,10 @@ export function ProjectPicker({
 				className="project-current"
 				onClick={() => setOpen((prev) => !prev)}
 				disabled={streaming}
-				title={streaming ? "Agent 运行中，暂不能切换项目" : activeProject?.cwd ?? "未选择项目（使用服务启动目录）"}
+				title={streaming ? "Agent 运行中，暂不能切换项目" : (activeProject?.cwd ?? "未选择项目，请先新建项目")}
 			>
 				<span className="project-badge">P</span>
-				<span className="project-name">{activeProject?.name ?? "默认目录"}</span>
+				<span className="project-name">{activeProject?.name ?? "未选择项目"}</span>
 				<span className="caret open">{open ? "⌃" : "⌄"}</span>
 			</button>
 
@@ -124,19 +122,6 @@ export function ProjectPicker({
 								<span className="project-add">＋</span>
 								<span className="project-name">新建项目</span>
 							</button>
-							{activeProject ? (
-								<button
-									type="button"
-									className="project-option"
-									onClick={() => {
-										onClear();
-										setOpen(false);
-									}}
-								>
-									<span className="project-add">↩</span>
-									<span className="project-name">回到默认目录</span>
-								</button>
-							) : null}
 						</>
 					) : null}
 

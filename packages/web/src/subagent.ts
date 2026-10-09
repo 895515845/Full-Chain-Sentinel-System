@@ -25,6 +25,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { SubagentRegistry } from "./subagents.ts";
 
 /** Turn budget before a sub-agent is aborted. */
 const DEFAULT_MAX_TURNS = 15;
@@ -43,6 +44,12 @@ export interface SubagentToolOptions {
 	getModelRuntime: () => ModelRuntime | undefined;
 	/** Builds a bash tool wired to the shared approval gate. */
 	createGatedBash: () => ReturnType<typeof createBashTool>;
+	/** Records the run so the console can show its process and control it. */
+	registry: SubagentRegistry;
+	/** Session the spawn_agent call belongs to; scopes the run list. */
+	getParentSessionId: () => string | undefined;
+	/** Project the run belongs to, for the retained record. */
+	getProjectId: () => string | undefined;
 	maxTurns?: number;
 }
 
@@ -131,21 +138,58 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 						}),
 			});
 			const session = created.session;
+			const handle = options.registry.beginRun({
+				sessionId: options.getParentSessionId() ?? "unknown",
+				projectId: options.getProjectId(),
+				task: params.task,
+				mode: exploreOnly ? "explore" : "act",
+				session,
+			});
+			handle.push({
+				kind: "status",
+				status: "running",
+				note: `子代理启动（${exploreOnly ? "explore 只读" : "act 全工具"}）`,
+			});
 
 			let turns = 0;
 			let aborted = false;
 			const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-				if (event.type === "turn_end") {
+				if (event.type === "message_end") {
+					// Assistant messages carry the sub-agent's own text and reasoning;
+					// user and tool-result messages would only duplicate the transcript.
+					if ((event.message as { role?: string }).role !== "assistant") return;
+					for (const block of messageBlocks(event.message)) {
+						if (block.type === "text" && block.text?.trim()) handle.push({ kind: "text", text: block.text });
+						else if (block.type === "thinking" && block.thinking?.trim())
+							handle.push({ kind: "thinking", text: block.thinking });
+					}
+				} else if (event.type === "tool_execution_start") {
+					handle.push({
+						kind: "tool_start",
+						toolName: event.toolName,
+						toolCallId: event.toolCallId,
+						args: event.args,
+					});
+					pushLog(`执行 ${event.toolName} …`);
+				} else if (event.type === "tool_execution_end") {
+					handle.push({
+						kind: "tool_end",
+						toolName: event.toolName,
+						toolCallId: event.toolCallId,
+						isError: event.isError,
+						output: toolResultText(event.result),
+					});
+				} else if (event.type === "turn_end") {
 					turns += 1;
+					handle.push({ kind: "turn", text: `第 ${turns} 轮` });
 					const text = textHead(event.message);
 					if (text) pushLog(`第 ${turns} 轮：${text.slice(0, 160)}`);
 					if (turns >= maxTurns) {
 						aborted = true;
 						pushLog(`已达轮次上限（${maxTurns}），中止子代理。`);
+						handle.push({ kind: "status", status: "running", note: `已达轮次上限（${maxTurns}），中止子代理` });
 						void session.abort();
 					}
-				} else if (event.type === "tool_execution_start") {
-					pushLog(`执行 ${event.toolName} …`);
 				}
 			});
 
@@ -155,29 +199,63 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 			};
 			signal?.addEventListener("abort", onAbort, { once: true });
 
+			let failure: string | undefined;
+			let status: "done" | "error" | "aborted" = "done";
 			try {
 				await session.prompt(params.task, undefined);
+			} catch (error) {
+				// A failed sub-agent is reported to the parent as a result, not a throw,
+				// so the parent can continue with its other work.
+				status = "error";
+				failure = error instanceof Error ? error.message : String(error);
 			} finally {
 				signal?.removeEventListener("abort", onAbort);
 				unsubscribe();
-				session.dispose();
 			}
 
 			const resultText = session.getLastAssistantText() ?? "";
-			const outcome = aborted && !resultText ? "（子代理被中止，未产出结果）" : resultText;
+			if (status === "done" && aborted) status = "aborted";
+			handle.finish({ status, result: resultText, error: failure });
+			session.dispose();
+
+			const outcome =
+				status === "error"
+					? `（子代理失败：${failure}）`
+					: status === "aborted" && !resultText
+						? "（子代理被中止，未产出结果）"
+						: resultText;
 			return {
 				content: [{ type: "text", text: outcome || "（子代理结束但没有输出文本）" }],
-				details: { turns, mode: exploreOnly ? "explore" : "act", log },
-				...(aborted ? { isError: true } : {}),
+				details: { runId: handle.id, turns, mode: exploreOnly ? "explore" : "act", log },
+				...(status === "done" ? {} : { isError: true }),
 			};
 		},
 	});
 }
 
-function textHead(message: unknown): string {
-	const content = (message as { content?: Array<{ type?: string; text?: string }> }).content;
+interface MessageBlock {
+	type?: string;
+	text?: string;
+	thinking?: string;
+}
+
+function messageBlocks(message: unknown): MessageBlock[] {
+	const content = (message as { content?: unknown }).content;
+	return Array.isArray(content) ? (content as MessageBlock[]) : [];
+}
+
+/** Text of a tool result, which reaches the event as a content-block list. */
+function toolResultText(result: unknown): string {
+	const content = (result as { content?: unknown } | undefined)?.content;
 	if (!Array.isArray(content)) return "";
-	return content
+	return (content as MessageBlock[])
+		.filter((block) => block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text)
+		.join("\n");
+}
+
+function textHead(message: unknown): string {
+	return messageBlocks(message)
 		.filter((block) => block.type === "text" && typeof block.text === "string")
 		.map((block) => block.text)
 		.join(" ");

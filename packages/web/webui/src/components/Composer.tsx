@@ -36,6 +36,10 @@ export function Composer({
 	pendingApprovals,
 	stats,
 	branchOpen,
+	sidePanel,
+	hasProject,
+	subagentRunning,
+	onToggleSidePanel,
 	thinkingLevel,
 	availableThinkingLevels,
 	onSetMode,
@@ -50,6 +54,11 @@ export function Composer({
 	pendingApprovals: number;
 	stats: ZGStatsView | null;
 	branchOpen: boolean;
+	/** Which side-panel tab is open, or null when the drawer is closed. */
+	sidePanel: "files" | "subagents" | null;
+	hasProject: boolean;
+	subagentRunning: number;
+	onToggleSidePanel: (tab: "files" | "subagents") => void;
 	thinkingLevel: ZGThinkingLevel;
 	availableThinkingLevels: ZGThinkingLevel[];
 	onSetMode: (mode: ZGMode) => void;
@@ -137,6 +146,25 @@ export function Composer({
 								)}
 							</select>
 						</label>
+						<button
+							type="button"
+							className={`tool-pill ${sidePanel === "files" ? "on" : ""}`}
+							onClick={() => onToggleSidePanel("files")}
+							disabled={!hasProject}
+							title={hasProject ? "浏览容器工作目录 /work" : "请先创建或选择项目"}
+						>
+							🗀 文件
+						</button>
+						<button
+							type="button"
+							className={`tool-pill ${sidePanel === "subagents" ? "on" : ""}`}
+							onClick={() => onToggleSidePanel("subagents")}
+							disabled={!hasProject}
+							title={hasProject ? "查看子代理的实时过程并控制它" : "请先创建或选择项目"}
+						>
+							⛬ 子代理
+							{subagentRunning > 0 ? <span className="pill-count">{subagentRunning}</span> : null}
+						</button>
 						<button
 							type="button"
 							className="tool-pill"
