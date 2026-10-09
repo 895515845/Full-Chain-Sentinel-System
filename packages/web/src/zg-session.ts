@@ -15,7 +15,10 @@ import {
 	type BashOperations,
 	createAgentSession,
 	createBashTool,
+	createEditTool,
 	createLocalBashOperations,
+	createReadTool,
+	createWriteTool,
 	getAgentDir,
 	getDefaultSessionDir,
 	ModelRuntime,
@@ -147,13 +150,22 @@ export class ZGAgentRuntime {
 		const operations = this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined;
 		const bash = this.createGatedBash(manager.getCwd(), () => this.sessionLabel(managed), operations);
 
+		// `baseToolsOverride` replaces the whole base tool set, so the default coding
+		// tools must be listed explicitly alongside the gated bash. Passing only bash
+		// would leave the session with bash and the custom tools, and the system
+		// prompt's tool section would degrade to the custom tools alone.
 		const created = await createAgentSession({
 			cwd: manager.getCwd(),
 			agentDir: this.agentDir,
 			modelRuntime: this.modelRuntime,
 			model,
 			sessionManager: manager,
-			baseToolsOverride: { bash },
+			baseToolsOverride: {
+				read: createReadTool(manager.getCwd()),
+				bash,
+				edit: createEditTool(manager.getCwd()),
+				write: createWriteTool(manager.getCwd()),
+			},
 			customTools: [
 				createSubagentTool({
 					cwd: manager.getCwd(),

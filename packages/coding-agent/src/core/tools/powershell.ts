@@ -57,11 +57,5 @@ export function createPowerShellToolDefinition(
 }
 
 export function createPowerShellTool(cwd: string, options?: PowerShellToolOptions): ReturnType<typeof createBashTool> {
-	const definition = createPowerShellToolDefinition(cwd, options);
-	const tool = wrapToolDefinition(definition);
-	Object.assign(tool, {
-		promptSnippet: definition.promptSnippet,
-		promptGuidelines: definition.promptGuidelines,
-	});
-	return tool;
+	return wrapToolDefinition(createPowerShellToolDefinition(cwd, options));
 }

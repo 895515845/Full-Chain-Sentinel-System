@@ -365,6 +365,27 @@ test("review mode gates bash, executes the edited command, and streams the final
 	expect(finalText).toContain("REVIEW_RUN_COMPLETE");
 });
 
+// Depends on the previous test having prompted: pi appends the system message on
+// the first prompt, not at session creation.
+test("the session keeps the default coding tools and lists them in the system prompt", async () => {
+	drainIncoming();
+	send({ type: "get_state" });
+	const snapshot = await snapshotWhere((snapshot_) =>
+		snapshot_.messages.some((message) => (message as { role?: string }).role === "system"),
+	);
+	const system = snapshot.messages.find((message) => (message as { role?: string }).role === "system") as
+		| { sections?: Record<string, string> }
+		| undefined;
+	const tools = system?.sections?.tools ?? "";
+	// The runtime replaces the base tool set to gate bash, so it must name the
+	// default coding tools explicitly. Passing only bash leaves the session without
+	// the file tools and drops every snippet except the custom tools'.
+	for (const name of ["read", "bash", "edit", "write"]) {
+		expect(tools).toContain(`- ${name}:`);
+	}
+	expect(tools).toContain("spawn_agent");
+});
+
 test("auto mode executes bash without approval", async () => {
 	drainIncoming();
 	send({ type: "set_mode", mode: "auto" });

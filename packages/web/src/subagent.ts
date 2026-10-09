@@ -13,6 +13,10 @@ import type { Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSessionEvent,
 	createAgentSession,
+	type createBashTool,
+	createEditTool,
+	createReadTool,
+	createWriteTool,
 	DefaultResourceLoader,
 	defineTool,
 	type ModelRuntime,
@@ -38,7 +42,7 @@ export interface SubagentToolOptions {
 	getModel: () => Model<any> | undefined;
 	getModelRuntime: () => ModelRuntime | undefined;
 	/** Builds a bash tool wired to the shared approval gate. */
-	createGatedBash: () => ReturnType<typeof import("@earendil-works/pi-coding-agent")["createBashTool"]>;
+	createGatedBash: () => ReturnType<typeof createBashTool>;
 	maxTurns?: number;
 }
 
@@ -115,7 +119,16 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				sessionManager: SessionManager.inMemory(options.cwd),
 				...(exploreOnly
 					? { tools: ["read", "grep", "find", "ls"] }
-					: { baseToolsOverride: { bash: options.createGatedBash() } }),
+					: {
+							// Same base set as the main session: the default coding tools plus
+							// the gated bash. `baseToolsOverride` replaces the whole set.
+							baseToolsOverride: {
+								read: createReadTool(options.cwd),
+								bash: options.createGatedBash(),
+								edit: createEditTool(options.cwd),
+								write: createWriteTool(options.cwd),
+							},
+						}),
 			});
 			const session = created.session;
 

@@ -432,11 +432,5 @@ export function createBashToolDefinition(
 }
 
 export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {
-	const definition = createBashToolDefinition(cwd, options);
-	const tool = wrapToolDefinition(definition);
-	Object.assign(tool, {
-		promptSnippet: definition.promptSnippet,
-		promptGuidelines: definition.promptGuidelines,
-	});
-	return tool;
+	return wrapToolDefinition(createBashToolDefinition(cwd, options));
 }

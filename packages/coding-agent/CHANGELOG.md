@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Fixed tools supplied through `baseToolsOverride` losing their `promptSnippet` and `promptGuidelines`: the definition rebuilt from the AgentTool dropped both, so the tool vanished from the system prompt's tool section and its guidelines from the rules section. `wrapToolDefinition` now carries the metadata, and the duplicated `Object.assign` in the bash and PowerShell wrappers is gone.
 - Fixed Mistral streams being aborted mid-generation (e.g. during long thinking) after the request timeout; the timeout now applies only to waiting for response headers ([#10609](https://github.com/earendil-works/pi/issues/10609))
 
 ## [1.1.0] - 2026-10-07

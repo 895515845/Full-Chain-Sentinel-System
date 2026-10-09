@@ -27,6 +27,10 @@
 - Switching projects rebuilds the agent session and is locked while a run is active; the server restores the last active project on startup
 - Deleting a project requires typing its name, unregisters it, and removes its session directory; the model endpoint stays global
 
+### Fixed
+
+- Fixed sessions running with only `bash` and `spawn_agent`: the runtime's `baseToolsOverride` replaces the whole base tool set, so `read`, `edit`, and `write` must be named explicitly alongside the gated bash. The system prompt's tool section now lists all four with their snippets and guidelines instead of the custom tools alone.
+
 ### Fixed (round 2 polish)
 
 - Concurrent bash tool calls previously surfaced only one approval at a time
