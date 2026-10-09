@@ -25,6 +25,8 @@ export interface ZGProjectInfo {
 	id: string;
 	name: string;
 	cwd: string;
+	/** Docker container executing this project's tools. */
+	container?: string | null;
 }
 
 export interface ZGStateSnapshot {
@@ -130,7 +132,7 @@ export type ZGClientMessage =
 	| { type: "test_config"; config: ZGModelConfig }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
-	| { type: "add_project"; name: string; cwd: string }
+	| { type: "add_project"; name: string }
 	| { type: "remove_project"; id: string; confirmName: string }
 	| { type: "switch_project"; id: string | null };
 

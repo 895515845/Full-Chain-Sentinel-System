@@ -1,34 +1,43 @@
 /**
- * Project registry: named working directories persisted in projects.json.
- *
- * A project is just a name bound to a cwd; sessions, context files, and bash
- * tool paths all follow the directory automatically because pi scopes sessions
- * per-cwd on disk. Switching projects rebuilds the agent session for the new
- * directory.
+ * Project registry: each project owns a Docker container running the zgagent
+ * toolbox image plus a host-side working directory mounted at /work.
+ * Sessions, approvals, and reports stay on the host; only tool execution
+ * happens inside the container.
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve as resolveFsPath } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import {
+	containerNameFor,
+	createContainer,
+	ensureRunning,
+	hasImage,
+	projectWorkDir,
+	removeContainer,
+} from "./docker.ts";
 
 export interface ZGProject {
 	id: string;
 	name: string;
-	cwd: string;
+	/** Docker container running the toolbox image. */
+	container: string;
+	/** Host directory mounted at /work in the container. */
+	workDir: string;
 	createdAt: string;
 }
 
-export interface ProjectsFile {
+interface ProjectsFile {
 	projects: ZGProject[];
 	lastActiveProjectId?: string;
 }
 
-export function projectsJsonPath(agentDir: string): string {
+function projectsPath(agentDir: string): string {
 	return `${agentDir}/projects.json`;
 }
 
 function readProjects(agentDir: string): ProjectsFile {
-	const path = projectsJsonPath(agentDir);
+	const path = projectsPath(agentDir);
 	if (!existsSync(path)) return { projects: [] };
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8")) as ProjectsFile;
@@ -40,46 +49,50 @@ function readProjects(agentDir: string): ProjectsFile {
 }
 
 function writeProjects(agentDir: string, file: ProjectsFile): void {
-	const path = projectsJsonPath(agentDir);
+	const path = projectsPath(agentDir);
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(file, null, "\t")}\n`, { mode: 0o600 });
 }
 
-export function listProjects(agentDir: string): { projects: ZGProject[]; lastActiveProjectId?: string } {
+export function listProjects(agentDir: string): ProjectsFile {
 	return readProjects(agentDir);
 }
 
-/** Register a project. The directory must exist; duplicate cwds are rejected. */
-export function addProject(
+/** Register a project: creates the container and its host work directory. */
+export async function addProject(
 	agentDir: string,
-	input: { name: string; cwd: string },
-): { project?: ZGProject; error?: string } {
+	input: { name: string },
+): Promise<{ project?: ZGProject; error?: string }> {
 	const name = input.name.trim();
-	const cwd = resolveFsPath(input.cwd.trim());
 	if (!name) return { error: "项目名称不能为空" };
-	if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-		return { error: `目录不存在：${cwd}` };
-	}
 	const file = readProjects(agentDir);
-	if (file.projects.some((project) => project.cwd === cwd)) {
-		return { error: "该目录已被其他项目使用" };
-	}
 	if (file.projects.some((project) => project.name === name)) {
 		return { error: "已存在同名项目" };
 	}
-	const project: ZGProject = { id: randomUUID(), name, cwd, createdAt: new Date().toISOString() };
+	if (!(await hasImage())) {
+		return { error: "工具镜像尚未构建，请先构建镜像后再创建项目" };
+	}
+	const id = randomUUID();
+	const container = containerNameFor(id);
+	const workDir = projectWorkDir(name);
+	const created = await createContainer(container, workDir);
+	if (!created.ok) {
+		return { error: `容器创建失败：${created.error}` };
+	}
+	const project: ZGProject = { id, name, container, workDir, createdAt: new Date().toISOString() };
 	file.projects.push(project);
 	writeProjects(agentDir, file);
 	return { project };
 }
 
-export function removeProject(agentDir: string, id: string): { removed?: ZGProject; error?: string } {
+export async function removeProject(agentDir: string, id: string): Promise<{ removed?: ZGProject; error?: string }> {
 	const file = readProjects(agentDir);
 	const index = file.projects.findIndex((project) => project.id === id);
 	if (index === -1) return { error: "项目不存在" };
 	const [removed] = file.projects.splice(index, 1);
 	if (file.lastActiveProjectId === id) delete file.lastActiveProjectId;
 	writeProjects(agentDir, file);
+	await removeContainer(removed.container);
 	return { removed };
 }
 
@@ -89,10 +102,15 @@ export function setLastActiveProject(agentDir: string, id: string | undefined): 
 	writeProjects(agentDir, file);
 }
 
-/** Resolve the project the server should start in, if it still exists. */
-export function resolveStartupProject(agentDir: string, fallbackCwd: string): { project?: ZGProject; cwd: string } {
+/** Resolve the startup project; returns nothing when it is gone or none was set. */
+export async function resolveStartupProject(agentDir: string): Promise<{ project?: ZGProject }> {
 	const file = readProjects(agentDir);
 	const last = file.projects.find((project) => project.id === file.lastActiveProjectId);
-	if (last && existsSync(last.cwd)) return { project: last, cwd: last.cwd };
-	return { cwd: fallbackCwd };
+	if (last && (await ensureRunning(last.container))) return { project: last };
+	return {};
+}
+
+/** Verify a project's container is usable, starting it when stopped. */
+export async function ensureProjectReady(project: ZGProject): Promise<boolean> {
+	return await ensureRunning(project.container);
 }

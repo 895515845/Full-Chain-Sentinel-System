@@ -285,10 +285,10 @@ export function App() {
 						streaming={streaming}
 						onSwitch={(id) => send({ type: "switch_project", id })}
 						onClear={() => send({ type: "switch_project", id: null })}
-						onAdd={async (name, cwd) => {
+						onAdd={async (name) => {
 							return await new Promise<string | null>((resolve) => {
 								projectErrorRef.current = resolve;
-								send({ type: "add_project", name, cwd });
+								send({ type: "add_project", name });
 								window.setTimeout(() => {
 									if (projectErrorRef.current === resolve) {
 										projectErrorRef.current = null;

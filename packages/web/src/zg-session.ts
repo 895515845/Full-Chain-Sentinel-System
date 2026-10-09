@@ -24,6 +24,7 @@ import {
 	type SessionTreeNode,
 } from "@earendil-works/pi-coding-agent";
 import { ApprovalGate } from "./approval.ts";
+import { dockerBashOperations } from "./docker.ts";
 import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
 import type { ZGForkPoint, ZGMode, ZGModelConfig, ZGStateSnapshot } from "./protocol.ts";
 import { createSubagentTool } from "./subagent.ts";
@@ -46,6 +47,7 @@ export class ZGAgentRuntime {
 	private cwd: string;
 	private activeProjectId: string | undefined;
 	private activeProjectName: string | undefined;
+	private activeContainer: string | undefined;
 	private readonly agentDir: string;
 	private sessionDir: string;
 	private readonly hooks: ZGRuntimeHooks;
@@ -60,13 +62,14 @@ export class ZGAgentRuntime {
 	constructor(options: {
 		cwd: string;
 		agentDir?: string;
-		activeProject?: { id: string; name: string };
+		activeProject?: { id: string; name: string; container?: string; cwd?: string };
 		hooks: ZGRuntimeHooks;
 	}) {
 		this.cwd = options.cwd;
 		this.startupCwd = options.cwd;
 		this.activeProjectId = options.activeProject?.id;
 		this.activeProjectName = options.activeProject?.name;
+		this.activeContainer = options.activeProject?.container;
 		this.agentDir = options.agentDir ?? getAgentDir();
 		this.hooks = options.hooks;
 		this.approvals = new ApprovalGate(() => this.hooks.onStateChange());
@@ -94,21 +97,26 @@ export class ZGAgentRuntime {
 		this.activeKey = await this.createSessionInto(SessionManager.create(this.cwd, this.sessionDir || undefined));
 	}
 
-	/** Activate a project: new sessions will live in its working directory. */
-	async switchProject(project: { id: string; name: string; cwd: string }): Promise<void> {
-		this.cwd = project.cwd;
-		this.activeProjectId = project.id;
-		this.activeProjectName = project.name;
-		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
-		this.activeKey = await this.createSessionInto(SessionManager.create(this.cwd, this.sessionDir || undefined));
-		this.hooks.onStateChange();
+	/** Activate a container project: sessions live on the host under its workDir, tools exec in the container. */
+	async switchProject(project: { id: string; name: string; container?: string; cwd: string }): Promise<void> {
+		await this.applyProject(project.id, project.name, project.cwd, project.container);
 	}
 
 	/** Leave the active project and fall back to the server's startup directory. */
 	async clearProject(): Promise<void> {
-		this.cwd = this.startupCwd;
-		this.activeProjectId = undefined;
-		this.activeProjectName = undefined;
+		await this.applyProject(undefined, undefined, this.startupCwd, undefined);
+	}
+
+	private async applyProject(
+		id: string | undefined,
+		name: string | undefined,
+		cwd: string,
+		container: string | undefined,
+	): Promise<void> {
+		this.cwd = cwd;
+		this.activeProjectId = id;
+		this.activeProjectName = name;
+		this.activeContainer = container;
 		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
 		this.activeKey = await this.createSessionInto(SessionManager.create(this.cwd, this.sessionDir || undefined));
 		this.hooks.onStateChange();
@@ -133,7 +141,8 @@ export class ZGAgentRuntime {
 			manager,
 			unsubscribe: () => {},
 		};
-		const bash = this.createGatedBash(manager.getCwd(), () => this.sessionLabel(managed));
+		const operations = this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined;
+		const bash = this.createGatedBash(manager.getCwd(), () => this.sessionLabel(managed), operations);
 
 		const created = await createAgentSession({
 			cwd: manager.getCwd(),
@@ -148,7 +157,12 @@ export class ZGAgentRuntime {
 					agentDir: this.agentDir,
 					getModel: () => this.resolveModel(),
 					getModelRuntime: () => this.modelRuntime,
-					createGatedBash: () => this.createGatedBash(manager.getCwd(), () => "子代理"),
+					createGatedBash: () =>
+						this.createGatedBash(
+							manager.getCwd(),
+							() => "子代理",
+							this.activeContainer ? dockerBashOperations(this.activeContainer) : undefined,
+						),
 				}),
 			],
 		});
@@ -169,8 +183,8 @@ export class ZGAgentRuntime {
 	}
 
 	/** Bash tool whose every command passes the shared approval gate (unless prefix-allowed). */
-	private createGatedBash(cwd: string, label: () => string) {
-		const localOps = createLocalBashOperations();
+	private createGatedBash(cwd: string, label: () => string, operations?: BashOperations) {
+		const localOps = operations ?? createLocalBashOperations();
 		const gatedOps: BashOperations = {
 			exec: (command, commandCwd, options) => {
 				// Prefix-allowed commands skip the queue; everything else waits for a decision.
@@ -195,9 +209,17 @@ export class ZGAgentRuntime {
 		return this.modelRuntime.getModel(ZG_PROVIDER_ID, config.modelId);
 	}
 
+	/** Escape hatch for tests: host-dir sessions without a container project. */
+	private get allowHostSessions(): boolean {
+		return process.env.ZG_ALLOW_HOST_SESSIONS === "1";
+	}
+
 	async prompt(text: string, streamingBehavior?: "steer" | "followUp"): Promise<void> {
 		const active = this.active;
 		if (!active) throw new Error("Session not initialized");
+		if (!this.activeContainer && !this.allowHostSessions) {
+			throw new Error("没有可用的项目容器。请先在左上角创建或选择一个项目。");
+		}
 		await active.session.prompt(text, streamingBehavior ? { streamingBehavior } : undefined);
 	}
 
@@ -359,7 +381,12 @@ export class ZGAgentRuntime {
 			streaming: this.isStreaming,
 			cwd: this.cwd,
 			project: this.activeProjectId
-				? { id: this.activeProjectId, name: this.activeProjectName ?? "", cwd: this.cwd }
+				? {
+						id: this.activeProjectId,
+						name: this.activeProjectName ?? "",
+						cwd: this.cwd,
+						container: this.activeContainer ?? null,
+					}
 				: null,
 			model: model ? { provider: model.provider, id: model.id } : null,
 			modelConfigured: config !== null && model !== undefined,

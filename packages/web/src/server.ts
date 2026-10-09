@@ -7,14 +7,19 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSessionDirPath } from "@earendil-works/pi-coding-agent";
 import { WebSocket, WebSocketServer } from "ws";
 import { testModelConfig } from "./endpoint-probe.ts";
-import { addProject, listProjects, removeProject, resolveStartupProject, setLastActiveProject } from "./projects.ts";
+import {
+	addProject,
+	ensureProjectReady,
+	listProjects,
+	removeProject,
+	resolveStartupProject,
+	setLastActiveProject,
+} from "./projects.ts";
 import type { ZGClientMessage, ZGServerMessage } from "./protocol.ts";
 import { ZGAgentRuntime } from "./zg-session.ts";
 
@@ -85,12 +90,18 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 	const startupCwd = resolve(options.cwd ?? process.cwd());
 	const clients = new Set<WebSocket>();
 	const agentDir = options.agentDir;
-	const startup = agentDir ? resolveStartupProject(agentDir, startupCwd) : { cwd: startupCwd };
-	const cwd = startup.cwd;
+	const startup = agentDir ? await resolveStartupProject(agentDir) : {};
 	const runtime = new ZGAgentRuntime({
-		cwd,
+		cwd: startup.project?.workDir ?? startupCwd,
 		agentDir,
-		activeProject: startup.project ? { id: startup.project.id, name: startup.project.name } : undefined,
+		activeProject: startup.project
+			? {
+					id: startup.project.id,
+					name: startup.project.name,
+					container: startup.project.container,
+					cwd: startup.project.workDir,
+				}
+			: undefined,
 		hooks: {
 			onSessionEvent: (event) => broadcast({ type: "session_event", event }),
 			onStateChange: () => broadcastSnapshot(),
@@ -118,7 +129,12 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 		const registry = agentDir ? listProjects(agentDir) : { projects: [] };
 		broadcast({
 			type: "projects",
-			projects: registry.projects.map(({ id, name, cwd }) => ({ id, name, cwd })),
+			projects: registry.projects.map(({ id, name, workDir, container }) => ({
+				id,
+				name,
+				cwd: workDir,
+				container,
+			})),
 			activeProjectId: runtime.snapshot().project?.id ?? registry.lastActiveProjectId ?? null,
 		});
 	}
@@ -139,7 +155,12 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 		socket.send(
 			JSON.stringify({
 				type: "projects",
-				projects: (agentDir ? listProjects(agentDir).projects : []).map(({ id, name, cwd }) => ({ id, name, cwd })),
+				projects: (agentDir ? listProjects(agentDir).projects : []).map(({ id, name, workDir, container }) => ({
+					id,
+					name,
+					cwd: workDir,
+					container,
+				})),
 				activeProjectId: runtime.snapshot().project?.id ?? null,
 			} satisfies ZGServerMessage),
 		);
@@ -278,7 +299,7 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						sendError(socket, "自定义 agentDir 下暂不支持项目管理");
 						return;
 					}
-					const result = addProject(agentDir, { name: message.name, cwd: message.cwd });
+					const result = await addProject(agentDir, { name: message.name });
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
@@ -305,18 +326,12 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 					if (runtime.snapshot().project?.id === message.id) {
 						await runtime.clearProject();
 					}
-					// Unregister before touching files, then remove the project's session
-					// directory. File errors never block the registry update.
-					const result = removeProject(agentDir, message.id);
+					// Unregister, stop+remove the container; sessions for its workDir stay
+					// on the host until the operator removes them from the sidebar.
+					const result = await removeProject(agentDir, message.id);
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
-					}
-					const dir = getSessionDirPath(result.removed?.cwd ?? target.cwd, agentDir);
-					try {
-						await rm(dir, { recursive: true, force: true });
-					} catch (error) {
-						console.error(`[zg-server] failed to remove session dir ${dir}:`, error);
 					}
 					broadcastProjects();
 					broadcastSnapshot();
@@ -337,8 +352,17 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 							sendError(socket, "项目不存在");
 							return;
 						}
+						if (!(await ensureProjectReady(target))) {
+							sendError(socket, `项目容器 ${target.container} 无法启动，请检查 Docker`);
+							return;
+						}
 						setLastActiveProject(agentDir, target.id);
-						await runtime.switchProject(target);
+						await runtime.switchProject({
+							id: target.id,
+							name: target.name,
+							container: target.container,
+							cwd: target.workDir,
+						});
 					}
 					broadcastProjects();
 					const sessions = await runtime.listSessions();

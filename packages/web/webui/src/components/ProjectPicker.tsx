@@ -15,13 +15,12 @@ export function ProjectPicker({
 	streaming: boolean;
 	onSwitch: (id: string) => void;
 	onClear: () => void;
-	onAdd: (name: string, cwd: string) => Promise<string | null>;
+	onAdd: (name: string) => Promise<string | null>;
 	onRemove: (id: string, confirmName: string) => Promise<string | null>;
 }) {
 	const [open, setOpen] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
-	const [cwd, setCwd] = useState("");
 	const [formError, setFormError] = useState<string | null>(null);
 	const [removing, setRemoving] = useState<ZGProjectInfo | null>(null);
 	const [confirmName, setConfirmName] = useState("");
@@ -43,7 +42,7 @@ export function ProjectPicker({
 	const submitCreate = async () => {
 		setBusy(true);
 		setFormError(null);
-		const error = await onAdd(name, cwd);
+		const error = await onAdd(name);
 		setBusy(false);
 		if (error) {
 			setFormError(error);
@@ -51,7 +50,6 @@ export function ProjectPicker({
 		}
 		setCreating(false);
 		setName("");
-		setCwd("");
 	};
 
 	const submitRemove = async () => {
@@ -144,22 +142,17 @@ export function ProjectPicker({
 
 					{creating ? (
 						<div className="project-form">
-							<div className="project-form-title">新建项目</div>
+							<div className="project-form-title">新建容器项目</div>
+						<div className="project-warn">将创建独立 Docker 容器与工作目录（~/.zgagent/projects/），工具全部在容器内执行。</div>
 							<input
 								value={name}
 								onChange={(event) => setName(event.target.value)}
 								placeholder="项目名称，如 靶场-01"
 								spellCheck={false}
 							/>
-							<input
-								value={cwd}
-								onChange={(event) => setCwd(event.target.value)}
-								placeholder="工作目录绝对路径，如 /Users/me/targets/lab1"
-								spellCheck={false}
-							/>
 							{formError ? <div className="project-error">{formError}</div> : null}
 							<div className="project-form-actions">
-								<button type="button" className="primary" disabled={busy || !name.trim() || !cwd.trim()} onClick={submitCreate}>
+								<button type="button" className="primary" disabled={busy || !name.trim()} onClick={submitCreate}>
 									{busy ? "创建中…" : "创建并进入"}
 								</button>
 								<button type="button" onClick={() => setCreating(false)}>
@@ -173,7 +166,7 @@ export function ProjectPicker({
 						<div className="project-form">
 							<div className="project-form-title">删除项目「{removing.name}」</div>
 							<div className="project-warn">
-								将删除项目及其目录下全部会话记录（{removing.cwd}），该操作不可恢复。输入完整项目名确认：
+								将删除项目「{removing.name}」的容器并移除注册（工作目录与会话保留），输入完整项目名确认：
 							</div>
 							<input
 								value={confirmName}
