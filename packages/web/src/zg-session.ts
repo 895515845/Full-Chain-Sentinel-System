@@ -38,6 +38,16 @@ import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, re
 import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
 import { buildRunNotification, sendDingTalk, shouldNotifyRun, testDingTalk } from "./notify.ts";
 import { readNotifyConfig, writeNotifyConfig } from "./notify-config.ts";
+import {
+	effectiveSubagent,
+	excludeToolsFor,
+	PERMISSION_PRESETS,
+	readPermissionsConfig,
+	writePermissionsConfig,
+	type ZGPermissionPreset,
+	type ZGPermissionSet,
+	type ZGPermissionsConfig,
+} from "./permissions.ts";
 import type {
 	ZGFileEntry,
 	ZGFilePreview,
@@ -50,6 +60,7 @@ import type {
 	ZGSubagentEvent,
 	ZGSubagentRun,
 	ZGTestResult,
+	ZGToolInfo,
 } from "./protocol.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
@@ -71,6 +82,18 @@ interface ManagedSession {
 	session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	manager: SessionManager;
 	unsubscribe: () => void;
+	/**
+	 * The run in flight for THIS session. It lives here, not on the runtime,
+	 * because a run settles whether or not the operator is still looking at it:
+	 * a long task that finishes while another conversation is on screen must
+	 * still be reported.
+	 */
+	run?: {
+		startedAt: number;
+		/** Composer's per-message choice; undefined when it did not send one. */
+		notify: boolean | undefined;
+		instruction: string;
+	};
 }
 
 export class ZGAgentRuntime {
@@ -90,14 +113,6 @@ export class ZGAgentRuntime {
 	private activeKey: string | undefined;
 	private modelRuntime: ModelRuntime | undefined;
 	/** The run in flight for the viewed session, used to report it when it settles. */
-	private currentRun:
-		| {
-				startedAt: number;
-				/** Composer's per-message choice; undefined when it did not send one. */
-				notify: boolean | undefined;
-				instruction: string;
-		  }
-		| undefined;
 	private notifyStatus: ZGNotifyStatus = { at: null, ok: true };
 
 	constructor(options: {
@@ -186,19 +201,30 @@ export class ZGAgentRuntime {
 	 */
 	private async createSessionContext(
 		cwd: string,
+		permissions: ZGPermissionSet,
 		appendSystemPrompt?: string[],
 	): Promise<{ resourceLoader: DefaultResourceLoader; settingsManager: SettingsManager }> {
+		// A disabled extension is not even loaded: without MCP there are no
+		// servers to connect, and codemode/tool_search never register. The
+		// excludeTools denylist still covers them, so nothing can re-enable them.
+		const extensionFactories = [];
+		if (permissions.codemode) extensionFactories.push(createCodemodeExtension());
+		if (permissions.tool_search) extensionFactories.push(createToolSearchExtension());
+		if (permissions.mcp) extensionFactories.push(createMcpExtension());
 		const resourceLoader = new DefaultResourceLoader({
 			cwd,
 			agentDir: this.agentDir,
-			extensionFactories: [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension()],
+			extensionFactories,
 			...(appendSystemPrompt ? { appendSystemPrompt } : {}),
 		});
 		await resourceLoader.reload();
 		const settingsManager = SettingsManager.create(cwd, this.agentDir);
 		// Modifier-only entries append to the configured default tools instead of
 		// replacing them, so an operator's own `defaultTools` setting still applies.
-		settingsManager.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
+		const modifiers: string[] = [];
+		if (permissions.codemode) modifiers.push("+codemode");
+		if (permissions.tool_search) modifiers.push("+tool_search");
+		settingsManager.applyOverrides(modifiers.length > 0 ? { defaultTools: modifiers } : {});
 		return { resourceLoader, settingsManager };
 	}
 
@@ -225,12 +251,40 @@ export class ZGAgentRuntime {
 			dockerBashOperations(container),
 		);
 
-		const { resourceLoader, settingsManager } = await this.createSessionContext(manager.getCwd());
+		const permissions = readPermissionsConfig(this.agentDir).main;
+		const subagentPermissions = effectiveSubagent(readPermissionsConfig(this.agentDir));
+		const { resourceLoader, settingsManager } = await this.createSessionContext(manager.getCwd(), permissions);
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
 		// tools must be listed explicitly alongside the gated bash. Passing only bash
 		// would leave the session with bash and the custom tools, and the system
-		// prompt's tool section would degrade to the custom tools alone.
+		// prompt's tool section would degrade to the custom tools alone. Disabled
+		// tools are left out here and named in `excludeTools`, which keeps
+		// tool_search, the transcript and codemode from bringing them back.
+		const baseToolsOverride = {
+			...(permissions.read ? { read: createReadTool(manager.getCwd()) } : {}),
+			...(permissions.bash ? { bash } : {}),
+			...(permissions.edit ? { edit: createEditTool(manager.getCwd()) } : {}),
+			...(permissions.write ? { write: createWriteTool(manager.getCwd()) } : {}),
+		};
+		const customTools = permissions.spawn_agent
+			? [
+					createSubagentTool({
+						cwd: manager.getCwd(),
+						agentDir: this.agentDir,
+						getModel: () => this.resolveModel(),
+						getModelRuntime: () => this.modelRuntime,
+						registry: this.subagents,
+						getParentSessionId: () => manager.getSessionId(),
+						getProjectId: () => this.activeProjectId,
+						permissions: subagentPermissions,
+						createGatedBash: () =>
+							this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
+						createSessionContext: (appendSystemPrompt) =>
+							this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
+					}),
+				]
+			: [];
 		const created = await createAgentSession({
 			cwd: manager.getCwd(),
 			agentDir: this.agentDir,
@@ -239,27 +293,9 @@ export class ZGAgentRuntime {
 			sessionManager: manager,
 			resourceLoader,
 			settingsManager,
-			baseToolsOverride: {
-				read: createReadTool(manager.getCwd()),
-				bash,
-				edit: createEditTool(manager.getCwd()),
-				write: createWriteTool(manager.getCwd()),
-			},
-			customTools: [
-				createSubagentTool({
-					cwd: manager.getCwd(),
-					agentDir: this.agentDir,
-					getModel: () => this.resolveModel(),
-					getModelRuntime: () => this.modelRuntime,
-					registry: this.subagents,
-					getParentSessionId: () => manager.getSessionId(),
-					getProjectId: () => this.activeProjectId,
-					createGatedBash: () =>
-						this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
-					createSessionContext: (appendSystemPrompt) =>
-						this.createSessionContext(manager.getCwd(), appendSystemPrompt),
-				}),
-			],
+			baseToolsOverride,
+			customTools,
+			excludeTools: excludeToolsFor(permissions),
 		});
 		managed.session = created.session;
 		// Emits session_start, which connects MCP servers and lets extensions
@@ -350,10 +386,10 @@ export class ZGAgentRuntime {
 		}
 		// A steer joins the run already in flight: keep its start time, let the
 		// operator's latest choice decide whether the run is reported.
-		this.currentRun = {
-			startedAt: this.currentRun?.startedAt ?? Date.now(),
+		active.run = {
+			startedAt: active.run?.startedAt ?? Date.now(),
 			notify,
-			instruction: this.currentRun?.instruction ?? text,
+			instruction: active.run?.instruction ?? text,
 		};
 		await active.session.prompt(text, {
 			...(streamingBehavior ? { streamingBehavior } : {}),
@@ -362,14 +398,15 @@ export class ZGAgentRuntime {
 	}
 
 	/**
-	 * Report a settled run to the notification channel. Only the viewed session
-	 * notifies, and the send is fire-and-forget: a failing webhook must never
-	 * affect the run.
+	 * Report a settled run to the notification channel. Every session reports its
+	 * own run: gating this on the viewed session silently dropped the notification
+	 * of any long task that finished while the operator was elsewhere. The send is
+	 * fire-and-forget, because a failing webhook must never affect the run.
 	 */
 	private reportRunSettled(managed: ManagedSession, aborted: boolean): void {
-		const run = this.currentRun;
-		this.currentRun = undefined;
-		if (!run || managed.key !== this.activeKey) return;
+		const run = managed.run;
+		managed.run = undefined;
+		if (!run) return;
 		const config = readNotifyConfig(this.agentDir);
 		if (!shouldNotifyRun(run.notify, config.enabled)) return;
 		if (!config.webhook.trim()) return;
@@ -588,6 +625,65 @@ export class ZGAgentRuntime {
 		// Recreate each session on the new runtime, restoring the previous view last.
 		const order = [...existing];
 		const viewed = order.findIndex((managed) => managed.key === this.activeKey);
+		if (viewed !== -1) order.push(...order.splice(viewed, 1));
+		for (const managed of order) {
+			this.activeKey = await this.createSessionInto(managed.manager);
+		}
+		this.hooks.onStateChange();
+	}
+
+	/** Tool permissions plus the inventory of what the live session mounted. */
+	getPermissions(): {
+		config: ZGPermissionsConfig;
+		effectiveSubagent: ZGPermissionSet;
+		presets: readonly ZGPermissionPreset[];
+		tools: ZGToolInfo[];
+	} {
+		const config = readPermissionsConfig(this.agentDir);
+		return {
+			config,
+			effectiveSubagent: effectiveSubagent(config),
+			presets: PERMISSION_PRESETS,
+			tools: this.listMountedTools(),
+		};
+	}
+
+	/**
+	 * What the viewed session actually has mounted. The permissions screen shows
+	 * this so a switch can be checked against reality instead of trusted.
+	 */
+	private listMountedTools(): ZGToolInfo[] {
+		const session = this.active?.session;
+		if (!session) return [];
+		const active = new Set(session.getActiveToolNames());
+		return session
+			.getAllTools()
+			.map((tool) => ({
+				name: tool.name,
+				source: tool.sourceInfo?.source ?? "unknown",
+				active: active.has(tool.name),
+			}))
+			.sort((left, right) => left.name.localeCompare(right.name));
+	}
+
+	/**
+	 * Apply new permissions and rebuild every live session, because tools are
+	 * mounted when a session is created. A running session is refused rather than
+	 * disposed: the operator aborts it first, so no work is lost silently.
+	 */
+	async savePermissions(config: ZGPermissionsConfig): Promise<void> {
+		const running = [...this.sessions.values()].filter((managed) => managed.session.isStreaming);
+		if (running.length > 0) throw new Error("有会话正在运行，请先中止再修改权限");
+		writePermissionsConfig(this.agentDir, config);
+		const existing = [...this.sessions.values()];
+		const activeKey = this.activeKey;
+		this.sessions.clear();
+		for (const managed of existing) managed.unsubscribe();
+		for (const managed of existing) managed.session.dispose();
+		this.activeKey = undefined;
+		// Recreate every session, restoring the previously viewed one last.
+		const order = [...existing];
+		const viewed = order.findIndex((managed) => managed.key === activeKey);
 		if (viewed !== -1) order.push(...order.splice(viewed, 1));
 		for (const managed of order) {
 			this.activeKey = await this.createSessionInto(managed.manager);

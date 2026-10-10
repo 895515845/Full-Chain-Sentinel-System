@@ -1,15 +1,51 @@
 # ZGAgent pentest toolbox image.
 # Build: docker build -t zgagent:latest docker/
 #
+# Base image and package sources are configurable, so the build can run behind a
+# Chinese mirror or an internal registry. The console sets these from
+# 设置 → 环境 → 构建源; the same values work on the command line:
+#
+#   docker build -t zgagent:latest \
+#     --build-arg BASE_IMAGE=docker.m.daocloud.io/kalilinux/kali-rolling:latest \
+#     --build-arg APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/kali \
+#     --build-arg PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+#     --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+#     --build-arg GO_PROXY=https://goproxy.cn,direct \
+#     docker/
+#
 # Base is Kali rolling; pinned tool groups are installed with apt. The
 # "extended" layer installs packages whose availability varies across Kali
 # releases and is allowed to fail without breaking the build.
 
-FROM kalilinux/kali-rolling:latest
+ARG BASE_IMAGE=kalilinux/kali-rolling:latest
+FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG APT_MIRROR=
+ARG PIP_INDEX=
+ARG NPM_REGISTRY=
+ARG GO_PROXY=
 # Container runtime may inject a host proxy that apt cannot use (socks5); clear it.
 ENV http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY=
+
+# ca-certificates first: an https mirror cannot be fetched before it exists. This
+# is the only step that has to reach the original source; when it is unreachable
+# the build continues and only https mirrors are affected (http mirrors, which is
+# what the official Kali sources use, keep working).
+RUN (apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*) \
+	|| echo "[zgagent] ca-certificates preinstall skipped (original source unreachable)"
+
+# Point apt at the configured mirror. Kali rolling ships deb822 sources in
+# /etc/apt/sources.list.d/kali.sources with URIs on http.kali.org or kali.download;
+# older images use /etc/apt/sources.list. Both spellings are rewritten, and apt
+# still verifies package signatures through the archive keyring.
+RUN if [ -n "$APT_MIRROR" ]; then \
+		for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+			[ -f "$f" ] || continue; \
+			sed -i "s|http://http.kali.org/kali|$APT_MIRROR|g; s|https://http.kali.org/kali|$APT_MIRROR|g; s|http://kali.download/kali|$APT_MIRROR|g; s|https://kali.download/kali|$APT_MIRROR|g" "$f"; \
+		done; \
+		echo "[zgagent] apt mirror: $APT_MIRROR"; \
+	fi
 
 # Core toolchain: recon/enumeration, web exploitation, brute force / intranet.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -56,6 +92,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		chisel \
 	|| echo "[zgagent] extended tools partially unavailable (ok)" \
 	&& rm -rf /var/lib/apt/lists/*
+
+# Package sources for installs made inside the running container: pip reads
+# /etc/pip.conf, npm reads /root/.npmrc, and go reads /root/.config/go/env
+# without needing a login shell (docker exec starts a plain sh).
+RUN if [ -n "$PIP_INDEX" ]; then \
+		host=$(echo "$PIP_INDEX" | sed -E 's|^https?://([^/:]+).*|\1|'); \
+		printf '[global]\nindex-url = %s\ntrusted-host = %s\n' "$PIP_INDEX" "$host" > /etc/pip.conf; \
+		echo "[zgagent] pip index: $PIP_INDEX"; \
+	fi; \
+	if [ -n "$NPM_REGISTRY" ]; then \
+		mkdir -p /usr/etc; \
+		printf 'registry=%s\n' "$NPM_REGISTRY" > /root/.npmrc; \
+		printf 'registry=%s\n' "$NPM_REGISTRY" > /usr/etc/npmrc; \
+		echo "[zgagent] npm registry: $NPM_REGISTRY"; \
+	fi; \
+	if [ -n "$GO_PROXY" ]; then \
+		mkdir -p /root/.config/go; \
+		printf 'GOPROXY=%s\n' "$GO_PROXY" > /root/.config/go/env; \
+		echo "[zgagent] go proxy: $GO_PROXY"; \
+	fi
 
 WORKDIR /work
 

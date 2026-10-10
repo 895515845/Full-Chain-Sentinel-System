@@ -11,8 +11,10 @@
 	"types": "./dist/index.d.ts",
 	"scripts": {
 		"clean": "shx rm -rf dist webui/dist",
-		"build": "tsc -p tsconfig.json && npm run build:webui",
+		"build": "npm run build:webui && node scripts/generate-embedded-assets.mjs && tsc -p tsconfig.json",
 		"build:webui": "vite build webui",
+		"build:assets": "node scripts/generate-embedded-assets.mjs",
+		"build:binary": "bash ../../scripts/build-web-binaries.sh",
 		"check:webui": "tsc -p webui/tsconfig.json --noEmit",
 		"test": "vitest --run",
 		"start": "node dist/index.js"

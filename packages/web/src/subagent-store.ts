@@ -10,8 +10,8 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import type { ZGSubagentEvent, ZGSubagentRun, ZGSubagentStatus } from "./protocol.ts";
+import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 /** Longest single step stored verbatim; larger payloads are truncated. */
 const MAX_EVENT_BYTES = 64 * 1024;
@@ -75,11 +75,11 @@ export function subagentDbPath(agentDir: string): string {
 }
 
 export class SubagentStore {
-	private readonly db: DatabaseSync;
+	private readonly db: SqliteDatabase;
 
 	constructor(path: string) {
 		mkdirSync(dirname(path), { recursive: true });
-		this.db = new DatabaseSync(path);
+		this.db = openSqliteDatabase(path);
 		// WAL keeps reads (panel history) from blocking the run that is writing.
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);

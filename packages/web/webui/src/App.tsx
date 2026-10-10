@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AboutPage } from "./components/AboutPage.tsx";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
+import { AppSider } from "./components/AppSider.tsx";
+import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { type FilePanelState, FilePanel, saveDownload } from "./components/FilePanel.tsx";
-import { MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { RunFold } from "./components/RunFold.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
+import { Overlay } from "./components/Overlay.tsx";
+import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
+import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
 import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
-import { type SidePanelTab, SidePanel } from "./components/SidePanel.tsx";
+import { ProjectsPage } from "./components/ProjectsPage.tsx";
 import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
-import { type SidebarTab, Sidebar } from "./components/Sidebar.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import type {
 	AgentMessageView,
+	ZGEnvReport,
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGProjectInfo,
@@ -25,12 +32,17 @@ import type {
 	ZGMode,
 	ZGNotifyConfig,
 	ZGNotifyStatus,
+	ZGPageId,
+	ZGPermissionPreset,
+	ZGPermissionsConfig,
+	ZGPermissionSet,
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGStatsView,
 	ZGSubagentEvent,
 	ZGSubagentRun,
 	ZGTestResult,
+	ZGToolInfo,
 } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
 
@@ -47,7 +59,70 @@ function commandFromArgs(args: Record<string, unknown> | undefined): string {
 	if (!args) return "";
 	const command = args.command ?? args.cmd ?? args.script;
 	if (typeof command === "string") return command;
-	return JSON.stringify(args, null, 2);
+	// File tools name their target in `path`; dumping the whole argument object
+	// would print file contents into the summary row.
+	const path = args.path ?? args.file_path ?? args.filePath;
+	if (typeof path === "string") return path;
+	return JSON.stringify(args);
+}
+
+/** Timestamp of a message, for messages that carry one. */
+function messageTimestamp(message: AgentMessageView): number | undefined {
+	return "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : undefined;
+}
+
+/** Elapsed time of a run, as the fold row reports it. */
+function formatDuration(ms: number): string {
+	if (ms < 1000) return `${ms}ms`;
+	if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+	return `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`;
+}
+
+/** What a folded run did, for its one-line row: tool calls, thinking rounds, elapsed. */
+function runDigest(prompt: AgentMessageView, body: AgentMessageView[]): string {
+	const tools = body.filter((message) => message.role === "toolResult" || message.role === "bashExecution").length;
+	const thinking = body.filter(
+		(message) =>
+			message.role === "assistant" &&
+			Array.isArray(message.content) &&
+			message.content.some((block) => (block as { type?: string }).type === "thinking"),
+	).length;
+	const parts: string[] = [];
+	if (tools > 0) parts.push(`${tools} 次工具调用`);
+	if (thinking > 0) parts.push(`${thinking} 段思考`);
+	const started = messageTimestamp(prompt);
+	const ended = body.length > 0 ? messageTimestamp(body[body.length - 1]) : undefined;
+	if (typeof started === "number" && typeof ended === "number" && ended > started) {
+		parts.push(formatDuration(ended - started));
+	}
+	return parts.join(" · ");
+}
+
+/** Command of the tool call a result message answers, when the transcript has it. */
+function toolCommandOf(message: AgentMessageView, commands: Map<string, string>): string | undefined {
+	return message.role === "toolResult" ? commands.get(message.toolCallId) : undefined;
+}
+
+/** Whether an assistant turn carries something to render on its own. */
+function hasVisibleAssistantContent(message: AgentMessageView): boolean {
+	if (message.role !== "assistant") return true;
+	if (message.errorMessage) return true;
+	return message.content.some((block) => {
+		const typed = block as { type?: string; text?: string; thinking?: string };
+		return (
+			(typed.type === "text" && (typed.text ?? "").length > 0) ||
+			(typed.type === "thinking" && (typed.thinking ?? "").length > 0)
+		);
+	});
+}
+
+/**
+ * Identity of one transcript message. The event stream and the snapshot carry the
+ * same objects, so role plus timestamp matches them; a message without a
+ * timestamp falls back to its content.
+ */
+function messageKey(message: { role?: string; timestamp?: number }): string {
+	return `${message.role ?? "?"}:${message.timestamp ?? JSON.stringify(message)}`;
 }
 
 function textFromContent(content: unknown): string {
@@ -73,8 +148,11 @@ export function App() {
 		keyword: "",
 	});
 	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });
-	/** Settings page section: model endpoint or DingTalk notifications. */
-	const [settingsSection, setSettingsSection] = useState<"model" | "notify">("model");
+	const [permissions, setPermissions] = useState<ZGPermissionsConfig | null>(null);
+	const [permissionPresets, setPermissionPresets] = useState<ZGPermissionPreset[]>([]);
+	const [permissionTools, setPermissionTools] = useState<ZGToolInfo[]>([]);
+	const [permissionEffective, setPermissionEffective] = useState<ZGPermissionSet | null>(null);
+	const [permissionBusy, setPermissionBusy] = useState(false);
 	/**
 	 * Composer choice for the next run: true/false once the operator toggles the
 	 * pill, null while it simply follows the global switch.
@@ -84,10 +162,24 @@ export function App() {
 	const [liveText, setLiveText] = useState("");
 	const [liveThinking, setLiveThinking] = useState("");
 	const [liveTools, setLiveTools] = useState<LiveTool[]>([]);
+	/**
+	 * Messages the event stream has already committed but the snapshot does not
+	 * carry yet. A run only refreshes the snapshot when it settles, so without
+	 * this the assistant's text would vanish at every message_end and the
+	 * transcript would read as a jumble until a manual refresh.
+	 */
+	const [pendingMessages, setPendingMessages] = useState<AgentMessageView[]>([]);
+	/** Runs the operator opened by hand; they stay open instead of re-folding. */
+	const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
 	const [errors, setErrors] = useState<string[]>([]);
-	const [panelTab, setPanelTab] = useState<SidebarTab>("chat");
+	/** The one page the content area shows; navigation lives in the sider. */
+	const [page, setPage] = useState<ZGPageId>("chat");
+	/** Overlays opened from the chat toolbar. */
+	const [filesOpen, setFilesOpen] = useState(false);
+	const [subagentsOpen, setSubagentsOpen] = useState(false);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("zg-sidebar-collapsed") === "1");
-	const [branchOpen, setBranchOpen] = useState(() => localStorage.getItem("zg-branch-open") !== "0");
+	// The branch tree is a modal now, so it starts closed.
+	const [branchOpen, setBranchOpen] = useState(() => localStorage.getItem("zg-branch-open") === "1");
 	const [projects, setProjects] = useState<ZGProjectInfo[]>([]);
 	const [activeProject, setActiveProject] = useState<ZGProjectInfo | null>(null);
 	const projectErrorRef = useRef<((message: string | null) => void) | null>(null);
@@ -96,14 +188,23 @@ export function App() {
 	const [forkPoints, setForkPoints] = useState<ZGForkPoint[]>([]);
 	const [viewer, setViewer] = useState<{ title: string; output: string } | null>(null);
 	const [connected, setConnected] = useState(false);
+	/**
+	 * Whether the active session is running right now. The server only broadcasts a
+	 * snapshot when a run starts and ends, so the events are what keep this current
+	 * during a run; every snapshot then re-states it authoritatively.
+	 */
+	const [runActive, setRunActive] = useState(false);
+	/** Docker environment report: the console is locked while it is missing or failing. */
+	const [envReport, setEnvReport] = useState<ZGEnvReport | null>(null);
+	const [imageBuilding, setImageBuilding] = useState(false);
+	const [buildLog, setBuildLog] = useState<string[]>([]);
+	const [sourcesSavedAt, setSourcesSavedAt] = useState<number | null>(null);
 	/** Messages sent from this console, shown optimistically until the snapshot absorbs them. */
 	const [optimisticUserMessages, setOptimisticUserMessages] = useState<
 		{ text: string; imageCount: number; userCountAtSend: number }[]
 	>([]);
 	/** Queued steering/follow-up texts reported by queue_update events. */
 	const [queuedMessages, setQueuedMessages] = useState<{ kind: "steer" | "followUp"; text: string }[]>([]);
-	/** Right-hand drawer: null when closed. */
-	const [sidePanel, setSidePanel] = useState<SidePanelTab | null>(null);
 	const [filePath, setFilePath] = useState("/work");
 	const [fileEntries, setFileEntries] = useState<ZGFileEntry[]>([]);
 	const [filePreview, setFilePreview] = useState<ZGFilePreview | null>(null);
@@ -117,8 +218,6 @@ export function App() {
 	const snapshotRef = useRef<ZGStateSnapshot | null>(null);
 	/** Directory the file panel is showing; read by handlers that must re-list it. */
 	const filePathRef = useRef("/work");
-	/** Open drawer tab, readable from effects that must not re-run when it changes. */
-	const sidePanelRef = useRef<SidePanelTab | null>(null);
 	/** Path the preview pane is showing, so a write can refresh it. */
 	const previewPathRef = useRef<string | null>(null);
 
@@ -147,14 +246,21 @@ export function App() {
 				case "snapshot": {
 					snapshotRef.current = message.snapshot;
 					setSnapshot(message.snapshot);
-					setLiveText("");
-					setLiveThinking("");
 					// Drop optimistic bubbles whose message has landed in the snapshot:
 					// once the persisted user-message count covers the send, it is rendered there.
 					const userCount = message.snapshot.messages.filter(
 						(entry) => (entry as { role?: string }).role === "user",
 					).length;
 					setOptimisticUserMessages((prev) => prev.filter((item) => userCount < item.userCountAtSend + 1));
+					// The snapshot is authoritative: anything it already carries stops
+					// being rendered from the event-built lists. A message is matched by
+					// role plus timestamp, and by content when it has none.
+					const persisted = new Set(
+						message.snapshot.messages.map(
+							(entry) => messageKey(entry as { role?: string; timestamp?: number }),
+						),
+					);
+					setPendingMessages((prev) => prev.filter((entry) => !persisted.has(messageKey(entry))));
 					setLiveTools((tools) =>
 						tools.filter(
 							(tool) =>
@@ -163,6 +269,13 @@ export function App() {
 								),
 						),
 					);
+					setRunActive(message.snapshot.streaming);
+					// Only the settled snapshot may drop the in-flight text: a snapshot
+					// taken mid-run (a file operation, another window) must not erase it.
+					if (!message.snapshot.streaming) {
+						setLiveText("");
+						setLiveThinking("");
+					}
 					break;
 				}
 				case "session_event":
@@ -181,6 +294,13 @@ export function App() {
 						resolve(message.result);
 					}
 					break;
+				case "permissions":
+					setPermissions(message.config);
+					setPermissionEffective(message.effectiveSubagent);
+					setPermissionPresets(message.presets);
+					setPermissionTools(message.tools);
+					setPermissionBusy(false);
+					break;
 				case "notify_config":
 					setNotifyConfig(message.config);
 					setNotifyStatus(message.status);
@@ -192,6 +312,32 @@ export function App() {
 						resolve(message.result);
 					}
 					break;
+				case "environment": {
+					setEnvReport(message.report);
+					setImageBuilding(message.building);
+					if (message.building) setBuildLog([]);
+					return;
+				}
+				case "sources_saved": {
+					if (message.error) {
+						pushError(`构建源保存失败：${message.error}`);
+						return;
+					}
+					setSourcesSavedAt(Date.now());
+					return;
+				}
+				case "image_build_log":
+					setBuildLog((prev) => [...prev.slice(-499), message.line]);
+					return;
+				case "image_build_result": {
+					setImageBuilding(false);
+					if (!message.ok) {
+						pushError(`镜像构建失败：${message.error ?? "未知错误"}`);
+					} else {
+						pushError("工具镜像构建完成，可点击「复检」确认");
+					}
+					return;
+				}
 				case "stats":
 					setStats(message.stats);
 					break;
@@ -251,7 +397,14 @@ export function App() {
 					if (!message.ok && message.error) pushError(message.error);
 					break;
 				case "error":
-					pushError(message.message);
+					// A protocol error naming a message this server does not know means
+					// the page is newer than the process serving it: the browser keeps the
+					// rebuilt bundle, the server keeps the code it loaded at startup.
+					pushError(
+						/未知消息类型/.test(message.message)
+							? `${message.message}（服务端仍是旧版本，请重启控制台进程）`
+							: message.message,
+					);
 					if (projectErrorRef.current) {
 						const resolve = projectErrorRef.current;
 						projectErrorRef.current = null;
@@ -264,6 +417,20 @@ export function App() {
 	);
 
 	const handleSessionEvent = useCallback((event: SessionEventView) => {
+		if (event.type === "agent_start") {
+			setRunActive(true);
+			return;
+		}
+		if (event.type === "message_start") {
+			// A new assistant message streams into the live tail; the previous one was
+			// already moved into the transcript when it ended.
+			const role = (event.message as { role?: string } | undefined)?.role;
+			if (role === "assistant") {
+				setLiveText("");
+				setLiveThinking("");
+			}
+			return;
+		}
 		if (event.type === "message_update" && event.assistantMessageEvent) {
 			const delta = event.assistantMessageEvent as { type: string; delta?: string };
 			if (delta.type === "text_delta" && typeof delta.delta === "string") {
@@ -271,10 +438,35 @@ export function App() {
 			} else if (delta.type === "thinking_delta" && typeof delta.delta === "string") {
 				setLiveThinking((prev) => prev + delta.delta);
 			}
-		} else if (event.type === "message_end") {
-			setLiveText("");
-			setLiveThinking("");
-		} else if (event.type === "tool_execution_start") {
+			return;
+		}
+		if (event.type === "message_end") {
+			const message = event.message as AgentMessageView | undefined;
+			if (!message) return;
+			if (message.role === "user") {
+				// The server echoed the operator's prompt, so it renders in order from
+				// the event list instead of the optimistic copy.
+				setOptimisticUserMessages((prev) => prev.slice(1));
+				setPendingMessages((prev) => [...prev, message]);
+				return;
+			}
+			if (message.role === "system") return;
+			if (message.role === "assistant") {
+				setLiveText("");
+				setLiveThinking("");
+				// An assistant turn that only requests tools renders nothing on its own:
+				// the tool card below carries it, so it is not added as an empty row.
+				if (hasVisibleAssistantContent(message)) setPendingMessages((prev) => [...prev, message]);
+				return;
+			}
+			setPendingMessages((prev) => [...prev, message]);
+			if (message.role === "toolResult") {
+				// The committed card replaces the running one.
+				setLiveTools((prev) => prev.filter((tool) => tool.id !== message.toolCallId));
+			}
+			return;
+		}
+		if (event.type === "tool_execution_start") {
 			setLiveTools((prev) => [
 				...prev,
 				{
@@ -285,13 +477,17 @@ export function App() {
 					output: "",
 				},
 			]);
-		} else if (event.type === "tool_execution_update") {
+			return;
+		}
+		if (event.type === "tool_execution_update") {
 			const partial = event.partialResult as { content?: unknown } | null;
 			const text = partial ? textFromContent(partial.content) : "";
 			if (text) {
 				setLiveTools((prev) => prev.map((tool) => (tool.id === event.toolCallId ? { ...tool, output: text } : tool)));
 			}
-		} else if (event.type === "tool_execution_end") {
+			return;
+		}
+		if (event.type === "tool_execution_end") {
 			const text = event.result ? textFromContent(event.result.content) : "";
 			setLiveTools((prev) =>
 				prev.map((tool) =>
@@ -300,12 +496,17 @@ export function App() {
 						: tool,
 				),
 			);
-		} else if (event.type === "queue_update") {
+			return;
+		}
+		if (event.type === "queue_update") {
 			setQueuedMessages([
 				...event.steering.map((text) => ({ kind: "steer" as const, text })),
 				...event.followUp.map((text) => ({ kind: "followUp" as const, text })),
 			]);
-		} else if (event.type === "agent_settled") {
+			return;
+		}
+		if (event.type === "agent_settled") {
+			setRunActive(false);
 			// The run finished; any optimistic bubble not absorbed by the final
 			// snapshot was consumed by an extension or dropped, so clear it. Messages
 			// still queued are rendered from queue_update state.
@@ -315,20 +516,32 @@ export function App() {
 	}, []);
 
 	useEffect(() => {
-		const connection = new ZGConnection((message) => {
-			setConnected(true);
-			handleServerMessage(message);
-		});
+		const connection = new ZGConnection(
+			(message) => handleServerMessage(message),
+			(open) => {
+				setConnected(open);
+				if (!open) return;
+				// Every (re)connect re-reads the whole view. A dropped socket misses
+				// events, so the snapshot and the listings are the only way to catch up.
+				for (const request of [
+					"list_sessions",
+					"get_config",
+					"get_notify_config",
+					"get_permissions",
+					"get_environment",
+					"get_stats",
+					"list_projects",
+					"get_state",
+				] as const) {
+					connection.send({ type: request });
+				}
+			},
+		);
 		connectionRef.current = connection;
 		connection.connect();
 		const poll = window.setInterval(() => {
 			if (connection.connected) connection.send({ type: "list_sessions" });
 		}, 15000);
-		connection.send({ type: "list_sessions" });
-		connection.send({ type: "get_config" });
-		connection.send({ type: "get_notify_config" });
-		connection.send({ type: "get_stats" });
-		connection.send({ type: "list_projects" });
 		return () => {
 		window.clearInterval(poll);
 		connection.close();
@@ -356,12 +569,9 @@ export function App() {
 		[send],
 	);
 
-	const openPanelTab = useCallback(
-		(tab: SidebarTab) => {
-			setPanelTab(tab);
-		},
-		[],
-	);
+	const openPage = useCallback((next: ZGPageId) => {
+		setPage(next);
+	}, []);
 
 	const navigate = useCallback(
 		(entryId: string) => {
@@ -375,31 +585,70 @@ export function App() {
 		setViewer({ title: command ? command.slice(0, 80) : "工具输出", output });
 	}, []);
 
-	const toggleSidePanel = useCallback(
-		(tab: SidePanelTab) => {
-			setSidePanel((prev) => {
-				const next = prev === tab ? null : tab;
-				sidePanelRef.current = next;
-				return next;
-			});
-			if (tab === "files") loadFiles(filePathRef.current);
-		},
-		[loadFiles],
-	);
+	// Another session (or project) has a different transcript: the event-built
+	// lists belong to the old one and would otherwise sit under the new messages
+	// until the operator reloaded the page.
+	useEffect(() => {
+		setPendingMessages([]);
+		setExpandedRuns(new Set());
+		setLiveText("");
+		setLiveThinking("");
+		setLiveTools([]);
+		setOptimisticUserMessages([]);
+		setQueuedMessages([]);
+	}, [snapshot?.activeSessionId, snapshot?.project?.id]);
 
 	// A different project means a different container: drop anything cached from
-	// the previous one and re-read the work directory if the panel is open.
+	// the previous one and re-read the work directory when the files page is up.
 	useEffect(() => {
 		setFilePath("/work");
 		filePathRef.current = "/work";
 		setFileEntries([]);
 		setFilePreview(null);
 		setSubagentTranscripts({});
-		if (sidePanelRef.current === "files") loadFiles("/work");
-	}, [snapshot?.project?.id, loadFiles]);
+		if (filesOpen) loadFiles("/work");
+	}, [snapshot?.project?.id, filesOpen, loadFiles]);
+
+	// Opening the file browser always re-lists the directory it is showing.
+	useEffect(() => {
+		if (filesOpen) loadFiles(filePathRef.current);
+	}, [filesOpen, loadFiles]);
+
+	/** Re-read whatever the active page (or overlay) is showing. */
+	const refreshPage = useCallback(() => {
+		if (filesOpen) loadFiles(filePathRef.current);
+		if (subagentsOpen) send({ type: "get_state" });
+		switch (page) {
+			case "chat":
+				send({ type: "get_state" });
+				refreshStats();
+				break;
+			case "projects":
+				send({ type: "list_projects" });
+				send({ type: "list_sessions" });
+				break;
+			case "settings.model":
+				send({ type: "get_config" });
+				break;
+			case "settings.notify":
+				send({ type: "get_notify_config" });
+				break;
+			case "settings.permissions":
+				send({ type: "get_permissions" });
+				break;
+			case "settings.environment":
+				send({ type: "get_environment" });
+				break;
+			case "about":
+				send({ type: "get_config" });
+				send({ type: "get_state" });
+				refreshStats();
+				break;
+		}
+	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles]);
 
 	const mode: ZGMode = snapshot?.mode ?? "review";
-	const streaming = snapshot?.streaming ?? false;
+	const streaming = runActive;
 	const pendingApprovals = snapshot?.pendingApprovals ?? [];
 	const needsConfig = snapshot !== null && !snapshot.modelConfigured;
 	/** No project means no container, so the console blocks the chat entirely. */
@@ -412,12 +661,72 @@ export function App() {
 		[snapshot],
 	) as AgentMessageView[];
 
-	const forkByUserOrder = useMemo(() => {
+	/**
+	 * Commands of the tool calls in the transcript, by tool-call id. A tool result
+	 * message carries the output but not the command, so this is what lets a
+	 * finished card still show what was run.
+	 */
+	const toolCommands = useMemo(() => {
+		const commands = new Map<string, string>();
+		for (const message of [...visibleMessages, ...pendingMessages]) {
+			if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+			for (const block of message.content) {
+				const call = block as { type?: string; id?: string; arguments?: Record<string, unknown> };
+				if (call.type === "toolCall" && call.id) commands.set(call.id, commandFromArgs(call.arguments));
+			}
+		}
+		return commands;
+	}, [visibleMessages, pendingMessages]);
+
+	const forkEntryIds = useMemo(() => {
+		const ids = new Map<string, string>();
 		let index = 0;
-		return visibleMessages.map((message) =>
-			message.role === "user" ? forkPoints[index++]?.entryId : undefined,
-		);
+		for (const message of visibleMessages) {
+			if (message.role !== "user") continue;
+			const entryId = forkPoints[index++]?.entryId;
+			if (entryId) ids.set(messageKey(message), entryId);
+		}
+		return ids;
 	}, [visibleMessages, forkPoints]);
+
+	/**
+	 * The transcript grouped into runs: a prompt and everything it produced, up to
+	 * the next prompt. Grouping is what lets a finished run fold into one row, and
+	 * it also gives the run's tool calls their shared timeline rail.
+	 */
+	const runGroups = useMemo(() => {
+		const groups: { key: string; prompt?: AgentMessageView; body: AgentMessageView[] }[] = [];
+		for (const message of [...visibleMessages, ...pendingMessages]) {
+			if (message.role === "user") {
+				groups.push({ key: `run-${messageKey(message)}`, prompt: message, body: [] });
+				continue;
+			}
+			const last = groups[groups.length - 1];
+			if (last) last.body.push(message);
+			else groups.push({ key: `head-${messageKey(message)}`, body: [message] });
+		}
+		return groups;
+	}, [visibleMessages, pendingMessages]);
+
+	/**
+	 * Whether a run may fold, and whether it is folded right now. Only a run whose
+	 * last word is prose can fold: a failure, an abort or a turn cut off mid-tool
+	 * has to stay visible, because the error is the point. The run in flight never
+	 * folds either, so the operator watches it happen.
+	 */
+	const runFold = useCallback(
+		(index: number): { collapsed: boolean; digest: string } | undefined => {
+			const group = runGroups[index];
+			if (!group?.prompt || group.body.length === 0) return undefined;
+			if (streaming && index === runGroups.length - 1) return undefined;
+			const last = group.body[group.body.length - 1];
+			if (last.role !== "assistant" || last.errorMessage) return undefined;
+			if (last.stopReason === "error" || last.stopReason === "aborted") return undefined;
+			if (textFromContent(last.content).length === 0) return undefined;
+			return { collapsed: !expandedRuns.has(group.key), digest: runDigest(group.prompt, group.body) };
+		},
+		[runGroups, streaming, expandedRuns],
+	);
 
 	useEffect(() => {
 		if (!streaming) send({ type: "get_tree" });
@@ -427,12 +736,50 @@ export function App() {
 		if (!streaming) refreshStats();
 	}, [streaming, refreshStats, snapshot?.messages.length]);
 
+	const activeSession = sessions.find((session) => session.id === snapshot?.activeSessionId);
+	const sessionLabel = activeSession?.name ?? activeSession?.firstMessage.slice(0, 30) ?? "未选择会话";
+	const sessionCount: Record<string, number> = {};
+	for (const session of sessions) {
+		const id = session.cwd.split("/").pop() ?? "";
+		sessionCount[id] = (sessionCount[id] ?? 0) + 1;
+	}
+
 	return (
 		<div className="app">
-			<Sidebar
-				activeTab={panelTab}
+			<AppSider
 				collapsed={sidebarCollapsed}
-				headerSlot={
+				onToggleCollapse={() => {
+					setSidebarCollapsed((prev) => {
+						const next = !prev;
+						localStorage.setItem("zg-sidebar-collapsed", next ? "1" : "0");
+						return next;
+					});
+				}}
+				activePage={page}
+				onNavigate={openPage}
+				connected={connected}
+				mode={mode}
+				modelConfigured={snapshot?.modelConfigured ?? false}
+				sessions={sessions}
+				activeSessionId={snapshot?.activeSessionId ?? null}
+				runningSessions={
+					runActive && snapshot?.activeSessionId
+						? [...new Set([...(snapshot.runningSessions ?? []), snapshot.activeSessionId])]
+						: (snapshot?.runningSessions ?? [])
+				}
+				pendingApprovals={pendingApprovals.length}
+				onNewSession={() => {
+					openPage("chat");
+					send({ type: "new_session" });
+				}}
+				onSwitchSession={(path) => {
+					openPage("chat");
+					send({ type: "switch_session", path });
+				}}
+				onRenameSession={(path, name) => send({ type: "rename_session", path, name })}
+				onDeleteSession={(path) => send({ type: "delete_session", path })}
+				onRefresh={refreshPage}
+				projectSlot={
 					<ProjectPicker
 						projects={projects}
 						activeProject={snapshot?.project ?? null}
@@ -453,137 +800,68 @@ export function App() {
 						}}
 					/>
 				}
-				mode={mode}
-				streaming={streaming}
-				connected={connected}
-				modelConfigured={snapshot?.modelConfigured ?? false}
-				stats={stats}
-				allowedPrefixes={snapshot?.allowedPrefixes ?? []}
-				sessions={sessions}
-				activeSessionId={snapshot?.activeSessionId ?? null}
-				runningSessions={snapshot?.runningSessions ?? []}
-				pendingApprovals={pendingApprovals.length}
-				onTab={(tab) => {
-					if (sidebarCollapsed) setSidebarCollapsed(false);
-					openPanelTab(tab);
-				}}
-				onToggleCollapse={() => {
-					setSidebarCollapsed((prev) => {
-						const next = !prev;
-						localStorage.setItem("zg-sidebar-collapsed", next ? "1" : "0");
-						return next;
-					});
-				}}
-				onNewSession={() => send({ type: "new_session" })}
-				onSwitchSession={(path) => {
-					setPanelTab("chat");
-					send({ type: "switch_session", path });
-				}}
-				onRenameSession={(path, name) => send({ type: "rename_session", path, name })}
-				onDeleteSession={(path) => send({ type: "delete_session", path })}
-				onAllowPrefix={(prefix) => send({ type: "allow_prefix", prefix })}
-				onRemoveAllowedPrefix={(prefix) => send({ type: "remove_allowed_prefix", prefix })}
 			/>
-			<main className="main">
-				{needsProject ? (
-					<ProjectGate
-						projects={projects}
-						busy={streaming}
-						onCreate={addProject}
-						onSwitch={(id) => send({ type: "switch_project", id })}
-						onOpenSettings={() => setPanelTab("settings")}
-					/>
-				) : panelTab === "chat" ? (
-					<div className="chat-wrap">
-							<div className="transcript" ref={transcriptRef}>
-								{visibleMessages.length === 0 && !liveText && !streaming ? (
-									<div className="empty">
-										{needsConfig
-											? "请先在左侧「设置 → 模型」中配置 OpenAI 兼容端点。\n输入目标范围和任务，开始渗透测试。"
-											: "输入目标范围和任务，开始渗透测试。\n例如：对 10.10.10.5 进行全端口侦察，或派子代理并行侦察多个目标。"}
-									</div>
-								) : null}
-								{visibleMessages.map((message, index) => (
-									<MessageView
-										key={index}
-										message={message}
-										forkEntryId={forkByUserOrder[index]}
-										onFork={streaming ? undefined : navigate}
-										onFullscreen={openViewer}
-									/>
-								))}
-								{optimisticUserMessages.map((item, index) => (
-									<div key={`optimistic-${index}`} className="entry operator">
-										<div className="entry-head">
-											<span className="role-tag operator">OPERATOR</span>
-										</div>
-										<div className="entry-body pending">
-											{item.text}
-											{item.imageCount > 0 ? `（附 ${item.imageCount} 张图片）` : ""}
-										</div>
-									</div>
-								))}
-								{queuedMessages.map((item, index) => (
-									<div key={`queued-${index}`} className="entry operator">
-										<div className="entry-head">
-											<span className="role-tag operator">OPERATOR</span>
-										</div>
-										<div className="entry-body queued">
-											{item.kind === "steer" ? "⏱ 插话中：" : "⏳ 排队中："}
-											{item.text}
-										</div>
-									</div>
-								))}
-								{liveThinking ? (
-									<div className="entry agent">
-										<div className="entry-head">
-											<span className="role-tag agent">AGENT</span>
-										</div>
-										<details className="thinking" open>
-											<summary>思考中…</summary>
-											<pre>{liveThinking}</pre>
-										</details>
-									</div>
-								) : null}
-								{liveTools.map((tool) => (
-									<ToolCard
-										key={tool.id}
-										name={tool.name}
-										status={tool.status}
-										durationMs={tool.durationMs}
-										command={tool.command}
-										output={tool.output}
-										onFullscreen={openViewer}
-									/>
-								))}
-								{liveText ? (
-									<div className="entry agent">
-										<div className="entry-head">
-											<span className="role-tag agent">AGENT</span>
-										</div>
-										<div className="entry-body streaming">
-										<MarkdownText text={liveText} />
-									</div>
-									</div>
-								) : null}
+			<div className="app-body">
+				<main className="app-content">
+					{connected ? null : (
+						<div className="conn-banner" role="status">
+							<span className="conn-banner-dot" />
+							<span>
+								与后端连接已断开，正在自动重连… 若浏览器提示 ERR_ADDRESS_INVALID，请确认打开的是
+								<code> http://127.0.0.1:端口 </code>
+								（<code>0.0.0.0</code> 不是可访问地址）。
+							</span>
+						</div>
+					)}
+					{envReport && !envReport.ok ? (
+						<div className="env-banner" role="status">
+							<span className="env-banner-dot" />
+							<span>
+								Docker 环境不可用，对话已锁定：
+								{envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ?? "环境检查未通过"}
+								。请到
+								<button type="button" className="link" onClick={() => setPage("settings.environment")}>
+									设置 → 环境
+								</button>
+								查看原因并构建镜像。
+							</span>
+						</div>
+					) : null}
+					{/* The gate replaces the chat page only: settings and the project list
+					    must stay reachable, or a first run could never build the image. */}
+					{needsProject && page === "chat" ? (
+						<ProjectGate
+							projects={projects}
+							busy={streaming}
+							onCreate={addProject}
+							onSwitch={(id) => send({ type: "switch_project", id })}
+							onOpenSettings={() => openPage("settings.model")}
+						/>
+					) : page === "chat" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									对话
+									<span className="ws-panel__sub" title={activeSession?.firstMessage}>
+										{sessionLabel}
+									</span>
+								</div>
 							</div>
-							<Composer
-								streaming={streaming}
+							<ChatToolbar
 								mode={mode}
+								streaming={streaming}
 								pendingApprovals={pendingApprovals.length}
-								stats={stats}
-								branchOpen={branchOpen}
-								sidePanel={sidePanel}
-								hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 								subagentRunning={subagentRunning}
-								notifyRun={notifyRun ?? notifyConfig.enabled}
-								onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
-								onToggleSidePanel={toggleSidePanel}
 								thinkingLevel={snapshot?.thinkingLevel ?? "off"}
 								availableThinkingLevels={snapshot?.availableThinkingLevels ?? []}
+								branchOpen={branchOpen}
+								filesOpen={filesOpen}
+								subagentsOpen={subagentsOpen}
+								allowedPrefixes={snapshot?.allowedPrefixes ?? []}
+								onToggleFiles={() => setFilesOpen((prev) => !prev)}
+								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
 								onSetMode={(next) => send({ type: "set_mode", mode: next })}
 								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
-								onCompact={() => send({ type: "compact" })}
 								onToggleBranch={() => {
 									setBranchOpen((prev) => {
 										const next = !prev;
@@ -592,98 +870,318 @@ export function App() {
 									});
 									send({ type: "get_tree" });
 								}}
-								onSend={(text, behavior, images) => {
-									const userCount = (snapshotRef.current?.messages ?? []).filter(
-										(entry) => (entry as { role?: string }).role === "user",
-									).length;
-									setOptimisticUserMessages((prev) => [
-										...prev,
-										{ text, imageCount: images?.length ?? 0, userCountAtSend: userCount },
-									]);
-									send({
-										type: "prompt",
-										text,
-										streamingBehavior: behavior,
-										images,
-										notify: notifyRun ?? notifyConfig.enabled,
-									});
-								}}
-								onAbort={() => send({ type: "abort" })}
+								onCompact={() => send({ type: "compact" })}
+								onAllowPrefix={(prefix) => send({ type: "allow_prefix", prefix })}
+								onRemoveAllowedPrefix={(prefix) => send({ type: "remove_allowed_prefix", prefix })}
 							/>
+							<div className="ws-panel__body">
+								<div className="transcript" ref={transcriptRef}>
+									{visibleMessages.length === 0 && !liveText && !streaming ? (
+										<div className="ws-empty">
+											<span>等待第一条指令</span>
+											<span>
+												{needsConfig
+													? "请先在「设置 → 模型」中配置 OpenAI 兼容端点。"
+													: "例如：对 10.10.10.5 进行全端口侦察，或派子代理并行侦察多个目标。"}
+											</span>
+										</div>
+									) : null}
+									{runGroups.map((group, groupIndex) => {
+										const fold = runFold(groupIndex);
+										const live = streaming && groupIndex === runGroups.length - 1;
+										const summary = group.body[group.body.length - 1];
+										return (
+											<div className="run-group" key={group.key}>
+												{group.prompt ? (
+													<MessageView
+														message={group.prompt}
+														forkEntryId={forkEntryIds.get(messageKey(group.prompt))}
+														onFork={streaming ? undefined : navigate}
+														onFullscreen={openViewer}
+													/>
+												) : null}
+												{fold ? (
+													<RunFold
+														digest={fold.digest}
+														open={!fold.collapsed}
+														onToggle={() =>
+															setExpandedRuns((prev) => {
+																const next = new Set(prev);
+																if (next.has(group.key)) next.delete(group.key);
+																else next.add(group.key);
+																return next;
+															})
+														}
+													/>
+												) : null}
+												{fold?.collapsed ? (
+													<MessageView
+														message={summary}
+														toolCommand={toolCommandOf(summary, toolCommands)}
+														onFullscreen={openViewer}
+													/>
+												) : (
+													<div className="run-body">
+														{group.body.map((message, bodyIndex) => (
+															<MessageView
+																key={`${group.key}-${bodyIndex}`}
+																message={message}
+																toolCommand={toolCommandOf(message, toolCommands)}
+																onFullscreen={openViewer}
+															/>
+														))}
+														{live && liveThinking ? (
+															<AgentEntry>
+																<details className="thinking" open>
+																	<summary>思考中…</summary>
+																	<pre>{liveThinking}</pre>
+																</details>
+															</AgentEntry>
+														) : null}
+														{live
+															? liveTools.map((tool) => (
+																	<ToolCard
+																		key={tool.id}
+																		name={tool.name}
+																		status={tool.status}
+																		durationMs={tool.durationMs}
+																		command={tool.command}
+																		output={tool.output}
+																		onFullscreen={openViewer}
+																	/>
+																))
+															: null}
+														{live && liveText ? (
+															<AgentEntry>
+																<MarkdownText text={liveText} />
+															</AgentEntry>
+														) : null}
+													</div>
+												)}
+											</div>
+										);
+									})}
+									{optimisticUserMessages.map((item, index) => (
+										<div key={`optimistic-${index}`} className="log-op pending">
+											<span className="log-op-mark">&gt;</span>
+											<div className="log-op-body">
+												{item.text}
+												{item.imageCount > 0 ? `（附 ${item.imageCount} 张图片）` : ""}
+											</div>
+										</div>
+									))}
+									{queuedMessages.map((item, index) => (
+										<div key={`queued-${index}`} className="log-op queued">
+											<span className="log-op-mark">{item.kind === "steer" ? "↳" : "…"}</span>
+											<div className="log-op-body">
+												{item.kind === "steer" ? "插话中：" : "排队中："}
+												{item.text}
+											</div>
+										</div>
+									))}
+								</div>
+								<Composer
+									streaming={streaming}
+									stats={stats}
+									hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+									blockedReason={
+										envReport && !envReport.ok
+											? `Docker 环境不可用：${
+													envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ??
+													"环境检查未通过"
+												}。请到「设置 → 环境」修复。`
+											: envReport
+												? null
+												: "正在检查 Docker 环境…"
+									}
+									notifyRun={notifyRun ?? notifyConfig.enabled}
+									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
+									onSend={(text, behavior, images) => {
+										const userCount = (snapshotRef.current?.messages ?? []).filter(
+											(entry) => (entry as { role?: string }).role === "user",
+										).length;
+										setOptimisticUserMessages((prev) => [
+											...prev,
+											{ text, imageCount: images?.length ?? 0, userCountAtSend: userCount },
+										]);
+										send({
+											type: "prompt",
+											text,
+											streamingBehavior: behavior,
+											images,
+											notify: notifyRun ?? notifyConfig.enabled,
+										});
+									}}
+									onAbort={() => send({ type: "abort" })}
+								/>
+							</div>
 						</div>
-				) : (
-					<div className="page-card">
-						<h2>设置</h2>
-						<div className="settings-sections">
-							<button
-								type="button"
-								className={`settings-section${settingsSection === "model" ? " active" : ""}`}
-								onClick={() => setSettingsSection("model")}
-							>
-								模型
-							</button>
-							<button
-								type="button"
-								className={`settings-section${settingsSection === "notify" ? " active" : ""}`}
-								onClick={() => setSettingsSection("notify")}
-							>
-								通知
-							</button>
+					) : page === "projects" ? (
+						<ProjectsPage
+							projects={projects}
+							activeProject={snapshot?.project ?? null}
+							busy={streaming}
+							onCreate={addProject}
+							onSwitch={(id) => send({ type: "switch_project", id })}
+							onRemove={async (id, confirmName) => {
+								return await new Promise<string | null>((resolve) => {
+									projectErrorRef.current = resolve;
+									send({ type: "remove_project", id, confirmName });
+									window.setTimeout(() => {
+										if (projectErrorRef.current === resolve) {
+											projectErrorRef.current = null;
+											resolve(null);
+										}
+									}, 60000);
+								});
+							}}
+							sessionCount={sessionCount}
+						/>
+					) : page === "settings.model" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">模型端点</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<SettingsPanel
+									config={config}
+									onSave={(next) => send({ type: "save_config", config: next })}
+									onTest={async (candidate) => {
+										const result = await new Promise<ZGTestResult | null>((resolve) => {
+											testResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_config", config: candidate });
+											window.setTimeout(() => {
+												if (testResolverRef.current === resolve) {
+													testResolverRef.current = null;
+													resolve(null);
+												}
+											}, 20000);
+										});
+										return result;
+									}}
+								/>
+							</div>
 						</div>
-						{settingsSection === "model" ? (
-							<SettingsPanel
-								config={config}
-								onSave={(next) => send({ type: "save_config", config: next })}
-								onTest={async (candidate) => {
-									const result = await new Promise<ZGTestResult | null>((resolve) => {
-										testResolverRef.current = resolve;
-										connectionRef.current?.send({ type: "test_config", config: candidate });
-										window.setTimeout(() => {
-											if (testResolverRef.current === resolve) {
-												testResolverRef.current = null;
-												resolve(null);
-											}
-										}, 20000);
-									});
-									return result;
-								}}
-							/>
-						) : (
-							<NotifyPanel
-								config={notifyConfig}
-								status={notifyStatus}
-								onSave={(next) => send({ type: "save_notify_config", config: next })}
-								onTest={async (candidate) => {
-									const result = await new Promise<ZGTestResult | null>((resolve) => {
-										notifyTestResolverRef.current = resolve;
-										connectionRef.current?.send({ type: "test_notify", config: candidate });
-										window.setTimeout(() => {
-											if (notifyTestResolverRef.current === resolve) {
-												notifyTestResolverRef.current = null;
-												resolve(null);
-											}
-										}, 40000);
-									});
-									return result;
-								}}
-							/>
-						)}
-					</div>
-				)}
-			</main>
-			<SidePanel
-				open={sidePanel !== null && !needsProject}
-				tab={sidePanel ?? "files"}
-				projectName={snapshot?.project?.name ?? null}
-				fileCount={fileEntries.length}
-				runningCount={subagentRunning}
-				onTab={(tab) => toggleSidePanel(tab)}
-				onClose={() => {
-					setSidePanel(null);
-					sidePanelRef.current = null;
-				}}
-			>
-				{sidePanel === "files" ? (
+					) : page === "settings.notify" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">钉钉通知</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<NotifyPanel
+									config={notifyConfig}
+									status={notifyStatus}
+									onSave={(next) => send({ type: "save_notify_config", config: next })}
+									onTest={async (candidate) => {
+										const result = await new Promise<ZGTestResult | null>((resolve) => {
+											notifyTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_notify", config: candidate });
+											window.setTimeout(() => {
+												if (notifyTestResolverRef.current === resolve) {
+													notifyTestResolverRef.current = null;
+													resolve(null);
+												}
+											}, 40000);
+										});
+										return result;
+									}}
+								/>
+							</div>
+						</div>
+					) : page === "settings.permissions" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										权限
+										{permissionEffective
+											? ` · 子代理实际可用 ${Object.values(permissionEffective).filter(Boolean).length} 项`
+											: ""}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								{permissions ? (
+									<PermissionsPanel
+										config={permissions}
+										presets={permissionPresets}
+										tools={permissionTools}
+										busy={permissionBusy}
+										onRefresh={() => send({ type: "get_permissions" })}
+										onSave={(next) => {
+											setPermissionBusy(true);
+											send({ type: "save_permissions", config: next });
+											// The rebuild is not instant; a refusal arrives as an error toast.
+											window.setTimeout(() => setPermissionBusy(false), 20000);
+										}}
+									/>
+								) : (
+									<div className="ws-empty">
+										<span>正在读取权限配置…</span>
+									</div>
+								)}
+							</div>
+						</div>
+					) : page === "settings.environment" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										环境
+										{envReport ? (envReport.ok ? " · 可用" : " · 不可用") : " · 检查中"}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<EnvironmentPanel
+									report={envReport}
+									building={imageBuilding}
+									buildLog={buildLog}
+									sourcesSavedAt={sourcesSavedAt}
+									onSaveSources={(sources) => send({ type: "set_sources", sources })}
+									onRefresh={() => send({ type: "check_environment" })}
+									onBuild={() => {
+										setBuildLog([]);
+										setImageBuilding(true);
+										send({ type: "build_image" });
+									}}
+									onAbortBuild={() => send({ type: "abort_image_build" })}
+								/>
+							</div>
+						</div>
+					) : (
+						<AboutPage
+							snapshot={snapshot}
+							config={config}
+							stats={stats}
+							project={snapshot?.project ?? null}
+							connected={connected}
+						/>
+					)}
+				</main>
+			</div>
+			{filesOpen ? (
+				<Overlay
+					title="文件"
+					subtitle={`${snapshot?.project?.name ?? "未选择项目"} · 容器工作目录 /work`}
+					onClose={() => setFilesOpen(false)}
+					actions={
+						<span className="ws-kv">
+							<span>
+								<b>{fileEntries.length}</b> 项
+							</span>
+							{fileBusy ? <span>读取中…</span> : null}
+						</span>
+					}
+				>
 					<FilePanel
 						state={{ path: filePath, entries: fileEntries, preview: filePreview, busy: fileBusy }}
 						onOpen={loadFiles}
@@ -716,7 +1214,14 @@ export function App() {
 							send({ type: "download_file", path });
 						}}
 					/>
-				) : (
+				</Overlay>
+			) : null}
+			{subagentsOpen ? (
+				<Overlay
+					title="子代理"
+					subtitle={`当前会话 ${subagentRuns.length} 次派发${subagentRunning > 0 ? ` · ${subagentRunning} 个运行中` : ""}`}
+					onClose={() => setSubagentsOpen(false)}
+				>
 					<SubagentPanel
 						runs={subagentRuns}
 						transcripts={subagentTranscripts}
@@ -724,9 +1229,9 @@ export function App() {
 						onAbort={(id) => send({ type: "abort_subagent", id })}
 						onSteer={(id, text) => send({ type: "steer_subagent", id, text })}
 					/>
-				)}
-			</SidePanel>
-			{branchOpen && panelTab === "chat" ? (
+				</Overlay>
+			) : null}
+			{branchOpen && page === "chat" ? (
 				<BranchModal
 					tree={tree}
 					leafId={leafId}

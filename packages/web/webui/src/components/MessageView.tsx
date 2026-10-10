@@ -37,22 +37,39 @@ function formatTime(timestamp?: number): string {
 	return new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-function Entry({
-	role,
+/**
+ * One operator entry: a prompt line with a marker, the way a console echoes
+ * input. No avatar, no bubble, no role tag.
+ */
+function OperatorEntry({ timestamp, children }: { timestamp?: number; children: React.ReactNode }) {
+	return (
+		<div className="log-op">
+			<span className="log-op-mark">&gt;</span>
+			<div className="log-op-body">
+				{children}
+				{timestamp ? <span className="log-time">{formatTime(timestamp)}</span> : null}
+			</div>
+		</div>
+	);
+}
+
+/** One agent entry: plain prose in the flow, with a quiet timestamp gutter. */
+export function AgentEntry({
+	subagent,
 	timestamp,
 	children,
 }: {
-	role: "operator" | "agent" | "subagent";
+	subagent?: boolean;
 	timestamp?: number;
 	children: React.ReactNode;
 }) {
 	return (
-		<div className={`entry ${role}`}>
-			<div className="entry-head">
-				<span className={`role-tag ${role}`}>{role === "operator" ? "OPERATOR" : role === "agent" ? "AGENT" : "SUB-AGENT"}</span>
-				<span className="entry-time">{formatTime(timestamp)}</span>
+		<div className={`log-agent ${subagent ? "subagent" : ""}`}>
+			<span className="log-gutter">{subagent ? "SA" : "AI"}</span>
+			<div className="log-body">
+				{children}
+				{timestamp ? <span className="log-time">{formatTime(timestamp)}</span> : null}
 			</div>
-			{children}
 		</div>
 	);
 }
@@ -82,11 +99,14 @@ function hintForError(message: string): string {
 
 export function MessageView({
 	message,
+	toolCommand,
 	forkEntryId,
 	onFork,
 	onFullscreen,
 }: {
 	message: AgentMessageView;
+	/** Command of the tool call this result belongs to, when the transcript has it. */
+	toolCommand?: string;
 	forkEntryId?: string;
 	onFork?: (entryId: string) => void;
 	onFullscreen?: (command: string | undefined, output: string) => void;
@@ -97,7 +117,7 @@ export function MessageView({
 			: String(message.content ?? "");
 		const images = messageImages(message.content);
 		return (
-			<Entry role="operator" timestamp={message.timestamp}>
+			<OperatorEntry timestamp={message.timestamp}>
 				{images.length > 0 ? (
 					<div className="message-images">
 						{images.map((image, index) => (
@@ -110,13 +130,13 @@ export function MessageView({
 						))}
 					</div>
 				) : null}
-				{text ? <div className="entry-body">{text}</div> : null}
+				{text ? <div className="log-op-text">{text}</div> : null}
 				{forkEntryId && onFork ? (
 					<button type="button" className="ghost small fork-button" onClick={() => onFork(forkEntryId)}>
-						↩ 从此分叉
+						从此分叉
 					</button>
 				) : null}
-			</Entry>
+			</OperatorEntry>
 		);
 	}
 
@@ -129,7 +149,7 @@ export function MessageView({
 			(block) => (block as { type?: string }).type === "toolCall" && (block as { name?: string }).name === "spawn_agent",
 		);
 		return (
-			<Entry role={isSubagentToolCall ? "subagent" : "agent"} timestamp={message.timestamp}>
+			<AgentEntry subagent={isSubagentToolCall} timestamp={message.timestamp}>
 				{thinking.length > 0 ? (
 					<details className="thinking">
 						<summary>思考过程</summary>
@@ -137,18 +157,18 @@ export function MessageView({
 					</details>
 				) : null}
 				{text ? (
-					<div className={`entry-body${failed ? " failed" : ""}`}>
+					<div className={failed ? "failed" : ""}>
 						<MarkdownText text={text} />
 					</div>
 				) : null}
-				{failed && !text ? <div className="entry-body failed">（本次运行失败或被中止）</div> : null}
+				{failed && !text ? <div className="failed">（本次运行失败或被中止）</div> : null}
 				{message.errorMessage ? (
-					<div className="entry-body failed">
+					<div className="failed">
 						<div className="error-title">{message.errorMessage}</div>
 						<div className="error-hint">{hintForError(message.errorMessage)}</div>
 					</div>
 				) : null}
-			</Entry>
+			</AgentEntry>
 		);
 	}
 
@@ -159,6 +179,7 @@ export function MessageView({
 				name={message.toolName}
 				status={message.isError ? "error" : "done"}
 				durationMs={message.durationMs}
+				command={toolCommand}
 				output={output}
 				onFullscreen={onFullscreen}
 			/>

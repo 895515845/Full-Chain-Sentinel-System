@@ -8,6 +8,7 @@ import type {
 	SessionTreeNode,
 	ThinkingLevel,
 } from "@earendil-works/pi-coding-agent";
+import type { ZGPermissionPreset, ZGPermissionSet, ZGPermissionsConfig } from "./permissions.ts";
 
 /** Operator approval mode for bash tool calls. */
 export type ZGMode = "review" | "auto";
@@ -40,6 +41,18 @@ export interface ZGNotifyStatus {
 	error?: string;
 	/** What the notification was for, e.g. the session title. */
 	subject?: string;
+}
+
+/**
+ * One mounted tool of the live session, listed on the permissions screen so the
+ * operator can check what the switches actually produced.
+ */
+export interface ZGToolInfo {
+	name: string;
+	/** Where the tool came from, e.g. "base", "extension", "sdk", "mcp". */
+	source: string;
+	/** Whether the model sees it right now (as opposed to codemode/deferred only). */
+	active: boolean;
 }
 
 /** Result of probing an endpoint configuration without saving it. */
@@ -192,6 +205,8 @@ export type ZGClientMessage =
 	| { type: "get_state" }
 	| { type: "save_config"; config: ZGModelConfig }
 	| { type: "test_config"; config: ZGModelConfig }
+	| { type: "get_permissions" }
+	| { type: "save_permissions"; config: ZGPermissionsConfig }
 	| { type: "get_notify_config" }
 	| { type: "save_notify_config"; config: ZGNotifyConfig }
 	| { type: "test_notify"; config: ZGNotifyConfig }
@@ -211,7 +226,12 @@ export type ZGClientMessage =
 	| { type: "list_subagents" }
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
-	| { type: "steer_subagent"; id: string; text: string };
+	| { type: "steer_subagent"; id: string; text: string }
+	| { type: "get_environment" }
+	| { type: "check_environment" }
+	| { type: "build_image" }
+	| { type: "abort_image_build" }
+	| { type: "set_sources"; sources: ZGSources };
 
 /** Server-to-client messages. */
 export type ZGServerMessage =
@@ -221,6 +241,13 @@ export type ZGServerMessage =
 	| { type: "tree"; tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] }
 	| { type: "config"; config: ZGModelConfig | null }
 	| { type: "test_result"; result: ZGTestResult }
+	| {
+			type: "permissions";
+			config: ZGPermissionsConfig;
+			effectiveSubagent: ZGPermissionSet;
+			presets: ZGPermissionPreset[];
+			tools: ZGToolInfo[];
+	  }
 	| { type: "notify_config"; config: ZGNotifyConfig; status: ZGNotifyStatus }
 	| { type: "notify_test_result"; result: ZGTestResult }
 	| { type: "stats"; stats: SessionStats }
@@ -233,4 +260,49 @@ export type ZGServerMessage =
 	| { type: "subagent_run"; run: ZGSubagentRun }
 	| { type: "subagent_event"; runId: string; event: ZGSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
+	| { type: "environment"; report: ZGEnvReport; building: boolean }
+	| { type: "image_build_log"; line: string }
+	| { type: "image_build_result"; ok: boolean; error?: string }
+	| { type: "sources_saved"; sources: ZGSources; error?: string }
 	| { type: "error"; message: string };
+
+/**
+ * One environment prerequisite. `blocking` items decide whether the console runs
+ * at all: Docker is not optional here, because every tool call is a `docker exec`
+ * into a project container.
+ */
+export interface ZGEnvItem {
+	id: string;
+	/** Section the item is listed under, e.g. Docker 运行时. */
+	group: string;
+	label: string;
+	status: "ok" | "warn" | "fail" | "skipped";
+	detail: string;
+	/** What to do about a warn or fail. */
+	hint?: string;
+	blocking: boolean;
+}
+
+/**
+ * Base image and package mirrors for the toolbox image build. Empty means the
+ * official source; the values are baked into the image at build time.
+ */
+export interface ZGSources {
+	baseImage: string;
+	aptMirror: string;
+	pipIndex: string;
+	npmRegistry: string;
+	goProxy: string;
+}
+
+export interface ZGEnvReport {
+	/** ISO timestamp of the check that produced this report. */
+	at: string;
+	/** Every blocking item is ok. */
+	ok: boolean;
+	items: ZGEnvItem[];
+	/** Console address, shown in the environment page. */
+	url: string;
+	/** Build sources as configured (empty fields mean the official source). */
+	sources: ZGSources;
+}

@@ -23,6 +23,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { excludeToolsFor, type ZGPermissionSet } from "./permissions.ts";
 import type { SubagentRegistry } from "./subagents.ts";
 
 /** Turn budget before a sub-agent is aborted. */
@@ -55,6 +56,8 @@ export interface SubagentToolOptions {
 	getParentSessionId: () => string | undefined;
 	/** Project the run belongs to, for the retained record. */
 	getProjectId: () => string | undefined;
+	/** What this sub-agent is allowed to mount; always a subset of the parent. */
+	permissions: ZGPermissionSet;
 	maxTurns?: number;
 }
 
@@ -101,8 +104,20 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 			// Same resource loading as the main session, so the sub-agent sees the
 			// same extension-contributed tools. Only the custom tool set differs:
 			// spawn_agent is not passed, which is what stops delegation from recursing.
+			// The permission set was already reduced to the parent's, so a sub-agent
+			// can never hold a tool the main agent does not have.
+			const permissions = options.permissions;
 			const { resourceLoader, settingsManager } = await options.createSessionContext(SUBAGENT_APPEND_PROMPT);
 
+			// `baseToolsOverride` replaces the whole base set, so the coding tools
+			// must be listed explicitly alongside the gated bash. Disabled tools are
+			// also denied, so nothing can bring them back.
+			const baseToolsOverride = {
+				...(permissions.read ? { read: createReadTool(options.cwd) } : {}),
+				...(permissions.bash ? { bash: options.createGatedBash() } : {}),
+				...(permissions.edit ? { edit: createEditTool(options.cwd) } : {}),
+				...(permissions.write ? { write: createWriteTool(options.cwd) } : {}),
+			};
 			const created = await createAgentSession({
 				cwd: options.cwd,
 				agentDir: options.agentDir,
@@ -111,14 +126,8 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				settingsManager,
 				resourceLoader,
 				sessionManager: SessionManager.inMemory(options.cwd),
-				// `baseToolsOverride` replaces the whole base set, so the coding tools
-				// must be listed explicitly alongside the gated bash.
-				baseToolsOverride: {
-					read: createReadTool(options.cwd),
-					bash: options.createGatedBash(),
-					edit: createEditTool(options.cwd),
-					write: createWriteTool(options.cwd),
-				},
+				baseToolsOverride,
+				excludeTools: excludeToolsFor(permissions),
 			});
 			const session = created.session;
 			// Emits session_start, which connects MCP servers and lets extensions

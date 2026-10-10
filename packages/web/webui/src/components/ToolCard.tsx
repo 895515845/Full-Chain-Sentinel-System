@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { CaretDownIcon, CaretRightIcon } from "./icons.tsx";
 
 /** First non-empty line of a text block, truncated for the collapsed summary row. */
@@ -7,6 +7,23 @@ function summaryLine(text: string, max = 110): string {
 	return line.length > max ? `${line.slice(0, max)}…` : line;
 }
 
+/** Last non-empty line, so a running command shows where it got to. */
+function tailLine(text: string, max = 110): string {
+	const lines = text.split("\n").filter((candidate) => candidate.trim().length > 0);
+	const line = lines[lines.length - 1] ?? "";
+	return line.length > max ? `…${line.slice(-max)}` : line;
+}
+
+function durationLabel(durationMs: number | undefined): string {
+	return durationMs !== undefined ? `${(durationMs / 1000).toFixed(1)}s` : "";
+}
+
+/**
+ * One tool call. Collapsed it is a quiet row in the run's timeline: the dot on
+ * the left rail (drawn by the run body), the tool name, one line of the command
+ * or its latest output, and the outcome on the right. Expanded it becomes the
+ * dark terminal block, because that is where raw output belongs.
+ */
 export function ToolCard({
 	name,
 	status,
@@ -22,21 +39,8 @@ export function ToolCard({
 	output: string;
 	onFullscreen?: (command: string | undefined, output: string) => void;
 }) {
-	// Running tools stream their output expanded; finished tools collapse to one
-	// row so long sessions stay readable.
-	const [expanded, setExpanded] = useState(status === "running");
-	const wasRunning = useRef(status === "running");
+	const [expanded, setExpanded] = useState(false);
 	const [copied, setCopied] = useState<"command" | "output" | null>(null);
-
-	useEffect(() => {
-		if (status === "running") {
-			wasRunning.current = true;
-			setExpanded(true);
-		} else if (wasRunning.current) {
-			wasRunning.current = false;
-			setExpanded(false);
-		}
-	}, [status]);
 
 	const copy = async (kind: "command" | "output", text: string) => {
 		try {
@@ -48,73 +52,93 @@ export function ToolCard({
 		}
 	};
 
-	const preview = summaryLine(output || command || "");
+	const toggle = () => setExpanded((prev) => !prev);
+	const onBarKey = (event: React.KeyboardEvent) => {
+		if (event.key === "Enter" || event.key === " ") toggle();
+	};
+	// Running calls show where they got to; finished ones show what was run.
+	const preview =
+		status === "running" ? tailLine(output) || summaryLine(command ?? "") : summaryLine(command || output);
+	const duration = durationLabel(durationMs);
+
+	if (!expanded) {
+		return (
+			<div className={`tool-card ${status}`}>
+				<div className="tool-row" role="button" tabIndex={0} onClick={toggle} onKeyDown={onBarKey}>
+					<span className="tool-name">{name}</span>
+					{preview ? <span className={`tool-summary ${status === "running" ? "live" : ""}`}>{preview}</span> : null}
+					<span className={`tool-meta ${status}`}>
+						{status === "running" ? "运行中" : status === "error" ? "失败" : "✓"}
+						{duration ? <span className="tool-duration">{duration}</span> : null}
+					</span>
+					<span className="tool-caret">
+						<CaretRightIcon size={11} />
+					</span>
+				</div>
+			</div>
+		);
+	}
 
 	return (
-		<div className={`tool-card ${status} ${expanded ? "expanded" : "collapsed"}`}>
-			<div
-				className="tool-head"
-				onClick={() => setExpanded((prev) => !prev)}
-				role="button"
-				tabIndex={0}
-				onKeyDown={(event) => {
-					if (event.key === "Enter" || event.key === " ") setExpanded((prev) => !prev);
-				}}
-			>
-				<span className="tool-caret">{expanded ? <CaretDownIcon /> : <CaretRightIcon />}</span>
-				<span className="tool-name">{name}</span>
-				{!expanded && preview ? <span className="tool-summary">{preview}</span> : null}
-				<span className="tool-actions">
-					<span className="tool-status">
-						{status === "running" ? "执行中…" : status === "error" ? "出错" : "完成"}
-						{durationMs !== undefined ? ` ${(durationMs / 1000).toFixed(1)}s` : ""}
+		<div className={`tool-card ${status} expanded`}>
+			<div className="ws-console">
+				<div className="ws-console__bar" role="button" tabIndex={0} onClick={toggle} onKeyDown={onBarKey}>
+					<span className="ws-console__bar-title">
+						<CaretDownIcon size={11} />
+						<span className="tool-name">{name}</span>
+						<span className={`tool-status ${status}`}>
+							{status === "running" ? "执行中…" : status === "error" ? "出错" : "完成"}
+							{duration ? ` ${duration}` : ""}
+						</span>
 					</span>
-					{expanded && command ? (
-						<button
-							type="button"
-							className="ghost small"
-							onClick={(event) => {
-								event.stopPropagation();
-								copy("command", command);
-							}}
-						>
-							{copied === "command" ? "已复制" : "复制命令"}
-						</button>
-					) : null}
-					{expanded && output ? (
-						<>
+					<span className="ws-console__bar-actions">
+						{command ? (
 							<button
 								type="button"
-								className="ghost small"
+								className="console-btn"
 								onClick={(event) => {
 									event.stopPropagation();
-									copy("output", output);
+									void copy("command", command);
 								}}
 							>
-								{copied === "output" ? "已复制" : "复制输出"}
+								{copied === "command" ? "已复制" : "复制命令"}
 							</button>
-							{onFullscreen ? (
+						) : null}
+						{output ? (
+							<>
 								<button
 									type="button"
-									className="ghost small"
+									className="console-btn"
 									onClick={(event) => {
 										event.stopPropagation();
-										onFullscreen(command, output);
+										void copy("output", output);
 									}}
 								>
-									全屏查看
+									{copied === "output" ? "已复制" : "复制输出"}
 								</button>
-							) : null}
-						</>
-					) : null}
-				</span>
+								{onFullscreen ? (
+									<button
+										type="button"
+										className="console-btn"
+										onClick={(event) => {
+											event.stopPropagation();
+											onFullscreen(command, output);
+										}}
+									>
+										全屏
+									</button>
+								) : null}
+							</>
+						) : null}
+					</span>
+				</div>
+				{command ? <pre className="ws-console__body tool-command">{command}</pre> : null}
+				{output ? (
+					<pre className="ws-console__body">{output}</pre>
+				) : (
+					<pre className="ws-console__body is-empty">{status === "running" ? "等待输出…" : "（无输出）"}</pre>
+				)}
 			</div>
-			{expanded ? (
-				<>
-					{command ? <pre className="tool-command">{command}</pre> : null}
-					{output ? <pre className="tool-output">{output}</pre> : null}
-				</>
-			) : null}
 		</div>
 	);
 }

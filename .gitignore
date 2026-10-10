@@ -25,6 +25,7 @@ packages/ai/src/providers/.model-generation-*/
 *~
 
 # Package specific
+packages/web/binaries/
 .npm/
 coverage/
 .nyc_output/

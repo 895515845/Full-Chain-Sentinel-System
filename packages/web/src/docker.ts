@@ -9,14 +9,19 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
+import { embeddedDockerfile } from "./assets.ts";
+import type { ZGSources } from "./protocol.ts";
+import { buildArgs } from "./sources.ts";
 
 export const ZG_IMAGE = "zgagent:latest";
 export const CONTAINER_PREFIX = "zgagent-";
 
-function run(
+/** Run the docker CLI, capturing output. Used by the container layer and the environment check. */
+export function runDocker(
 	args: string[],
 	options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -52,7 +57,7 @@ function run(
 
 /** Whether the zgagent toolbox image exists locally. */
 export async function hasImage(): Promise<boolean> {
-	const result = await run(["image", "inspect", ZG_IMAGE], { timeoutMs: 15000 });
+	const result = await runDocker(["image", "inspect", ZG_IMAGE], { timeoutMs: 15000 });
 	return result.code === 0;
 }
 
@@ -61,11 +66,46 @@ export interface BuildProgress {
 	signal?: AbortSignal;
 }
 
+/**
+ * Directory `docker build` reads the Dockerfile from: the checkout's `docker/` when
+ * there is one, otherwise a temp directory holding the copy embedded in the binary.
+ * The caller removes the temp directory.
+ */
+async function imageContext(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+	const checkout = join(repoRoot(), "docker");
+	if (existsSync(join(checkout, "Dockerfile"))) return { dir: checkout, cleanup: async () => {} };
+	const dockerfile = embeddedDockerfile();
+	if (!dockerfile) throw new Error("二进制内没有内置 Dockerfile，无法构建工具镜像");
+	const dir = await mkdtemp(join(tmpdir(), "zgagent-image-"));
+	await writeFile(join(dir, "Dockerfile"), dockerfile, "utf8");
+	return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+}
+
 /** Build the toolbox image, streaming build output line by line. */
-export async function buildImage(progress: BuildProgress): Promise<{ ok: boolean; error?: string }> {
-	return await new Promise((resolve) => {
-		const child = spawn("docker", ["build", "-t", ZG_IMAGE, "docker/"], {
-			cwd: repoRoot(),
+export async function buildImage(
+	progress: BuildProgress,
+	sources: ZGSources,
+): Promise<{ ok: boolean; error?: string }> {
+	let context: { dir: string; cleanup: () => Promise<void> };
+	try {
+		context = await imageContext();
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+	try {
+		return await buildImageIn(progress, context.dir, sources);
+	} finally {
+		await context.cleanup();
+	}
+}
+
+function buildImageIn(
+	progress: BuildProgress,
+	contextDir: string,
+	sources: ZGSources,
+): Promise<{ ok: boolean; error?: string }> {
+	return new Promise((resolve) => {
+		const child = spawn("docker", ["build", "-t", ZG_IMAGE, ...buildArgs(sources), contextDir], {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stderr = "";
@@ -94,8 +134,8 @@ export async function buildImage(progress: BuildProgress): Promise<{ ok: boolean
 }
 
 function repoRoot(): string {
-	// dist/docker.js -> package root -> repo root
-	return join(import.meta.dirname, "..", "..");
+	// dist/docker.js -> package root -> packages -> repo root
+	return join(import.meta.dirname, "..", "..", "..");
 }
 
 /**
@@ -165,12 +205,25 @@ export function execInContainer(
 	});
 }
 
-/** Create the project container: detached, privileged for raw sockets, workdir mounted. */
+/**
+ * Create the project container: detached, privileged for raw sockets, and the host
+ * work directory mounted both at /work and at its own host path.
+ */
 export async function createContainer(
 	containerName: string,
 	workDir: string,
 ): Promise<{ ok: boolean; error?: string }> {
-	const result = await run([
+	const mounts = ["-v", `${workDir}:/work`];
+	// The system prompt hands the model the host working directory (the session cwd),
+	// while every bash call runs in the container. Mount the same directory at that
+	// path too: a command that uses the absolute path then writes to the shared
+	// volume, instead of into the container's own layer, where the file never reaches
+	// the host, the file tools and the file panel cannot see it, and recreating the
+	// container loses it.
+	if (workDir !== "/work") {
+		mounts.push("-v", `${workDir}:${workDir}`);
+	}
+	const result = await runDocker([
 		"run",
 		"-d",
 		"--name",
@@ -180,8 +233,7 @@ export async function createContainer(
 		"NET_RAW",
 		"--cap-add",
 		"NET_ADMIN",
-		"-v",
-		`${workDir}:/work`,
+		...mounts,
 		"-w",
 		"/work",
 		ZG_IMAGE,
@@ -191,16 +243,16 @@ export async function createContainer(
 
 /** Start the container if it is not running (idempotent). */
 export async function ensureRunning(containerName: string): Promise<boolean> {
-	const state = await run(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
+	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
 	if (state.code !== 0) return false;
 	if (state.stdout.trim() === "true") return true;
-	const start = await run(["start", containerName], { timeoutMs: 60000 });
+	const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
 	return start.code === 0;
 }
 
 /** Force-remove the project container. */
 export async function removeContainer(containerName: string): Promise<void> {
-	await run(["rm", "-f", containerName], { timeoutMs: 60000 });
+	await runDocker(["rm", "-f", containerName], { timeoutMs: 60000 });
 }
 
 export function containerNameFor(projectId: string): string {

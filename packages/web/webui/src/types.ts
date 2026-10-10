@@ -2,6 +2,20 @@
 
 export type ZGMode = "review" | "auto";
 
+/**
+ * Every page the console can show in the content area. The sider navigates
+ * between them; 文件 and 子代理 are overlays opened from the chat page.
+ */
+export type ZGPageId =
+	| "chat"
+	| "projects"
+	| "settings.model"
+	| "settings.notify"
+	| "settings.permissions"
+	| "settings.environment"
+	| "about";
+
+
 /** Reasoning effort levels pi accepts, ascending. */
 export type ZGThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -69,6 +83,33 @@ export interface ZGModelConfig {
 	baseUrl: string;
 	apiKey: string;
 	modelId: string;
+}
+
+/** Every tool switch the permissions screen offers. */
+export type ZGPermissionKey = "read" | "bash" | "edit" | "write" | "codemode" | "tool_search" | "mcp" | "spawn_agent";
+
+/** The switches of one agent; a missing entry means "not allowed". */
+export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
+
+export interface ZGPermissionsConfig {
+	main: ZGPermissionSet;
+	subagent: ZGPermissionSet;
+}
+
+export interface ZGPermissionPreset {
+	id: string;
+	label: string;
+	hint: string;
+	main: ZGPermissionSet;
+	subagent: ZGPermissionSet;
+}
+
+/** One tool the live session actually mounted, for the read-only inventory. */
+export interface ZGToolInfo {
+	name: string;
+	source: string;
+	/** Whether the model sees it right now, as opposed to codemode/deferred only. */
+	active: boolean;
 }
 
 export interface ZGTestResult {
@@ -222,6 +263,8 @@ export type ZGClientMessage =
 	| { type: "get_state" }
 	| { type: "save_config"; config: ZGModelConfig }
 	| { type: "test_config"; config: ZGModelConfig }
+	| { type: "get_permissions" }
+	| { type: "save_permissions"; config: ZGPermissionsConfig }
 	| { type: "get_notify_config" }
 	| { type: "save_notify_config"; config: ZGNotifyConfig }
 	| { type: "test_notify"; config: ZGNotifyConfig }
@@ -241,7 +284,12 @@ export type ZGClientMessage =
 	| { type: "list_subagents" }
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
-	| { type: "steer_subagent"; id: string; text: string };
+	| { type: "steer_subagent"; id: string; text: string }
+	| { type: "get_environment" }
+	| { type: "check_environment" }
+	| { type: "build_image" }
+	| { type: "abort_image_build" }
+	| { type: "set_sources"; sources: ZGSources };
 
 export type ZGServerMessage =
 	| { type: "snapshot"; snapshot: ZGStateSnapshot }
@@ -250,6 +298,13 @@ export type ZGServerMessage =
 	| { type: "tree"; tree: SessionTreeNodeView[]; leafId: string | null; forkPoints: ZGForkPoint[] }
 	| { type: "config"; config: ZGModelConfig | null }
 	| { type: "test_result"; result: ZGTestResult }
+	| {
+			type: "permissions";
+			config: ZGPermissionsConfig;
+			effectiveSubagent: ZGPermissionSet;
+			presets: ZGPermissionPreset[];
+			tools: ZGToolInfo[];
+	  }
 	| { type: "notify_config"; config: ZGNotifyConfig; status: ZGNotifyStatus }
 	| { type: "notify_test_result"; result: ZGTestResult }
 	| { type: "stats"; stats: ZGStatsView }
@@ -262,10 +317,47 @@ export type ZGServerMessage =
 	| { type: "subagent_run"; run: ZGSubagentRun }
 	| { type: "subagent_event"; runId: string; event: ZGSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
+	| { type: "environment"; report: ZGEnvReport; building: boolean }
+	| { type: "image_build_log"; line: string }
+	| { type: "image_build_result"; ok: boolean; error?: string }
+	| { type: "sources_saved"; sources: ZGSources; error?: string }
 	| { type: "error"; message: string };
+
+/**
+ * One environment prerequisite. Blocking items decide whether the console runs at
+ * all: every tool call is a `docker exec`, so Docker is not optional.
+ */
+export interface ZGEnvItem {
+	id: string;
+	group: string;
+	label: string;
+	status: "ok" | "warn" | "fail" | "skipped";
+	detail: string;
+	hint?: string;
+	blocking: boolean;
+}
+
+/** Base image and package mirrors the toolbox image is built with. */
+export interface ZGSources {
+	baseImage: string;
+	aptMirror: string;
+	pipIndex: string;
+	npmRegistry: string;
+	goProxy: string;
+}
+
+export interface ZGEnvReport {
+	at: string;
+	ok: boolean;
+	items: ZGEnvItem[];
+	url: string;
+	/** Build sources as configured; an empty field means the official source. */
+	sources: ZGSources;
+}
 
 /** Union of the session events the UI reacts to. */
 export type SessionEventView =
+	| { type: "message_start"; message: AgentMessageView }
 	| {
 			type: "message_update";
 			message: AgentMessageView;

@@ -8,7 +8,11 @@ export class ZGConnection {
 	private reconnectDelay = 500;
 	private queue: ZGClientMessage[] = [];
 
-	constructor(private readonly onMessage: (message: ZGServerMessage) => void) {}
+	constructor(
+		private readonly onMessage: (message: ZGServerMessage) => void,
+		/** Reports every open and close, so the UI can show the real connection state. */
+		private readonly onStatus: (connected: boolean) => void = () => {},
+	) {}
 
 	connect(): void {
 		this.closed = false;
@@ -21,6 +25,7 @@ export class ZGConnection {
 		this.socket = socket;
 		socket.onopen = () => {
 			this.reconnectDelay = 500;
+			this.onStatus(true);
 			for (const message of this.queue.splice(0)) socket.send(JSON.stringify(message));
 		};
 		socket.onmessage = (event) => {
@@ -32,6 +37,7 @@ export class ZGConnection {
 		};
 		socket.onclose = () => {
 			this.socket = null;
+			this.onStatus(false);
 			if (this.closed) return;
 			window.setTimeout(() => this.open(), this.reconnectDelay);
 			this.reconnectDelay = Math.min(this.reconnectDelay * 2, 10000);

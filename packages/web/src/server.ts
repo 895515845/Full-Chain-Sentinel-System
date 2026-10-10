@@ -6,12 +6,14 @@
  * local operator; every connected console receives the same event stream.
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { readWebuiFile } from "./assets.ts";
+import { buildImage } from "./docker.ts";
 import { testModelConfig } from "./endpoint-probe.ts";
+import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
 import {
 	addProject,
@@ -21,7 +23,8 @@ import {
 	resolveStartupProject,
 	setLastActiveProject,
 } from "./projects.ts";
-import type { ZGClientMessage, ZGServerMessage } from "./protocol.ts";
+import type { ZGClientMessage, ZGEnvReport, ZGServerMessage } from "./protocol.ts";
+import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { ZGAgentRuntime } from "./zg-session.ts";
 
 const MIME_TYPES: Record<string, string> = {
@@ -87,32 +90,47 @@ async function runFileAction(
 	}
 }
 
+function sendFile(response: ServerResponse, body: Buffer, relativePath: string): void {
+	const type = MIME_TYPES[extname(relativePath)] ?? "application/octet-stream";
+	response.writeHead(200, {
+		"content-type": type,
+		"content-length": body.byteLength,
+		// Hashed assets are immutable, but index.html must always revalidate so a
+		// rebuilt frontend is picked up without a hard refresh.
+		...(relativePath.endsWith(".html") ? { "cache-control": "no-cache" } : {}),
+	});
+	response.end(body);
+}
+
+/**
+ * Serve the frontend from disk when the file is there (a checkout), otherwise from
+ * the copy embedded in the executable (a single-file binary). Unknown paths fall
+ * back to index.html so client-side routing survives a reload.
+ */
 function serveStatic(distDir: string, requestPath: string, response: ServerResponse): void {
 	let relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
 	relative = normalize(relative).replace(/^(\.\.[/\\])+/, "");
 	const filePath = join(distDir, relative);
-	if (!filePath.startsWith(distDir) || !existsSync(filePath)) {
-		const indexPath = join(distDir, "index.html");
-		if (!existsSync(indexPath)) {
-			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-			response.end(FALLBACK_PAGE);
+	const insideDist = filePath.startsWith(distDir);
+	if (insideDist) {
+		const body = readWebuiFile(relative, distDir);
+		if (body) {
+			sendFile(response, body, relative);
 			return;
 		}
-		response.writeHead(200, {
-			"content-type": MIME_TYPES[".html"],
-			// Hashed assets are immutable, but index.html must always revalidate
-			// so a rebuilt frontend is picked up without a hard refresh.
-			"cache-control": "no-cache",
-		});
-		response.end(readFileSync(indexPath));
+	}
+	const index = readWebuiFile("index.html", distDir);
+	if (!index) {
+		response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+		response.end(FALLBACK_PAGE);
 		return;
 	}
-	const type = MIME_TYPES[extname(filePath)] ?? "application/octet-stream";
-	response.writeHead(200, { "content-type": type });
-	response.end(readFileSync(filePath));
+	sendFile(response, index, "index.html");
 }
 
-export async function startZGServer(options: ZGServerOptions = {}): Promise<{ close: () => void; url: string }> {
+export async function startZGServer(
+	options: ZGServerOptions = {},
+): Promise<{ close: () => void; url: string; environment: Promise<ZGEnvReport> }> {
 	const startupCwd = resolve(options.cwd ?? process.cwd());
 	const clients = new Set<WebSocket>();
 	const agentDir = options.agentDir;
@@ -135,6 +153,53 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 			onNotifyStatus: (status) => broadcast({ type: "notify_config", config: runtime.getNotifyConfig(), status }),
 		},
 	});
+
+	/**
+	 * Docker environment state. The check runs once at startup and on demand; every
+	 * prompt waits for it, because a run without a working container backend can
+	 * only fail. `imageBuild` is set while a `docker build` is streaming.
+	 */
+	let envReport: ZGEnvReport | undefined;
+	let envCheck: Promise<ZGEnvReport> | undefined;
+	let imageBuild: AbortController | undefined;
+
+	function consoleUrl(): string {
+		const address = server.address();
+		const boundPort = address && typeof address === "object" ? address.port : (options.port ?? 7777);
+		const boundHost = options.host ?? "127.0.0.1";
+		// A wildcard bind is not a browser address.
+		const shownHost = boundHost === "0.0.0.0" || boundHost === "::" || boundHost === "[::]" ? "127.0.0.1" : boundHost;
+		return `http://${shownHost}:${boundPort}`;
+	}
+
+	/** The current report, running the check first if there is none or `force` is set. */
+	async function ensureEnvironment(force = false): Promise<ZGEnvReport> {
+		if (!force && envReport) return envReport;
+		if (!force && envCheck) return await envCheck;
+		const run = (async () => {
+			const report = await checkEnvironment({ agentDir, url: consoleUrl() });
+			envReport = report;
+			return report;
+		})();
+		envCheck = run;
+		try {
+			return await run;
+		} finally {
+			if (envCheck === run) envCheck = undefined;
+		}
+	}
+
+	function broadcastEnvironment(): void {
+		if (!envReport) return;
+		broadcast({ type: "environment", report: envReport, building: imageBuild !== undefined });
+	}
+
+	/** Why a run cannot start, phrased for the operator. */
+	function blockedReason(report: ZGEnvReport): string {
+		const blocker = report.items.find((entry) => entry.blocking && entry.status !== "ok");
+		const detail = blocker ? `${blocker.label}：${blocker.detail}` : "环境检查未通过";
+		return `Docker 环境不可用（${detail}）。请在「设置 → 环境」中修复后复检。`;
+	}
 
 	function broadcast(message: ZGServerMessage): void {
 		let data: string;
@@ -216,12 +281,25 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						sendError(socket, "消息不能为空");
 						return;
 					}
+					// A run needs the container backend, so the environment check gates it.
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						broadcastEnvironment();
+						return;
+					}
 					await runtime.prompt(message.text, message.streamingBehavior, images, message.notify);
 					return;
 				}
-				case "compact":
+				case "compact": {
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						return;
+					}
 					await runtime.compact();
 					return;
+				}
 				case "set_thinking_level":
 					runtime.setThinkingLevel(message.level);
 					return;
@@ -320,6 +398,36 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 					socket.send(JSON.stringify({ type: "test_result", result } satisfies ZGServerMessage));
 					return;
 				}
+				case "get_permissions": {
+					const view = runtime.getPermissions();
+					socket.send(
+						JSON.stringify({
+							type: "permissions",
+							config: view.config,
+							effectiveSubagent: view.effectiveSubagent,
+							presets: [...view.presets],
+							tools: view.tools,
+						} satisfies ZGServerMessage),
+					);
+					return;
+				}
+				case "save_permissions": {
+					try {
+						await runtime.savePermissions(message.config);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+						return;
+					}
+					const view = runtime.getPermissions();
+					broadcast({
+						type: "permissions",
+						config: view.config,
+						effectiveSubagent: view.effectiveSubagent,
+						presets: [...view.presets],
+						tools: view.tools,
+					});
+					return;
+				}
 				case "get_notify_config":
 					socket.send(
 						JSON.stringify({
@@ -342,6 +450,71 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 				case "test_notify": {
 					const result = await runtime.testNotify(message.config);
 					socket.send(JSON.stringify({ type: "notify_test_result", result } satisfies ZGServerMessage));
+					return;
+				}
+				case "get_environment":
+					sendTo(socket, {
+						type: "environment",
+						report: await ensureEnvironment(),
+						building: imageBuild !== undefined,
+					});
+					return;
+				case "check_environment": {
+					const report = await ensureEnvironment(true);
+					broadcast({ type: "environment", report, building: imageBuild !== undefined });
+					return;
+				}
+				case "build_image": {
+					if (imageBuild) {
+						sendError(socket, "镜像构建已在进行中");
+						return;
+					}
+					const controller = new AbortController();
+					imageBuild = controller;
+					await ensureEnvironment();
+					broadcastEnvironment();
+					const result = await buildImage(
+						{
+							onLog: (line) => broadcast({ type: "image_build_log", line }),
+							signal: controller.signal,
+						},
+						agentDir ? readSources(agentDir) : { ...EMPTY_SOURCES },
+					);
+					imageBuild = undefined;
+					broadcast({
+						type: "image_build_result",
+						ok: result.ok,
+						...(result.error ? { error: result.error } : {}),
+					});
+					// The build may have fixed the only failing item, so re-check.
+					await ensureEnvironment(true);
+					broadcastEnvironment();
+					return;
+				}
+				case "abort_image_build":
+					imageBuild?.abort();
+					return;
+				case "set_sources": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法保存构建源");
+						return;
+					}
+					// The sources are baked into the image, so this only records them;
+					// the operator rebuilds the image when they want them applied.
+					const sources = normalizeSources(message.sources ?? {});
+					try {
+						writeSources(agentDir, sources);
+					} catch (error) {
+						sendTo(socket, {
+							type: "sources_saved",
+							sources: readSources(agentDir),
+							error: error instanceof Error ? error.message : String(error),
+						} satisfies ZGServerMessage);
+						return;
+					}
+					sendTo(socket, { type: "sources_saved", sources } satisfies ZGServerMessage);
+					await ensureEnvironment(true);
+					broadcastEnvironment();
 					return;
 				}
 				case "get_stats": {
@@ -488,6 +661,11 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 						sendError(socket, "追加指令不能为空");
 						return;
 					}
+					const steerEnv = await ensureEnvironment();
+					if (!steerEnv.ok) {
+						sendError(socket, blockedReason(steerEnv));
+						return;
+					}
 					const ok = await runtime.steerSubagent(message.id, message.text);
 					sendTo(socket, {
 						type: "subagent_result",
@@ -518,8 +696,43 @@ export async function startZGServer(options: ZGServerOptions = {}): Promise<{ cl
 		const port = options.port ?? 7777;
 		const host = options.host ?? "127.0.0.1";
 		server.listen(port, host, () => {
+			// A wildcard bind is not a browser address: Chrome answers
+			// ERR_ADDRESS_INVALID for http://0.0.0.0:<port>, so print the loopback
+			// address an operator can actually open.
+			const shownHost = host === "0.0.0.0" || host === "::" || host === "[::]" ? "127.0.0.1" : host;
+			const shownPort =
+				server.address() && typeof server.address() === "object"
+					? (server.address() as { port: number }).port
+					: port;
+			// The check reports the console address, so it starts once the port is known.
+			const environment = ensureEnvironment().then(
+				(report) => {
+					broadcastEnvironment();
+					return report;
+				},
+				(error: unknown) => {
+					console.error("[zg-server] 环境检查失败:", error);
+					return {
+						at: new Date().toISOString(),
+						ok: false,
+						items: [
+							{
+								id: "check-failed",
+								group: "Docker 运行时",
+								label: "环境检查",
+								status: "fail" as const,
+								detail: error instanceof Error ? error.message : String(error),
+								blocking: true,
+							},
+						],
+						url: `http://${shownHost}:${shownPort}`,
+						sources: { ...EMPTY_SOURCES },
+					};
+				},
+			);
 			resolvePromise({
-				url: `http://${host}:${server.address() && typeof server.address() === "object" ? (server.address() as { port: number }).port : port}`,
+				url: `http://${shownHost}:${shownPort}`,
+				environment,
 				close: () => {
 					runtime.dispose();
 					for (const client of clients) client.terminate();

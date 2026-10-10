@@ -1,0 +1,207 @@
+/**
+ * Agent tool permissions, persisted in permissions.json.
+ *
+ * Tools are mounted when a session is created, so a permission change rebuilds
+ * the session. Enforcement goes through the SDK's `excludeTools` denylist,
+ * which drops a tool at registration time: it is never declared to the model,
+ * `tool_search` cannot activate it, a transcript cannot restore it, and a
+ * codemode script cannot call it. Disabling a tool here is therefore a real
+ * restriction, not a hidden button.
+ *
+ * A sub-agent's permissions are always a subset of the main agent's. Without
+ * that rule, turning bash off for the main agent would not stop it from
+ * spawning a sub-agent that has bash, which would make the switch meaningless.
+ */
+
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Every switch the permissions screen offers. */
+export type ZGPermissionKey = "read" | "bash" | "edit" | "write" | "codemode" | "tool_search" | "mcp" | "spawn_agent";
+
+export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"codemode",
+	"tool_search",
+	"mcp",
+	"spawn_agent",
+];
+
+/** Keys a sub-agent can hold at all: delegation never recurses. */
+export const SUBAGENT_PERMISSION_KEYS: readonly ZGPermissionKey[] = PERMISSION_KEYS.filter(
+	(key) => key !== "spawn_agent",
+);
+
+/** The switches of one agent. Missing entries mean "not allowed". */
+export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
+
+export interface ZGPermissionsConfig {
+	main: ZGPermissionSet;
+	subagent: ZGPermissionSet;
+}
+
+/** One-click permission bundles offered above the switches. */
+export interface ZGPermissionPreset {
+	id: string;
+	label: string;
+	hint: string;
+	main: ZGPermissionSet;
+	subagent: ZGPermissionSet;
+}
+
+export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
+	read: "read 读取文件",
+	bash: "bash 执行命令",
+	edit: "edit 精确编辑",
+	write: "write 写入文件",
+	codemode: "codemode 脚本编排",
+	tool_search: "tool_search 工具检索",
+	mcp: "MCP 工具",
+	spawn_agent: "spawn_agent 派生子代理",
+};
+
+export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
+	read: "读取工作目录中的文件内容",
+	bash: "在项目容器内执行命令（审批模式仍会逐条确认）",
+	edit: "对已有文件做精确文本替换",
+	write: "新建或整体覆盖文件",
+	codemode: "在沙箱脚本里批量调用上面已允许的工具，不会额外放行被禁用的工具",
+	tool_search: "按需检索并加载尚未声明的工具（含 MCP 工具），被禁用的工具搜不到",
+	mcp: "连接 mcp.json 中配置的 MCP 服务器并使用它们的工具",
+	spawn_agent: "把独立子任务委派给隔离子代理并行执行",
+};
+
+function fullSet(): ZGPermissionSet {
+	return {
+		read: true,
+		bash: true,
+		edit: true,
+		write: true,
+		codemode: true,
+		tool_search: true,
+		mcp: true,
+		spawn_agent: true,
+	};
+}
+
+function emptySet(): ZGPermissionSet {
+	return {
+		read: false,
+		bash: false,
+		edit: false,
+		write: false,
+		codemode: false,
+		tool_search: false,
+		mcp: false,
+		spawn_agent: false,
+	};
+}
+
+/** Read-only reconnaissance: read files and query MCP servers, run nothing. */
+function reconSet(): ZGPermissionSet {
+	return { ...emptySet(), read: true, codemode: true, tool_search: true, mcp: true, spawn_agent: true };
+}
+
+export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
+	{
+		id: "standard",
+		label: "标准",
+		hint: "全部工具可用，和默认行为一致",
+		main: fullSet(),
+		subagent: { ...fullSet(), spawn_agent: false },
+	},
+	{
+		id: "recon",
+		label: "只读侦察",
+		hint: "只读文件与 MCP 查询，不能执行命令、不能改文件；子代理同样只读",
+		main: reconSet(),
+		subagent: { ...reconSet(), spawn_agent: false },
+	},
+	{
+		id: "locked",
+		label: "全部禁用",
+		hint: "不挂载任何工具，只保留纯对话",
+		main: emptySet(),
+		subagent: emptySet(),
+	},
+];
+
+export function defaultPermissions(): ZGPermissionsConfig {
+	return { main: fullSet(), subagent: { ...fullSet(), spawn_agent: false } };
+}
+
+/**
+ * Coerce a stored value into a usable config: unknown keys are dropped, a
+ * sub-agent never gets more than the main agent, and it never gets
+ * spawn_agent.
+ */
+export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
+	const defaults = defaultPermissions();
+	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+	const readSet = (value: unknown, fallback: ZGPermissionSet): ZGPermissionSet => {
+		if (typeof value !== "object" || value === null) return { ...fallback };
+		const source = value as Record<string, unknown>;
+		const set = emptySet();
+		for (const key of PERMISSION_KEYS) {
+			set[key] = typeof source[key] === "boolean" ? (source[key] as boolean) : fallback[key];
+		}
+		return set;
+	};
+	const main = readSet(record.main, defaults.main);
+	const subagent = readSet(record.subagent, defaults.subagent);
+	return { main, subagent: effectiveSubagent({ main, subagent }) };
+}
+
+/** What a sub-agent actually receives: the main agent's set, minus spawn_agent. */
+export function effectiveSubagent(config: ZGPermissionsConfig): ZGPermissionSet {
+	const set = emptySet();
+	for (const key of SUBAGENT_PERMISSION_KEYS) {
+		set[key] = config.main[key] && config.subagent[key];
+	}
+	return set;
+}
+
+/** MCP resource tools reach every server, so they follow the MCP switch. */
+const MCP_RESOURCE_TOOLS = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"];
+
+/**
+ * The denylist handed to the SDK. Patterns are supported, so one entry covers
+ * every tool of every MCP server.
+ */
+export function excludeToolsFor(set: ZGPermissionSet): string[] {
+	const excluded: string[] = [];
+	for (const key of ["read", "bash", "edit", "write", "codemode", "tool_search", "spawn_agent"] as const) {
+		if (!set[key]) excluded.push(key);
+	}
+	if (!set.mcp) excluded.push("mcp__*", ...MCP_RESOURCE_TOOLS);
+	return excluded;
+}
+
+/** Names the console can report without knowing the full tool registry. */
+export function describePermissions(set: ZGPermissionSet): string {
+	const off = PERMISSION_KEYS.filter((key) => !set[key]).map((key) => key);
+	return off.length === 0 ? "全部启用" : `已禁用：${off.join("、")}`;
+}
+
+export function permissionsJsonPath(agentDir: string): string {
+	return join(agentDir, "permissions.json");
+}
+
+export function readPermissionsConfig(agentDir: string): ZGPermissionsConfig {
+	const path = permissionsJsonPath(agentDir);
+	if (!existsSync(path)) return defaultPermissions();
+	try {
+		return normalizePermissions(JSON.parse(readFileSync(path, "utf8")));
+	} catch {
+		// A corrupt file must not lock the console out of its own tools.
+		return defaultPermissions();
+	}
+}
+
+export function writePermissionsConfig(agentDir: string, config: ZGPermissionsConfig): void {
+	const normalized = normalizePermissions(config);
+	writeFileSync(permissionsJsonPath(agentDir), `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
+}

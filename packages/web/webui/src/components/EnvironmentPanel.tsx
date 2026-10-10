@@ -1,0 +1,305 @@
+/**
+ * The environment page.
+ *
+ * The console is a front end to a toolbox container, so this page answers the one
+ * question that decides whether anything can run: is there a working Docker
+ * daemon with the toolbox image behind it. It is also where the image gets built,
+ * because a machine that has Docker but no image is the normal first-run state.
+ *
+ * Blocking items are listed first within their group and the page says plainly
+ * that the chat is locked until they pass.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import type { ZGEnvItem, ZGEnvReport, ZGSources } from "../types.ts";
+import { RefreshIcon } from "./icons.tsx";
+
+/** One-click Chinese mirrors; the server normalizes whatever is saved. */
+const CHINA_SOURCES: ZGSources = {
+	baseImage: "docker.m.daocloud.io/kalilinux/kali-rolling:latest",
+	aptMirror: "http://mirrors.tuna.tsinghua.edu.cn/kali",
+	pipIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
+	npmRegistry: "https://registry.npmmirror.com",
+	goProxy: "https://goproxy.cn,direct",
+};
+
+const EMPTY_SOURCES: ZGSources = {
+	baseImage: "",
+	aptMirror: "",
+	pipIndex: "",
+	npmRegistry: "",
+	goProxy: "",
+};
+
+const SOURCE_FIELDS: Array<{ key: keyof ZGSources; label: string; placeholder: string }> = [
+	{ key: "baseImage", label: "基础镜像", placeholder: "kalilinux/kali-rolling:latest（可只填 registry，如 docker.m.daocloud.io）" },
+	{ key: "aptMirror", label: "apt 源", placeholder: "http://http.kali.org/kali（官方）" },
+	{ key: "pipIndex", label: "pip 源", placeholder: "https://pypi.org/simple（官方）" },
+	{ key: "npmRegistry", label: "npm 源", placeholder: "https://registry.npmjs.org（官方）" },
+	{ key: "goProxy", label: "go 代理", placeholder: "https://proxy.golang.org,direct（官方）" },
+];
+
+/**
+ * Build sources: the base image and the package mirrors baked into the image.
+ * Mounted with a key derived from the saved values, so a save or a refresh
+ * re-seeds the fields without discarding edits in progress.
+ */
+function SourcesForm({
+	initial,
+	savedAt,
+	busy,
+	onSave,
+}: {
+	initial: ZGSources;
+	savedAt: number | null;
+	busy: boolean;
+	onSave: (sources: ZGSources) => void;
+}) {
+	const [draft, setDraft] = useState<ZGSources>(initial);
+	const dirty = SOURCE_FIELDS.some((field) => draft[field.key] !== initial[field.key]);
+	const set = (key: keyof ZGSources, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+
+	return (
+		<section className="env-sources">
+			<div className="env-sources-head">
+				<h3>构建源</h3>
+				<span className="composer-spacer" />
+				{!dirty && savedAt !== null ? <span className="env-note">已保存，重建镜像后生效</span> : null}
+				{dirty ? <span className="env-note">有未保存的修改</span> : null}
+			</div>
+			<p className="settings-hint">
+				这些值会烘焙进工具镜像，所以保存后需要重建镜像；pip / npm / go 三项在容器内运行时（pip install、npm install、go install）同样生效。留空表示使用官方源。
+			</p>
+			<div className="env-source-grid">
+				{SOURCE_FIELDS.map((field) => (
+					<label key={field.key}>
+						{field.label}
+						<input
+							value={draft[field.key]}
+							onChange={(event) => set(field.key, event.target.value)}
+							placeholder={field.placeholder}
+							spellCheck={false}
+						/>
+					</label>
+				))}
+			</div>
+			<div className="env-source-actions">
+				<button type="button" className="ghost small" onClick={() => setDraft(CHINA_SOURCES)} disabled={busy}>
+					中国镜像源
+				</button>
+				<button type="button" className="ghost small" onClick={() => setDraft(EMPTY_SOURCES)} disabled={busy}>
+					清空（用官方源）
+				</button>
+				<span className="composer-spacer" />
+				<button type="button" className="primary" onClick={() => onSave(draft)} disabled={busy || !dirty}>
+					保存
+				</button>
+			</div>
+		</section>
+	);
+}
+
+const STATUS_LABEL: Record<ZGEnvItem["status"], string> = {
+	ok: "通过",
+	warn: "警告",
+	fail: "失败",
+	skipped: "跳过",
+};
+
+/** Stable group order, independent of the order the server emitted items in. */
+const GROUP_ORDER = ["Docker 运行时", "工具镜像", "容器能力", "宿主环境"];
+
+function grouped(items: ZGEnvItem[]): { group: string; items: ZGEnvItem[] }[] {
+	const names = [...new Set([...GROUP_ORDER, ...items.map((item) => item.group)])];
+	return names
+		.map((group) => ({ group, items: items.filter((item) => item.group === group) }))
+		.filter((entry) => entry.items.length > 0);
+}
+
+function diagnostics(report: ZGEnvReport): string {
+	const lines = [
+		`ZGAgent 环境诊断`,
+		`时间: ${new Date(report.at).toLocaleString("zh-CN")}`,
+		`地址: ${report.url}`,
+		`结论: ${report.ok ? "通过" : "未通过"}`,
+		"",
+	];
+	for (const { group, items } of grouped(report.items)) {
+		lines.push(`[${group}]`);
+		for (const item of items) {
+			lines.push(`${STATUS_LABEL[item.status]}${item.blocking ? "(阻断)" : ""} ${item.label}: ${item.detail}`);
+			if (item.hint) lines.push(`  建议: ${item.hint}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+export function EnvironmentPanel({
+	report,
+	building,
+	buildLog,
+	onRefresh,
+	onBuild,
+	onAbortBuild,
+	onSaveSources,
+	sourcesSavedAt,
+}: {
+	report: ZGEnvReport | null;
+	building: boolean;
+	buildLog: string[];
+	onRefresh: () => void;
+	onBuild: () => void;
+	onAbortBuild: () => void;
+	onSaveSources: (sources: ZGSources) => void;
+	sourcesSavedAt: number | null;
+}) {
+	const [confirming, setConfirming] = useState(false);
+	const [copyNote, setCopyNote] = useState<string | null>(null);
+	const [fallback, setFallback] = useState<string | null>(null);
+	const logRef = useRef<HTMLPreElement | null>(null);
+
+	// Keep the newest build output in view; the build streams for minutes.
+	useEffect(() => {
+		const node = logRef.current;
+		if (node) node.scrollTop = node.scrollHeight;
+	}, [buildLog]);
+
+	const copyDiagnostics = async () => {
+		if (!report) return;
+		const text = diagnostics(report);
+		try {
+			await navigator.clipboard.writeText(text);
+			setFallback(null);
+			setCopyNote("已复制");
+		} catch {
+			// Clipboard access needs a secure context; a LAN address over http is not one.
+			setFallback(text);
+			setCopyNote("复制失败，请手动选择下面的文本");
+		}
+		window.setTimeout(() => setCopyNote(null), 4000);
+	};
+
+	if (!report) {
+		return (
+			<div className="env">
+				<p className="settings-hint">正在检查 Docker 环境…</p>
+			</div>
+		);
+	}
+
+	const failures = report.items.filter((entry) => entry.blocking && entry.status !== "ok");
+	const warnings = report.items.filter((entry) => entry.status === "warn");
+
+	return (
+		<div className="env">
+			<div className="env-head">
+				<span className={`env-verdict ${report.ok ? "ok" : "fail"}`}>{report.ok ? "环境可用" : "环境不可用"}</span>
+				<span className="env-meta">
+					检查于 {new Date(report.at).toLocaleString("zh-CN")} · {report.url}
+				</span>
+				<span className="composer-spacer" />
+				{copyNote ? <span className="env-note">{copyNote}</span> : null}
+				<button type="button" className="ghost small" onClick={copyDiagnostics} title="复制全部检查项，便于排障">
+					复制诊断
+				</button>
+				<button type="button" className="ghost small" onClick={onRefresh} disabled={building} title="重新检查">
+					<RefreshIcon />
+					复检
+				</button>
+				{building ? (
+					<button type="button" className="ghost small danger" onClick={onAbortBuild}>
+						中止构建
+					</button>
+				) : confirming ? (
+					<>
+						<button type="button" className="ghost small" onClick={() => setConfirming(false)}>
+							取消
+						</button>
+						<button
+							type="button"
+							className="primary"
+							onClick={() => {
+								setConfirming(false);
+								onBuild();
+							}}
+						>
+							确认构建
+						</button>
+					</>
+				) : (
+					<button
+						type="button"
+						className="primary"
+						onClick={() => setConfirming(true)}
+						title="用内置的 Dockerfile 构建 zgagent:latest"
+					>
+						构建镜像
+					</button>
+				)}
+			</div>
+
+			{report.ok ? (
+				<p className="settings-hint">
+					Docker 环境正常，工具调用会在项目容器内执行。镜像更新、切换机器或修改 Dockerfile 后回来复检即可。
+				</p>
+			) : (
+				<div className="env-blocked">
+					<strong>对话已锁定：</strong>
+					{`${failures.length} 项阻断检查未通过，Agent 无法执行任何工具。`}
+					{failures.some((entry) => entry.id === "image-present") ? (
+						<span> 镜像不存在时点右上角「构建镜像」，首次构建约 5–15 分钟并需要网络。</span>
+					) : null}
+				</div>
+			)}
+
+			<SourcesForm
+				key={JSON.stringify(report.sources)}
+				initial={report.sources}
+				savedAt={sourcesSavedAt}
+				busy={building}
+				onSave={onSaveSources}
+			/>
+
+			{building || buildLog.length > 0 ? (
+				<section className="env-build">
+					<h3>{building ? "正在构建工具镜像…" : "上次构建输出"}</h3>
+					<pre className="env-build-log" ref={logRef}>
+						{buildLog.length > 0 ? buildLog.join("\n") : "等待 docker build 输出…"}
+					</pre>
+				</section>
+			) : null}
+
+			{grouped(report.items).map(({ group, items }) => (
+				<section key={group} className="env-group">
+					<h3>{group}</h3>
+					{items.map((item) => (
+						<div key={item.id} className={`env-row status-${item.status}`}>
+							<span className={`env-chip status-${item.status}`}>{STATUS_LABEL[item.status]}</span>
+							<span className="env-body">
+								<span className="env-label">
+									{item.label}
+									{item.blocking ? <span className="env-blocking">阻断</span> : null}
+								</span>
+								<span className="env-detail">{item.detail}</span>
+								{item.hint ? <span className="env-hint">{item.hint}</span> : null}
+							</span>
+						</div>
+					))}
+				</section>
+			))}
+
+			{warnings.length > 0 ? (
+				<p className="settings-hint">
+					警告项不影响运行，但可能让工具变慢或缺少能力，建议一并处理。
+				</p>
+			) : null}
+
+			{fallback ? (
+				<>
+					<p className="settings-hint">诊断信息（手动复制）：</p>
+					<textarea className="env-diag" readOnly value={fallback} rows={12} />
+				</>
+			) : null}
+		</div>
+	);
+}

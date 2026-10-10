@@ -12,21 +12,29 @@ import {
 	Bell,
 	Bot,
 	ChevronDown,
+	ChevronLeft,
 	ChevronRight,
 	ChevronUp,
+	Container,
 	FileText,
 	Folder,
 	FolderOpen,
 	FolderUp,
 	GitBranch,
-	History,
 	Image as ImageGlyph,
+	Info,
+	LayoutGrid,
 	MessageSquare,
 	Minimize2,
 	Pencil,
+	Plug,
+	RefreshCw,
 	Settings,
+	Shield,
+	SlidersHorizontal,
 	Trash,
 	X,
+	XCircle,
 	type LucideProps,
 } from "lucide-react";
 
@@ -34,8 +42,8 @@ import {
 const SIZE = 14;
 /** Lighter than lucide's default 2, so icons read as labels rather than buttons. */
 const STROKE = 1.75;
-/** The sidebar's primary tabs are larger than inline icons. */
-const NAV_SIZE = 18;
+/** The sider's menu rows are larger than inline icons. */
+const NAV_SIZE = 16;
 const NAV_STROKE = 1.8;
 
 type IconProps = LucideProps;
@@ -55,12 +63,12 @@ export function CompactIcon(props: IconProps) {
 	return <Minimize2 size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
-/** Container work directory: the file tab of the side panel. */
+/** Container work directory: the files page. */
 export function FilesIcon(props: IconProps) {
 	return <FolderOpen size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
-/** Sub-agent: the sub-agent tab of the side panel. */
+/** Sub-agent: the sub-agent runs page. */
 export function SubagentIcon(props: IconProps) {
 	return <Bot size={SIZE} strokeWidth={STROKE} {...props} />;
 }
@@ -85,9 +93,19 @@ export function CaretDownIcon(props: IconProps) {
 	return <ChevronDown size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
-/** Collapsed dropdown in the project picker. */
+/** Collapsed dropdown in the project selector. */
 export function CaretUpIcon(props: IconProps) {
 	return <ChevronUp size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Collapse the sider. */
+export function CollapseIcon(props: IconProps) {
+	return <ChevronLeft size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Expand the sider. */
+export function ExpandIcon(props: IconProps) {
+	return <ChevronRight size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Parent directory in the file panel. */
@@ -105,19 +123,54 @@ export function FileIcon(props: IconProps) {
 	return <FileText size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
-/** Sidebar tab: the conversation. */
+/** Sider menu: the conversation. */
 export function ChatIcon(props: IconProps) {
 	return <MessageSquare size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
-/** Sidebar tab: session history. */
-export function HistoryIcon(props: IconProps) {
-	return <History size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+/** Sider menu: projects. */
+export function ProjectsIcon(props: IconProps) {
+	return <LayoutGrid size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
-/** Sidebar tab: model settings. */
+/** Sider menu: settings. */
 export function SettingsIcon(props: IconProps) {
 	return <Settings size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: model endpoint settings. */
+export function ModelIcon(props: IconProps) {
+	return <SlidersHorizontal size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: notification settings. */
+export function NotifyIcon(props: IconProps) {
+	return <Plug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: about this console. */
+export function AboutIcon(props: IconProps) {
+	return <Info size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Refresh the page behind a tab, or the whole console. */
+export function RefreshIcon(props: IconProps) {
+	return <RefreshCw size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Close every tab but the affixed one. */
+export function CloseOthersIcon(props: IconProps) {
+	return <XCircle size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Tool permissions for the main agent and its sub-agents. */
+export function ShieldIcon(props: IconProps) {
+	return <Shield size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Environment: the Docker runtime the console depends on. */
+export function EnvironmentIcon(props: IconProps) {
+	return <Container size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Rename an entry. */
