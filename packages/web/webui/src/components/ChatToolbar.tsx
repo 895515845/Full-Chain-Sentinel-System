@@ -8,8 +8,20 @@
  * chat page is the single entry point for working on a target.
  */
 
+import { useEffect, useState } from "react";
+
 import type { ZGMode, ZGThinkingLevel } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
+
+/** Elapsed time of a compaction, so a slow model is visible as a wait, not a hang. */
+function compactionElapsed(startedAt: number | null, now: number): string {
+	if (startedAt === null) return "";
+	const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
+	if (seconds < 60) return `${seconds} 秒`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
+	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+}
 
 const THINKING_LABELS: Record<ZGThinkingLevel, string> = {
 	off: "关闭",
@@ -38,6 +50,9 @@ export function ChatToolbar({
 	onSetThinkingLevel,
 	onToggleBranch,
 	onCompact,
+	onAbortCompaction,
+	compacting,
+	compactionStartedAt,
 	onAllowPrefix,
 	onRemoveAllowedPrefix,
 }: {
@@ -57,9 +72,22 @@ export function ChatToolbar({
 	onSetThinkingLevel: (level: ZGThinkingLevel) => void;
 	onToggleBranch: () => void;
 	onCompact: () => void;
+	onAbortCompaction: () => void;
+	/** Compaction is running, so a prompt would be refused until it ends. */
+	compacting: boolean;
+	compactionStartedAt: number | null;
 	onAllowPrefix: (prefix: string) => void;
 	onRemoveAllowedPrefix: (prefix: string) => void;
 }) {
+	// The elapsed time has to move on its own: a compaction that stalls for
+	// minutes sends no snapshots, and a frozen "压缩中 3 秒" reads as a hang.
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!compacting) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, [compacting]);
+
 	// A model without reasoning support reports a single "off" level.
 	const thinkingDisabled = availableThinkingLevels.length <= 1;
 
@@ -101,20 +129,38 @@ export function ChatToolbar({
 				<BranchIcon />
 				分支
 			</button>
-			<button
-				type="button"
-				className="toolbar-btn"
-				onClick={onCompact}
-				disabled={streaming}
-				title={
-					streaming
-						? "Agent 正在运行，先中止再压缩"
-						: "把当前上下文压缩成摘要，保留结论、丢弃过程（也可直接输入 /compact）"
-				}
-			>
-				<CompactIcon />
-				压缩上下文
-			</button>
+			{compacting ? (
+				<>
+					<span className="toolbar-busy" title="压缩期间不能发送新消息">
+						<CompactIcon />
+						压缩中 {compactionElapsed(compactionStartedAt, now)}
+					</span>
+					<button
+						type="button"
+						className="toolbar-btn danger"
+						onClick={onAbortCompaction}
+						title="放弃这次压缩，立刻恢复发送（会话内容不会丢失，压缩只有拿到摘要才会改写上下文）"
+					>
+						<CloseIcon />
+						中止压缩
+					</button>
+				</>
+			) : (
+				<button
+					type="button"
+					className="toolbar-btn"
+					onClick={onCompact}
+					disabled={streaming}
+					title={
+						streaming
+							? "Agent 正在运行，先中止再压缩"
+							: "把当前上下文压缩成摘要，保留结论、丢弃过程（也可直接输入 /compact）"
+					}
+				>
+					<CompactIcon />
+					压缩上下文
+				</button>
+			)}
 			<span className="ws-toolbar__sep" />
 			<button
 				type="button"

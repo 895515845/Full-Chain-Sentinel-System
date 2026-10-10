@@ -131,7 +131,11 @@ export function ProjectsPage({
 									</span>
 									{pendingDelete === project.id ? (
 										<div className="data-confirm">
-											<span>删除项目会连带清理它的会话与容器，输入项目名确认：</span>
+											<span>
+												删除项目会连带清理它的容器与{" "}
+												{project.vulnCount ? `${project.vulnCount} 条漏洞记录` : "漏洞记录"}
+												（不可恢复），输入项目名确认：
+											</span>
 											<input
 												value={confirmName}
 												placeholder={project.name}

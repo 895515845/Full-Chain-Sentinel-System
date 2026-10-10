@@ -1,12 +1,7 @@
 import { useRef, useState } from "react";
+import { formatTokens } from "../transcript.ts";
 import type { ZGImageAttachment, ZGStatsView } from "../types.ts";
-import { BellIcon, ImageIcon } from "./icons.tsx";
-
-function formatTokens(count: number): string {
-	if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-	if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-	return String(count);
-}
+import { BellIcon, ImageIcon, TargetIcon } from "./icons.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
 async function readImage(file: File): Promise<ZGImageAttachment | null> {
@@ -35,7 +30,9 @@ export function Composer({
 	hasProject,
 	blockedReason,
 	notifyRun,
+	goalDisabledReason,
 	onToggleNotifyRun,
+	onOpenGoal,
 	onSend,
 	onAbort,
 }: {
@@ -46,7 +43,10 @@ export function Composer({
 	blockedReason: string | null;
 	/** Whether the run started from here reports to the notification channel. */
 	notifyRun: boolean;
+	/** Why a persistent goal cannot start right now; null means it can. */
+	goalDisabledReason: string | null;
 	onToggleNotifyRun: () => void;
+	onOpenGoal: () => void;
 	onSend: (text: string, behavior?: "steer" | "followUp", images?: ZGImageAttachment[]) => void;
 	onAbort: () => void;
 }) {
@@ -79,6 +79,22 @@ export function Composer({
 	return (
 		<div className="composer-zone">
 			<div className="composer">
+				{/* Goal mode sits above the input because it changes what the input
+				    means: the objective is submitted once and then worked on by the
+				    agent on its own, round after round. */}
+				<div className="composer-goal-row">
+					<button
+						type="button"
+						className="composer-tool goal-trigger"
+						onClick={onOpenGoal}
+						disabled={goalDisabledReason !== null}
+						title={goalDisabledReason ?? "启动持续目标：一轮结束后自动继续，直到达成目标或达到轮数上限"}
+					>
+						<TargetIcon />
+						持续目标
+					</button>
+					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
+				</div>
 				{images.length > 0 ? (
 					<div className="attachment-strip">
 						{images.map((image, index) => (

@@ -1,0 +1,161 @@
+/**
+ * Transcript shape for the chat page: how messages group into runs, and when a
+ * run folds into its single "过程" row.
+ *
+ * This is separate from the rendering so it can be tested without a DOM, and so
+ * the rules are readable in one place. The transcript is the session's full
+ * branch (see the server's `transcript.ts`), which means a compaction shows up
+ * as a marker row in the middle of the conversation instead of replacing
+ * everything above it.
+ */
+
+import type { AgentMessageView } from "./types.ts";
+
+/**
+ * Identity of one transcript message. The event stream and the snapshot carry the
+ * same objects, so role plus timestamp matches them; a message without a
+ * timestamp falls back to its content.
+ */
+export function messageKey(message: { role?: string; timestamp?: number }): string {
+	return `${message.role ?? "?"}:${message.timestamp ?? JSON.stringify(message)}`;
+}
+
+/** Text blocks of a message or content list, ignoring thinking and tool calls. */
+export function textFromContent(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter(
+			(block): block is { type: "text"; text: string } =>
+				typeof block === "object" && block !== null && (block as { type: string }).type === "text",
+		)
+		.map((block) => block.text)
+		.join("");
+}
+
+/** Timestamp of a message, for messages that carry one. */
+function messageTimestamp(message: AgentMessageView | undefined): number | undefined {
+	if (!message || !("timestamp" in message)) return undefined;
+	return typeof message.timestamp === "number" ? message.timestamp : undefined;
+}
+
+/** Timestamp of the first message in a stretch that has one. */
+function firstTimestamp(messages: readonly AgentMessageView[]): number | undefined {
+	for (const message of messages) {
+		const timestamp = messageTimestamp(message);
+		if (timestamp !== undefined) return timestamp;
+	}
+	return undefined;
+}
+
+/** Elapsed time of a run, as the fold row reports it. */
+function formatDuration(ms: number): string {
+	if (ms < 1000) return `${ms}ms`;
+	if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+	return `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`;
+}
+
+/** What a folded run did, for its one-line row: tool calls, thinking rounds, elapsed. */
+export function runDigest(prompt: AgentMessageView | undefined, body: readonly AgentMessageView[]): string {
+	const tools = body.filter((message) => message.role === "toolResult" || message.role === "bashExecution").length;
+	const thinking = body.filter(
+		(message) =>
+			message.role === "assistant" &&
+			Array.isArray(message.content) &&
+			message.content.some((block) => (block as { type?: string }).type === "thinking"),
+	).length;
+	const parts: string[] = [];
+	if (tools > 0) parts.push(`${tools} 次工具调用`);
+	if (thinking > 0) parts.push(`${thinking} 段思考`);
+	// A stretch with no prompt of its own (what a compaction kept) still reports
+	// its elapsed time, measured from its own first timestamped message.
+	const started = messageTimestamp(prompt) ?? firstTimestamp(body);
+	const ended = messageTimestamp(body[body.length - 1]);
+	if (typeof started === "number" && typeof ended === "number" && ended > started) {
+		parts.push(formatDuration(ended - started));
+	}
+	return parts.join(" · ");
+}
+
+/** Token counts, in the short form the stats and the summary row both use. */
+export function formatTokens(count: number): string {
+	if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+	if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+	return String(count);
+}
+
+/** Whether a message is a summary that marks where the context was cut. */
+export function isSummaryMessage(message: AgentMessageView): boolean {
+	return message.role === "compactionSummary" || message.role === "branchSummary";
+}
+
+/**
+ * Whether a message is a goal row: the contract injected when a goal starts, or
+ * the one injected for each automatic continuation. It is a boundary like a
+ * prompt, so the round it starts folds under it instead of being appended to the
+ * previous round's body.
+ */
+export function isGoalMessage(message: AgentMessageView): boolean {
+	return message.role === "custom" && message.customType === "zg-goal";
+}
+
+export interface RunGroup {
+	key: string;
+	/** The operator instruction this run answers; absent for a kept stretch with no prompt. */
+	prompt?: AgentMessageView;
+	/** A summary stands alone as a marker row instead of joining a run. */
+	marker?: AgentMessageView;
+	body: AgentMessageView[];
+}
+
+/**
+ * Group the transcript into runs: a prompt and everything it produced, up to the
+ * next prompt or summary marker. Grouping is what lets a finished run fold into
+ * one row, and it also gives the run's tool calls their shared timeline rail.
+ *
+ * A summary is a boundary rather than a message inside a run: it ends the stretch
+ * it summarizes and starts a new one, so no run ever has to fold around a marker
+ * that is not its own last word. A goal row is a boundary for the same reason:
+ * each automatic round is its own stretch, and folding one round into another
+ * would hide where the agent continued on its own.
+ */
+export function groupRuns(messages: readonly AgentMessageView[]): RunGroup[] {
+	const groups: RunGroup[] = [];
+	for (const message of messages) {
+		if (message.role === "user" || isGoalMessage(message)) {
+			groups.push({ key: `run-${messageKey(message)}`, prompt: message, body: [] });
+			continue;
+		}
+		if (isSummaryMessage(message)) {
+			groups.push({ key: `mark-${messageKey(message)}`, marker: message, body: [] });
+			continue;
+		}
+		const last = groups[groups.length - 1];
+		if (last && !last.marker) last.body.push(message);
+		else groups.push({ key: `head-${messageKey(message)}`, body: [message] });
+	}
+	return groups;
+}
+
+/**
+ * Whether a run may fold, and whether it is folded right now. Only a run whose
+ * last word is prose can fold: a failure, an abort or a turn cut off mid-tool
+ * has to stay visible, because the error is the point. The run in flight never
+ * folds either, so the operator watches it happen.
+ */
+export function runFoldState(options: {
+	groups: readonly RunGroup[];
+	index: number;
+	streaming: boolean;
+	expanded: ReadonlySet<string>;
+}): { collapsed: boolean; digest: string } | undefined {
+	const { groups, index, streaming, expanded } = options;
+	const group = groups[index];
+	if (!group || group.marker || group.body.length === 0) return undefined;
+	if (streaming && index === groups.length - 1) return undefined;
+	const last = group.body[group.body.length - 1];
+	if (last.role !== "assistant" || last.errorMessage) return undefined;
+	if (last.stopReason === "error" || last.stopReason === "aborted") return undefined;
+	if (textFromContent(last.content).length === 0) return undefined;
+	return { collapsed: !expanded.has(group.key), digest: runDigest(group.prompt, group.body) };
+}

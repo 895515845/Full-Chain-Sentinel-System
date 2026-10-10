@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import type { SessionInfoView, ZGMode, ZGPageId } from "../types.ts";
-import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon } from "./icons.tsx";
+import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, VulnIcon } from "./icons.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
@@ -29,6 +29,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 		items: [
 			{ page: "chat", label: "对话", icon: ChatIcon },
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
+			{ page: "vulns", label: "漏洞", icon: VulnIcon },
 		],
 	},
 	{
@@ -60,6 +61,8 @@ export function AppSider({
 	activeSessionId,
 	runningSessions,
 	pendingApprovals,
+	/** Findings still waiting for review, shown as the hub's badge. */
+	pendingVulns,
 	onNewSession,
 	onSwitchSession,
 	onRenameSession,
@@ -79,6 +82,7 @@ export function AppSider({
 	/** Session ids with a background run. */
 	runningSessions: string[];
 	pendingApprovals: number;
+	pendingVulns: number;
 	onNewSession: () => void;
 	onSwitchSession: (path: string) => void;
 	onRenameSession: (path: string, name: string) => void;
@@ -176,10 +180,11 @@ export function AppSider({
 		</div>
 	);
 
-	/** Badge on a menu row: an unconfigured endpoint, or pending approvals. */
+	/** Badge on a menu row: an unconfigured endpoint, pending approvals, or unreviewed findings. */
 	const badgeFor = (item: MenuEntry): string | null => {
 		if (item.page === "settings.model" && !modelConfigured) return "!";
 		if (item.page === "chat" && pendingApprovals > 0) return pendingApprovals > 9 ? "9+" : String(pendingApprovals);
+		if (item.page === "vulns" && pendingVulns > 0) return pendingVulns > 9 ? "9+" : String(pendingVulns);
 		return null;
 	};
 

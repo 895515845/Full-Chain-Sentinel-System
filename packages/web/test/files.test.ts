@@ -3,9 +3,14 @@
  *
  * `execInContainer` is mocked: these tests pin the contract the console relies on
  * (path bounds, argument passing, exit-code mapping, preview classification)
- * without needing Docker. The scripts themselves run for real in e2e.test.ts.
+ * without needing Docker. The listing runs against the host side of the /work
+ * mount, so it is tested with a real temporary directory; the scripts themselves
+ * run for real in e2e.test.ts.
  */
 
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 
 const { execInContainer } = vi.hoisted(() => ({ execInContainer: vi.fn() }));
@@ -16,6 +21,7 @@ import {
 	downloadFile,
 	guessMimeType,
 	listFiles,
+	listFilesInContainer,
 	makeDirectory,
 	readFilePreview,
 	renamePath,
@@ -67,12 +73,98 @@ test("guessMimeType maps images, text formats, and falls back to a blob", () => 
 	expect(guessMimeType("/work/archive")).toBe("application/octet-stream");
 });
 
-test("listFiles parses the tab-separated listing and puts directories first", async () => {
+test("listFiles reads the host side of the mount and puts directories first", async () => {
+	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	try {
+		mkdirSync(join(root, "reports", "sub"), { recursive: true });
+		mkdirSync(join(root, ".hidden"));
+		writeFileSync(join(root, "my notes.txt"), "12345678");
+		writeFileSync(join(root, "z.sh"), "012345678901");
+		symlinkSync("my notes.txt", join(root, "link.txt"));
+
+		const listed = await listFiles(root, "/work");
+		expect(listed.path).toBe("/work");
+		// Directories first, and they are listed at all: a directory whose size was
+		// asked of `wc` used to break the record framing and vanish.
+		expect(listed.entries.slice(0, 2).every((entry) => entry.type === "dir")).toBe(true);
+		expect(
+			listed.entries
+				.filter((entry) => entry.type === "dir")
+				.map((entry) => entry.name)
+				.sort(),
+		).toEqual([".hidden", "reports"]);
+		expect(
+			listed.entries
+				.filter((entry) => entry.type === "file")
+				.map((entry) => entry.name)
+				.sort(),
+		).toEqual(["link.txt", "my notes.txt", "z.sh"]);
+		expect(listed.entries.find((entry) => entry.name === "reports")).toMatchObject({
+			path: "/work/reports",
+			type: "dir",
+			size: 0,
+		});
+		expect(listed.entries.find((entry) => entry.name === "my notes.txt")).toMatchObject({
+			path: "/work/my notes.txt",
+			type: "file",
+			size: 8,
+		});
+		// stat(2) follows symlinks, which is what the container's `[ -d ]` did.
+		expect(listed.entries.find((entry) => entry.name === "link.txt")?.type).toBe("file");
+		expect(listed.entries.find((entry) => entry.name === "z.sh")?.mtime).toBeGreaterThan(0);
+		// The container is not consulted while the host can read the directory.
+		expect(execInContainer).not.toHaveBeenCalled();
+
+		// A subdirectory is a path the panel can then open.
+		const nested = await listFiles(root, "/work/reports");
+		expect(nested).toEqual({
+			path: "/work/reports",
+			entries: [expect.objectContaining({ name: "sub", path: "/work/reports/sub", type: "dir" })],
+		});
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("listFiles reports a missing directory", async () => {
+	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	try {
+		await expect(listFiles(root, "/work/gone")).rejects.toThrow(/目录不存在或不可读/);
+		await expect(listFiles(root, "/work/notes.txt/inside")).rejects.toThrow(/目录不存在或不可读/);
+		// The bound check runs before anything touches the filesystem.
+		await expect(listFiles(root, "/etc")).rejects.toThrow(/路径越界/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+// A root process ignores the mode bits, so there is nothing to fall back from.
+const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
+
+test.skipIf(asRoot)("listFiles asks the container when the host cannot read the directory", async () => {
+	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	const secret = join(root, "secret");
+	mkdirSync(secret);
+	chmodSync(secret, 0o000);
+	try {
+		execInContainer.mockResolvedValue(ok("f\t1\t1700000001\tproof.txt\n"));
+		const listed = await listFiles(root, "/work/secret", { container: "zgagent-test" });
+		expect(execInContainer).toHaveBeenCalledTimes(1);
+		expect(listed.entries).toEqual([
+			{ name: "proof.txt", path: "/work/secret/proof.txt", type: "file", size: 1, mtime: 1700000001 },
+		]);
+	} finally {
+		chmodSync(secret, 0o700);
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("listFilesInContainer parses the tab-separated listing and maps exit codes", async () => {
 	execInContainer.mockResolvedValue(
 		ok("f\t8\t1700000001\tmy notes.txt\nd\t0\t1700000002\treports\nf\t12\t1700000003\tz.sh\n"),
 	);
 
-	const listed = await listFiles("zgagent-test", "/work");
+	const listed = await listFilesInContainer("zgagent-test", "/work");
 	expect(listed.path).toBe("/work");
 	expect(listed.entries).toEqual([
 		{ name: "reports", path: "/work/reports", type: "dir", size: 0, mtime: 1700000002 },
@@ -86,14 +178,16 @@ test("listFiles parses the tab-separated listing and puts directories first", as
 	expect(script).toContain('cd "$1"');
 	expect(script).not.toContain("/work");
 	expect(args).toEqual(["/work"]);
-});
+	// A directory's size is never asked of `wc`: on Linux `wc -c < dir` prints a 0
+	// and exits non-zero, so a `|| echo 0` fallback would emit two lines and shift
+	// the record that follows it.
+	expect(script).toContain('if [ -d "$entry" ]; then kind=d; size=0;');
 
-test("listFiles reports a missing directory and passes other codes through", async () => {
 	execInContainer.mockResolvedValue(bad(2));
-	await expect(listFiles("c", "/work/gone")).rejects.toThrow(/目录不存在或不可读/);
+	await expect(listFilesInContainer("c", "/work/gone")).rejects.toThrow(/目录不存在或不可读/);
 
 	execInContainer.mockResolvedValue(bad(1, "permission denied"));
-	await expect(listFiles("c", "/work/secret")).rejects.toThrow(/读取目录失败：permission denied/);
+	await expect(listFilesInContainer("c", "/work/secret")).rejects.toThrow(/读取目录失败：permission denied/);
 });
 
 test("readFilePreview returns text, classifies binaries, and truncates", async () => {

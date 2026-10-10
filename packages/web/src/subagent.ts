@@ -52,6 +52,11 @@ export interface SubagentToolOptions {
 	}>;
 	/** Records the run so the console can show its process and control it. */
 	registry: SubagentRegistry;
+	/**
+	 * Builds this sub-agent's vulnerability-hub tools. The source label is resolved
+	 * per call, because the run id only exists once the run has been registered.
+	 */
+	createVulnTools: (getSource: () => string) => ToolDefinition[];
 	/** Session the spawn_agent call belongs to; scopes the run list. */
 	getParentSessionId: () => string | undefined;
 	/** Project the run belongs to, for the retained record. */
@@ -118,6 +123,10 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				...(permissions.edit ? { edit: createEditTool(options.cwd) } : {}),
 				...(permissions.write ? { write: createWriteTool(options.cwd) } : {}),
 			};
+			// The hub tools label their records with the run id, which is assigned
+			// after the session exists; the closure reads it when a tool executes.
+			const runRef: { id?: string } = {};
+			const vulnTools = options.createVulnTools(() => `子代理 ${runRef.id ?? "unknown"}`);
 			const created = await createAgentSession({
 				cwd: options.cwd,
 				agentDir: options.agentDir,
@@ -127,6 +136,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				resourceLoader,
 				sessionManager: SessionManager.inMemory(options.cwd),
 				baseToolsOverride,
+				customTools: vulnTools,
 				excludeTools: excludeToolsFor(permissions),
 			});
 			const session = created.session;
@@ -139,10 +149,14 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				task: params.task,
 				session,
 			});
+			runRef.id = handle.id;
 			handle.push({ kind: "status", status: "running", note: "子代理启动" });
 
 			let turns = 0;
 			let aborted = false;
+			// When each tool call started, so its `tool_end` can report how long the
+			// step took; the process view is read to find the slow step.
+			const toolStartedAt = new Map<string, number>();
 			const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
 				if (event.type === "message_end") {
 					// Assistant messages carry the sub-agent's own text and reasoning;
@@ -154,6 +168,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 							handle.push({ kind: "thinking", text: block.thinking });
 					}
 				} else if (event.type === "tool_execution_start") {
+					toolStartedAt.set(event.toolCallId, Date.now());
 					handle.push({
 						kind: "tool_start",
 						toolName: event.toolName,
@@ -162,12 +177,15 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 					});
 					pushLog(`执行 ${event.toolName} …`);
 				} else if (event.type === "tool_execution_end") {
+					const startedAt = toolStartedAt.get(event.toolCallId);
+					toolStartedAt.delete(event.toolCallId);
 					handle.push({
 						kind: "tool_end",
 						toolName: event.toolName,
 						toolCallId: event.toolCallId,
 						isError: event.isError,
 						output: toolResultText(event.result),
+						durationMs: startedAt === undefined ? undefined : Date.now() - startedAt,
 					});
 				} else if (event.type === "turn_end") {
 					turns += 1;

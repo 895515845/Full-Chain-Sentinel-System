@@ -1,17 +1,20 @@
 /**
  * Container file access for the console's file panel.
  *
- * Every operation runs through `docker exec` in the project container rather
- * than touching the host-side mount directly. Two reasons: the panel then sees
- * exactly what the agent's bash tool sees, and it keeps container root
- * privileges, so files the container created as root stay editable on hosts
- * where the bind mount is not user-mapped.
+ * The panel works on the same directory the container mounts at /work, so the
+ * listing is done with node:fs on the host side of that mount: sizes and mtimes
+ * come from stat(2) instead of from a container command whose output this code
+ * would have to parse. Content operations (preview, write, upload, download,
+ * delete, rename) still run through `docker exec`, because the container runs as
+ * root and a file it created as root stays reachable that way on hosts where the
+ * bind mount is not user-mapped.
  *
  * Paths are normalized textually against /work and passed to the container as
  * positional parameters, never interpolated into a script.
  */
 
-import { posix } from "node:path";
+import { lstatSync, readdirSync, statSync } from "node:fs";
+import { join, posix } from "node:path";
 import { execInContainer } from "./docker.ts";
 import type { ZGFileEntry, ZGFilePreview } from "./protocol.ts";
 
@@ -87,7 +90,91 @@ function fail(action: string, code: number, stderr: string): never {
 }
 
 /**
- * List one directory level. The loop is POSIX sh with `wc -c` and `date -r`
+ * List one directory level.
+ *
+ * The host side of the /work mount is listed with node:fs: reading a directory,
+ * and stat(2) on its entries, needs no permission the host user lacks, and the
+ * metadata then comes from the kernel instead of from a shell command whose
+ * output would have to be parsed back apart.
+ *
+ * `container` is the fallback for a directory the host user cannot read: the
+ * container runs as root, so a root-owned 0700 directory is still reachable
+ * there. That path keeps the shell listing below, which is why a directory's
+ * size is never asked of `wc`: on Linux `wc -c < dir` prints a 0 *and* exits
+ * non-zero, so `$(...) || echo 0` would emit two lines and split the record.
+ */
+export async function listFiles(
+	workDir: string,
+	path: string,
+	options: { container?: string | null; signal?: AbortSignal } = {},
+): Promise<{ path: string; entries: ZGFileEntry[] }> {
+	const target = resolveWorkPath(path);
+	try {
+		return { path: target, entries: readHostDirectory(hostPathOf(workDir, target), target) };
+	} catch (error) {
+		if (!isPermissionError(error)) throw describeListError(error);
+		if (!options.container) throw describeListError(error);
+		return await listFilesInContainer(options.container, target, options.signal);
+	}
+}
+
+/** Host path of a container path below /work; the container mounts both names. */
+function hostPathOf(workDir: string, target: string): string {
+	return target === WORK_ROOT ? workDir : join(workDir, target.slice(WORK_ROOT.length + 1));
+}
+
+function isPermissionError(error: unknown): boolean {
+	const code = (error as { code?: string }).code;
+	return code === "EACCES" || code === "EPERM";
+}
+
+function describeListError(error: unknown): Error {
+	const code = (error as { code?: string }).code;
+	if (code === "ENOENT" || code === "ENOTDIR") return new Error("目录不存在或不可读");
+	if (isPermissionError(error)) return new Error("读取目录失败：权限不足");
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function readHostDirectory(hostDir: string, target: string): ZGFileEntry[] {
+	const entries = readdirSync(hostDir, { withFileTypes: true }).map((dirent) =>
+		describeEntry(hostDir, target, dirent.name),
+	);
+	entries.sort(byTypeThenName);
+	return entries;
+}
+
+/**
+ * One entry's metadata. stat(2) follows symlinks, which is what the container's
+ * `[ -d ]` test did; a dangling symlink is still part of the listing.
+ */
+function describeEntry(hostDir: string, target: string, name: string): ZGFileEntry {
+	const full = join(hostDir, name);
+	let type: ZGFileEntry["type"] = "file";
+	let size = 0;
+	let mtime = 0;
+	try {
+		const info = statSync(full);
+		type = info.isDirectory() ? "dir" : "file";
+		size = info.isDirectory() ? 0 : info.size;
+		mtime = Math.floor(info.mtimeMs / 1000);
+	} catch {
+		try {
+			const info = lstatSync(full);
+			size = info.size;
+			mtime = Math.floor(info.mtimeMs / 1000);
+		} catch {
+			// It disappeared between readdir and stat; list it with zeroes.
+		}
+	}
+	return { name, path: posix.join(target, name), type, size, mtime };
+}
+
+function byTypeThenName(a: ZGFileEntry, b: ZGFileEntry): number {
+	return a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1;
+}
+
+/**
+ * Fallback listing inside the container. The loop is POSIX sh with `date -r`
  * instead of GNU `find -printf`, so the same script works in the Kali container
  * and under the test's host-side fake docker. Names containing a tab or newline
  * are the known limitation of this encoding.
@@ -96,14 +183,15 @@ const LIST_SCRIPT = [
 	'cd "$1" 2>/dev/null || exit 2',
 	"for entry in * .[!.]* ..?*; do",
 	'  [ -e "$entry" ] || [ -L "$entry" ] || continue',
-	'  if [ -d "$entry" ]; then kind=d; else kind=f; fi',
-	'  size=$(wc -c < "$entry" 2>/dev/null || echo 0)',
+	'  if [ -d "$entry" ]; then kind=d; size=0; else kind=f; size=$(wc -c < "$entry" 2>/dev/null | tr -d " \\t\\n"); fi',
+	'  [ -n "$size" ] || size=0',
 	'  mtime=$(date -r "$entry" +%s 2>/dev/null || echo 0)',
 	'  printf \'%s\\t%s\\t%s\\t%s\\n\' "$kind" "$size" "$mtime" "$entry"',
 	"done",
 ].join("\n");
 
-export async function listFiles(
+/** Directory listing through the container, for entries the host user cannot read. */
+export async function listFilesInContainer(
 	container: string,
 	path: string,
 	signal?: AbortSignal,
@@ -128,7 +216,7 @@ export async function listFiles(
 			mtime: Number.parseInt(mtime ?? "0", 10) || 0,
 		});
 	}
-	entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1));
+	entries.sort(byTypeThenName);
 	return { path: target, entries };
 }
 

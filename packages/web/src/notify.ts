@@ -13,7 +13,8 @@
  */
 
 import { createHmac } from "node:crypto";
-import type { ZGNotifyConfig, ZGNotifyStatus, ZGTestResult } from "./protocol.ts";
+import type { ZGNotifyConfig, ZGNotifyStatus, ZGTestResult, ZGVulnerability } from "./protocol.ts";
+import { ZG_VULN_SEVERITY_LABELS, ZG_VULN_STATUS_LABELS } from "./vulnerabilities.ts";
 
 const SEND_TIMEOUT_MS = 10000;
 /** Two retries after the first attempt, per the operator's choice. */
@@ -199,6 +200,98 @@ export function buildRunNotification(report: ZGRunReport): { title: string; mark
 	if (summary) {
 		const clipped = summary.length > SUMMARY_LIMIT ? `${summary.slice(0, SUMMARY_LIMIT)}…（已截断）` : summary;
 		lines.push("", "**最后回复**", "", clipped);
+	}
+	return { title, markdown: lines.join("\n") };
+}
+
+/** Everything the notification reports about one persistent goal. */
+export interface ZGGoalReport {
+	/** Human label of the state, e.g. "已完成" or "已暂停（轮数上限）". */
+	label: string;
+	projectName: string;
+	sessionTitle: string;
+	objective: string;
+	rounds: { used: number; limit: number };
+	durationMs: number;
+	/** The completion conclusion, the blocker reason, or the round's last prose. */
+	summary: string;
+	evidence?: string[];
+	/** Findings the hub holds for this goal, as the runtime counted them. */
+	findings?: { submitted: number; note: string };
+	criteria?: { criterion: string; met: boolean; evidence: string }[];
+}
+
+/**
+ * One notification per goal state change. A goal runs unattended, so this is the
+ * only way the operator learns that it stopped, ran out of rounds, or finished;
+ * the per-round run report is switched off for goal-driven runs to avoid noise.
+ */
+export function buildGoalNotification(report: ZGGoalReport): { title: string; markdown: string } {
+	const title = `ZGAgent 持续目标${report.label}`;
+	const lines = [
+		`### ${title}`,
+		"",
+		`- **状态**：${report.label}`,
+		`- **项目**：${report.projectName || "未命名项目"}`,
+		`- **会话**：${report.sessionTitle || "未命名会话"}`,
+		`- **目标**：${report.objective}`,
+		`- **轮次**：自动续跑 ${report.rounds.used}/${report.rounds.limit} 轮`,
+		`- **耗时**：${formatDuration(report.durationMs)}`,
+	];
+	if (report.findings) {
+		lines.push(
+			`- **漏洞中枢**：${report.findings.submitted} 条${report.findings.note ? `（${report.findings.note}）` : ""}`,
+		);
+	}
+	const summary = report.summary.trim();
+	if (summary) {
+		const clipped = summary.length > SUMMARY_LIMIT ? `${summary.slice(0, SUMMARY_LIMIT)}…（已截断）` : summary;
+		lines.push("", "**结论**", "", clipped);
+	}
+	if (report.criteria && report.criteria.length > 0) {
+		lines.push("", "**验收标准**");
+		for (const item of report.criteria) {
+			lines.push(
+				`- ${item.met ? "满足" : "未满足"}：${item.criterion}${item.evidence ? ` —— ${item.evidence}` : ""}`,
+			);
+		}
+	}
+	if (report.evidence && report.evidence.length > 0) {
+		lines.push("", "**证据**");
+		for (const item of report.evidence.slice(0, 8)) lines.push(`- ${item}`);
+	}
+	return { title, markdown: lines.join("\n") };
+}
+
+/** How much of the raw packet the immediate notification carries. */
+const PACKET_PREVIEW = 400; /**
+ * Immediate notification for one critical/high finding, sent the moment it is
+ * submitted instead of waiting for the run to end. It carries the headline, the
+ * score, the target, and enough of the packet to recognize the issue; the hub
+ * page holds the rest.
+ */
+export function buildVulnNotification(vuln: ZGVulnerability, projectName: string): { title: string; markdown: string } {
+	const severity = ZG_VULN_SEVERITY_LABELS[vuln.severity];
+	const title = `ZGAgent 发现${severity}漏洞`;
+	const lines = [
+		`### ${title}`,
+		"",
+		`- **编号**：${vuln.label}`,
+		`- **标题**：${vuln.title}`,
+		`- **等级**：${severity}（${vuln.severity}）· CVSS ${vuln.cvss.toFixed(1)}`,
+		`- **状态**：${ZG_VULN_STATUS_LABELS[vuln.status]}`,
+		`- **目标**：${vuln.target}`,
+		`- **项目**：${projectName || vuln.projectName}`,
+		`- **来源**：${vuln.source}`,
+	];
+	if (vuln.category) lines.push(`- **类型**：${vuln.category}`);
+	lines.push(`- **时间**：${new Date(vuln.createdAt).toLocaleString("zh-CN", { hour12: false })}`);
+	const packet = vuln.packet.trim();
+	if (packet) {
+		// No code fence: DingTalk's markdown renderer is narrow, and the raw text
+		// survives better as a paragraph.
+		const clipped = packet.length > PACKET_PREVIEW ? `${packet.slice(0, PACKET_PREVIEW)}…（已截断）` : packet;
+		lines.push("", "**原始数据包**", "", clipped);
 	}
 	return { title, markdown: lines.join("\n") };
 }

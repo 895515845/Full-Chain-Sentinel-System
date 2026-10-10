@@ -13,6 +13,123 @@ import type { ZGPermissionPreset, ZGPermissionSet, ZGPermissionsConfig } from ".
 /** Operator approval mode for bash tool calls. */
 export type ZGMode = "review" | "auto";
 
+/** Lifecycle of a persistent goal. Only the model ends one successfully. */
+export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
+
+/** Why an active goal stopped. Manual covers the operator's pause and abort. */
+export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted";
+
+/** The initial run, or one automatic continuation. */
+export type ZGGoalRoundKind = "initial" | "continue";
+
+/** How a round ended, for the timeline. */
+export type ZGGoalRoundOutcome = "continued" | "completed" | "blocked" | "paused" | "aborted" | "error";
+
+/** Token and cost counters. Cost is null when the endpoint reports no price. */
+export interface ZGGoalUsage {
+	input: number;
+	output: number;
+	total: number;
+	cost: number | null;
+}
+
+/** What the model last reported through `goal_progress`. */
+export interface ZGGoalProgress {
+	done: string[];
+	todo: string[];
+	blockers: string[];
+}
+
+/** One acceptance criterion with the verdict given at completion. */
+export interface ZGGoalCriterionResult {
+	criterion: string;
+	met: boolean;
+	evidence: string;
+}
+
+/** The evidence a completed goal carries. */
+export interface ZGGoalCompletion {
+	summary: string;
+	evidence: string[];
+	/** Findings submitted to the hub during this goal, as verified by the runtime. */
+	submitted: number;
+	/** Required when nothing was submitted: why the run found nothing to report. */
+	findingsNote: string;
+	criteria: ZGGoalCriterionResult[];
+	at: number;
+}
+
+/** The blocker report that stopped a goal. */
+export interface ZGGoalBlocked {
+	reason: string;
+	evidence: string[];
+	/** Consecutive rounds the same blocker was reported. */
+	streak: number;
+	at: number;
+}
+
+/** One round of a goal: the initial run, or one automatic continuation. */
+export interface ZGGoalRound {
+	/** 0 is the initial run; continuations count up from 1. */
+	index: number;
+	kind: ZGGoalRoundKind;
+	startedAt: number;
+	endedAt?: number;
+	/** Tool calls the round made; zero for three rounds running trips the fuse. */
+	toolCalls: number;
+	usage?: ZGGoalUsage;
+	/** Closing summary: what `goal_progress` said, or the round's last prose. */
+	summary?: string;
+	summaryFromTool?: boolean;
+	outcome?: ZGGoalRoundOutcome;
+	blockerReason?: string;
+}
+
+/**
+ * One persistent goal. Stored in the session file as a state entry, so it
+ * survives a reload, a compaction, and a branch switch with the session it
+ * belongs to.
+ */
+export interface ZGGoal {
+	id: string;
+	objective: string;
+	/** Acceptance criteria; empty means the operator left them out. */
+	criteria: string[];
+	/** Automatic continuations allowed. The initial run is not counted. */
+	roundLimit: number;
+	roundsUsed: number;
+	/** Consecutive rounds without a tool call. */
+	noProgressStreak: number;
+	/** Consecutive rounds reporting the same blocker. */
+	blockerStreak: number;
+	status: ZGGoalStatus;
+	pauseReason?: ZGGoalPauseReason;
+	pauseNote?: string;
+	/** Usage when the goal started, so the bar can show what this goal cost. */
+	baseline: ZGGoalUsage;
+	progress: ZGGoalProgress;
+	rounds: ZGGoalRound[];
+	lastBlocker?: string;
+	/** Findings submitted to the hub while this goal ran. */
+	submitted: number;
+	completion?: ZGGoalCompletion;
+	blocked?: ZGGoalBlocked;
+	createdAt: number;
+	startedAt: number;
+	endedAt?: number;
+	updatedAt: number;
+}
+
+/** A goal as the console shows it: the stored record plus live counters. */
+export interface ZGGoalView extends ZGGoal {
+	/** Main-agent usage since the goal started. */
+	usage: ZGGoalUsage;
+	/** Sub-agent work of this goal. Shown for context; it does not consume rounds. */
+	subagent: { runs: number; turns: number };
+	/** Whether the goal's session has a run in flight right now. */
+	running: boolean;
+}
+
 /** Model endpoint configuration persisted in models.json. */
 export interface ZGModelConfig {
 	baseUrl: string;
@@ -80,6 +197,8 @@ export interface ZGProjectInfo {
 	cwd: string;
 	/** Docker container executing this project's tools. */
 	container?: string | null;
+	/** Findings recorded for this project, so its deletion can state what it takes. */
+	vulnCount?: number;
 }
 
 /** One directory entry in the container work directory. */
@@ -122,6 +241,8 @@ export interface ZGSubagentEvent {
 	isError?: boolean;
 	status?: ZGSubagentStatus;
 	note?: string;
+	/** How long the call ran, on `tool_end` only; lets the panel show a slow step. */
+	durationMs?: number;
 	/** Set when the stored payload exceeded the per-step cap and was cut down. */
 	truncated?: boolean;
 }
@@ -139,6 +260,105 @@ export interface ZGSubagentRun {
 	error?: string;
 	/** Buffered process steps; only sent for one run on demand, never in a snapshot. */
 	events?: ZGSubagentEvent[];
+}
+
+/** Severity buckets of the vulnerability hub. */
+export type ZGVulnSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+/**
+ * Lifecycle of one finding. The agent always creates `pending`; only the
+ * operator moves a record on from there, because a finding the model believes in
+ * is still a hypothesis until someone reproduces it.
+ */
+export type ZGVulnStatus = "pending" | "confirmed" | "false_positive" | "fixed";
+
+/** One piece of supporting evidence: a command with its output, or a container file. */
+export interface ZGVulnEvidence {
+	kind: "command" | "file";
+	command?: string;
+	output?: string;
+	/** Absolute path inside the project container (/work/...), previewed in place. */
+	path?: string;
+	note?: string;
+}
+
+/** One entry of a finding's timeline: a status change or a free-text remark. */
+export interface ZGVulnNote {
+	at: string;
+	author: "agent" | "operator" | "system";
+	text: string;
+	statusFrom?: ZGVulnStatus;
+	statusTo?: ZGVulnStatus;
+}
+
+/**
+ * One finding in the hub. `packet` holds the raw request or packet that proves
+ * it, which is why it is a required field rather than part of the description.
+ */
+export interface ZGVulnerability {
+	id: string;
+	/** Human-readable id, `<project prefix>-<sequence>`, e.g. "E2E-PROJECT-0003". */
+	label: string;
+	/** Sequence within the project, starting at 1. */
+	number: number;
+	projectId: string;
+	projectName: string;
+	/** Main session the submission belongs to. */
+	sessionId?: string;
+	/** Who submitted it: "主代理" or "子代理 <runId>". */
+	source: string;
+	title: string;
+	severity: ZGVulnSeverity;
+	/** CVSS base score, 0.0-10.0. */
+	cvss: number;
+	/** Optional CVSS vector string. */
+	cvssVector?: string;
+	status: ZGVulnStatus;
+	/** Affected target: host, URL, IP:port or service. */
+	target: string;
+	/** Vulnerability class, e.g. "SQL 注入" or "未授权访问". */
+	category?: string;
+	description: string;
+	/** Raw request or packet, verbatim. */
+	packet: string;
+	repro?: string;
+	remediation?: string;
+	references?: string[];
+	createdAt: string;
+	updatedAt: string;
+	evidence: ZGVulnEvidence[];
+	notes: ZGVulnNote[];
+	/** True when the CVSS score maps to a different bucket than `severity`. */
+	severityMismatch: boolean;
+}
+
+/** A finding without its heavy fields, for the list and for the agent's query. */
+export type ZGVulnSummary = Omit<ZGVulnerability, "packet" | "evidence" | "notes">;
+
+/** List filters; every field is optional and they combine with AND. */
+export interface ZGVulnFilters {
+	status?: ZGVulnStatus;
+	severity?: ZGVulnSeverity;
+	/** Case-insensitive substring match on the affected target. */
+	target?: string;
+	/** Case-insensitive substring match on label, title, category and description. */
+	search?: string;
+}
+
+/** Operator edits; the agent may not change a record after submitting it. */
+export interface ZGVulnUpdate {
+	status?: ZGVulnStatus;
+	severity?: ZGVulnSeverity;
+	cvss?: number;
+	/** Appended to the timeline. */
+	note?: string;
+}
+
+/** Counts for the hub page header. */
+export interface ZGVulnStats {
+	total: number;
+	bySeverity: Record<ZGVulnSeverity, number>;
+	byStatus: Record<ZGVulnStatus, number>;
 }
 
 /** Snapshot of the runtime state sent on connect and after state changes. */
@@ -165,6 +385,16 @@ export interface ZGStateSnapshot {
 	runningSessions: string[];
 	/** Sub-agent runs of the active session, newest first, without their process steps. */
 	subagents: ZGSubagentRun[];
+	/** Persistent goal of the active session, with live counters; null when there is none. */
+	goal: ZGGoalView | null;
+	/**
+	 * Compaction (or branch summarization) is running for the active session. It
+	 * blocks prompts, and a slow model can hold it for minutes, so the console has
+	 * to show it and offer a way out.
+	 */
+	compacting: boolean;
+	/** When the current compaction started, for the elapsed time; null when idle. */
+	compactionStartedAt: number | null;
 }
 
 /** A point the conversation can branch from. */
@@ -184,6 +414,18 @@ export type ZGClientMessage =
 	  }
 	| { type: "abort" }
 	| { type: "compact" }
+	/** Cancel a compaction that is still running (a stalled model request). */
+	| { type: "abort_compaction" }
+	| {
+			type: "start_goal";
+			objective: string;
+			/** One criterion per line; empty means the operator left them out. */
+			criteria?: string[];
+			roundLimit: number;
+	  }
+	| { type: "pause_goal" }
+	| { type: "resume_goal"; extraRounds?: number }
+	| { type: "clear_goal" }
 	| { type: "set_thinking_level"; level: ThinkingLevel }
 	| { type: "set_mode"; mode: ZGMode }
 	| {
@@ -227,6 +469,11 @@ export type ZGClientMessage =
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
 	| { type: "steer_subagent"; id: string; text: string }
+	| { type: "list_vulns"; filters?: ZGVulnFilters }
+	| { type: "get_vuln"; id: string }
+	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
+	| { type: "delete_vuln"; id: string }
+	| { type: "export_vulns"; filters?: ZGVulnFilters }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -260,6 +507,10 @@ export type ZGServerMessage =
 	| { type: "subagent_run"; run: ZGSubagentRun }
 	| { type: "subagent_event"; runId: string; event: ZGSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
+	| { type: "vulns"; items: ZGVulnSummary[]; stats: ZGVulnStats }
+	| { type: "vuln"; vuln: ZGVulnerability }
+	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

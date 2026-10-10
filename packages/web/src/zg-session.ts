@@ -8,6 +8,7 @@
  * sub-agent, foreground or background session) passes the same approval gate.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { resolve as resolveFsPath } from "node:path";
 import {
@@ -28,15 +29,48 @@ import {
 	ModelRuntime,
 	type SessionInfo,
 	SessionManager,
+	type SessionStats,
 	type SessionTreeNode,
 	SettingsManager,
 	type ThinkingLevel,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { ApprovalGate } from "./approval.ts";
 import { dockerBashOperations } from "./docker.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
+import {
+	advanceGoal,
+	blockGoal,
+	buildGoalContract,
+	completeGoal,
+	createGoal,
+	DEFAULT_ROUND_LIMIT,
+	diffUsage,
+	emptyUsage,
+	extractRoundSummary,
+	finishRound,
+	GOAL_MESSAGE_CUSTOM_TYPE,
+	GOAL_STATE_CUSTOM_TYPE,
+	goalStatusLabel,
+	parseCriteria,
+	pauseGoal,
+	readGoalState,
+	recordBlocker,
+	recordRoundProgress,
+	recordSubmission,
+	resumeGoal,
+	startRound,
+} from "./goal.ts";
+import { createGoalTools, type GoalPort } from "./goal-tool.ts";
 import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
-import { buildRunNotification, sendDingTalk, shouldNotifyRun, testDingTalk } from "./notify.ts";
+import {
+	buildGoalNotification,
+	buildRunNotification,
+	buildVulnNotification,
+	sendDingTalk,
+	shouldNotifyRun,
+	testDingTalk,
+} from "./notify.ts";
 import { readNotifyConfig, writeNotifyConfig } from "./notify-config.ts";
 import {
 	effectiveSubagent,
@@ -52,6 +86,11 @@ import type {
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGForkPoint,
+	ZGGoal,
+	ZGGoalPauseReason,
+	ZGGoalRoundOutcome,
+	ZGGoalUsage,
+	ZGGoalView,
 	ZGMode,
 	ZGModelConfig,
 	ZGNotifyConfig,
@@ -61,10 +100,19 @@ import type {
 	ZGSubagentRun,
 	ZGTestResult,
 	ZGToolInfo,
+	ZGVulnerability,
+	ZGVulnFilters,
+	ZGVulnStats,
+	ZGVulnSummary,
+	ZGVulnUpdate,
 } from "./protocol.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
+import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } from "./transcript.ts";
+import { createVulnerabilityTools } from "./vuln-tool.ts";
+import { emptyVulnStats, VulnerabilityStore, vulnerabilityDbPath } from "./vulnerabilities.ts";
+import { buildVulnReport } from "./vulnerability-markdown.ts";
 
 export interface ZGRuntimeHooks {
 	/** Events of the currently viewed session only. */
@@ -75,6 +123,23 @@ export interface ZGRuntimeHooks {
 	onSubagentEvent(runId: string, event: ZGSubagentEvent): void;
 	/** Fired after a notification send, so the settings screen can show its outcome. */
 	onNotifyStatus(status: ZGNotifyStatus): void;
+	/** A finding was submitted or reviewed; connected consoles refresh the hub page. */
+	onVulnChange(): void;
+}
+
+/**
+ * The persistent goal of one session, plus the bookkeeping of the round in
+ * flight. It lives on the managed session, not on the runtime: a goal belongs to
+ * the conversation it was started in, and switching views must not touch it.
+ */
+interface ManagedGoal {
+	goal: ZGGoal;
+	/** Cumulative usage when the round started, so the round can report its delta. */
+	roundUsageStart: ZGGoalUsage;
+	/** Tool calls seen in the round in flight; zero for three rounds trips the fuse. */
+	roundToolCalls: number;
+	/** Findings submitted to the hub since the goal started. */
+	submitted: number;
 }
 
 interface ManagedSession {
@@ -94,6 +159,14 @@ interface ManagedSession {
 		notify: boolean | undefined;
 		instruction: string;
 	};
+	/** Persistent goal of this session, when one was started. */
+	goal?: ManagedGoal;
+	/**
+	 * When this session's compaction started. The SDK blocks prompts for as long
+	 * as its compaction controller lives, and a slow model can hold that for
+	 * minutes, so the console tracks it to show the wait and to offer a cancel.
+	 */
+	compactionStartedAt?: number;
 }
 
 export class ZGAgentRuntime {
@@ -107,6 +180,7 @@ export class ZGAgentRuntime {
 	private readonly approvals: ApprovalGate;
 	private readonly subagentStore: SubagentStore;
 	private readonly subagents: SubagentRegistry;
+	private readonly vulnerabilities: VulnerabilityStore;
 
 	private mode: ZGMode = "review";
 	private sessions = new Map<string, ManagedSession>();
@@ -133,6 +207,7 @@ export class ZGAgentRuntime {
 		this.approvals = new ApprovalGate(() => this.hooks.onStateChange());
 		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
 		this.subagentStore = new SubagentStore(subagentDbPath(this.agentDir));
+		this.vulnerabilities = new VulnerabilityStore(vulnerabilityDbPath(this.agentDir));
 		this.subagents = new SubagentRegistry(this.subagentStore, {
 			onEvent: (runId, event) => this.hooks.onSubagentEvent(runId, event),
 			onRunChange: () => this.hooks.onStateChange(),
@@ -267,24 +342,52 @@ export class ZGAgentRuntime {
 			...(permissions.edit ? { edit: createEditTool(manager.getCwd()) } : {}),
 			...(permissions.write ? { write: createWriteTool(manager.getCwd()) } : {}),
 		};
-		const customTools = permissions.spawn_agent
-			? [
-					createSubagentTool({
-						cwd: manager.getCwd(),
-						agentDir: this.agentDir,
-						getModel: () => this.resolveModel(),
-						getModelRuntime: () => this.modelRuntime,
-						registry: this.subagents,
-						getParentSessionId: () => manager.getSessionId(),
-						getProjectId: () => this.activeProjectId,
-						permissions: subagentPermissions,
-						createGatedBash: () =>
-							this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
-						createSessionContext: (appendSystemPrompt) =>
-							this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
-					}),
-				]
-			: [];
+		// The hub tools are mounted here as well, so a session that may not delegate
+		// can still report what it found.
+		const sessionProject = this.activeProjectId
+			? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
+			: undefined;
+		const customTools: ToolDefinition[] = [
+			// The goal tools are always mounted; they refuse to do anything while no
+			// goal is running, which keeps the mount set stable across a goal.
+			...createGoalTools(this.createGoalPort(managed)),
+			...this.createVulnTools({
+				project: sessionProject,
+				permissions,
+				getSessionId: () => manager.getSessionId(),
+				getSource: () => "主代理",
+				// A finding counts towards the goal's hub statement whether the main
+				// agent or one of its sub-agents submitted it.
+				onSubmit: () => this.noteGoalFinding(managed),
+			}),
+			...(permissions.spawn_agent
+				? [
+						createSubagentTool({
+							cwd: manager.getCwd(),
+							agentDir: this.agentDir,
+							getModel: () => this.resolveModel(),
+							getModelRuntime: () => this.modelRuntime,
+							registry: this.subagents,
+							getParentSessionId: () => manager.getSessionId(),
+							getProjectId: () => this.activeProjectId,
+							permissions: subagentPermissions,
+							createGatedBash: () =>
+								this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
+							createSessionContext: (appendSystemPrompt) =>
+								this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
+							// A sub-agent reports under the parent session and project.
+							createVulnTools: (getSource) =>
+								this.createVulnTools({
+									project: sessionProject,
+									permissions: subagentPermissions,
+									getSessionId: () => manager.getSessionId(),
+									getSource,
+									onSubmit: () => this.noteGoalFinding(managed),
+								}),
+						}),
+					]
+				: []),
+		];
 		const created = await createAgentSession({
 			cwd: manager.getCwd(),
 			agentDir: this.agentDir,
@@ -302,11 +405,30 @@ export class ZGAgentRuntime {
 		// contribute skills and prompt templates.
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
+		// The goal is restored from the session file, so a reopened conversation
+		// keeps the objective it was working on.
+		managed.goal = this.restoreGoal(managed);
 		managed.unsubscribe = created.session.subscribe((event) => {
 			// Only the viewed session streams events; background sessions run silently.
 			if (managed.key === this.activeKey) this.hooks.onSessionEvent(event);
-			if (event.type === "agent_settled" || event.type === "agent_end") this.hooks.onStateChange();
-			if (event.type === "agent_settled") this.reportRunSettled(managed, event.aborted);
+			if (event.type === "tool_execution_start" && managed.goal) managed.goal.roundToolCalls += 1;
+			if (event.type === "agent_settled") {
+				// The round is closed before the snapshot goes out: a console that saw
+				// the settled state first would show a round that never finished.
+				this.reportRunSettled(managed, event.aborted);
+				this.afterRoundSettled(managed, event.aborted);
+				this.hooks.onStateChange();
+				return;
+			}
+			if (event.type === "agent_end") this.hooks.onStateChange();
+			if (event.type === "compaction_start") {
+				managed.compactionStartedAt = Date.now();
+				this.hooks.onStateChange();
+			}
+			if (event.type === "compaction_end") {
+				managed.compactionStartedAt = undefined;
+				this.hooks.onStateChange();
+			}
 		});
 		this.sessions.set(managed.key, managed);
 		return managed.key;
@@ -343,11 +465,406 @@ export class ZGAgentRuntime {
 	}
 
 	/**
+	 * The hub tools one session may mount. A disabled switch is left out here and
+	 * named in `excludeTools` as well, so neither tool_search nor a restored
+	 * transcript can bring the tool back.
+	 *
+	 * The project is captured when the session is created, not read from the live
+	 * field: switching projects keeps the previous sessions running in the
+	 * background, and a finding submitted by one of those must stay with the
+	 * project it was found in.
+	 */
+	private createVulnTools(options: {
+		project: { id: string; name: string } | undefined;
+		permissions: ZGPermissionSet;
+		getSessionId: () => string | undefined;
+		getSource: () => string;
+		/** A record was created, so a running goal can count it as its own finding. */
+		onSubmit: () => void;
+	}): ToolDefinition[] {
+		if (!options.permissions.vuln_submit && !options.permissions.vuln_read) return [];
+		const tools = createVulnerabilityTools({
+			store: this.vulnerabilities,
+			getProject: () => options.project,
+			getSessionId: options.getSessionId,
+			getSource: options.getSource,
+			onHighSeverity: (vuln) => this.notifyHighSeverity(vuln),
+			onChange: () => this.hooks.onVulnChange(),
+			onSubmit: () => options.onSubmit(),
+		});
+		return tools.filter((tool) =>
+			tool.name === "vuln_submit" ? options.permissions.vuln_submit : options.permissions.vuln_read,
+		);
+	}
+
+	/**
+	 * Push a critical/high finding the moment it is submitted. The run-end report
+	 * still arrives later; this exists because a serious finding should not wait
+	 * for a run that may take another hour.
+	 */
+	private notifyHighSeverity(vuln: ZGVulnerability): void {
+		const config = readNotifyConfig(this.agentDir);
+		if (!config.enabled || !config.webhook.trim()) return;
+		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName);
+		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+			this.notifyStatus = { ...result, subject: report.title };
+			this.hooks.onNotifyStatus(this.notifyStatus);
+		});
+	}
+
+	/**
+	 * Read the goal back from the session file. A goal that was active when the
+	 * session was (re)built has no run behind it any more — the console restarted,
+	 * or the session was recreated after a config change — so it comes back paused
+	 * instead of pretending to be running.
+	 */
+	private restoreGoal(managed: ManagedSession): ManagedGoal | undefined {
+		const goal = readGoalState(managed.manager.getBranch());
+		if (!goal) return undefined;
+		const managedGoal: ManagedGoal = {
+			goal,
+			roundUsageStart: usageOf(managed.session.getSessionStats()),
+			roundToolCalls: 0,
+			submitted: goal.submitted,
+		};
+		if (goal.status === "active") {
+			managedGoal.goal = pauseGoal(
+				goal,
+				"interrupted",
+				"控制台重启或会话重建，目标已暂停；点「继续」恢复自动续跑",
+				Date.now(),
+			);
+			this.persistGoal(managed, managedGoal.goal);
+			this.notifyGoal(managed, managedGoal);
+		}
+		return managedGoal;
+	}
+
+	/** The goal state is a session entry, so it travels with the conversation. */
+	private persistGoal(managed: ManagedSession, goal: ZGGoal | null): void {
+		managed.manager.appendCustomEntry(GOAL_STATE_CUSTOM_TYPE, goal);
+	}
+
+	/**
+	 * What the goal tools may do to the goal of this session. The tools validate
+	 * their own arguments; every accepted change lands here, so persistence, the
+	 * notification, and the console refresh happen in exactly one place.
+	 */
+	private createGoalPort(managed: ManagedSession): GoalPort {
+		return {
+			current: () => managed.goal?.goal,
+			submitted: () => managed.goal?.submitted ?? 0,
+			progress: (progress) => {
+				const managedGoal = managed.goal;
+				if (!managedGoal) return;
+				managedGoal.goal = recordRoundProgress(managedGoal.goal, progress, Date.now());
+				this.persistGoal(managed, managedGoal.goal);
+				this.hooks.onStateChange();
+			},
+			complete: (completion) => {
+				const managedGoal = managed.goal;
+				if (!managedGoal) return;
+				managedGoal.goal = completeGoal(managedGoal.goal, completion);
+				this.persistGoal(managed, managedGoal.goal);
+				this.notifyGoal(managed, managedGoal);
+				this.hooks.onStateChange();
+			},
+			blocked: (reason, evidence) => {
+				const managedGoal = managed.goal;
+				if (!managedGoal) return { streak: 0, accepted: false };
+				const at = Date.now();
+				const result = recordBlocker(managedGoal.goal, reason, at);
+				managedGoal.goal = result.accepted
+					? blockGoal(result.goal, reason, evidence, result.streak, at)
+					: result.goal;
+				this.persistGoal(managed, managedGoal.goal);
+				if (result.accepted) this.notifyGoal(managed, managedGoal);
+				this.hooks.onStateChange();
+				return { streak: result.streak, accepted: result.accepted };
+			},
+		};
+	}
+
+	/**
+	 * One finding reached the hub while this goal was running. Sub-agents count
+	 * too: their work is the goal's work, and a completion claim that ignored a
+	 * finding they submitted would be rejected as a mismatch.
+	 */
+	private noteGoalFinding(managed: ManagedSession): void {
+		const managedGoal = managed.goal;
+		if (!managedGoal || managedGoal.goal.status !== "active") return;
+		managedGoal.submitted += 1;
+		managedGoal.goal = recordSubmission(managedGoal.goal, Date.now());
+		this.persistGoal(managed, managedGoal.goal);
+		this.hooks.onStateChange();
+	}
+
+	/**
+	 * Move the goal on after a settled round. Called once per settle, and the
+	 * continuation is injected with `triggerTurn`, which the SDK defers until the
+	 * settle emission is over: a round can never fork into two continuations.
+	 *
+	 * A round ends when the agent stops calling tools, so everything here is about
+	 * what the next round is allowed to be: nothing when the goal already ended,
+	 * a pause when a fuse trips, otherwise one continuation carrying the progress.
+	 */
+	private afterRoundSettled(managed: ManagedSession, aborted: boolean): void {
+		const managedGoal = managed.goal;
+		if (!managedGoal) return;
+		const at = Date.now();
+		const usage = diffUsage(usageOf(managed.session.getSessionStats()), managedGoal.roundUsageStart);
+		const round = managedGoal.goal.rounds[managedGoal.goal.rounds.length - 1];
+		// A round that called goal_progress already wrote its own summary; the prose
+		// fallback is for rounds that never did.
+		const summary =
+			round?.summaryFromTool === true ? undefined : extractRoundSummary(lastAssistantText(managed.session.messages));
+		const status = managedGoal.goal.status;
+		const outcome: ZGGoalRoundOutcome = aborted
+			? "aborted"
+			: status === "completed"
+				? "completed"
+				: status === "blocked"
+					? "blocked"
+					: status === "paused"
+						? "paused"
+						: lastAssistantStopReason(managed.session.messages) === "error"
+							? "error"
+							: "continued";
+		let goal = finishRound(managedGoal.goal, {
+			at,
+			toolCalls: managedGoal.roundToolCalls,
+			usage,
+			...(summary ? { summary } : {}),
+			outcome,
+		});
+		// An abort is an intervention: the goal waits for the operator rather than
+		// counting a half-finished round as progress.
+		if (aborted && goal.status === "active") {
+			goal = pauseGoal(goal, "manual", "运行被中止，目标已暂停", at);
+		}
+		managedGoal.goal = goal;
+		managedGoal.roundToolCalls = 0;
+		if (goal.status !== "active") {
+			this.persistGoal(managed, goal);
+			this.notifyGoal(managed, managedGoal);
+			return;
+		}
+		const decision = advanceGoal(goal, at);
+		managedGoal.goal = decision.goal;
+		this.persistGoal(managed, decision.goal);
+		if (decision.action === "stop") {
+			this.notifyGoal(managed, managedGoal);
+			return;
+		}
+		const next = startRound(decision.goal, "continue", at);
+		managedGoal.goal = next;
+		managedGoal.roundUsageStart = usageOf(managed.session.getSessionStats());
+		this.persistGoal(managed, next);
+		this.startContinuation(managed, buildGoalContract(next, "continue"));
+	}
+
+	/**
+	 * Report a goal that stopped. Goal-driven runs deliberately send no per-run
+	 * report, so this is the only notification the operator gets about a goal that
+	 * finished, ran out of rounds, or gave up; it is not gated on the composer's
+	 * per-run switch, only on the notification channel being enabled.
+	 */
+	private notifyGoal(managed: ManagedSession, managedGoal: ManagedGoal): void {
+		const goal = managedGoal.goal;
+		if (goal.status === "active") return;
+		const config = readNotifyConfig(this.agentDir);
+		if (!config.enabled || !config.webhook.trim()) return;
+		const lastRound = goal.rounds[goal.rounds.length - 1];
+		const report = buildGoalNotification({
+			label: goalStatusLabel(goal),
+			projectName: this.activeProjectName ?? "",
+			sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? goal.objective,
+			objective: goal.objective,
+			rounds: { used: goal.roundsUsed, limit: goal.roundLimit },
+			durationMs: (goal.endedAt ?? Date.now()) - goal.startedAt,
+			summary: goal.completion?.summary ?? goal.blocked?.reason ?? goal.pauseNote ?? lastRound?.summary ?? "",
+			...(goal.completion
+				? {
+						evidence: goal.completion.evidence,
+						criteria: goal.completion.criteria,
+						findings: { submitted: goal.completion.submitted, note: goal.completion.findingsNote },
+					}
+				: {}),
+			...(goal.blocked ? { evidence: goal.blocked.evidence } : {}),
+		});
+		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+			this.notifyStatus = { ...result, subject: report.title };
+			this.hooks.onNotifyStatus(this.notifyStatus);
+		});
+	}
+
+	/**
+	 * Pause one session's goal. Takes the session rather than assuming the viewed
+	 * one: a goal that runs in the background settles there too, and a continuation
+	 * that cannot start has to be recorded against its own session.
+	 */
+	private pauseGoalOf(managed: ManagedSession, reason: ZGGoalPauseReason, note?: string): void {
+		const managedGoal = managed.goal;
+		if (!managedGoal || managedGoal.goal.status !== "active") return;
+		managedGoal.goal = pauseGoal(managedGoal.goal, reason, note, Date.now());
+		this.persistGoal(managed, managedGoal.goal);
+		this.notifyGoal(managed, managedGoal);
+		this.hooks.onStateChange();
+	}
+
+	/**
+	 * Pause the viewed session's goal. Only the viewed one: a pause is an operator
+	 * action on the conversation on screen, and a goal running in the background
+	 * keeps working (its notifications still arrive).
+	 */
+	private pauseActiveGoal(reason: ZGGoalPauseReason, note?: string): void {
+		if (this.active) this.pauseGoalOf(this.active, reason, note);
+	}
+
+	/**
+	 * Start a round by injecting its contract. `triggerTurn` defers the run until
+	 * the settle emission is over, so a round can never fork into two runs; when
+	 * the run cannot start at all, the goal pauses with the reason instead of
+	 * sitting there as if it were still working.
+	 */
+	private startContinuation(managed: ManagedSession, contract: string): void {
+		void managed.session
+			.sendCustomMessage(
+				{ customType: GOAL_MESSAGE_CUSTOM_TYPE, content: contract, display: true },
+				{ triggerTurn: true },
+			)
+			.catch((error: unknown) => {
+				this.pauseGoalOf(
+					managed,
+					"manual",
+					`续跑启动失败：${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
+	}
+
+	/** The goal as the console shows it: the stored record plus live counters. */
+	private goalView(managed: ManagedSession | undefined): ZGGoalView | null {
+		if (!managed?.goal) return null;
+		const goal = managed.goal.goal;
+		// Sub-agent usage is shown for context. It does not consume rounds: the
+		// budget counts continuations, and there is no token budget to charge.
+		const runs = this.subagents
+			.list(managed.manager.getSessionId())
+			.filter((run) => Date.parse(run.startedAt) >= goal.startedAt);
+		return {
+			...goal,
+			usage: diffUsage(usageOf(managed.session.getSessionStats()), goal.baseline),
+			subagent: { runs: runs.length, turns: runs.reduce((sum, run) => sum + run.turns, 0) },
+			running: managed.session.isStreaming,
+		};
+	}
+
+	/**
+	 * Start a persistent goal. Auto mode is a precondition rather than something
+	 * this code flips: an unattended loop that stops at every command is useless,
+	 * and one that silently changes the operator's safety mode is worse.
+	 */
+	async startGoal(objective: string, criteria: string[], roundLimit: number): Promise<void> {
+		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (this.mode !== "auto") {
+			throw new Error("持续目标只在自动模式下可用：请先切到自动模式（目标运行期间命令无人拦截直接执行）");
+		}
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止或等本轮结束再启动目标");
+		const text = objective.trim();
+		if (!text) throw new Error("目标不能为空");
+		const existing = active.goal;
+		if (existing && existing.goal.status !== "completed") {
+			throw new Error("当前会话已有未结束的目标，请先在目标条上继续或清除它");
+		}
+		const at = Date.now();
+		const baseline = usageOf(active.session.getSessionStats());
+		const goal = createGoal({
+			id: `goal-${randomUUID()}`,
+			objective: text,
+			criteria: parseCriteria(criteria.join("\n")),
+			roundLimit,
+			baseline,
+			at,
+		});
+		const managedGoal: ManagedGoal = {
+			goal: startRound(goal, "initial", at),
+			roundUsageStart: baseline,
+			roundToolCalls: 0,
+			submitted: 0,
+		};
+		active.goal = managedGoal;
+		this.persistGoal(active, managedGoal.goal);
+		// The contract is a visible row of its own rather than part of the operator's
+		// message: the objective stays exactly what they typed, and the transcript
+		// shows what goal mode added around it.
+		await active.session.sendCustomMessage(
+			{
+				customType: GOAL_MESSAGE_CUSTOM_TYPE,
+				content: buildGoalContract(managedGoal.goal, "initial"),
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+		// Goal-driven runs skip the per-run report: goal notifications cover the
+		// states that matter, and one report per round would be noise.
+		active.run = { startedAt: at, notify: false, instruction: text };
+		try {
+			await active.session.prompt(text, {});
+		} catch (error) {
+			// The run never started, so the goal cannot be left looking active.
+			this.pauseGoalOf(active, "manual", `启动失败：${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
+		this.hooks.onStateChange();
+	}
+
+	/** Operator pause: stop the run in flight and keep the goal for later. */
+	async pauseGoal(): Promise<void> {
+		this.pauseActiveGoal("manual", "操作员在目标条上暂停");
+		await this.active?.session.abort();
+	}
+
+	/**
+	 * Resume a paused or blocked goal and start the next round right away. The
+	 * extra rounds are added to the budget, so resuming after the limit is the
+	 * same action as resuming after a manual pause.
+	 */
+	resumeGoal(extraRounds?: number): void {
+		const active = this.active;
+		const managedGoal = active?.goal;
+		if (!active || !managedGoal) throw new Error("当前会话没有持续目标");
+		if (managedGoal.goal.status === "completed") throw new Error("目标已完成，请清除后新建目标");
+		if (this.mode !== "auto") throw new Error("持续目标只在自动模式下可用：请先切到自动模式");
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再继续目标");
+		if (managedGoal.goal.status === "active") return;
+		const at = Date.now();
+		const resumed = resumeGoal(managedGoal.goal, extraRounds ?? DEFAULT_ROUND_LIMIT, at);
+		const next = startRound(resumed, "continue", at);
+		managedGoal.goal = next;
+		managedGoal.roundUsageStart = usageOf(active.session.getSessionStats());
+		managedGoal.roundToolCalls = 0;
+		this.persistGoal(active, next);
+		this.startContinuation(active, buildGoalContract(next, "continue"));
+		this.hooks.onStateChange();
+	}
+
+	/** Forget the goal. A run in flight belongs to it, so it is stopped first. */
+	async clearGoal(): Promise<void> {
+		const active = this.active;
+		if (!active?.goal) return;
+		if (active.session.isStreaming) await active.session.abort();
+		active.goal = undefined;
+		this.persistGoal(active, null);
+		this.hooks.onStateChange();
+	}
+
+	/**
 	 * Forget a project and drop its sessions. Used when the project is deleted:
 	 * its container is gone, so nothing of it can run any more. The runtime ends
 	 * up with no project, which the console renders as the project-required state.
-	 */
-	async detachProject(workDir?: string): Promise<void> {
+	 */ async detachProject(workDir?: string): Promise<void> {
 		for (const [key, managed] of [...this.sessions]) {
 			if (workDir !== undefined && managed.manager.getCwd() !== workDir) continue;
 			managed.unsubscribe();
@@ -383,6 +900,11 @@ export class ZGAgentRuntime {
 		if (text.trim() === "/compact") {
 			await this.compact();
 			return;
+		}
+		// pi refuses this in English; the operator is looking at a console that has
+		// no other hint about why the prompt went nowhere.
+		if (active.session.isCompacting) {
+			throw new Error("正在压缩上下文，暂时不能发送；可等待压缩完成，或点「中止压缩」放弃这次压缩");
 		}
 		// A steer joins the run already in flight: keep its start time, let the
 		// operator's latest choice decide whether the run is reported.
@@ -467,8 +989,24 @@ export class ZGAgentRuntime {
 			const message = error instanceof Error ? error.message : String(error);
 			if (message.includes("too small")) throw new Error("当前会话内容太少，无需压缩");
 			if (message.includes("Already compacted")) throw new Error("该会话已经压缩过，无需重复压缩");
+			// The operator cancelled it: pi reports that as a cancelled or aborted
+			// summarization, and it is not a failure worth a toast.
+			if (/cancel|abort/i.test(message)) return;
 			throw error;
 		}
+		this.hooks.onStateChange();
+	}
+
+	/**
+	 * Cancel a compaction that is still running. The SDK has no timeout on the
+	 * summarization request, so a stalled model endpoint leaves the session
+	 * refusing every prompt with no way out but a restart; this is that way out.
+	 * Nothing is lost: the transcript is only rewritten once a summary arrives.
+	 */
+	abortCompaction(): void {
+		const active = this.active;
+		if (!active) return;
+		active.session.abortCompaction();
 		this.hooks.onStateChange();
 	}
 
@@ -484,6 +1022,9 @@ export class ZGAgentRuntime {
 	}
 
 	async abort(): Promise<void> {
+		// Aborting a goal's run pauses the goal: the run is the goal's work, and an
+		// abort is an intervention, not a reason to throw the objective away.
+		this.pauseActiveGoal("manual", "运行被中止，目标已暂停");
 		await this.active?.session.abort();
 	}
 
@@ -491,6 +1032,10 @@ export class ZGAgentRuntime {
 		if (this.mode === mode) return;
 		this.mode = mode;
 		if (mode === "auto") this.approvals.rejectAll("switched to auto mode");
+		// A goal only runs unattended in auto mode. Leaving it active in review mode
+		// would park it on an approval queue nobody is watching, so it pauses and
+		// says why.
+		if (mode === "review") this.pauseActiveGoal("manual", "已切回审批模式，目标自动暂停");
 		this.hooks.onStateChange();
 	}
 
@@ -579,13 +1124,13 @@ export class ZGAgentRuntime {
 	}
 
 	getTree(): { tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] } {
+		const active = this.active;
 		return {
-			tree: this.active?.manager.getTree() ?? [],
-			leafId: this.active?.manager.getLeafId() ?? null,
-			forkPoints: (this.active?.session.getUserMessagesForForking() ?? []).map(({ entryId, text }) => ({
-				entryId,
-				text,
-			})),
+			tree: active?.manager.getTree() ?? [],
+			leafId: active?.manager.getLeafId() ?? null,
+			// The client pairs these with the transcript's user messages by index,
+			// so they have to come from the same branch the transcript does.
+			forkPoints: active ? branchUserMessages(active.manager.getBranch()) : [],
 		};
 	}
 
@@ -712,13 +1257,21 @@ export class ZGAgentRuntime {
 			thinkingLevel: active?.session.thinkingLevel ?? "off",
 			availableThinkingLevels: active?.session.getAvailableThinkingLevels() ?? [],
 			activeSessionId: this.currentSessionId,
-			messages: active ? safeClone(active.session.messages) : [],
+			// The transcript, not `session.messages`: the latter is the model context,
+			// from which a compaction removes everything its summary replaced. The
+			// live system prompt comes from the context, because it is not an entry.
+			messages: active
+				? safeClone(withSystemPrompt(branchTranscript(active.manager.getBranch()), active.session.messages))
+				: [],
 			pendingApprovals: this.approvals.listPending(),
 			allowedPrefixes: this.approvals.getAllowedPrefixes(),
 			runningSessions: [...this.sessions.values()]
 				.filter((managed) => managed.session.isStreaming)
 				.map((managed) => managed.key),
 			subagents: this.listSubagents(),
+			goal: this.goalView(active),
+			compacting: active?.session.isCompacting ?? false,
+			compactionStartedAt: active?.compactionStartedAt ?? null,
 		};
 	}
 
@@ -727,9 +1280,12 @@ export class ZGAgentRuntime {
 		return this.active?.session.getSessionStats();
 	}
 
-	/** Directory listing in the project container's /work. */
+	/**
+	 * Directory listing of /work. The host side of the mount is read directly;
+	 * the container is only consulted for a directory the host user cannot read.
+	 */
 	async listFiles(path: string): Promise<{ path: string; entries: ZGFileEntry[] }> {
-		return await listFiles(this.requireContainer(), path);
+		return await listFiles(this.cwd, path, { container: this.requireContainer() });
 	}
 
 	async readFile(path: string): Promise<ZGFilePreview> {
@@ -779,6 +1335,64 @@ export class ZGAgentRuntime {
 		return await this.subagents.steer(id, text);
 	}
 
+	/**
+	 * Findings of the active project plus their counts. The hub is project-scoped:
+	 * with no project there is nothing to show, not another project's records.
+	 */
+	listVulns(filters: ZGVulnFilters = {}): { items: ZGVulnSummary[]; stats: ZGVulnStats } {
+		const projectId = this.activeProjectId;
+		if (!projectId) return { items: [], stats: emptyVulnStats() };
+		return { items: this.vulnerabilities.list(projectId, filters), stats: this.vulnerabilities.stats(projectId) };
+	}
+
+	/** One finding, by id or by its human-readable label, inside the active project. */
+	getVuln(id: string): ZGVulnerability | undefined {
+		return this.activeProjectId ? this.vulnerabilities.find(this.activeProjectId, id) : undefined;
+	}
+
+	/** Operator review: status, severity, CVSS, or a note. The agent cannot do this. */
+	updateVuln(id: string, patch: ZGVulnUpdate): ZGVulnerability | undefined {
+		const vuln = this.getVuln(id);
+		if (!vuln) return undefined;
+		const updated = this.vulnerabilities.update(vuln.id, patch);
+		if (updated) this.hooks.onVulnChange();
+		return updated;
+	}
+
+	deleteVuln(id: string): boolean {
+		const vuln = this.getVuln(id);
+		if (!vuln) return false;
+		const deleted = this.vulnerabilities.delete(vuln.id);
+		if (deleted) this.hooks.onVulnChange();
+		return deleted;
+	}
+
+	/** Markdown report of the active project's findings. */
+	exportVulns(filters: ZGVulnFilters = {}): { filename: string; markdown: string } {
+		const projectId = this.activeProjectId;
+		const summaries = projectId ? this.vulnerabilities.list(projectId, filters) : [];
+		const vulns = summaries
+			.map((summary) => this.vulnerabilities.get(summary.id))
+			.filter((vuln): vuln is ZGVulnerability => vuln !== undefined);
+		return buildVulnReport({
+			projectId: projectId ?? "",
+			projectName: this.activeProjectName ?? "未命名项目",
+			vulns,
+		});
+	}
+
+	/** How many findings a project holds, so its deletion can state what it takes with it. */
+	countProjectVulns(projectId: string): number {
+		return this.vulnerabilities.countByProject(projectId);
+	}
+
+	/** Deleting a project deletes its findings: they cannot outlive their target scope. */
+	purgeProjectVulns(projectId: string): number {
+		const deleted = this.vulnerabilities.deleteByProject(projectId);
+		if (deleted > 0) this.hooks.onVulnChange();
+		return deleted;
+	}
+
 	dispose(): void {
 		this.approvals.rejectAll("shutdown");
 		for (const managed of this.sessions.values()) {
@@ -788,17 +1402,8 @@ export class ZGAgentRuntime {
 		this.sessions.clear();
 		this.activeKey = undefined;
 		this.subagentStore.close();
+		this.vulnerabilities.close();
 	}
-}
-
-/** Concatenated text blocks of a message, ignoring thinking and tool calls. */
-function messageText(message: { content?: unknown } | undefined): string {
-	const content = message?.content;
-	if (!Array.isArray(content)) return "";
-	return (content as Array<{ type?: string; text?: string }>)
-		.filter((block) => block.type === "text" && typeof block.text === "string")
-		.map((block) => block.text)
-		.join("");
 }
 
 /** First operator instruction, used as the notification subject when unnamed. */
@@ -809,6 +1414,28 @@ function firstUserText(messages: readonly unknown[]): string | undefined {
 		if (text) return text.slice(0, 80);
 	}
 	return undefined;
+}
+
+/** Token and cost counters of a session, in the shape a goal stores them. */
+function usageOf(stats: SessionStats | undefined): ZGGoalUsage {
+	if (!stats) return emptyUsage();
+	return {
+		input: stats.tokens.input,
+		output: stats.tokens.output,
+		total: stats.tokens.total,
+		cost: typeof stats.cost === "number" ? stats.cost : null,
+	};
+}
+
+/** Closing prose of the last assistant message, for the round summary fallback. */
+function lastAssistantText(messages: readonly unknown[]): string | undefined {
+	const last = [...messages].reverse().find((message) => (message as { role?: string }).role === "assistant");
+	return last ? messageText(last as { content?: unknown }) : undefined;
+}
+
+function lastAssistantStopReason(messages: readonly unknown[]): string | undefined {
+	const last = [...messages].reverse().find((message) => (message as { role?: string }).role === "assistant");
+	return (last as { stopReason?: string } | undefined)?.stopReason;
 }
 
 /** JSON-clone the message list, dropping it entirely when it is not serializable. */

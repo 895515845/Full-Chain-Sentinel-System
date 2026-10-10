@@ -17,7 +17,17 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Every switch the permissions screen offers. */
-export type ZGPermissionKey = "read" | "bash" | "edit" | "write" | "codemode" | "tool_search" | "mcp" | "spawn_agent";
+export type ZGPermissionKey =
+	| "read"
+	| "bash"
+	| "edit"
+	| "write"
+	| "codemode"
+	| "tool_search"
+	| "mcp"
+	| "spawn_agent"
+	| "vuln_submit"
+	| "vuln_read";
 
 export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
 	"read",
@@ -28,6 +38,8 @@ export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
 	"tool_search",
 	"mcp",
 	"spawn_agent",
+	"vuln_submit",
+	"vuln_read",
 ];
 
 /** Keys a sub-agent can hold at all: delegation never recurses. */
@@ -61,6 +73,8 @@ export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
 	tool_search: "tool_search 工具检索",
 	mcp: "MCP 工具",
 	spawn_agent: "spawn_agent 派生子代理",
+	vuln_submit: "vuln_submit 提交漏洞",
+	vuln_read: "vuln_list / vuln_get 查询漏洞",
 };
 
 export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
@@ -72,6 +86,8 @@ export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
 	tool_search: "按需检索并加载尚未声明的工具（含 MCP 工具），被禁用的工具搜不到",
 	mcp: "连接 mcp.json 中配置的 MCP 服务器并使用它们的工具",
 	spawn_agent: "把独立子任务委派给隔离子代理并行执行",
+	vuln_submit: "把已验证的漏洞提交到当前项目的漏洞中枢（原始数据包、CVSS 评分一并提交）",
+	vuln_read: "查询当前项目已记录的漏洞，避免重复提交并在总结中引用编号",
 };
 
 function fullSet(): ZGPermissionSet {
@@ -84,6 +100,8 @@ function fullSet(): ZGPermissionSet {
 		tool_search: true,
 		mcp: true,
 		spawn_agent: true,
+		vuln_submit: true,
+		vuln_read: true,
 	};
 }
 
@@ -97,12 +115,26 @@ function emptySet(): ZGPermissionSet {
 		tool_search: false,
 		mcp: false,
 		spawn_agent: false,
+		vuln_submit: false,
+		vuln_read: false,
 	};
 }
 
-/** Read-only reconnaissance: read files and query MCP servers, run nothing. */
+/**
+ * Read-only reconnaissance: read files, query MCP servers and read the hub, but
+ * run nothing and write nothing — including no new findings, because submitting
+ * is a write.
+ */
 function reconSet(): ZGPermissionSet {
-	return { ...emptySet(), read: true, codemode: true, tool_search: true, mcp: true, spawn_agent: true };
+	return {
+		...emptySet(),
+		read: true,
+		codemode: true,
+		tool_search: true,
+		mcp: true,
+		spawn_agent: true,
+		vuln_read: true,
+	};
 }
 
 export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
@@ -137,6 +169,11 @@ export function defaultPermissions(): ZGPermissionsConfig {
  * Coerce a stored value into a usable config: unknown keys are dropped, a
  * sub-agent never gets more than the main agent, and it never gets
  * spawn_agent.
+ *
+ * A switch the stored object does not mention is off, not defaulted on. The file
+ * predates that switch, so the operator has never agreed to it; adding a new tool
+ * must not silently widen an existing configuration. A missing or unreadable file
+ * still reads as the full defaults, because that is a fresh install.
  */
 export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
 	const defaults = defaultPermissions();
@@ -146,7 +183,7 @@ export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
 		const source = value as Record<string, unknown>;
 		const set = emptySet();
 		for (const key of PERMISSION_KEYS) {
-			set[key] = typeof source[key] === "boolean" ? (source[key] as boolean) : fallback[key];
+			set[key] = source[key] === true;
 		}
 		return set;
 	};
@@ -176,6 +213,9 @@ export function excludeToolsFor(set: ZGPermissionSet): string[] {
 	for (const key of ["read", "bash", "edit", "write", "codemode", "tool_search", "spawn_agent"] as const) {
 		if (!set[key]) excluded.push(key);
 	}
+	// The hub's switches are not 1:1 with tool names: reading covers two tools.
+	if (!set.vuln_submit) excluded.push("vuln_submit");
+	if (!set.vuln_read) excluded.push("vuln_list", "vuln_get");
 	if (!set.mcp) excluded.push("mcp__*", ...MCP_RESOURCE_TOOLS);
 	return excluded;
 }

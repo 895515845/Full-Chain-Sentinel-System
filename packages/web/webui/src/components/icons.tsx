@@ -11,11 +11,14 @@
 import {
 	Bell,
 	Bot,
+	Bug,
+	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	ChevronUp,
 	Container,
+	Download,
 	FileText,
 	Folder,
 	FolderOpen,
@@ -32,6 +35,7 @@ import {
 	Settings,
 	Shield,
 	SlidersHorizontal,
+	Target,
 	Trash,
 	X,
 	XCircle,
@@ -56,6 +60,11 @@ export function BellIcon(props: IconProps) {
 /** Branch / fork: the branch drawer and a fork point in the tree. */
 export function BranchIcon(props: IconProps) {
 	return <GitBranch size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Persistent goal: the objective the agent keeps working on by itself. */
+export function TargetIcon(props: IconProps) {
+	return <Target size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
 /** Compact context: squeeze the conversation down to a summary. */
@@ -181,4 +190,19 @@ export function RenameIcon(props: IconProps) {
 /** Delete an entry. */
 export function DeleteIcon(props: IconProps) {
 	return <Trash size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Sider menu: the vulnerability hub. */
+export function VulnIcon(props: IconProps) {
+	return <Bug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Export the hub as a Markdown report. */
+export function DownloadIcon(props: IconProps) {
+	return <Download size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Confirm a finding. */
+export function CheckIcon(props: IconProps) {
+	return <Check size={SIZE} strokeWidth={STROKE} {...props} />;
 }

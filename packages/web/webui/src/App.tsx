@@ -5,6 +5,8 @@ import { AppSider } from "./components/AppSider.tsx";
 import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { type FilePanelState, FilePanel, saveDownload } from "./components/FilePanel.tsx";
+import { GoalBar } from "./components/GoalBar.tsx";
+import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
 import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
 import { RunFold } from "./components/RunFold.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
@@ -18,6 +20,8 @@ import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
+import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
+import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
 import type {
 	AgentMessageView,
 	ZGEnvReport,
@@ -43,6 +47,11 @@ import type {
 	ZGSubagentRun,
 	ZGTestResult,
 	ZGToolInfo,
+	ZGVulnFilters,
+	ZGVulnStats,
+	ZGVulnSummary,
+	ZGVulnUpdate,
+	ZGVulnerability,
 } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
 
@@ -66,38 +75,6 @@ function commandFromArgs(args: Record<string, unknown> | undefined): string {
 	return JSON.stringify(args);
 }
 
-/** Timestamp of a message, for messages that carry one. */
-function messageTimestamp(message: AgentMessageView): number | undefined {
-	return "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : undefined;
-}
-
-/** Elapsed time of a run, as the fold row reports it. */
-function formatDuration(ms: number): string {
-	if (ms < 1000) return `${ms}ms`;
-	if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-	return `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`;
-}
-
-/** What a folded run did, for its one-line row: tool calls, thinking rounds, elapsed. */
-function runDigest(prompt: AgentMessageView, body: AgentMessageView[]): string {
-	const tools = body.filter((message) => message.role === "toolResult" || message.role === "bashExecution").length;
-	const thinking = body.filter(
-		(message) =>
-			message.role === "assistant" &&
-			Array.isArray(message.content) &&
-			message.content.some((block) => (block as { type?: string }).type === "thinking"),
-	).length;
-	const parts: string[] = [];
-	if (tools > 0) parts.push(`${tools} 次工具调用`);
-	if (thinking > 0) parts.push(`${thinking} 段思考`);
-	const started = messageTimestamp(prompt);
-	const ended = body.length > 0 ? messageTimestamp(body[body.length - 1]) : undefined;
-	if (typeof started === "number" && typeof ended === "number" && ended > started) {
-		parts.push(formatDuration(ended - started));
-	}
-	return parts.join(" · ");
-}
-
 /** Command of the tool call a result message answers, when the transcript has it. */
 function toolCommandOf(message: AgentMessageView, commands: Map<string, string>): string | undefined {
 	return message.role === "toolResult" ? commands.get(message.toolCallId) : undefined;
@@ -114,27 +91,6 @@ function hasVisibleAssistantContent(message: AgentMessageView): boolean {
 			(typed.type === "thinking" && (typed.thinking ?? "").length > 0)
 		);
 	});
-}
-
-/**
- * Identity of one transcript message. The event stream and the snapshot carry the
- * same objects, so role plus timestamp matches them; a message without a
- * timestamp falls back to its content.
- */
-function messageKey(message: { role?: string; timestamp?: number }): string {
-	return `${message.role ?? "?"}:${message.timestamp ?? JSON.stringify(message)}`;
-}
-
-function textFromContent(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter(
-			(block): block is { type: "text"; text: string } =>
-				typeof block === "object" && block !== null && (block as { type: string }).type === "text"
-		)
-		.map((block) => block.text)
-		.join("");
 }
 
 export function App() {
@@ -187,6 +143,8 @@ export function App() {
 	const [leafId, setLeafId] = useState<string | null>(null);
 	const [forkPoints, setForkPoints] = useState<ZGForkPoint[]>([]);
 	const [viewer, setViewer] = useState<{ title: string; output: string } | null>(null);
+	/** The persistent-goal start dialog. It is only reachable in auto mode. */
+	const [goalOpen, setGoalOpen] = useState(false);
 	const [connected, setConnected] = useState(false);
 	/**
 	 * Whether the active session is running right now. The server only broadcasts a
@@ -211,6 +169,17 @@ export function App() {
 	const [fileBusy, setFileBusy] = useState(false);
 	/** Loaded process steps per sub-agent run; a run absent here is not expanded. */
 	const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ZGSubagentEvent[]>>({});
+	/** Vulnerability hub: the active project's findings, its counts, and the current filter. */
+	const [vulnItems, setVulnItems] = useState<ZGVulnSummary[]>([]);
+	const [vulnStats, setVulnStats] = useState<ZGVulnStats>({
+		total: 0,
+		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+		byStatus: { pending: 0, confirmed: 0, false_positive: 0, fixed: 0 },
+	});
+	const [vulnFilters, setVulnFilters] = useState<ZGVulnFilters>({});
+	/** The record the detail overlay shows, and the evidence file it is previewing. */
+	const [vulnDetail, setVulnDetail] = useState<ZGVulnerability | null>(null);
+	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
 	const testResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
@@ -220,6 +189,8 @@ export function App() {
 	const filePathRef = useRef("/work");
 	/** Path the preview pane is showing, so a write can refresh it. */
 	const previewPathRef = useRef<string | null>(null);
+	/** Set while a hub evidence preview is in flight, so its reply does not feed the file panel. */
+	const vulnPreviewPathRef = useRef<string | null>(null);
 
 	const pushError = useCallback((message: string) => {
 		setErrors((prev) => [...prev.slice(-4), message]);
@@ -357,6 +328,13 @@ export function App() {
 					setFileBusy(false);
 					break;
 				case "file_preview":
+					// A preview requested by the hub's evidence list must not overwrite
+					// the file panel's own preview pane.
+					if (vulnPreviewPathRef.current === message.preview.path) {
+						vulnPreviewPathRef.current = null;
+						setVulnPreview(message.preview);
+						break;
+					}
 					previewPathRef.current = message.preview.path;
 					setFilePreview(message.preview);
 					setFileBusy(false);
@@ -396,6 +374,37 @@ export function App() {
 				case "subagent_result":
 					if (!message.ok && message.error) pushError(message.error);
 					break;
+				case "vulns":
+					setVulnItems(message.items);
+					setVulnStats(message.stats);
+					// The list is the hub's source of truth, so a refreshed record is
+					// dropped into the open detail rather than closing it.
+					setVulnDetail((prev) => {
+						if (!prev) return prev;
+						return message.items.some((item) => item.id === prev.id) ? prev : null;
+					});
+					break;
+				case "vuln":
+					setVulnDetail(message.vuln);
+					setVulnPreview(null);
+					break;
+				case "vuln_result":
+					if (!message.ok && message.error) pushError(message.error);
+					if (message.ok && message.action === "删除") setVulnDetail(null);
+					break;
+				case "vulns_export": {
+					// Markdown is text, so the download is built directly instead of
+					// going through the base64 path the file panel uses.
+					const url = URL.createObjectURL(new Blob([message.markdown], { type: "text/markdown;charset=utf-8" }));
+					const anchor = document.createElement("a");
+					anchor.href = url;
+					anchor.download = message.filename;
+					document.body.appendChild(anchor);
+					anchor.click();
+					anchor.remove();
+					URL.revokeObjectURL(url);
+					break;
+				}
 				case "error":
 					// A protocol error naming a message this server does not know means
 					// the page is newer than the process serving it: the browser keeps the
@@ -627,6 +636,9 @@ export function App() {
 				send({ type: "list_projects" });
 				send({ type: "list_sessions" });
 				break;
+			case "vulns":
+				send({ type: "list_vulns", filters: vulnFilters });
+				break;
 			case "settings.model":
 				send({ type: "get_config" });
 				break;
@@ -645,7 +657,48 @@ export function App() {
 				refreshStats();
 				break;
 		}
-	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles]);
+	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters]);
+
+	/**
+	 * The hub re-reads on every project change: findings are project-scoped, so
+	 * what is on screen belongs to the previous project the moment it switches.
+	 * The list is also read once on connect, so the sidebar badge is right even
+	 * if the page is never opened.
+	 */
+	useEffect(() => {
+		setVulnFilters({});
+		setVulnDetail(null);
+		setVulnPreview(null);
+		if (connected) send({ type: "list_vulns" });
+	}, [snapshot?.project?.id, connected, send]);
+
+	/** Re-read the hub under the current filter. */
+	const loadVulns = useCallback(
+		(filters: ZGVulnFilters) => {
+			setVulnFilters(filters);
+			send({ type: "list_vulns", filters });
+		},
+		[send],
+	);
+
+	/** Open one finding in full; the reply replaces whatever the overlay showed. */
+	const openVuln = useCallback(
+		(id: string) => {
+			setVulnPreview(null);
+			vulnPreviewPathRef.current = null;
+			send({ type: "get_vuln", id });
+		},
+		[send],
+	);
+
+	/** Preview an evidence file. It lives in the project's container, not the host. */
+	const previewVulnFile = useCallback(
+		(path: string) => {
+			vulnPreviewPathRef.current = path;
+			send({ type: "read_file", path });
+		},
+		[send],
+	);
 
 	const mode: ZGMode = snapshot?.mode ?? "review";
 	const streaming = runActive;
@@ -655,6 +708,25 @@ export function App() {
 	const needsProject = snapshot !== null && snapshot.project === null;
 	const subagentRuns = snapshot?.subagents ?? [];
 	const subagentRunning = subagentRuns.filter((run) => run.status === "running").length;
+	const goal = snapshot?.goal ?? null;
+	/**
+	 * Why the goal button is unavailable, or null when it can start one. The
+	 * reasons mirror the server's own refusals, so the button never opens a dialog
+	 * whose submission is guaranteed to fail.
+	 */
+	const goalDisabledReason = needsProject
+		? "请先创建或选择一个项目"
+		: envReport && !envReport.ok
+			? "Docker 环境不可用，无法启动目标"
+			: mode !== "auto"
+				? "持续目标只在自动模式下可用：请先切到自动模式"
+				: streaming
+					? "Agent 正在运行，等本轮结束或中止后再启动"
+					: snapshot?.compacting
+						? "正在压缩上下文，压缩完成或中止后再启动目标"
+						: goal && goal.status !== "completed"
+							? "当前会话已有未结束的目标"
+							: null;
 
 	const visibleMessages = useMemo(
 		() => (snapshot?.messages ?? []).filter((message) => message.role !== "system"),
@@ -690,41 +762,18 @@ export function App() {
 	}, [visibleMessages, forkPoints]);
 
 	/**
-	 * The transcript grouped into runs: a prompt and everything it produced, up to
-	 * the next prompt. Grouping is what lets a finished run fold into one row, and
-	 * it also gives the run's tool calls their shared timeline rail.
+	 * The transcript grouped into runs. A summary marker is its own group, and a
+	 * stretch a compaction kept folds like any other run, even though the prompt it
+	 * answered is no longer the first message in front of it.
 	 */
-	const runGroups = useMemo(() => {
-		const groups: { key: string; prompt?: AgentMessageView; body: AgentMessageView[] }[] = [];
-		for (const message of [...visibleMessages, ...pendingMessages]) {
-			if (message.role === "user") {
-				groups.push({ key: `run-${messageKey(message)}`, prompt: message, body: [] });
-				continue;
-			}
-			const last = groups[groups.length - 1];
-			if (last) last.body.push(message);
-			else groups.push({ key: `head-${messageKey(message)}`, body: [message] });
-		}
-		return groups;
-	}, [visibleMessages, pendingMessages]);
+	const runGroups = useMemo(
+		() => groupRuns([...visibleMessages, ...pendingMessages]),
+		[visibleMessages, pendingMessages],
+	);
 
-	/**
-	 * Whether a run may fold, and whether it is folded right now. Only a run whose
-	 * last word is prose can fold: a failure, an abort or a turn cut off mid-tool
-	 * has to stay visible, because the error is the point. The run in flight never
-	 * folds either, so the operator watches it happen.
-	 */
+	/** Whether a run may fold, and whether it is folded right now. */
 	const runFold = useCallback(
-		(index: number): { collapsed: boolean; digest: string } | undefined => {
-			const group = runGroups[index];
-			if (!group?.prompt || group.body.length === 0) return undefined;
-			if (streaming && index === runGroups.length - 1) return undefined;
-			const last = group.body[group.body.length - 1];
-			if (last.role !== "assistant" || last.errorMessage) return undefined;
-			if (last.stopReason === "error" || last.stopReason === "aborted") return undefined;
-			if (textFromContent(last.content).length === 0) return undefined;
-			return { collapsed: !expandedRuns.has(group.key), digest: runDigest(group.prompt, group.body) };
-		},
+		(index: number) => runFoldState({ groups: runGroups, index, streaming, expanded: expandedRuns }),
 		[runGroups, streaming, expandedRuns],
 	);
 
@@ -768,6 +817,7 @@ export function App() {
 						: (snapshot?.runningSessions ?? [])
 				}
 				pendingApprovals={pendingApprovals.length}
+				pendingVulns={vulnStats.byStatus.pending}
 				onNewSession={() => {
 					openPage("chat");
 					send({ type: "new_session" });
@@ -871,9 +921,21 @@ export function App() {
 									send({ type: "get_tree" });
 								}}
 								onCompact={() => send({ type: "compact" })}
+								onAbortCompaction={() => send({ type: "abort_compaction" })}
+								compacting={snapshot?.compacting ?? false}
+								compactionStartedAt={snapshot?.compactionStartedAt ?? null}
 								onAllowPrefix={(prefix) => send({ type: "allow_prefix", prefix })}
 								onRemoveAllowedPrefix={(prefix) => send({ type: "remove_allowed_prefix", prefix })}
 							/>
+							{goal ? (
+								<GoalBar
+									goal={goal}
+									streaming={streaming}
+									onPause={() => send({ type: "pause_goal" })}
+									onResume={() => send({ type: "resume_goal" })}
+									onClear={() => send({ type: "clear_goal" })}
+								/>
+							) : null}
 							<div className="ws-panel__body">
 								<div className="transcript" ref={transcriptRef}>
 									{visibleMessages.length === 0 && !liveText && !streaming ? (
@@ -887,6 +949,16 @@ export function App() {
 										</div>
 									) : null}
 									{runGroups.map((group, groupIndex) => {
+										// A compaction or branch summary marks where the model's
+										// context was cut; it stands between two stretches and never
+										// folds, because it is the boundary, not a process step.
+										if (group.marker) {
+											return (
+												<div className="run-group run-marker" key={group.key}>
+													<MessageView message={group.marker} onFullscreen={openViewer} />
+												</div>
+											);
+										}
 										const fold = runFold(groupIndex);
 										const live = streaming && groupIndex === runGroups.length - 1;
 										const summary = group.body[group.body.length - 1];
@@ -991,11 +1063,15 @@ export function App() {
 													"环境检查未通过"
 												}。请到「设置 → 环境」修复。`
 											: envReport
-												? null
+												? snapshot?.compacting
+													? "正在压缩上下文，压缩完成后可继续发送；也可在工具栏点「中止压缩」放弃这次压缩"
+													: null
 												: "正在检查 Docker 环境…"
 									}
 									notifyRun={notifyRun ?? notifyConfig.enabled}
 									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
+									goalDisabledReason={goalDisabledReason}
+									onOpenGoal={() => setGoalOpen(true)}
 									onSend={(text, behavior, images) => {
 										const userCount = (snapshotRef.current?.messages ?? []).filter(
 											(entry) => (entry as { role?: string }).role === "user",
@@ -1036,6 +1112,17 @@ export function App() {
 								});
 							}}
 							sessionCount={sessionCount}
+						/>
+					) : page === "vulns" ? (
+						<VulnPage
+							items={vulnItems}
+							stats={vulnStats}
+							filters={vulnFilters}
+							projectName={snapshot?.project?.name ?? null}
+							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+							onFiltersChange={loadVulns}
+							onOpen={openVuln}
+							onExport={(filters) => send({ type: "export_vulns", filters })}
 						/>
 					) : page === "settings.model" ? (
 						<div className="page-card">
@@ -1228,8 +1315,22 @@ export function App() {
 						onLoad={(id) => send({ type: "get_subagent", id })}
 						onAbort={(id) => send({ type: "abort_subagent", id })}
 						onSteer={(id, text) => send({ type: "steer_subagent", id, text })}
+						onFullscreen={(title, output) => setViewer({ title: `子代理 ${title} 输出`, output })}
 					/>
 				</Overlay>
+			) : null}
+			{vulnDetail ? (
+				<VulnDetail
+					vuln={vulnDetail}
+					preview={vulnPreview}
+					onClose={() => {
+						setVulnDetail(null);
+						setVulnPreview(null);
+					}}
+					onUpdate={(id, patch: ZGVulnUpdate) => send({ type: "update_vuln", id, patch })}
+					onDelete={(id) => send({ type: "delete_vuln", id })}
+					onPreview={previewVulnFile}
+				/>
 			) : null}
 			{branchOpen && page === "chat" ? (
 				<BranchModal
@@ -1254,6 +1355,19 @@ export function App() {
 				/>
 			) : null}
 			{viewer ? <OutputViewer title={viewer.title} output={viewer.output} onClose={() => setViewer(null)} /> : null}
+			{goalOpen ? (
+				<GoalStartDialog
+					onClose={() => setGoalOpen(false)}
+					onStart={(objective, criteria, roundLimit) =>
+						send({
+							type: "start_goal",
+							objective,
+							...(criteria.length > 0 ? { criteria } : {}),
+							roundLimit,
+						})
+					}
+				/>
+			) : null}
 			<div className="toasts">
 				{errors.map((error, index) => (
 					<div key={index} className="toast">

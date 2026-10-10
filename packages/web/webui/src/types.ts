@@ -9,6 +9,7 @@ export type ZGMode = "review" | "auto";
 export type ZGPageId =
 	| "chat"
 	| "projects"
+	| "vulns"
 	| "settings.model"
 	| "settings.notify"
 	| "settings.permissions"
@@ -62,6 +63,8 @@ export interface ZGSubagentEvent {
 	isError?: boolean;
 	status?: ZGSubagentStatus;
 	note?: string;
+	/** How long the call ran, on `tool_end` only; lets the panel show a slow step. */
+	durationMs?: number;
 	/** Set when the stored payload exceeded the per-step cap and was cut down. */
 	truncated?: boolean;
 }
@@ -86,7 +89,17 @@ export interface ZGModelConfig {
 }
 
 /** Every tool switch the permissions screen offers. */
-export type ZGPermissionKey = "read" | "bash" | "edit" | "write" | "codemode" | "tool_search" | "mcp" | "spawn_agent";
+export type ZGPermissionKey =
+	| "read"
+	| "bash"
+	| "edit"
+	| "write"
+	| "codemode"
+	| "tool_search"
+	| "mcp"
+	| "spawn_agent"
+	| "vuln_submit"
+	| "vuln_read";
 
 /** The switches of one agent; a missing entry means "not allowed". */
 export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
@@ -147,6 +160,99 @@ export interface ZGProjectInfo {
 	cwd: string;
 	/** Docker container executing this project's tools. */
 	container?: string | null;
+	/** Findings recorded for this project, so its deletion can state what it takes. */
+	vulnCount?: number;
+}
+
+/** Severity buckets of the vulnerability hub. */
+export type ZGVulnSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+/** Lifecycle of one finding; the agent always creates `pending`. */
+export type ZGVulnStatus = "pending" | "confirmed" | "false_positive" | "fixed";
+
+export const ZG_VULN_SEVERITIES: readonly ZGVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
+
+export const ZG_VULN_SEVERITY_LABELS: Record<ZGVulnSeverity, string> = {
+	critical: "严重",
+	high: "高危",
+	medium: "中危",
+	low: "低危",
+	info: "信息",
+};
+
+export const ZG_VULN_STATUS_LABELS: Record<ZGVulnStatus, string> = {
+	pending: "待确认",
+	confirmed: "已确认",
+	false_positive: "误报",
+	fixed: "已修复",
+};
+
+/** One piece of supporting evidence: a command with its output, or a container file. */
+export interface ZGVulnEvidence {
+	kind: "command" | "file";
+	command?: string;
+	output?: string;
+	path?: string;
+	note?: string;
+}
+
+/** One entry of a finding's timeline. */
+export interface ZGVulnNote {
+	at: string;
+	author: "agent" | "operator" | "system";
+	text: string;
+	statusFrom?: ZGVulnStatus;
+	statusTo?: ZGVulnStatus;
+}
+
+export interface ZGVulnerability {
+	id: string;
+	label: string;
+	number: number;
+	projectId: string;
+	projectName: string;
+	sessionId?: string;
+	source: string;
+	title: string;
+	severity: ZGVulnSeverity;
+	cvss: number;
+	cvssVector?: string;
+	status: ZGVulnStatus;
+	target: string;
+	category?: string;
+	description: string;
+	packet: string;
+	repro?: string;
+	remediation?: string;
+	references?: string[];
+	createdAt: string;
+	updatedAt: string;
+	evidence: ZGVulnEvidence[];
+	notes: ZGVulnNote[];
+	/** The CVSS score maps to a different bucket than `severity`. */
+	severityMismatch: boolean;
+}
+
+export type ZGVulnSummary = Omit<ZGVulnerability, "packet" | "evidence" | "notes">;
+
+export interface ZGVulnFilters {
+	status?: ZGVulnStatus;
+	severity?: ZGVulnSeverity;
+	target?: string;
+	search?: string;
+}
+
+export interface ZGVulnUpdate {
+	status?: ZGVulnStatus;
+	severity?: ZGVulnSeverity;
+	cvss?: number;
+	note?: string;
+}
+
+export interface ZGVulnStats {
+	total: number;
+	bySeverity: Record<ZGVulnSeverity, number>;
+	byStatus: Record<ZGVulnStatus, number>;
 }
 
 export interface ZGStateSnapshot {
@@ -166,6 +272,12 @@ export interface ZGStateSnapshot {
 	runningSessions: string[];
 	/** Sub-agent runs of the active session, newest first, without process steps. */
 	subagents: ZGSubagentRun[];
+	/** Persistent goal of the active session, with live counters; null when there is none. */
+	goal: ZGGoalView | null;
+	/** Compaction is running for the active session, which blocks prompts. */
+	compacting: boolean;
+	/** When that compaction started, for the elapsed time; null when idle. */
+	compactionStartedAt: number | null;
 }
 
 export interface SessionInfoView {
@@ -202,6 +314,73 @@ export interface ZGStatsView {
 	cost: number;
 }
 
+/** Lifecycle of the persistent goal of the viewed session. */
+export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
+export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted";
+export type ZGGoalRoundOutcome = "continued" | "completed" | "blocked" | "paused" | "aborted" | "error";
+
+export interface ZGGoalUsage {
+	input: number;
+	output: number;
+	total: number;
+	cost: number | null;
+}
+
+export interface ZGGoalRound {
+	index: number;
+	kind: "initial" | "continue";
+	startedAt: number;
+	endedAt?: number;
+	toolCalls: number;
+	usage?: ZGGoalUsage;
+	summary?: string;
+	summaryFromTool?: boolean;
+	outcome?: ZGGoalRoundOutcome;
+	blockerReason?: string;
+}
+
+export interface ZGGoalCriterionResult {
+	criterion: string;
+	met: boolean;
+	evidence: string;
+}
+
+export interface ZGGoalView {
+	id: string;
+	objective: string;
+	criteria: string[];
+	roundLimit: number;
+	roundsUsed: number;
+	noProgressStreak: number;
+	blockerStreak: number;
+	status: ZGGoalStatus;
+	pauseReason?: ZGGoalPauseReason;
+	pauseNote?: string;
+	baseline: ZGGoalUsage;
+	progress: { done: string[]; todo: string[]; blockers: string[] };
+	rounds: ZGGoalRound[];
+	lastBlocker?: string;
+	submitted: number;
+	completion?: {
+		summary: string;
+		evidence: string[];
+		submitted: number;
+		findingsNote: string;
+		criteria: ZGGoalCriterionResult[];
+		at: number;
+	};
+	blocked?: { reason: string; evidence: string[]; streak: number; at: number };
+	createdAt: number;
+	startedAt: number;
+	endedAt?: number;
+	updatedAt: number;
+	/** Main-agent usage since the goal started. */
+	usage: ZGGoalUsage;
+	/** Sub-agent work of this goal; shown for context, it consumes no rounds. */
+	subagent: { runs: number; turns: number };
+	running: boolean;
+}
+
 /** Subset of pi AgentMessage shapes the UI renders. */
 export type AgentMessageView =
 	| { role: "system"; content?: unknown }
@@ -221,11 +400,19 @@ export type AgentMessageView =
 			content: ContentBlockView[];
 			isError?: boolean;
 			durationMs?: number;
+			timestamp?: number;
 	  }
-	| { role: "bashExecution"; command: string; output: string; exitCode?: number; cancelled?: boolean }
-	| { role: "compactionSummary"; summary?: string }
-	| { role: "branchSummary"; summary?: string }
-	| { role: "custom"; customType: string; content: unknown };
+	| {
+			role: "bashExecution";
+			command: string;
+			output: string;
+			exitCode?: number;
+			cancelled?: boolean;
+			timestamp?: number;
+	  }
+	| { role: "compactionSummary"; summary?: string; tokensBefore?: number; timestamp?: number }
+	| { role: "branchSummary"; summary?: string; timestamp?: number }
+	| { role: "custom"; customType: string; content: unknown; timestamp?: number };
 
 export type ContentBlockView =
 	| { type: "text"; text: string }
@@ -245,6 +432,11 @@ export type ZGClientMessage =
 	  }
 	| { type: "abort" }
 	| { type: "compact" }
+	| { type: "abort_compaction" }
+	| { type: "start_goal"; objective: string; criteria?: string[]; roundLimit: number }
+	| { type: "pause_goal" }
+	| { type: "resume_goal"; extraRounds?: number }
+	| { type: "clear_goal" }
 	| { type: "set_thinking_level"; level: ZGThinkingLevel }
 	| { type: "set_mode"; mode: ZGMode }
 	| { type: "decide"; decision: { id: string; approved: boolean; command?: string; alwaysAllowPrefix?: boolean } }
@@ -285,6 +477,11 @@ export type ZGClientMessage =
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
 	| { type: "steer_subagent"; id: string; text: string }
+	| { type: "list_vulns"; filters?: ZGVulnFilters }
+	| { type: "get_vuln"; id: string }
+	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
+	| { type: "delete_vuln"; id: string }
+	| { type: "export_vulns"; filters?: ZGVulnFilters }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -317,6 +514,10 @@ export type ZGServerMessage =
 	| { type: "subagent_run"; run: ZGSubagentRun }
 	| { type: "subagent_event"; runId: string; event: ZGSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
+	| { type: "vulns"; items: ZGVulnSummary[]; stats: ZGVulnStats }
+	| { type: "vuln"; vuln: ZGVulnerability }
+	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

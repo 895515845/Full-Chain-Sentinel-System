@@ -1,5 +1,6 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { formatTokens, textFromContent } from "../transcript.ts";
 import type { ContentBlockView, AgentMessageView } from "../types.ts";
 import { ToolCard } from "./ToolCard.tsx";
 
@@ -199,10 +200,35 @@ export function MessageView({
 	}
 
 	if (message.role === "compactionSummary" || message.role === "branchSummary") {
+		// The row says what was summarized: the summary itself is the model's
+		// context, and the transcript above the marker is what it replaced.
+		const before = message.role === "compactionSummary" && message.tokensBefore ? message.tokensBefore : 0;
 		return (
 			<details className="summary">
-				<summary>会话摘要（{message.role === "compactionSummary" ? "压缩" : "分支"}）</summary>
+				<summary>
+					会话摘要（{message.role === "compactionSummary" ? "压缩" : "分支"}）
+					{before > 0 ? <span className="summary-meta"> · 压缩前 {formatTokens(before)} tokens</span> : null}
+				</summary>
 				<pre>{message.summary ?? ""}</pre>
+			</details>
+		);
+	}
+
+	if (message.role === "custom") {
+		// Goal rows are goal mode's own voice in the transcript: the contract the
+		// goal started under, and the one injected for each automatic continuation.
+		// They fold like a summary, because they are a boundary line between rounds
+		// rather than part of what the agent said.
+		if (message.customType !== "zg-goal") return null;
+		const text = textFromContent(message.content);
+		const label = text.startsWith("【持续目标已启动】") ? "持续目标已启动" : "目标续跑";
+		return (
+			<details className="summary goal-row">
+				<summary>
+					{label}
+					{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
+				</summary>
+				<pre>{text}</pre>
 			</details>
 		);
 	}

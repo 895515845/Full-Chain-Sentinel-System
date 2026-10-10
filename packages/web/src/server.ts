@@ -23,7 +23,7 @@ import {
 	resolveStartupProject,
 	setLastActiveProject,
 } from "./projects.ts";
-import type { ZGClientMessage, ZGEnvReport, ZGServerMessage } from "./protocol.ts";
+import type { ZGClientMessage, ZGEnvReport, ZGProjectInfo, ZGServerMessage } from "./protocol.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { ZGAgentRuntime } from "./zg-session.ts";
 
@@ -151,6 +151,7 @@ export async function startZGServer(
 			onStateChange: () => broadcastSnapshot(),
 			onSubagentEvent: (runId, event) => broadcast({ type: "subagent_event", runId, event }),
 			onNotifyStatus: (status) => broadcast({ type: "notify_config", config: runtime.getNotifyConfig(), status }),
+			onVulnChange: () => broadcastVulns(),
 		},
 	});
 
@@ -218,16 +219,29 @@ export async function startZGServer(
 		broadcast({ type: "snapshot", snapshot: runtime.snapshot() });
 	}
 
+	/** Findings of the active project, pushed when one is submitted or reviewed. */
+	function broadcastVulns(): void {
+		const view = runtime.listVulns();
+		broadcast({ type: "vulns", items: view.items, stats: view.stats });
+	}
+
+	/** Project list with each project's finding count, for the hub's delete warning. */
+	function projectInfos(): ZGProjectInfo[] {
+		if (!agentDir) return [];
+		return listProjects(agentDir).projects.map(({ id, name, workDir, container }) => ({
+			id,
+			name,
+			cwd: workDir,
+			container,
+			vulnCount: runtime.countProjectVulns(id),
+		}));
+	}
+
 	function broadcastProjects(): void {
 		const registry = agentDir ? listProjects(agentDir) : { projects: [] };
 		broadcast({
 			type: "projects",
-			projects: registry.projects.map(({ id, name, workDir, container }) => ({
-				id,
-				name,
-				cwd: workDir,
-				container,
-			})),
+			projects: projectInfos(),
 			activeProjectId: runtime.snapshot().project?.id ?? registry.lastActiveProjectId ?? null,
 		});
 	}
@@ -248,12 +262,7 @@ export async function startZGServer(
 		socket.send(
 			JSON.stringify({
 				type: "projects",
-				projects: (agentDir ? listProjects(agentDir).projects : []).map(({ id, name, workDir, container }) => ({
-					id,
-					name,
-					cwd: workDir,
-					container,
-				})),
+				projects: projectInfos(),
 				activeProjectId: runtime.snapshot().project?.id ?? null,
 			} satisfies ZGServerMessage),
 		);
@@ -303,8 +312,31 @@ export async function startZGServer(
 				case "set_thinking_level":
 					runtime.setThinkingLevel(message.level);
 					return;
+				case "start_goal": {
+					// A goal runs the agent, so it needs the same container backend.
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						broadcastEnvironment();
+						return;
+					}
+					await runtime.startGoal(message.objective, message.criteria ?? [], message.roundLimit);
+					return;
+				}
+				case "pause_goal":
+					await runtime.pauseGoal();
+					return;
+				case "resume_goal":
+					runtime.resumeGoal(message.extraRounds);
+					return;
+				case "clear_goal":
+					await runtime.clearGoal();
+					return;
 				case "abort":
 					await runtime.abort();
+					return;
+				case "abort_compaction":
+					runtime.abortCompaction();
 					return;
 				case "set_mode":
 					runtime.setMode(message.mode);
@@ -554,14 +586,17 @@ export async function startZGServer(
 						sendError(socket, `确认失败：请输入完整项目名「${target.name}」`);
 						return;
 					}
-					// Unregister, stop+remove the container; sessions for its workDir stay
-					// on the host until the operator removes them from the sidebar.
+					// Unregister, stop+remove the container, and delete the findings: a
+					// finding cannot outlive the scope it was found in. The project's
+					// session files stay on the host until the operator removes them.
 					const wasActive = runtime.snapshot().project?.id === message.id;
 					const result = await removeProject(agentDir, message.id);
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
 					}
+					const purged = runtime.purgeProjectVulns(message.id);
+					console.error(`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录`);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.
 					if (wasActive) await runtime.detachProject(target.workDir);
@@ -634,6 +669,52 @@ export async function startZGServer(
 					return;
 				case "list_subagents": {
 					sendTo(socket, { type: "subagents", runs: runtime.listSubagents() });
+					return;
+				}
+				case "list_vulns": {
+					const view = runtime.listVulns(message.filters);
+					sendTo(socket, { type: "vulns", items: view.items, stats: view.stats });
+					return;
+				}
+				case "get_vuln": {
+					const vuln = runtime.getVuln(message.id);
+					if (!vuln) {
+						sendError(socket, "该漏洞记录不存在（可能属于其他项目，或已被删除）");
+						return;
+					}
+					sendTo(socket, { type: "vuln", vuln });
+					return;
+				}
+				case "update_vuln": {
+					const updated = runtime.updateVuln(message.id, message.patch);
+					if (!updated) {
+						sendTo(socket, {
+							type: "vuln_result",
+							action: "复核",
+							id: message.id,
+							ok: false,
+							error: "该漏洞记录不存在（可能属于其他项目，或已被删除）",
+						} satisfies ZGServerMessage);
+						return;
+					}
+					sendTo(socket, { type: "vuln", vuln: updated });
+					sendTo(socket, { type: "vuln_result", action: "复核", id: updated.id, ok: true });
+					return;
+				}
+				case "delete_vuln": {
+					const ok = runtime.deleteVuln(message.id);
+					sendTo(socket, {
+						type: "vuln_result",
+						action: "删除",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该漏洞记录不存在" }),
+					});
+					return;
+				}
+				case "export_vulns": {
+					const report = runtime.exportVulns(message.filters);
+					sendTo(socket, { type: "vulns_export", filename: report.filename, markdown: report.markdown });
 					return;
 				}
 				case "get_subagent": {

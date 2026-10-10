@@ -1023,6 +1023,40 @@ button.ghost.small {
 	color: var(--disabled);
 }
 
+/* Goal mode row: above the input, because it changes what the input means. */
+.composer-goal-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px 0;
+}
+
+.composer-goal-row .goal-trigger {
+	color: var(--accent);
+	border-color: var(--accent-dim);
+	background: var(--accent-dim);
+}
+
+.composer-goal-row .goal-trigger:hover:not(:disabled) {
+	color: var(--accent-hover);
+	border-color: var(--accent);
+}
+
+.composer-goal-row .goal-trigger:disabled {
+	color: var(--disabled);
+	border-color: var(--border);
+	background: transparent;
+}
+
+.composer-goal-hint {
+	min-width: 0;
+	overflow: hidden;
+	font-size: 11.5px;
+	color: var(--dim);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .composer-actions {
 	display: flex;
 	align-items: center;
@@ -1203,6 +1237,29 @@ button.ghost.small {
 	gap: 5px;
 	padding: 4px 10px;
 	font-size: 12px;
+}
+
+/* A compaction that is running: visible as a wait, with a way out next to it. */
+.toolbar-busy {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 10px;
+	border: 1px solid #b7791f55;
+	border-radius: 6px;
+	background: #fef3c7;
+	color: #92400e;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.toolbar-btn.danger {
+	border-color: #dc262655;
+	color: var(--danger);
+}
+
+.toolbar-btn.danger:hover {
+	background: #fee2e2;
 }
 
 .toolbar-btn.on {
@@ -2543,11 +2600,16 @@ button.ghost.small {
 }
 
 /* ---------- Sub-agent panel ---------- */
+/* ---------- Sub-agent panel (left list, right detail) ---------- */
 .subagent-panel {
 	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	padding: 8px;
+	flex: 1;
+	min-height: 0;
+	gap: 12px;
+}
+
+.subagent-panel.empty {
+	display: block;
 }
 
 .subagent-empty {
@@ -2558,31 +2620,65 @@ button.ghost.small {
 	line-height: 1.7;
 }
 
-.subagent-run {
-	border: 1px solid var(--border);
-	border-radius: 10px;
-	overflow: hidden;
-	background: var(--card);
-}
-
-.subagent-run.open {
-	border-color: var(--border-strong);
-}
-
-.subagent-head {
-	width: 100%;
+/* The dispatch list: one row per run, newest first, newest live one selected. */
+.subagent-list {
+	flex: none;
+	width: 252px;
+	min-height: 0;
+	overflow: auto;
 	display: flex;
-	align-items: center;
-	gap: 7px;
-	border: none;
+	flex-direction: column;
+	gap: 3px;
+	border-right: 1px solid var(--border);
+	padding-right: 10px;
+}
+
+.subagent-item {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	border: 1px solid transparent;
+	border-radius: 8px;
 	background: transparent;
-	padding: 8px 10px;
+	padding: 7px 9px;
 	cursor: pointer;
 	text-align: left;
 }
 
-.subagent-head:hover {
+.subagent-item:hover {
 	background: var(--raised);
+}
+
+.subagent-item.selected {
+	background: var(--raised);
+	border-color: var(--border-strong);
+}
+
+.subagent-item-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+}
+
+.subagent-item-clock {
+	color: var(--disabled);
+	font-size: 10.5px;
+}
+
+.subagent-item-task {
+	font-size: 12px;
+	color: var(--text);
+	line-height: 1.5;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.subagent-item-meta {
+	color: var(--dim);
+	font-size: 11px;
 }
 
 .subagent-badge {
@@ -2615,74 +2711,391 @@ button.ghost.small {
 	color: #b45309;
 }
 
-.subagent-task {
+/* The selected run: task, tabs, then its process or its result. */
+.subagent-detail {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.subagent-detail-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.subagent-detail-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text);
+	line-height: 1.5;
+}
+
+.subagent-detail-meta {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--dim);
+	font-size: 11px;
+	flex: none;
+}
+
+.subagent-tabs {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	border-bottom: 1px solid var(--border);
+	padding-bottom: 6px;
+}
+
+.subagent-tabs > button {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	border: none;
+	background: transparent;
+	color: var(--dim);
+	font-size: 12px;
+	padding: 3px 8px;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.subagent-tabs > button.on {
+	background: var(--raised);
+	color: var(--text);
+	font-weight: 600;
+}
+
+.subagent-tab-count {
+	font-size: 10.5px;
+	color: var(--dim);
+	background: var(--border);
+	border-radius: 999px;
+	padding: 0 5px;
+}
+
+.subagent-tab-fail {
+	font-size: 10.5px;
+	font-weight: 700;
+	color: var(--danger);
+	background: var(--danger-dim);
+	border-radius: 999px;
+	padding: 0 5px;
+}
+
+.subagent-tools {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.subagent-tools input {
+	width: 176px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	padding: 3px 8px;
+	font-size: 11.5px;
+	font-family: var(--sans);
+}
+
+.subagent-tools .ghost.on {
+	border-color: var(--accent);
+	color: var(--accent);
+	background: var(--accent-dim);
+}
+
+.subagent-detail-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding-right: 4px;
+}
+
+/* The process: one rail down the text column, a node per turn and per step. */
+.subagent-process {
+	position: relative;
+	padding: 2px 0 8px;
+}
+
+.subagent-process::before {
+	content: "";
+	position: absolute;
+	left: 5px;
+	top: 12px;
+	bottom: 12px;
+	width: 1.5px;
+	background: var(--border);
+}
+
+.sa-turn + .sa-turn {
+	margin-top: 10px;
+}
+
+.sa-turn-head {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 0 4px 20px;
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.sa-turn-head::before {
+	content: "";
+	position: absolute;
+	left: 2px;
+	top: 50%;
+	width: 8px;
+	height: 8px;
+	margin-top: -4px;
+	border-radius: 2px;
+	background: var(--border-strong);
+}
+
+.sa-turn-label {
+	font-weight: 700;
+	color: var(--dim);
+}
+
+.sa-turn-fail {
+	color: var(--danger);
+}
+
+.sa-step {
+	position: relative;
+	padding: 2px 0 2px 20px;
+}
+
+.sa-step::before {
+	content: "";
+	position: absolute;
+	left: 2px;
+	top: 11px;
+	width: 7px;
+	height: 7px;
+	border: 1.5px solid #cfd4da;
+	border-radius: 50%;
+	background: #fff;
+}
+
+.sa-tool.done::before {
+	border-color: #a8d08d;
+	background: #f4fbef;
+}
+
+.sa-tool.error::before {
+	border-color: var(--danger);
+	background: var(--danger-dim);
+}
+
+.sa-tool.running::before {
+	border-color: var(--accent);
+	background: var(--accent-dim);
+	animation: tool-pulse 1.4s ease-in-out infinite;
+}
+
+.sa-block::before,
+.sa-text::before,
+.sa-status::before {
+	border-color: var(--border);
+}
+
+.sa-tool-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 3px 8px;
+	border-radius: 5px;
+	font-size: 12px;
+	line-height: 1.8;
+	cursor: pointer;
+}
+
+.sa-tool-row:hover {
+	background: var(--raised);
+}
+
+.sa-caret {
+	display: flex;
+	flex: none;
+	color: var(--disabled);
+}
+
+.sa-tool-name {
+	flex: none;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--text);
+}
+
+.sa-tool-summary {
 	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 12px;
-	color: var(--text);
-}
-
-.subagent-meta {
-	color: var(--dim);
-	font-size: 11px;
-	flex-shrink: 0;
-}
-
-.subagent-body {
-	border-top: 1px solid var(--border);
-	padding: 8px;
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	background: var(--raised);
-}
-
-.subagent-timeline {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-
-.subagent-text {
-	font-size: 12px;
-	color: var(--text);
-	line-height: 1.65;
-}
-
-.subagent-turn {
-	font-size: 11px;
-	color: var(--dim);
-	border-top: 1px dashed var(--border-strong);
-	padding-top: 4px;
-}
-
-.subagent-status {
-	font-size: 11px;
+	font-family: var(--mono);
+	font-size: 11.5px;
 	color: var(--dim);
 }
 
-.subagent-status.running {
+.sa-tool-summary.live {
 	color: var(--accent);
 }
 
-.subagent-status.error {
+.sa-tool-meta {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.sa-tool-meta.done {
+	color: #15803d;
+}
+
+.sa-tool-meta.error {
+	color: var(--danger);
+}
+
+.sa-tool-duration {
+	color: var(--disabled);
+}
+
+/* An expanded call: its arguments in the open, its output on a terminal block. */
+.sa-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 2px 0 7px;
+}
+
+.sa-command {
+	margin: 0;
+	padding: 9px 11px;
+	border-radius: 6px;
+	background: var(--console-bg);
+	border: 1px solid var(--console-border);
+	color: var(--console-text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.sa-args {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.sa-arg {
+	display: flex;
+	gap: 8px;
+	padding: 4px 9px;
+	font-size: 11.5px;
+	border-top: 1px solid var(--border);
+}
+
+.sa-arg:first-child {
+	border-top: none;
+}
+
+.sa-arg-key {
+	flex: none;
+	width: 84px;
+	font-family: var(--mono);
+	color: var(--dim);
+}
+
+.sa-arg-value {
+	flex: 1;
+	min-width: 0;
+	color: var(--text);
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.sa-arg-value.code {
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.sa-output-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.sa-output-actions {
+	display: flex;
+	gap: 6px;
+}
+
+.sa-output {
+	margin: 0;
+	padding: 9px 11px;
+	border-radius: 6px;
+	background: var(--console-bg);
+	border: 1px solid var(--console-border);
+	color: var(--console-text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-all;
+	max-height: 320px;
+	overflow: auto;
+}
+
+.sa-output.is-empty {
+	color: #55606d;
+}
+
+/* Assistant prose: two lines until the operator opens it. */
+.sa-text-body {
+	font-size: 12.5px;
+	line-height: 1.7;
+	color: var(--text);
+	cursor: pointer;
+}
+
+.sa-text:not(.open) .sa-text-body {
+	color: var(--dim);
+}
+
+.sa-text-clamp {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.sa-status {
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.sa-status.error {
 	color: var(--danger);
 }
 
 .subagent-result {
-	border-top: 1px solid var(--border);
-	padding-top: 6px;
-	font-size: 12px;
-}
-
-.subagent-result-title {
-	font-size: 11px;
-	font-weight: 700;
-	color: var(--dim);
-	margin-bottom: 4px;
+	font-size: 12.5px;
+	line-height: 1.7;
 }
 
 .subagent-error {
@@ -2691,6 +3104,13 @@ button.ghost.small {
 	border-radius: 7px;
 	font-size: 12px;
 	padding: 6px 8px;
+	margin-bottom: 8px;
+}
+
+.subagent-truncated {
+	color: var(--dim);
+	font-size: 11px;
+	padding: 2px 0 0 2px;
 }
 
 .subagent-controls {
@@ -3283,6 +3703,276 @@ svg.lucide {
 	margin-top: 12px;
 }
 
+/* A compaction marker: everything above it is still shown, but the model now
+   sees the summary instead. The rule is what makes that cut visible. */
+.run-marker {
+	padding-top: 6px;
+	border-top: 1px dashed var(--border);
+}
+
+.summary-meta {
+	color: var(--disabled);
+}
+
+/* A goal row in the transcript: the contract the goal started under, and the one
+   injected for each automatic round. It is a boundary between rounds, so it reads
+   like a marker rather than like something the agent said. */
+.goal-row {
+	margin: 2px 0 6px;
+}
+
+/* ============================================================
+   Persistent goal bar: state, budget, cost, and the round
+   timeline of the objective the agent keeps working on.
+   ============================================================ */
+
+.goal-bar {
+	flex: none;
+	margin: 0 var(--gutter);
+	padding: 8px 12px 9px;
+	border: 1px solid var(--accent-dim);
+	border-radius: var(--radius);
+	background: linear-gradient(180deg, #0960bd0a, #0960bd03);
+}
+
+.goal-bar--completed {
+	border-color: var(--ok-dim);
+	background: linear-gradient(180deg, #67c23a12, #67c23a05);
+}
+
+.goal-bar--paused,
+.goal-bar--blocked {
+	border-color: #e6a23c33;
+	background: linear-gradient(180deg, #e6a23c12, #e6a23c05);
+}
+
+.goal-bar__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.goal-chip {
+	flex: none;
+	padding: 1px 7px;
+	border-radius: 9px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 11.5px;
+	line-height: 18px;
+}
+
+.goal-bar--completed .goal-chip {
+	background: var(--ok);
+}
+
+.goal-bar--paused .goal-chip,
+.goal-bar--blocked .goal-chip {
+	background: var(--warn);
+}
+
+.goal-objective {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text-bright);
+	font-size: 12.5px;
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.goal-bar__spacer {
+	flex: 1;
+}
+
+.goal-bar__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 12px;
+	margin-top: 5px;
+	font-size: 11.5px;
+	color: var(--dim);
+}
+
+.goal-mode {
+	padding: 0 6px;
+	border: 1px solid #e6a23c4d;
+	border-radius: 3px;
+	color: var(--warn);
+}
+
+.goal-id {
+	color: var(--disabled);
+	font-family: var(--mono);
+}
+
+.goal-criteria,
+.goal-note {
+	margin-top: 5px;
+	font-size: 11.5px;
+	line-height: 1.6;
+	color: var(--dim);
+}
+
+.goal-note {
+	color: var(--warn);
+}
+
+.goal-timeline {
+	margin-top: 6px;
+	font-size: 11.5px;
+}
+
+.goal-timeline > summary {
+	cursor: pointer;
+	color: var(--dim);
+}
+
+.goal-timeline__last {
+	color: var(--disabled);
+}
+
+.goal-timeline__body {
+	margin-top: 6px;
+	padding-left: 10px;
+	border-left: 1px solid var(--border);
+}
+
+.goal-progress {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-bottom: 8px;
+}
+
+.goal-progress__label {
+	font-weight: 600;
+	color: var(--dim);
+}
+
+.goal-progress ul,
+.goal-completion ul {
+	margin: 2px 0 0;
+	padding-left: 18px;
+	color: var(--text);
+}
+
+.goal-round {
+	padding: 4px 0;
+	border-top: 1px dashed var(--border);
+}
+
+.goal-round__head {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 10px;
+	color: var(--text-bright);
+}
+
+.goal-round__meta {
+	color: var(--dim);
+}
+
+.goal-round__summary {
+	margin: 3px 0 0;
+	padding: 6px 8px;
+	border-radius: 4px;
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.goal-round__blocker {
+	margin-top: 3px;
+	color: var(--danger);
+}
+
+.goal-completion {
+	margin-top: 8px;
+	padding-top: 6px;
+	border-top: 1px solid var(--border);
+}
+
+.goal-completion__title {
+	font-weight: 600;
+	color: var(--ok);
+}
+
+.goal-completion__meta {
+	margin-top: 3px;
+	color: var(--dim);
+}
+
+.goal-empty {
+	color: var(--disabled);
+}
+
+/* ============================================================
+   Goal start dialog
+   ============================================================ */
+
+.goal-dialog {
+	width: min(560px, calc(100vw - 48px));
+}
+
+.goal-field {
+	display: block;
+	margin-top: 10px;
+	font-size: 12.5px;
+	color: var(--text);
+}
+
+.goal-field > span {
+	display: block;
+	margin-bottom: 4px;
+	color: var(--dim);
+}
+
+.goal-field textarea,
+.goal-field input {
+	display: block;
+	width: 100%;
+	padding: 8px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	outline: none;
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: 13px;
+	line-height: 1.7;
+}
+
+.goal-field textarea:focus,
+.goal-field input:focus {
+	border-color: var(--accent);
+}
+
+.goal-field--inline {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.goal-field--inline input {
+	width: 88px;
+}
+
+.goal-field--inline > span {
+	margin-bottom: 0;
+}
+
+.goal-field__hint {
+	color: var(--disabled);
+	font-size: 11.5px;
+}
+
 /* The process body: a rail on the text column, with a node per tool call. */
 .run-body {
 	position: relative;
@@ -3780,3 +4470,360 @@ button.link {
 	color: var(--dim);
 	resize: vertical;
 }
+
+
+/* ============================================================
+   Vulnerability hub
+   ============================================================ */
+.vuln-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.vuln-stat-status {
+	padding: 1px 7px;
+	border: 1px solid var(--border-strong);
+	border-radius: 3px;
+	font-size: 11.5px;
+	line-height: 18px;
+	color: var(--dim);
+}
+
+/* Severity chips: the colour carries the level, the label repeats it. */
+.vuln-sev {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 7px;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	font-size: 11.5px;
+	line-height: 18px;
+	white-space: nowrap;
+}
+
+.vuln-sev-critical {
+	border-color: #a8071a4d;
+	background: #fff1f0;
+	color: #a8071a;
+}
+
+.vuln-sev-high {
+	border-color: #d4380d4d;
+	background: #fff2e8;
+	color: #d4380d;
+}
+
+.vuln-sev-medium {
+	border-color: #d488064d;
+	background: #fffbe6;
+	color: #ad6800;
+}
+
+.vuln-sev-low {
+	border-color: #0960bd4d;
+	background: #e6f4ff;
+	color: #0958d9;
+}
+
+.vuln-sev-info {
+	border-color: var(--border-strong);
+	background: var(--raised);
+	color: var(--dim);
+}
+
+.vuln-cvss {
+	margin-left: 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+/* Severity and CVSS disagree: a warning, never a block. */
+.vuln-warn {
+	margin-left: 6px;
+	padding: 0 5px;
+	border: 1px solid #e6a23c66;
+	border-radius: 3px;
+	background: #fdf6ec;
+	color: #b88230;
+	font-size: 11px;
+}
+
+.vuln-table .data-row {
+	grid-template-columns: 130px 150px 80px minmax(120px, 1fr) minmax(160px, 1.4fr) 90px 150px;
+}
+
+.vuln-row {
+	cursor: pointer;
+}
+
+.vuln-row:hover {
+	background: var(--accent-dim);
+}
+
+.vuln-detail {
+	width: min(900px, calc(100vw - 48px));
+}
+
+.vuln-detail__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--border);
+}
+
+.vuln-detail__title {
+	font-size: 14.5px;
+	color: var(--text-bright);
+	line-height: 1.6;
+}
+
+.vuln-detail__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.vuln-detail__body {
+	padding-top: 12px;
+}
+
+.vuln-detail__body h3 {
+	margin: 18px 0 8px;
+	font-size: 13px;
+	color: var(--text-bright);
+}
+
+.vuln-detail__body section:first-child h3 {
+	margin-top: 0;
+}
+
+.vuln-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.vuln-section-head h3 {
+	margin-bottom: 8px;
+}
+
+.vuln-meta-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 8px 16px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-size: 12.5px;
+}
+
+.vuln-meta-grid > div {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	word-break: break-all;
+}
+
+.vuln-meta-grid > div > span:first-child {
+	color: var(--dim);
+	font-size: 11.5px;
+}
+
+.vuln-meta-grid code {
+	font-family: var(--mono);
+	color: var(--text);
+}
+
+.vuln-review {
+	padding: 10px 12px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+}
+
+.vuln-review__row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.vuln-review__row > span:first-child {
+	min-width: 32px;
+	color: var(--text);
+}
+
+.vuln-review__row input,
+.vuln-review__row select {
+	padding: 3px 8px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-size: 12.5px;
+	outline: none;
+}
+
+.vuln-review__row input {
+	width: 72px;
+}
+
+.vuln-review__row input.invalid {
+	border-color: var(--danger);
+}
+
+.vuln-review__row input.wide {
+	flex: 1;
+	min-width: 220px;
+	width: auto;
+}
+
+.vuln-review__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+.vuln-text {
+	margin: 0;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-family: var(--sans);
+	font-size: 12.5px;
+	line-height: 1.75;
+	color: var(--text);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* The raw packet is a code block, not a terminal: it sits on the light card like
+   the other detail sections, in a neutral monospace face. Alignment still
+   matters here, so it keeps the mono font, and it scrolls rather than stretching
+   the overlay. */
+.vuln-packet {
+	max-height: 320px;
+	margin: 0;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.7;
+	color: var(--text);
+	white-space: pre-wrap;
+	word-break: break-all;
+	overflow: auto;
+}
+
+.vuln-evidence {
+	margin-bottom: 10px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.vuln-evidence__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+	font-size: 12.5px;
+	color: var(--text);
+}
+
+.vuln-evidence__index {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-size: 11px;
+}
+
+.vuln-evidence__head .console-btn {
+	margin-left: auto;
+}
+
+.vuln-evidence__head .console-btn + .console-btn {
+	margin-left: 0;
+}
+
+.vuln-evidence__file {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 12.5px;
+}
+
+.vuln-evidence__file code {
+	font-family: var(--mono);
+	color: var(--text);
+	word-break: break-all;
+}
+
+.vuln-preview img {
+	max-width: 100%;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.vuln-refs {
+	margin: 0;
+	padding-left: 18px;
+	font-size: 12.5px;
+	line-height: 1.8;
+	color: var(--text);
+	word-break: break-all;
+}
+
+.vuln-timeline {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: 12.5px;
+}
+
+.vuln-timeline li {
+	display: grid;
+	grid-template-columns: 150px 60px minmax(0, 1fr);
+	gap: 10px;
+	padding: 6px 0;
+	border-top: 1px solid var(--border);
+	line-height: 1.7;
+}
+
+.vuln-timeline li:first-child {
+	border-top: none;
+}
+
+.vuln-timeline__at {
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--dim);
+}
+
+.vuln-timeline__author {
+	color: var(--dim);
+}
+
