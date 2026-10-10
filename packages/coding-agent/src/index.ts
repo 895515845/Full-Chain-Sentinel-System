@@ -13,6 +13,8 @@ export {
 	getExamplesPath,
 	getPackageDir,
 	getReadmePath,
+	setEmbeddedPhotonWasmPath,
+	setEmbeddedQuickJSWasmPath,
 	VERSION,
 } from "./config.ts";
 export {

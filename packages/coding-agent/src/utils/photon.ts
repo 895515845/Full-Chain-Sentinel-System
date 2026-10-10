@@ -18,6 +18,8 @@ import { createRequire } from "module";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
+import { getEmbeddedPhotonWasmPath } from "../config.ts";
+
 const require = createRequire(import.meta.url);
 const fs = require("fs") as typeof import("fs");
 
@@ -44,7 +46,10 @@ function pathOrNull(file: PathOrFileDescriptor): string | null {
 
 function getFallbackWasmPaths(): string[] {
 	const execDir = path.dirname(process.execPath);
+	const embedded = getEmbeddedPhotonWasmPath();
 	return [
+		// A compiled single-file binary carries the wasm inside the executable.
+		...(embedded ? [embedded] : []),
 		path.join(execDir, WASM_FILENAME),
 		path.join(execDir, "photon", WASM_FILENAME),
 		path.join(process.cwd(), WASM_FILENAME),
