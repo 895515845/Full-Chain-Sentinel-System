@@ -124,6 +124,25 @@ export function AppSider({
 		const stored = localStorage.getItem("zg-session-source");
 		return stored === "chat" || stored === "engine" ? stored : "all";
 	});
+	/** Collapsed per-engine groups; the sidebar starts expanded. */
+	const [collapsedEngines, setCollapsedEngines] = useState<Set<string>>(() => {
+		try {
+			const stored = localStorage.getItem("zg-engine-groups-collapsed");
+			return new Set(stored ? (JSON.parse(stored) as string[]) : []);
+		} catch {
+			return new Set();
+		}
+	});
+
+	const toggleEngineGroup = (engineId: string) => {
+		setCollapsedEngines((prev) => {
+			const next = new Set(prev);
+			if (next.has(engineId)) next.delete(engineId);
+			else next.add(engineId);
+			localStorage.setItem("zg-engine-groups-collapsed", JSON.stringify([...next]));
+			return next;
+		});
+	};
 	const visibleSessions = useMemo(
 		() =>
 			sessions.filter((session) => {
@@ -136,6 +155,27 @@ export function AppSider({
 			}),
 		[sessions, statusFilter, sourceFilter],
 	);
+
+	/**
+	 * Engineering sessions grouped by their engine (variant 4): the engine name
+	 * becomes a collapsible sub-heading with a live running count, and the rows
+	 * inside carry no engine badge at all — that is what buys the title its
+	 * space back in a 210px sidebar. Chat sessions stay flat above the groups.
+	 */
+	const engineGroups = useMemo(() => {
+		const groups = new Map<string, { engineName: string; sessions: SessionInfoView[] }>();
+		for (const session of visibleSessions) {
+			if (!session.engine) continue;
+			const group = groups.get(session.engine.engineId) ?? { engineName: session.engine.engineName, sessions: [] };
+			group.sessions.push(session);
+			groups.set(session.engine.engineId, group);
+		}
+		// Newest activity first: a group leads with its most recent task.
+		return [...groups.values()].sort((left, right) =>
+			(right.sessions[0]?.modified ?? "").localeCompare(left.sessions[0]?.modified ?? ""),
+		);
+	}, [visibleSessions]);
+	const chatSessions = useMemo(() => visibleSessions.filter((session) => !session.engine), [visibleSessions]);
 
 	const setStatus = (next: "all" | "open") => {
 		localStorage.setItem("zg-session-filter", next);
@@ -156,6 +196,79 @@ export function AppSider({
 		const name = editingName.trim();
 		if (editingPath && name) onRenameSession(editingPath, name);
 		setEditingPath(null);
+	};
+
+	const sessionRow = (session: SessionInfoView) => {
+		const isActive = session.id === activeSessionId;
+		const label = session.name ?? session.firstMessage.slice(0, 40);
+		if (editingPath === session.path) {
+			return (
+				<div key={session.path} className="menu-sub-item">
+					<input
+						className="menu-sub-input"
+						value={editingName}
+						onChange={(event) => setEditingName(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") commitRename();
+							if (event.key === "Escape") setEditingPath(null);
+						}}
+						onBlur={commitRename}
+						spellCheck={false}
+					/>
+				</div>
+			);
+		}
+		return (
+			<div
+				key={session.path}
+				role="button"
+				tabIndex={0}
+				className={`menu-sub-item ${isActive ? "active" : ""}`}
+				title={session.firstMessage}
+				onClick={() => onSwitchSession(session.path)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
+				}}
+			>
+				{session.engine ? (
+					<span className={`session-task-tag task-${session.engine.taskStatus}`} title={`工程任务：${session.engine.taskStatus}`}>
+						{TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}
+					</span>
+				) : (
+					<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
+				)}
+				<span className="menu-sub-name">{label}</span>
+				<SessionStatusControl
+					variant="chip"
+					status={session.status}
+					onPick={(next) => onSetSessionStatus(session.path, next)}
+				/>
+				<span className="menu-sub-ops">
+					<button
+						type="button"
+						title="重命名"
+						onClick={(event) => {
+							event.stopPropagation();
+							startRename(session);
+						}}
+					>
+						<RenameIcon size={11} />
+					</button>
+					<button
+						type="button"
+						title="删除会话（不可恢复）"
+						onClick={(event) => {
+							event.stopPropagation();
+							if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) {
+								onDeleteSession(session.path);
+							}
+						}}
+					>
+						<DeleteIcon size={11} />
+					</button>
+				</span>
+			</div>
+		);
 	};
 
 	const sessionRows = () => (
@@ -207,80 +320,31 @@ export function AppSider({
 					工程
 				</button>
 			</div>
-			{visibleSessions.map((session) => {
-				const isActive = session.id === activeSessionId;
-				const label = session.name ?? session.firstMessage.slice(0, 40);
-				if (editingPath === session.path) {
-					return (
-						<div key={session.path} className="menu-sub-item">
-							<input
-								className="menu-sub-input"
-								value={editingName}
-								onChange={(event) => setEditingName(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter") commitRename();
-									if (event.key === "Escape") setEditingPath(null);
-								}}
-								onBlur={commitRename}
-								spellCheck={false}
-							/>
-						</div>
-					);
-				}
+			{chatSessions.map(sessionRow)}
+			{engineGroups.map((group) => {
+				const collapsed = collapsedEngines.has(group.engineName);
+				const running = group.sessions.filter((session) => runningSessions.includes(session.id)).length;
 				return (
-					<div
-						key={session.path}
-						role="button"
-						tabIndex={0}
-						className={`menu-sub-item ${isActive ? "active" : ""}`}
-						title={session.firstMessage}
-						onClick={() => onSwitchSession(session.path)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
-						}}
-					>
-						{session.engine ? (
-							<span className={`session-task-tag task-${session.engine.taskStatus}`} title={`工程任务：${session.engine.taskStatus}`}>
-								{TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}
+					<div key={group.engineName}>
+						<div
+							className="engine-group-head"
+							role="button"
+							tabIndex={0}
+							title="点击折叠 / 展开该工程的会话"
+							onClick={() => toggleEngineGroup(group.engineName)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") toggleEngineGroup(group.engineName);
+							}}
+						>
+							<span className="caret">{collapsed ? "▸" : "▾"}</span>
+							<span className={`engine-group-dot ${running > 0 ? "run" : ""}`} />
+							<span className="engine-group-name">{group.engineName}</span>
+							<span className="engine-group-count">
+								{group.sessions.length}
+								{running > 0 ? ` · 运行 ${running}` : ""}
 							</span>
-						) : (
-							<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
-						)}
-						<span className="menu-sub-name">{label}</span>
-						{session.engine ? (
-							<span className="session-engine-badge" title={`工程：${session.engine.engineName}`}>
-								{session.engine.engineName}
-							</span>
-						) : null}
-						<SessionStatusControl
-							variant="chip"
-							status={session.status}
-							onPick={(next) => onSetSessionStatus(session.path, next)}
-						/>
-						<span className="menu-sub-ops">
-							<button
-								type="button"
-								title="重命名"
-								onClick={(event) => {
-									event.stopPropagation();
-									startRename(session);
-								}}
-							>
-								<RenameIcon size={11} />
-							</button>
-							<button
-								type="button"
-								title="删除会话（不可恢复）"
-								onClick={(event) => {
-									event.stopPropagation();
-									if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) {
-										onDeleteSession(session.path);
-									}
-								}}
-							>
-								<DeleteIcon size={11} />
-							</button>
-						</span>
+						</div>
+						{collapsed ? null : group.sessions.map(sessionRow)}
 					</div>
 				);
 			})}
