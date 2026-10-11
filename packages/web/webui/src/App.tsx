@@ -92,7 +92,9 @@ function commandFromArgs(args: Record<string, unknown> | undefined): string {
 function chattedAfterGoalEnd(messages: unknown[], goal: { endedAt?: number }): boolean {
 	const endedAt = goal.endedAt;
 	if (!endedAt) return false;
-	return messages.some((entry) => entry.role === "user" && (entry.timestamp ?? 0) > endedAt);
+	return messages.some(
+		(entry) => (entry as { role?: string }).role === "user" && ((entry as { timestamp?: number }).timestamp ?? 0) > endedAt,
+	);
 }
 
 /** Compact total duration for the terminal goal badge. */
@@ -103,17 +105,19 @@ function formatGoalTotalMs(ms: number): string {
 }
 
 function goalMarkerElapsed(messages: unknown[], marker: AgentMessageView): number | undefined {
+	const markerTime = (marker as { timestamp?: number }).timestamp;
 	const index = messages.findIndex(
 		(entry) =>
 			(entry as { customType?: string }).customType === "zg-goal" &&
-			messageKey(entry) === messageKey(marker),
+			messageKey(entry as { role?: string; timestamp?: number }) ===
+				messageKey(marker as { role?: string; timestamp?: number }),
 	);
-	if (index <= 0 || !marker.timestamp) return undefined;
+	if (index <= 0 || markerTime === undefined) return undefined;
 	for (let i = index - 1; i >= 0; i -= 1) {
 		const entry = messages[i] as { role?: string; customType?: string; timestamp?: number };
 		if (entry.role === "user" || entry.customType === "zg-goal") {
 			if (!entry.timestamp) return undefined;
-			return Math.max(0, marker.timestamp - entry.timestamp);
+			return Math.max(0, markerTime - entry.timestamp);
 		}
 	}
 	return undefined;
@@ -1076,7 +1080,7 @@ export function App() {
 														// A continuation badge shows how long the round it
 														// closed took: the stretch since the previous
 														// boundary (prompt or earlier round) started.
-														{...(group.marker.customType === "zg-goal" &&
+														{...((group.marker as { customType?: string }).customType === "zg-goal" &&
 														goalMarkerElapsed(snapshotRef.current?.messages ?? [], group.marker)
 															? {
 																	goalElapsedMs: goalMarkerElapsed(

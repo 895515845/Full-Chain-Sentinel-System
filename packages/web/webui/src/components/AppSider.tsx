@@ -7,8 +7,9 @@
  * navigation only; every page lives in the content area.
  */
 
-import { useMemo, useState } from "react";
-import type { SessionInfoView, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
 import { SessionStatusControl, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
@@ -554,7 +555,7 @@ function SessionHoverCard({
 					<b>
 						{TASK_TAG_LABELS[live.task.status] ?? live.task.status}
 						{live.task.status === "running" || live.task.status === "queued"
-							? ` · 轮 ${live.task.roundsUsed}/${live.task.roundLimit}`
+							? ` · 轮 ${(live.task as { roundsUsed?: number }).roundsUsed ?? 0}/${live.task.roundLimit}`
 							: ""}
 					</b>
 				</div>
