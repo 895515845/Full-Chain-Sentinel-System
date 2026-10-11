@@ -239,7 +239,13 @@ export function AppSider({
 
 	const sessionRow = (session: SessionInfoView) => {
 		const isActive = session.id === activeSessionId;
-		const label = session.name ?? session.firstMessage.slice(0, 40);
+		// Grouped rows already state their engine in the group heading, so the
+		// historical 「工程名 · 」 prefix is stripped from what we display.
+		const rawLabel = session.name ?? session.firstMessage.slice(0, 40);
+		const label =
+			session.engine && session.engine.engineName && rawLabel.startsWith(`${session.engine.engineName} · `)
+				? rawLabel.slice(session.engine.engineName.length + 3)
+				: rawLabel;
 		if (editingPath === session.path) {
 			return (
 				<div key={session.path} className="menu-sub-item">

@@ -638,8 +638,6 @@ export class EngineManager {
 		const project = this.projectOf(entry.engine);
 		const acquire: WorkerAcquire = (input) =>
 			this.acquireTaskSession({
-				engineId: entry.engine.id,
-				engineName: entry.engine.name,
 				taskTitle: task.title,
 				appendPrompt: WORKER_APPEND_PROMPT,
 				project: { id: project.id, name: project.name, container: project.container ?? "", cwd: project.cwd },

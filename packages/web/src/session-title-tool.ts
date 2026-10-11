@@ -6,9 +6,7 @@
  * when the scope changes (the prompt guidelines say so).
  *
  * The operator's manual rename stays exactly as it is; both write the same
- * session entry, last writer wins. An engineering task session keeps its
- * 「工程名 · 」 prefix, so the sidebar's engine badge keeps meaning something
- * no matter what the worker calls its work.
+ * session entry, last writer wins.
  */
 
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -33,10 +31,8 @@ interface TitleDetails {
 }
 
 export function createSessionTitleTool(options: {
-	/** Applies the final name (prefix + title) to the session. */
-	rename(fullTitle: string): void;
-	/** Task sessions keep their engine prefix; console sessions have none. */
-	enginePrefix?: () => string | null;
+	/** Applies the new name to the session. */
+	rename(title: string): void;
 }): ToolDefinition {
 	return defineTool({
 		name: "set_session_title",
@@ -58,12 +54,10 @@ export function createSessionTitleTool(options: {
 					isError: true,
 				};
 			}
-			const prefix = options.enginePrefix?.() ?? null;
-			const full = prefix ? `${prefix} · ${title}` : title;
-			options.rename(full);
+			options.rename(title);
 			return {
-				content: [{ type: "text", text: `会话标题已更新：${full}` }],
-				details: { ok: true, title: full },
+				content: [{ type: "text", text: `会话标题已更新：${title}` }],
+				details: { ok: true, title },
 			};
 		},
 	});

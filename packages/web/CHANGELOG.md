@@ -98,7 +98,9 @@
 
 - 项目容器现在把宿主项目目录挂载两次：`<宿主目录>:/work`，以及 `<宿主目录>:<宿主目录>`。系统提示词把宿主工作目录（会话 cwd）交给模型，而 bash 在容器内执行，于是模型用绝对路径写文件时会落到容器自己的可写层——文件到不了宿主机，read/write/edit 与文件面板都看不到，容器一重建就丢。同路径挂载后两种写法指向同一个目录（同一 inode），提示词与文件工具都不用改
 - The sub-agent panel is now a left list of dispatches and a right detail pane, and the process reads as turns instead of a flat list. Each turn carries a header (第 N 轮 · 工具数 · 耗时) and its steps hang off one rail: a tool row shows the tool name, one line taken from the argument that carries the point of the call (bash → its command, read → its path, anything else → its first scalar argument) and its own duration, instead of a pretty-printed JSON blob in the command slot. Expanding a call shows the structured arguments next to the terminal block, which keeps 复制命令 / 复制输出 / 全屏. Assistant prose folds to two lines, thinking folds to 思考 · N 字, the running call is expanded and the view follows the newest step until the operator scrolls up, the 过程 tab carries the tool count and, in red, the failure count (visible from 结果 too), and its toolbar filters by keyword or by failure with 跳到第一个失败. 结果 is its own tab and is what opens for a finished run. `tool_end` events now carry `durationMs`, so a slow step is visible without opening it
-### Fixed
+### Changed
+
+- Task session titles drop the 「工程名 · 」 prefix: the sidebar's engine group heading already states ownership, so rows show the task title alone — the set_session_title tool and session creation write plain titles, and the display strips the prefix from sessions named before this change
 
 - Missing imports (useRef/useEffect, createPortal, ZGEngine) in the sider crashed the console with ReferenceError on load; the webui now type-checks in every verification pass (check:webui), which the root check never covered
 

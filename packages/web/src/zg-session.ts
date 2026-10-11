@@ -189,12 +189,10 @@ interface ManagedSession {
 
 /** Extra wiring a task session needs beyond a console session. */
 export interface TaskSessionOptions {
-	engineId: string;
 	/** The engine's project, which may differ from the viewed one. */
 	project: { id: string; name: string; container: string; cwd: string };
 	/** Extra system-prompt text: the worker's engineering identity note. */
 	appendPrompt: string;
-	engineName: string;
 	taskTitle: string;
 	/** pi session id when resuming a paused task; null for a fresh one. */
 	taskSessionId: string | null;
@@ -407,11 +405,10 @@ export class ZGAgentRuntime {
 			// The agent names the conversation once the task is clear; task
 			// sessions keep their engine prefix so the sidebar badge holds.
 			createSessionTitleTool({
-				rename: (fullTitle) => {
-					manager.appendSessionInfo(fullTitle);
+				rename: (title) => {
+					manager.appendSessionInfo(title);
 					this.hooks.onSessionRenamed();
 				},
-				...(task ? { enginePrefix: () => task.engineName } : {}),
 			}),
 			// The goal tools are always mounted; they refuse to do anything while no
 			// goal is running, which keeps the mount set stable across a goal. Task
@@ -481,9 +478,10 @@ export class ZGAgentRuntime {
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
 		if (task) {
-			// The session list shows task sessions like any other conversation;
-			// the name says which engine and task it belongs to.
-			manager.appendSessionInfo(`${task.engineName} · ${task.taskTitle}`);
+			// Task sessions live under their engine's collapsible group in the
+			// sidebar, which already states the ownership — the name is just the
+			// task title, no redundant 「工程名 · 」 prefix.
+			manager.appendSessionInfo(task.taskTitle);
 			// The task's goal is the worker's state, not the console's: no restore
 			// here (the worker resumes it itself), and the goal bar never claims it.
 		} else {
