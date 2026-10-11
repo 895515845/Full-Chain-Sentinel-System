@@ -28,11 +28,25 @@ const STATUSES: readonly ZGVulnStatus[] = ["pending", "confirmed", "false_positi
 
 function formatWhen(value: string): string {
 	const date = new Date(value);
-	return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
+	if (Number.isNaN(date.getTime())) return value;
+	const sameYear = date.getFullYear() === new Date().getFullYear();
+	const datePart = sameYear
+		? `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+		: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	return `${datePart} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function severityClass(severity: ZGVulnSeverity): string {
 	return `vuln-sev vuln-sev-${severity}`;
+}
+
+/** The severity bucket a CVSS base score maps to; used for the mismatch hint. */
+function severityForScore(score: number): ZGVulnSeverity {
+	if (score >= 9) return "critical";
+	if (score >= 7) return "high";
+	if (score >= 4) return "medium";
+	if (score > 0) return "low";
+	return "info";
 }
 
 /** Copy button used by the packet and evidence blocks. */
@@ -216,11 +230,15 @@ export function VulnPage({
 										</span>
 									) : null}
 								</span>
-								<span>{ZG_VULN_STATUS_LABELS[item.status]}</span>
+								<span>
+									<span className={`vuln-status-tag vuln-status-${item.status}`}>
+										{ZG_VULN_STATUS_LABELS[item.status]}
+									</span>
+								</span>
 								<span className="data-mono">{item.target}</span>
 								<span className="data-name">{item.title}</span>
-								<span>{item.source}</span>
-								<span>{formatWhen(item.createdAt)}</span>
+								<span className="data-mono">{item.source}</span>
+								<span className="data-mono">{formatWhen(item.createdAt)}</span>
 							</div>
 						))}
 					</div>
@@ -298,35 +316,49 @@ export function VulnDetail({
 	onDelete: (id: string) => void;
 	onPreview: (path: string) => void;
 }) {
-	const [status, setStatus] = useState<ZGVulnStatus>(vuln.status);
 	const [severity, setSeverity] = useState<ZGVulnSeverity>(vuln.severity);
 	const [cvss, setCvss] = useState(String(vuln.cvss));
 	const [note, setNote] = useState("");
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	/** When the last immediate save landed, shown as a quiet confirmation. */
+	const [savedAt, setSavedAt] = useState<Date | null>(null);
 
-	// A refreshed record (after a save, or a submission from another console)
-	// re-seeds the form; keeping stale edits would silently overwrite it.
+	// A refreshed record (after an immediate save, or a submission from another
+	// console) re-seeds the editors; keeping stale edits would fight the record.
 	useEffect(() => {
-		setStatus(vuln.status);
 		setSeverity(vuln.severity);
 		setCvss(String(vuln.cvss));
 		setNote("");
 		setConfirmDelete(false);
-	}, [vuln.id, vuln.status, vuln.severity, vuln.cvss, vuln.updatedAt]);
+	}, [vuln.id, vuln.severity, vuln.cvss, vuln.updatedAt]);
 
 	const parsedCvss = Number(cvss);
 	const cvssValid = Number.isFinite(parsedCvss) && parsedCvss >= 0 && parsedCvss <= 10;
-	const dirty =
-		status !== vuln.status || severity !== vuln.severity || (cvssValid && parsedCvss !== vuln.cvss) || note.trim() !== "";
 
-	const save = () => {
+	// Every action below saves immediately: the server records one timeline
+	// entry per change, so piecemeal updates make a readable audit trail
+	// instead of one merged blob.
+	const apply = (patch: ZGVulnUpdate) => {
+		onUpdate(vuln.id, patch);
+		setSavedAt(new Date());
+	};
+
+	const transition = (next: ZGVulnStatus) => {
+		if (next === vuln.status) return;
+		apply({ status: next });
+	};
+
+	/** Severity/CVSS commit on blur (Enter in the CVSS field commits too). */
+	const commitRating = () => {
 		if (!cvssValid) return;
-		onUpdate(vuln.id, {
-			status,
-			severity,
-			cvss: parsedCvss,
-			...(note.trim() ? { note: note.trim() } : {}),
-		});
+		if (severity !== vuln.severity) apply({ severity });
+		if (parsedCvss !== vuln.cvss) apply({ cvss: parsedCvss });
+	};
+
+	const submitNote = () => {
+		const text = note.trim();
+		if (!text) return;
+		apply({ note: text });
 	};
 
 	return (
@@ -380,74 +412,90 @@ export function VulnDetail({
 						) : null}
 					</div>
 
-					<section className="vuln-review">
-						<h3>复核</h3>
-						<div className="vuln-review__row">
-							<span>状态</span>
-							{STATUSES.map((candidate) => (
-								<button
-									key={candidate}
-									type="button"
-									className={status === candidate ? "primary" : ""}
-									onClick={() => setStatus(candidate)}
-								>
-									{ZG_VULN_STATUS_LABELS[candidate]}
+					<div className="vuln-action-band">
+						<span className={`vuln-state-big vuln-state-${vuln.status}`}>
+							{ZG_VULN_STATUS_LABELS[vuln.status]}
+						</span>
+						{vuln.status === "pending" ? (
+							<>
+								<button type="button" className="vuln-transition confirm" onClick={() => transition("confirmed")}>
+									✓ 确认
 								</button>
+								<button type="button" className="vuln-transition false" onClick={() => transition("false_positive")}>
+									✕ 标误报
+								</button>
+							</>
+						) : null}
+						{vuln.status !== "fixed" ? (
+							<button type="button" className="vuln-transition fix" onClick={() => transition("fixed")}>
+								✔ 标已修复
+							</button>
+						) : null}
+						{vuln.status !== "pending" ? (
+							<button type="button" className="vuln-transition" onClick={() => transition("pending")}>
+								↩ 退回待确认
+							</button>
+						) : null}
+						<span className="vuln-action-spacer" />
+						{savedAt ? (
+							<span className="vuln-saved-hint">已保存 {savedAt.toLocaleTimeString("zh-CN", { hour12: false })}</span>
+						) : null}
+					</div>
+					<div className="vuln-action-band vuln-action-band--rating">
+						<span className="vuln-action-label">等级</span>
+						<select
+							value={severity}
+							onChange={(event) => setSeverity(event.target.value as ZGVulnSeverity)}
+							onBlur={commitRating}
+						>
+							{ZG_VULN_SEVERITIES.map((candidate) => (
+								<option key={candidate} value={candidate}>
+									{ZG_VULN_SEVERITY_LABELS[candidate]}
+								</option>
 							))}
-						</div>
-						<div className="vuln-review__row">
-							<span>等级</span>
-							<select value={severity} onChange={(event) => setSeverity(event.target.value as ZGVulnSeverity)}>
-								{ZG_VULN_SEVERITIES.map((candidate) => (
-									<option key={candidate} value={candidate}>
-										{ZG_VULN_SEVERITY_LABELS[candidate]}
-									</option>
-								))}
-							</select>
-							<span>CVSS</span>
-							<input
-								className={cvssValid ? "" : "invalid"}
-								value={cvss}
-								spellCheck={false}
-								onChange={(event) => setCvss(event.target.value)}
-							/>
-							{!cvssValid ? <span className="page-error">CVSS 需要 0.0-10.0</span> : null}
-						</div>
-						<div className="vuln-review__row">
-							<span>备注</span>
-							<input
-								className="inline-input wide"
-								value={note}
-								placeholder="复核说明，会追加到时间线"
-								spellCheck={false}
-								onChange={(event) => setNote(event.target.value)}
-							/>
-						</div>
-						<div className="vuln-review__actions">
-							<button type="button" className="primary" disabled={!dirty || !cvssValid} onClick={save}>
-								保存复核结果
-							</button>
-							<button type="button" disabled={!dirty} onClick={() => { setStatus(vuln.status); setSeverity(vuln.severity); setCvss(String(vuln.cvss)); setNote(""); }}>
-								撤销修改
-							</button>
-							{confirmDelete ? (
-								<>
-									<span className="page-error">删除后不可恢复，确认？</span>
-									<button type="button" className="danger" onClick={() => onDelete(vuln.id)}>
-										确认删除
-									</button>
-									<button type="button" onClick={() => setConfirmDelete(false)}>
-										取消
-									</button>
-								</>
-							) : (
-								<button type="button" className="danger" onClick={() => setConfirmDelete(true)}>
-									<DeleteIcon />
-									删除记录
+						</select>
+						<span className="vuln-action-label">CVSS</span>
+						<input
+							className={`vuln-cvss-edit ${cvssValid ? "" : "invalid"}`}
+							value={cvss}
+							spellCheck={false}
+							onChange={(event) => setCvss(event.target.value)}
+							onBlur={commitRating}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") commitRating();
+							}}
+						/>
+						{!cvssValid ? <span className="page-error">CVSS 需要 0.0-10.0</span> : null}
+						{cvssValid && severityForScore(parsedCvss) !== severity ? (
+							<span className="vuln-warn">分数对应「{ZG_VULN_SEVERITY_LABELS[severityForScore(parsedCvss)]}」，与所选等级不一致</span>
+						) : null}
+						<span className="vuln-action-spacer" />
+						{confirmDelete ? (
+							<>
+								<span className="page-error">删除后不可恢复</span>
+								<button type="button" className="danger" onClick={() => onDelete(vuln.id)}>
+									确认删除
 								</button>
-							)}
-						</div>
-					</section>
+								<button type="button" onClick={() => setConfirmDelete(false)}>
+									取消
+								</button>
+							</>
+						) : (
+							<button type="button" className="danger" onClick={() => setConfirmDelete(true)}>
+								删除
+							</button>
+						)}
+					</div>
+					<input
+						className="inline-input vuln-note-input"
+						value={note}
+						placeholder="复核备注（回车提交，追加到时间线）…"
+						spellCheck={false}
+						onChange={(event) => setNote(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") submitNote();
+						}}
+					/>
 
 					<section>
 						<h3>漏洞详情</h3>

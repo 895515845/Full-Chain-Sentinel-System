@@ -44,7 +44,7 @@
 	--console-border: #1d2733;
 	--console-bar: #ffffff0a;
 	--console-bar-text: #8b949e;
-	--console-text: #c5e1a5;
+	--console-text: #c9d1d9;
 	/* Metrics */
 	--sider-width: 210px;
 	--sider-collapsed-width: 48px;
@@ -140,7 +140,6 @@ button.ghost.small {
 	color: var(--dim);
 }
 
-
 ::-webkit-scrollbar {
 	width: 7px;
 	height: 8px;
@@ -230,7 +229,6 @@ button.ghost.small {
 	background: var(--accent);
 }
 
-
 .ws-panel__sub {
 	font-size: 12px;
 	font-weight: 400;
@@ -270,15 +268,12 @@ button.ghost.small {
 }
 
 
-
 .ws-toolbar__sep {
 	width: 1px;
 	height: 16px;
 	background: var(--border);
 	margin: 0 2px;
 }
-
-
 
 
 
@@ -1491,7 +1486,6 @@ button.ghost.small {
 	color: var(--danger);
 }
 
-
 /* ---------- Modals ---------- */ .modal-backdrop {
 	position: fixed;
 	inset: 0;
@@ -1604,7 +1598,6 @@ button.ghost.small {
 	color: var(--dim);
 }
 
-
 .source-badge {
 	display: inline-block;
 	background: #f3eefe;
@@ -1712,13 +1705,10 @@ button.ghost.small {
 	box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
 }
 
-
 .badge.running {
 	background: var(--accent-dim);
 	color: var(--accent);
 }
-
-
 
 
 
@@ -1778,14 +1768,11 @@ button.ghost.small {
 
 
 
-
 .tree-node.active {
 	background: var(--accent-dim);
 	color: var(--accent);
 	cursor: default;
 }
-
-
 
 
 
@@ -3458,7 +3445,6 @@ svg.lucide {
 
 /* ---------- Settings sections ---------- */
 
-
 .settings-section:hover:not(.active) {
 	color: var(--text);
 }
@@ -3480,7 +3466,6 @@ svg.lucide {
 	width: auto;
 	margin-top: 0;
 }
-
 
 /* ============================================================
    Page components (tables, diagnostics)
@@ -3643,7 +3628,6 @@ svg.lucide {
 	color: var(--text);
 	word-break: break-all;
 }
-
 
 /* ============================================================
    Permissions (settings page)
@@ -3808,7 +3792,6 @@ svg.lucide {
 	line-height: 1.7;
 }
 
-
 /* A dropped WebSocket must be visible without opening the sider. */
 .conn-banner {
 	display: flex;
@@ -3850,7 +3833,6 @@ svg.lucide {
 	color: var(--dim);
 	font-style: italic;
 }
-
 
 /* ============================================================
    A run in the transcript: the prompt, then its process on a
@@ -4650,7 +4632,6 @@ button.link {
 	resize: vertical;
 }
 
-
 /* ============================================================
    Vulnerability hub
    ============================================================ */
@@ -4824,59 +4805,6 @@ button.link {
 	color: var(--text);
 }
 
-.vuln-review {
-	padding: 10px 12px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius);
-}
-
-.vuln-review__row {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-	margin-bottom: 8px;
-	font-size: 12.5px;
-	color: var(--dim);
-}
-
-.vuln-review__row > span:first-child {
-	min-width: 32px;
-	color: var(--text);
-}
-
-.vuln-review__row input,
-.vuln-review__row select {
-	padding: 3px 8px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius);
-	background: var(--card);
-	color: var(--text);
-	font-size: 12.5px;
-	outline: none;
-}
-
-.vuln-review__row input {
-	width: 72px;
-}
-
-.vuln-review__row input.invalid {
-	border-color: var(--danger);
-}
-
-.vuln-review__row input.wide {
-	flex: 1;
-	min-width: 220px;
-	width: auto;
-}
-
-.vuln-review__actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-	margin-top: 4px;
-}
 
 .vuln-text {
 	margin: 0;
@@ -5005,7 +4933,6 @@ button.link {
 .vuln-timeline__author {
 	color: var(--dim);
 }
-
 
 /* ---------- Engineering mode (工程模式) ----------
    Same language as the rest of the console: light page cards, ws-panel
@@ -5539,4 +5466,131 @@ button.link {
 	border-radius: 3px;
 	background: #4cc2ff1a;
 	color: #4cc2ff;
+}
+
+/* ---------- Vulnerability hub: status badges, mid-dense rows, action bands ---------- */
+.vuln-table .data-row {
+	grid-template-columns: 104px 128px 84px minmax(150px, 1.1fr) minmax(220px, 1.5fr) 118px 108px;
+	padding: 7px 14px;
+	font-size: 13px;
+}
+
+.vuln-status-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 0 7px;
+	border-radius: 3px;
+	font-size: 11.5px;
+	line-height: 19px;
+}
+
+.vuln-status-tag::before {
+	content: "";
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.vuln-status-pending { background: var(--warn-dim); color: var(--warn); }
+.vuln-status-confirmed { background: var(--ok-dim); color: var(--ok); }
+.vuln-status-false_positive { background: var(--info-dim); color: var(--info); }
+.vuln-status-fixed { background: var(--accent-dim); color: var(--accent); }
+
+/* Review action bands: state badge + one-click transitions, rating commits on blur. */
+.vuln-action-band {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin: 12px 0;
+	padding: 8px 12px;
+	background: var(--raised);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.vuln-action-band--rating {
+	margin-top: -4px;
+}
+
+.vuln-action-label {
+	font-size: 12px;
+	color: var(--dim);
+	flex: none;
+}
+
+.vuln-action-spacer {
+	flex: 1;
+}
+
+.vuln-state-big {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 600;
+	padding: 2px 10px;
+	border-radius: 4px;
+}
+
+.vuln-state-big::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.vuln-state-pending { background: var(--warn-dim); color: var(--warn); }
+.vuln-state-confirmed { background: var(--ok-dim); color: var(--ok); }
+.vuln-state-false_positive { background: var(--info-dim); color: var(--info); }
+.vuln-state-fixed { background: var(--accent-dim); color: var(--accent); }
+
+.vuln-transition {
+	font-size: 12px;
+	padding: 2px 10px;
+}
+
+.vuln-transition.confirm { border-color: var(--ok); color: var(--ok); }
+.vuln-transition.confirm:hover:not(:disabled) { background: var(--ok); color: #fff; }
+.vuln-transition.false { border-color: var(--info); color: var(--info); }
+.vuln-transition.false:hover:not(:disabled) { background: var(--info); color: #fff; }
+.vuln-transition.fix { border-color: var(--accent); color: var(--accent); }
+.vuln-transition.fix:hover:not(:disabled) { background: var(--accent); color: #fff; }
+
+.vuln-action-band select {
+	border: 1px solid var(--border-strong);
+	border-radius: 4px;
+	padding: 2px 6px;
+	font-size: 12px;
+	font-family: var(--sans);
+}
+
+.vuln-cvss-edit {
+	width: 56px;
+	border: 1px solid var(--border-strong);
+	border-radius: 4px;
+	padding: 2px 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+	text-align: right;
+}
+
+.vuln-cvss-edit.invalid,
+.vuln-cvss-edit.invalid:focus {
+	border-color: var(--danger);
+	outline: none;
+}
+
+.vuln-saved-hint {
+	font-size: 11.5px;
+	color: var(--ok);
+}
+
+.vuln-note-input {
+	width: 100%;
+	font-size: 12.5px;
+	margin-bottom: 4px;
 }
