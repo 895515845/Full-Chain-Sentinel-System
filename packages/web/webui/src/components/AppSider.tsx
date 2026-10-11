@@ -349,7 +349,23 @@ export function AppSider({
 					工程
 				</button>
 			</div>
+			{/*
+				 * Under 全部 the two zones need a visible boundary: flat chat rows
+				 * and the engine groups are different kinds of things, and mixing
+				 * them without a separator reads as one jumbled list. The labels
+				 * appear only when both zones actually have content.
+				 */}
+			{chatSessions.length > 0 && engineGroups.length > 0 ? (
+				<div className="session-section-label">
+					对话 <span className="n">{chatSessions.length}</span>
+				</div>
+			) : null}
 			{chatSessions.map(sessionRow)}
+			{chatSessions.length > 0 && engineGroups.length > 0 ? (
+				<div className="session-section-label">
+					工程 <span className="n">{engineGroups.reduce((sum, group) => sum + group.sessions.length, 0)}</span>
+				</div>
+			) : null}
 			{engineGroups.map((group) => {
 				const collapsed = collapsedEngines.has(group.engineName);
 				const running = group.sessions.filter((session) => runningSessions.includes(session.id)).length;

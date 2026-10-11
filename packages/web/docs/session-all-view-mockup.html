@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>对话侧栏 · 全部视图下的工程分区 — 方案稿</title>
+<style>
+	:root {
+		--nav: #001529; --nav-child: #000c17; --nav-text: #ffffffbf; --nav-text-dim: #ffffff73;
+		--nav-hover: #0d2136; --nav-active: #273352; --nav-border: #ffffff17;
+		--accent: #0960bd; --ok: #67c23a; --warn: #e6a23c; --danger: #f56c6c; --blue: #4cc2ff;
+		--sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+	}
+	* { box-sizing: border-box; }
+	body { background: #0a0f16; font-family: var(--sans); font-size: 14px; color: #d7dde4; margin: 0; padding: 24px; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	h2 { font-size: 15px; margin: 34px 0 4px; padding-top: 16px; border-top: 1px dashed #2a313a; }
+	p.note { color: #8b949e; font-size: 12.5px; margin: 0 0 14px; max-width: 760px; line-height: 1.7; }
+	.row { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; }
+
+	.sider { width: 232px; background: var(--nav); border-radius: 8px; padding: 8px 0 10px; flex: none; }
+	.brand { display: flex; align-items: center; gap: 8px; color: #fff; font-weight: 600; padding: 8px 16px 10px; font-size: 14px; }
+	.menu-sub { background: var(--nav-child); padding: 4px 0 6px; }
+	.sub-head { display: flex; align-items: center; gap: 8px; padding: 6px 14px; color: var(--nav-text-dim); font-size: 12px; }
+	.sub-head .sp { flex: 1; }
+	.filters { display: flex; gap: 2px; padding: 0 12px 6px; }
+	.fp { background: none; border: none; color: var(--nav-text-dim); font-size: 11.5px; padding: 2px 9px; border-radius: 999px; cursor: pointer; }
+	.fp.on { background: var(--nav-active); color: #fff; }
+
+	.item { display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 26px; min-height: 30px; color: var(--nav-text); font-size: 12.5px; cursor: pointer; }
+	.item:hover { background: var(--nav-hover); color: #fff; }
+	.item.active { background: var(--nav-active); color: #fff; }
+	.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #ffffff30; }
+	.dot.run { background: var(--blue); box-shadow: 0 0 5px var(--blue); }
+	.dot.ok { background: var(--ok); }
+	.dot.fail { background: var(--danger); }
+
+	.eg-head { display: flex; align-items: center; gap: 6px; padding: 5px 14px 5px 28px; color: var(--nav-text-dim); font-size: 11.5px; cursor: pointer; }
+	.eg-head:hover { color: #fff; }
+	.eg-head .caret { font-size: 9px; }
+	.eg-head .rdot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 4px #4cc2ff88; }
+	.eg-head .cnt { margin-left: auto; font-size: 10.5px; }
+	.eng-row { padding-left: 40px; }
+
+	/* 方案 1：分区标题条 */
+	.sec-label { display: flex; align-items: center; gap: 8px; padding: 8px 14px 4px; color: var(--nav-text-dim); font-size: 10.5px; letter-spacing: 2px; }
+	.sec-label::after { content: ""; flex: 1; border-top: 1px solid var(--nav-border); }
+	.sec-label .n { font-size: 10.5px; letter-spacing: 0; }
+
+	/* 方案 2：工程区整体色块 */
+	.eng-block { margin: 8px 8px 4px; padding: 2px 0 4px; background: #060d18; border: 1px solid var(--nav-border); border-radius: 8px; }
+	.eng-block .eg-head { padding-left: 10px; }
+	.eng-block .eng-row { padding-left: 22px; }
+
+	/* 方案 3：折叠总开关 */
+	.master-head { display: flex; align-items: center; gap: 7px; padding: 7px 14px; color: var(--nav-text); font-size: 12px; font-weight: 600; cursor: pointer; border-top: 1px solid var(--nav-border); margin-top: 6px; }
+	.master-head:hover { color: #fff; background: var(--nav-hover); }
+	.master-head .caret { font-size: 9px; color: var(--nav-text-dim); }
+	.master-head .badge { font-size: 10px; background: #4cc2ff22; color: var(--blue); border-radius: 999px; padding: 0 7px; line-height: 16px; }
+
+	/* 方案 4：左缘竖线轨道 */
+	.rail-zone { position: relative; }
+	.rail-zone::before { content: ""; position: absolute; left: 30px; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: linear-gradient(180deg, #4cc2ff55, #4cc2ff18); }
+	.rail-zone .eg-head { padding-left: 38px; }
+	.rail-zone .eng-row { padding-left: 44px; }
+</style>
+</head>
+<body>
+
+<h1>「全部」视图下的工程分区 — 四种方案</h1>
+<p class="note">现状问题：筛选「全部」时，普通对话平铺在上面、工程组头+缩进行挂在下面，两种行式混在一起没有边界，看着诡异。四个方案都解决「分区感」，差别在视觉重量与实现复杂度。稿中均模拟「全部」筛选（3 条普通对话 + 2 个工程组）。</p>
+
+<h2>现状复现（诡异感来源）</h2>
+<div class="row">
+	<div class="sider">
+		<div class="brand">ZG ZGAgent</div>
+		<div class="menu-sub">
+			<div class="sub-head"><span>19 个会话</span><span class="sp"></span><span>＋</span></div>
+			<div class="filters"><button class="fp on">全部</button><button class="fp">未完成</button><button class="fp">对话</button><button class="fp">工程</button></div>
+			<div class="item"><span class="dot run"></span><span class="name">对 10.0.0.5 做完整渗透测试</span></div>
+			<div class="item"><span class="dot"></span><span class="name">报告整理：一批 Web 目标</span></div>
+			<div class="item"><span class="dot"></span><span class="name">随便聊聊环境问题</span></div>
+			<div class="eg-head"><span class="caret">▾</span><span class="rdot"></span>第一批资产 <span class="cnt">12 · 运行 3</span></div>
+			<div class="item eng-row"><span class="dot run"></span><span class="name">10.0.0.5 Web 深度测试</span></div>
+			<div class="item eng-row"><span class="dot ok"></span><span class="name">10.0.0.1 端口枚举</span></div>
+			<div class="eg-head"><span class="caret">▸</span><span class="rdot"></span>第二批资产 <span class="cnt">7</span></div>
+		</div>
+	</div>
+	<div style="max-width:360px;font-size:13px;color:#8b949e;line-height:1.8">平铺行和组头之间没有任何视觉边界——「随便聊聊」下面突然出现一个组头，像是同层级的东西，实际是两个区域。</div>
+</div>
+
+<h2>方案 1 — 分区标题条（轻量，iOS 设置风）</h2>
+<div class="row">
+	<div class="sider">
+		<div class="brand">ZG ZGAgent</div>
+		<div class="menu-sub">
+			<div class="sub-head"><span>19 个会话</span><span class="sp"></span><span>＋</span></div>
+			<div class="filters"><button class="fp on">全部</button><button class="fp">未完成</button><button class="fp">对话</button><button class="fp">工程</button></div>
+			<div class="sec-label">对 话 <span class="n">3</span></div>
+			<div class="item"><span class="dot run"></span><span class="name">对 10.0.0.5 做完整渗透测试</span></div>
+			<div class="item"><span class="dot"></span><span class="name">报告整理：一批 Web 目标</span></div>
+			<div class="item"><span class="dot"></span><span class="name">随便聊聊环境问题</span></div>
+			<div class="sec-label">工 程 <span class="n">2</span></div>
+			<div class="eg-head"><span class="caret">▾</span><span class="rdot"></span>第一批资产 <span class="cnt">12 · 运行 3</span></div>
+			<div class="item eng-row"><span class="dot run"></span><span class="name">10.0.0.5 Web 深度测试</span></div>
+			<div class="item eng-row"><span class="dot ok"></span><span class="name">10.0.0.1 端口枚举</span></div>
+			<div class="eg-head"><span class="caret">▸</span><span class="rdot"></span>第二批资产 <span class="cnt">7</span></div>
+		</div>
+	</div>
+	<div style="max-width:360px;font-size:13px;color:#8b949e;line-height:1.8">
+		<p style="margin:0 0 6px">两条小字分区条（「对话 / 工程」+ 计数 + 细线），零缩进变化，改动最小。</p>
+		<p style="margin:0">代价：分区感最弱，条本身很低调；某区为空时条隐藏。</p>
+	</div>
+</div>
+
+<h2>方案 2 — 工程区整体色块容器（推荐）</h2>
+<div class="row">
+	<div class="sider">
+		<div class="brand">ZG ZGAgent</div>
+		<div class="menu-sub">
+			<div class="sub-head"><span>19 个会话</span><span class="sp"></span><span>＋</span></div>
+			<div class="filters"><button class="fp on">全部</button><button class="fp">未完成</button><button class="fp">对话</button><button class="fp">工程</button></div>
+			<div class="item"><span class="dot run"></span><span class="name">对 10.0.0.5 做完整渗透测试</span></div>
+			<div class="item"><span class="dot"></span><span class="name">报告整理：一批 Web 目标</span></div>
+			<div class="item"><span class="dot"></span><span class="name">随便聊聊环境问题</span></div>
+			<div class="eng-block">
+				<div class="eg-head"><span class="caret">▾</span><span class="rdot"></span>第一批资产 <span class="cnt">12 · 运行 3</span></div>
+				<div class="item eng-row"><span class="dot run"></span><span class="name">10.0.0.5 Web 深度测试</span></div>
+				<div class="item eng-row"><span class="dot ok"></span><span class="name">10.0.0.1 端口枚举</span></div>
+				<div class="eg-head"><span class="caret">▸</span><span class="rdot"></span>第二批资产 <span class="cnt">7</span></div>
+			</div>
+		</div>
+	</div>
+	<div style="max-width:360px;font-size:13px;color:#8b949e;line-height:1.8">
+		<p style="margin:0 0 6px">工程区整体套一个<strong>更深底色的圆角容器</strong>（带细描边），和普通对话在材质上就分开；组头在容器内，层级天然清晰。任何筛选下都成立（「工程」筛选时容器铺满）。</p>
+		<p style="margin:0">代价：几乎无交互变化，纯 CSS 包一层；深色上再加深要注意对比度（稿里用 #060d18）。</p>
+	</div>
+</div>
+
+<h2>方案 3 — 折叠总开关「工程 ▾ 19」</h2>
+<div class="row">
+	<div class="row" style="gap:0">
+	<div class="sider">
+		<div class="brand">ZG ZGAgent</div>
+		<div class="menu-sub">
+			<div class="sub-head"><span>19 个会话</span><span class="sp"></span><span>＋</span></div>
+			<div class="filters"><button class="fp on">全部</button><button class="fp">未完成</button><button class="fp">对话</button><button class="fp">工程</button></div>
+			<div class="item"><span class="dot run"></span><span class="name">对 10.0.0.5 做完整渗透测试</span></div>
+			<div class="item"><span class="dot"></span><span class="name">报告整理：一批 Web 目标</span></div>
+			<div class="item"><span class="dot"></span><span class="name">随便聊聊环境问题</span></div>
+			<div class="master-head"><span class="caret">▾</span>工程 <span class="badge">2 个 · 运行 4</span></div>
+			<div class="eg-head"><span class="caret">▾</span><span class="rdot"></span>第一批资产 <span class="cnt">12 · 运行 3</span></div>
+			<div class="item eng-row"><span class="dot run"></span><span class="name">10.0.0.5 Web 深度测试</span></div>
+			<div class="eg-head"><span class="caret">▸</span><span class="rdot"></span>第二批资产 <span class="cnt">7 · 运行 1</span></div>
+		</div>
+	</div>
+	</div>
+	<div style="max-width:360px;font-size:13px;color:#8b949e;line-height:1.8">
+		<p style="margin:0 0 6px">在普通对话和工程之间加一个<strong>加粗主开关行</strong>「工程 ▾（2 个 · 运行 4）」：一键收起/展开全部工程会话。「全部」视图默认收起时就是纯对话列表，干净利落。</p>
+		<p style="margin:0">代价：多一层状态（默认收/开）；和「工程」筛选有轻微概念重叠。</p>
+	</div>
+</div>
+
+<h2>方案 4 — 左缘竖线轨道（线程缩进风）</h2>
+<div class="row">
+	<div class="sider">
+		<div class="brand">ZG ZGAgent</div>
+		<div class="menu-sub">
+			<div class="sub-head"><span>19 个会话</span><span class="sp"></span><span>＋</span></div>
+			<div class="filters"><button class="fp on">全部</button><button class="fp">未完成</button><button class="fp">对话</button><button class="fp">工程</button></div>
+			<div class="item"><span class="dot run"></span><span class="name">对 10.0.0.5 做完整渗透测试</span></div>
+			<div class="item"><span class="dot"></span><span class="name">报告整理：一批 Web 目标</span></div>
+			<div class="item"><span class="dot"></span><span class="name">随便聊聊环境问题</span></div>
+			<div class="rail-zone">
+				<div class="eg-head"><span class="caret">▾</span><span class="rdot"></span>第一批资产 <span class="cnt">12 · 运行 3</span></div>
+				<div class="item eng-row"><span class="dot run"></span><span class="name">10.0.0.5 Web 深度测试</span></div>
+				<div class="item eng-row"><span class="dot ok"></span><span class="name">10.0.0.1 端口枚举</span></div>
+				<div class="eg-head"><span class="caret">▸</span><span class="rdot"></span>第二批资产 <span class="cnt">7</span></div>
+			</div>
+		</div>
+	</div>
+	<div style="max-width:360px;font-size:13px;color:#8b949e;line-height:1.8">
+		<p style="margin:0 0 6px">工程区左侧一条<strong>蓝色渐变竖线轨道</strong>贯穿（Slack/Discord 线程感），区内行统一挂在线上，归属一目了然。</p>
+		<p style="margin:0">代价：竖线颜色偏装饰性；和左缘「人工状态色条」位置冲突（色条也在左缘，需要错开 2px 层级）。</p>
+	</div>
+</div>
+
+</body>
+</html>

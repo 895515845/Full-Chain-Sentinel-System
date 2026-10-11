@@ -84,6 +84,8 @@
 
 ### Changed
 
+- Under the 全部 filter the session list gains light section labels — 「对话 N」 above the flat chats and 「工程 N」 above the engine groups, each with a hairline — so the two zones read as separate areas instead of one jumbled list; the labels only appear when both zones have content
+
 - `spawn_agent` no longer takes a `mode`. A sub-agent now gets the same tools as the session that spawned it, including the ones the loaded extensions contribute (`codemode`, `tool_search`, MCP servers), plus the approval-gated bash. `spawn_agent` is the one tool withheld, which is what keeps delegation from recursing. The sub-agent panel no longer shows a mode, and `subagents.db` drops its `mode` column (existing databases are migrated in place on open)
 - The settings page is now split into 模型 and 通知 pages under the sider's 设置 entry, so the endpoint form and the notification form each get a full page; the failure hints that pointed at "模型设置" now say "设置"
 - A switch that an existing `permissions.json` does not mention now reads as off instead of on. The file predates that switch, so the operator never agreed to it: adding a tool must not silently widen a stored configuration. This is why `vuln_submit` and `vuln_read` arrive disabled on an upgraded install — enable them under 设置 → 权限. A missing or unreadable file still yields the full defaults, because that is a fresh install

@@ -5927,3 +5927,26 @@ button.link {
 	color: #fff;
 	border-color: #4cc2ff;
 }
+
+/* ---------- Section labels between chat sessions and engine groups ---------- */
+.session-section-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 14px 4px 26px;
+	color: var(--nav-text-dim);
+	font-size: 10.5px;
+	letter-spacing: 2px;
+	user-select: none;
+}
+
+.session-section-label::after {
+	content: "";
+	flex: 1;
+	border-top: 1px solid var(--nav-border);
+}
+
+.session-section-label .n {
+	letter-spacing: 0;
+	font-size: 10.5px;
+}
