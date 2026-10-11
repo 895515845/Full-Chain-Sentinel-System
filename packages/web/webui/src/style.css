@@ -5438,13 +5438,6 @@ button.link {
 	color: #fff;
 }
 
-.session-task-tag {
-	flex: none;
-	font-size: 10.5px;
-	line-height: 16px;
-	padding: 0 5px;
-	border-radius: 3px;
-}
 
 .session-task-tag.task-running { background: #4cc2ff22; color: #4cc2ff; }
 .session-task-tag.task-done { background: #67c23a22; color: #8fdd6a; }
@@ -5454,19 +5447,6 @@ button.link {
 	color: var(--nav-text-dim);
 }
 
-.session-engine-badge {
-	flex: none;
-	max-width: 88px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-size: 10.5px;
-	line-height: 16px;
-	padding: 0 5px;
-	border-radius: 3px;
-	background: #4cc2ff1a;
-	color: #4cc2ff;
-}
 
 /* ---------- Vulnerability hub: status badges, mid-dense rows, action bands ---------- */
 .vuln-table .data-row {
@@ -5832,4 +5812,116 @@ button.link {
 /* Grouped rows indent one step; no engine badge inside. */
 .menu-sub .menu-sub-item:has(.session-task-tag) {
 	padding-left: 40px;
+}
+
+/* ---------- Session rows: color-dot + hover card (variant A) ---------- */
+.menu-sub-item.session-row {
+	overflow: visible;
+	min-height: 30px;
+	padding-top: 5px;
+	padding-bottom: 5px;
+}
+
+.menu-sub-item.session-row .status-rail {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+}
+
+.status-rail.rail-todo { background: var(--warn); }
+.status-rail.rail-active { background: var(--blue); }
+
+.sdot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: #ffffff30;
+}
+
+.sdot.sd-run {
+	background: #4cc2ff;
+	box-shadow: 0 0 5px #4cc2ff;
+	animation: zg-dot-pulse 1.6s infinite;
+}
+
+.sdot.sd-done { background: var(--ok); }
+.sdot.sd-failed { background: var(--danger); }
+.sdot.sd-queued { background: #ffffff55; }
+.sdot.sd-paused { background: var(--warn); }
+
+@keyframes zg-dot-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.45; }
+}
+
+/* Hover card: metadata + actions, anchored to the row's right edge. */
+.session-row .session-hovercard {
+	display: none;
+	position: absolute;
+	left: calc(100% - 6px);
+	top: -6px;
+	width: 252px;
+	background: #16222f;
+	border: 1px solid #2f3d4d;
+	border-radius: 8px;
+	padding: 10px 12px;
+	box-shadow: 0 10px 30px #00000066;
+	z-index: 30;
+	cursor: default;
+}
+
+.session-row:hover .session-hovercard,
+.session-row:focus-within .session-hovercard {
+	display: block;
+}
+
+.session-hovercard .hc-name {
+	font-weight: 600;
+	color: #fff;
+	margin-bottom: 6px;
+	line-height: 1.45;
+	word-break: break-all;
+}
+
+.session-hovercard .hc-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 2px 0;
+	font-size: 12px;
+	color: #8b949e;
+}
+
+.session-hovercard .hc-row b {
+	color: #d7dde4;
+	font-weight: 500;
+	text-align: right;
+	word-break: break-all;
+}
+
+.session-hovercard .hc-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 8px;
+	align-items: center;
+}
+
+.session-hovercard .hc-actions button {
+	flex: 1;
+	background: #0d2136;
+	color: var(--nav-text);
+	border: 1px solid #2f3d4d;
+	border-radius: 4px;
+	font-size: 11px;
+	padding: 3px 0;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.session-hovercard .hc-actions button:hover {
+	color: #fff;
+	border-color: #4cc2ff;
 }

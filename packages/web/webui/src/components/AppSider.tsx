@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import type { SessionInfoView, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
-import { SessionStatusControl } from "./SessionStatusControl.tsx";
+import { SessionStatusControl, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
@@ -73,6 +73,7 @@ export function AppSider({
 	sessions,
 	activeSessionId,
 	runningSessions,
+	engines,
 	pendingApprovals,
 	/** Findings still waiting for review, shown as the hub's badge. */
 	pendingVulns,
@@ -92,6 +93,7 @@ export function AppSider({
 	mode: ZGMode;
 	modelConfigured: boolean;
 	sessions: SessionInfoView[];
+	engines: ZGEngine[];
 	activeSessionId: string | null;
 	/** Session ids with a background run. */
 	runningSessions: string[];
@@ -177,6 +179,16 @@ export function AppSider({
 	}, [visibleSessions]);
 	const chatSessions = useMemo(() => visibleSessions.filter((session) => !session.engine), [visibleSessions]);
 
+	/** Live task info behind a session id, for the hover card. */
+	const taskOfSession = (sessionId: string) => {
+		for (const engine of engines) {
+			for (const task of engine.tasks) {
+				if (task.sessionId === sessionId) return { engine, task };
+			}
+		}
+		return undefined;
+	};
+
 	const setStatus = (next: "all" | "open") => {
 		localStorage.setItem("zg-session-filter", next);
 		setStatusFilter(next);
@@ -218,55 +230,94 @@ export function AppSider({
 				</div>
 			);
 		}
+		const live = taskOfSession(session.id);
+		const dotClass = session.engine
+			? `sdot sd-${session.engine.taskStatus}`
+			: runningSessions.includes(session.id)
+				? "sdot sd-run"
+				: "sdot sd-idle";
+		const railClass =
+			session.status === "todo" ? "status-rail rail-todo" : session.status === "active" ? "status-rail rail-active" : "";
 		return (
 			<div
 				key={session.path}
 				role="button"
 				tabIndex={0}
-				className={`menu-sub-item ${isActive ? "active" : ""}`}
-				title={session.firstMessage}
+				className={`menu-sub-item session-row ${isActive ? "active" : ""}`}
 				onClick={() => onSwitchSession(session.path)}
 				onKeyDown={(event) => {
 					if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
 				}}
 			>
-				{session.engine ? (
-					<span className={`session-task-tag task-${session.engine.taskStatus}`} title={`工程任务：${session.engine.taskStatus}`}>
-						{TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}
-					</span>
-				) : (
-					<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
-				)}
-				<span className="menu-sub-name">{label}</span>
-				<SessionStatusControl
-					variant="chip"
-					status={session.status}
-					onPick={(next) => onSetSessionStatus(session.path, next)}
+				{railClass ? <span className={railClass} title={session.status === "todo" ? "人工标记：待跟进" : "人工标记：进行中"} /> : null}
+				<span
+					className={dotClass}
+					title={
+						session.engine
+							? `工程任务：${TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}`
+							: runningSessions.includes(session.id)
+								? "运行中"
+								: undefined
+					}
 				/>
-				<span className="menu-sub-ops">
-					<button
-						type="button"
-						title="重命名"
-						onClick={(event) => {
-							event.stopPropagation();
-							startRename(session);
-						}}
-					>
-						<RenameIcon size={11} />
-					</button>
-					<button
-						type="button"
-						title="删除会话（不可恢复）"
-						onClick={(event) => {
-							event.stopPropagation();
-							if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) {
-								onDeleteSession(session.path);
-							}
-						}}
-					>
-						<DeleteIcon size={11} />
-					</button>
-				</span>
+				<span className="menu-sub-name">{label}</span>
+				{/* Hover card: every piece of metadata and action lives here, so the
+				    row itself stays dot + title and the title keeps the full width. */}
+				<div className="session-hovercard" onClick={(event) => event.stopPropagation()}>
+					<div className="hc-name">{label}</div>
+					{session.engine ? (
+						<div className="hc-row">
+							<span>工程</span>
+							<b>{session.engine.engineName}</b>
+						</div>
+					) : null}
+					{live ? (
+						<div className="hc-row">
+							<span>任务状态</span>
+							<b>
+								{TASK_TAG_LABELS[live.task.status] ?? live.task.status}
+								{live.task.status === "running" || live.task.status === "queued"
+									? ` · 轮 ${live.task.roundsUsed}/${live.task.roundLimit}`
+									: ""}
+							</b>
+						</div>
+					) : null}
+					<div className="hc-row">
+						<span>人工标记</span>
+						<b>{session.status ? SESSION_STATUS_LABELS[session.status] : "未设置"}</b>
+					</div>
+					<div className="hc-row">
+						<span>最近活动</span>
+						<b>{new Date(session.modified).toLocaleString("zh-CN", { hour12: false })}</b>
+					</div>
+					<div className="hc-actions">
+						<button
+							type="button"
+							title="重命名"
+							onClick={() => {
+								startRename(session);
+							}}
+						>
+							✎ 改名
+						</button>
+						<SessionStatusControl
+							variant="chip"
+							status={session.status}
+							onPick={(next) => onSetSessionStatus(session.path, next)}
+						/>
+						<button
+							type="button"
+							title="删除会话（不可恢复）"
+							onClick={() => {
+								if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) {
+									onDeleteSession(session.path);
+								}
+							}}
+						>
+							🗑 删除
+						</button>
+					</div>
+				</div>
 			</div>
 		);
 	};
