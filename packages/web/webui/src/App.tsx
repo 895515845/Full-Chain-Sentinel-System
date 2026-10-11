@@ -921,6 +921,7 @@ export function App() {
 				mode={mode}
 				modelConfigured={snapshot?.modelConfigured ?? false}
 				sessions={sessions}
+				engines={engines}
 				activeSessionId={snapshot?.activeSessionId ?? null}
 				runningSessions={
 					runActive && snapshot?.activeSessionId
