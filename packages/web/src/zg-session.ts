@@ -112,6 +112,7 @@ import {
 	type ZGSessionListEntry,
 	type ZGSessionStatus,
 } from "./session-status.ts";
+import { createSessionTitleTool } from "./session-title-tool.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
@@ -131,6 +132,8 @@ export interface ZGRuntimeHooks {
 	onNotifyStatus(status: ZGNotifyStatus): void;
 	/** A finding was submitted or reviewed; connected consoles refresh the hub page. */
 	onVulnChange(): void;
+	/** A session's name changed (operator or agent); consoles refresh the list. */
+	onSessionRenamed(): void;
 }
 
 /**
@@ -399,6 +402,15 @@ export class ZGAgentRuntime {
 				? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
 				: undefined;
 		const customTools: ToolDefinition[] = [
+			// The agent names the conversation once the task is clear; task
+			// sessions keep their engine prefix so the sidebar badge holds.
+			createSessionTitleTool({
+				rename: (fullTitle) => {
+					manager.appendSessionInfo(fullTitle);
+					this.hooks.onSessionRenamed();
+				},
+				...(task ? { enginePrefix: () => task.engineName } : {}),
+			}),
 			// The goal tools are always mounted; they refuse to do anything while no
 			// goal is running, which keeps the mount set stable across a goal. Task
 			// sessions bind to the engine worker's goal state instead.

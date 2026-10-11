@@ -302,6 +302,8 @@ export interface SessionInfoView {
 	firstMessage: string;
 	/** Operator status, absent when the session was never labeled. */
 	status?: ZGSessionStatus;
+	/** Present when this session is an engineering task's conversation. */
+	engine?: { engineId: string; engineName: string; taskStatus: string };
 }
 
 /** The operator's manual label for a session. The agent never sees it. */

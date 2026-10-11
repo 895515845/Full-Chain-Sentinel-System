@@ -624,35 +624,6 @@ button.ghost.small {
 }
 
 /* All / 未完成: the status filter in the session list head. */
-.menu-sub-filter {
-	display: inline-flex;
-	flex: none;
-	margin-left: auto;
-	border: 1px solid var(--nav-border);
-	border-radius: 4px;
-	overflow: hidden;
-}
-
-.menu-sub-filter button {
-	padding: 0 6px;
-	height: 17px;
-	border: none;
-	border-radius: 0;
-	background: transparent;
-	color: var(--nav-text-dim);
-	font-size: 10px;
-	line-height: 1;
-}
-
-.menu-sub-filter button + button {
-	border-left: 1px solid var(--nav-border);
-}
-
-.menu-sub-filter button.on {
-	background: var(--accent);
-	color: #fff;
-}
-
 /* ---------- operator session status ---------- */
 
 .session-status-control {
@@ -5508,4 +5479,64 @@ button.link {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 	gap: 8px;
+}
+
+/* ---------- Session list: source badges and combinable filters ---------- */
+.menu-sub-filters {
+	display: flex;
+	gap: 2px;
+	padding: 0 12px 6px;
+}
+
+.menu-sub-filters button {
+	flex: none;
+	background: none;
+	border: none;
+	color: var(--nav-text-dim);
+	font-size: 11.5px;
+	line-height: 20px;
+	padding: 0 9px;
+	border-radius: 999px;
+	cursor: pointer;
+}
+
+.menu-sub-filters button:hover:not(:disabled) {
+	color: #fff;
+	border-color: none;
+	background: none;
+}
+
+.menu-sub-filters button.on {
+	background: var(--nav-active);
+	color: #fff;
+}
+
+.session-task-tag {
+	flex: none;
+	font-size: 10.5px;
+	line-height: 16px;
+	padding: 0 5px;
+	border-radius: 3px;
+}
+
+.session-task-tag.task-running { background: #4cc2ff22; color: #4cc2ff; }
+.session-task-tag.task-done { background: #67c23a22; color: #8fdd6a; }
+.session-task-tag.task-failed, .session-task-tag.task-blocked { background: #f56c6c22; color: #f09393; }
+.session-task-tag.task-queued, .session-task-tag.task-aborted, .session-task-tag.task-paused {
+	background: #ffffff14;
+	color: var(--nav-text-dim);
+}
+
+.session-engine-badge {
+	flex: none;
+	max-width: 88px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 10.5px;
+	line-height: 16px;
+	padding: 0 5px;
+	border-radius: 3px;
+	background: #4cc2ff1a;
+	color: #4cc2ff;
 }

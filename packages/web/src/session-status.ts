@@ -50,9 +50,18 @@ export function readSessionStatus(entries: readonly unknown[]): ZGSessionStatus 
 	return found;
 }
 
+/** Which engineering task a session belongs to, for the sidebar's engine badge. */
+export interface ZGSessionEngineRef {
+	engineId: string;
+	engineName: string;
+	taskStatus: string;
+}
+
 /** A listed session with its operator status, without the raw custom state. */
 export interface ZGSessionListEntry extends Omit<SessionInfo, "customState"> {
 	status?: ZGSessionStatus;
+	/** Present when this session is an engineering task's conversation. */
+	engine?: ZGSessionEngineRef;
 }
 
 /** Drop `customState` from a listed session and surface the status it holds. */

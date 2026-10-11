@@ -163,6 +163,7 @@ export async function startZGServer(
 			onSubagentEvent: (runId, event) => broadcast({ type: "subagent_event", runId, event }),
 			onNotifyStatus: (status) => broadcast({ type: "notify_config", config: runtime.getNotifyConfig(), status }),
 			onVulnChange: () => broadcastVulns(),
+			onSessionRenamed: () => void broadcastSessions(),
 		},
 	});
 
@@ -183,7 +184,11 @@ export async function startZGServer(
 		? new EngineManager(
 				agentDir,
 				{
-					onChange: (engine) => broadcast({ type: "engine_update", engine }),
+					onChange: (engine) => {
+						broadcast({ type: "engine_update", engine });
+						// Task statuses feed the sidebar badges.
+						void broadcastSessions();
+					},
 					onCommanderEvent: (engineId, event) => broadcast({ type: "engine_commander_event", engineId, event }),
 					onTaskEvent: (taskId, event) => broadcast({ type: "engine_task_event", taskId, event }),
 				},
@@ -271,6 +276,24 @@ export async function startZGServer(
 			container,
 			vulnCount: runtime.countProjectVulns(id),
 		}));
+	}
+
+	/**
+	 * The session list with engineering badges: a session that belongs to an
+	 * engine task carries the engine's name and the task's live status, which
+	 * is what the sidebar's 对话/工程 filter and badges read.
+	 */
+	async function sessionViews() {
+		const sessions = await runtime.listSessions();
+		const index = engines?.taskSessionIndex() ?? new Map();
+		return sessions.map((session) => ({ ...session, engine: index.get(session.id) }));
+	}
+
+	async function broadcastSessions(socket?: WebSocket): Promise<void> {
+		const sessions = await sessionViews();
+		const view = { type: "sessions", sessions } satisfies ZGServerMessage;
+		if (socket) sendTo(socket, view);
+		else broadcast(view);
 	}
 
 	function broadcastProjects(): void {
@@ -408,19 +431,16 @@ export async function startZGServer(
 				case "switch_session":
 					await runtime.switchSession(message.path);
 					return;
-				case "list_sessions": {
-					const sessions = await runtime.listSessions();
-					broadcast({ type: "sessions", sessions });
+				case "list_sessions":
+					await broadcastSessions(socket);
 					return;
-				}
 				case "rename_session": {
 					if (!message.name.trim()) {
 						sendError(socket, "会话名称不能为空");
 						return;
 					}
 					await runtime.renameSession(message.path, message.name.trim());
-					const sessions = await runtime.listSessions();
-					broadcast({ type: "sessions", sessions });
+					await broadcastSessions();
 					return;
 				}
 				case "set_session_status": {
@@ -433,14 +453,12 @@ export async function startZGServer(
 					// Setting it on a loaded session also refreshes the snapshot, which is
 					// where the toolbar reads the active session's status from.
 					await runtime.setSessionStatus(statusPath, message.status);
-					const sessions = await runtime.listSessions();
-					broadcast({ type: "sessions", sessions });
+					await broadcastSessions();
 					return;
 				}
 				case "delete_session": {
 					await runtime.deleteSession(message.path);
-					const sessions = await runtime.listSessions();
-					broadcast({ type: "sessions", sessions });
+					await broadcastSessions();
 					return;
 				}
 				case "navigate":
@@ -684,8 +702,7 @@ export async function startZGServer(
 						cwd: target.workDir,
 					});
 					broadcastProjects();
-					const sessions = await runtime.listSessions();
-					broadcast({ type: "sessions", sessions });
+					await broadcastSessions();
 					return;
 				}
 				case "list_files": {

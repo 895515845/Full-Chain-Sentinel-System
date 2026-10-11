@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会话分组 + Agent 起名 UI 稿</title>
+<style>
+	:root {
+		--bg: #fafafa; --card: #fff; --border: #eee; --border-strong: #d9d9d9;
+		--text: #000000d9; --dim: #606266; --accent: #0960bd; --accent-dim: #0960bd0d;
+		--ok: #67c23a; --warn: #e6a23c; --danger: #f56c6c;
+		--nav: #001529; --nav-child: #000c17; --nav-text: #ffffffbf; --nav-text-dim: #ffffff73;
+		--nav-hover: #0d2136; --nav-active: #273352;
+		--radius: 6px;
+		--sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+	}
+	* { box-sizing: border-box; }
+	body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; margin: 0; padding: 24px; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	h2 { font-size: 15px; margin: 36px 0 4px; padding-top: 16px; border-top: 1px dashed var(--border-strong); }
+	.note { color: var(--dim); font-size: 12.5px; margin: 0 0 14px; }
+	.row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+
+	/* ---- 侧栏模拟（深色，尺寸贴近真实 210px） ---- */
+	.sider { width: 230px; background: var(--nav); border-radius: 8px; padding: 10px 0; flex: none; }
+	.sider-brand { display:flex; align-items:center; gap:8px; color:#fff; font-weight:600; padding: 8px 16px 12px; font-size: 14px; }
+	.sider-brand .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }
+	.nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 16px; color: var(--nav-text); font-size: 13.5px; cursor: pointer; }
+	.nav-item:hover { background: var(--nav-hover); color: #fff; }
+	.nav-item.active { background: var(--nav-active); color: #fff; }
+	.nav-item .caret { margin-left: auto; color: var(--nav-text-dim); font-size: 10px; }
+	.badge-n { background: var(--accent); color: #fff; border-radius: 8px; font-size: 11px; padding: 0 6px; line-height: 16px; margin-left: 6px; }
+
+	.menu-sub { background: var(--nav-child); padding: 4px 0 6px; }
+	.menu-sub-head { display: flex; align-items: center; gap: 8px; padding: 6px 16px; color: var(--nav-text-dim); font-size: 12px; }
+	.menu-sub-head .spacer { flex: 1; }
+	.mini-btn { background: none; border: none; color: var(--nav-text-dim); font-size: 11px; cursor: pointer; padding: 0 4px; border-radius: 4px; }
+	.mini-btn.on { color: #fff; background: var(--nav-active); }
+	.mini-btn:hover { color: #fff; }
+	.menu-sub-item { display: flex; align-items: center; gap: 8px; padding: 6px 16px 6px 24px; color: var(--nav-text); font-size: 13px; cursor: pointer; }
+	.menu-sub-item:hover { background: var(--nav-hover); color: #fff; }
+	.menu-sub-item.active { background: var(--nav-active); color: #fff; }
+	.menu-sub-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.menu-sub-dot { width: 6px; height: 6px; border-radius: 50%; background: #ffffff40; flex: none; }
+	.menu-sub-dot.running { background: var(--ok); box-shadow: 0 0 4px var(--ok); }
+	.menu-sub-dot.done { background: var(--accent); }
+
+	/* 方案 1：折叠分组 */
+	.group-head { display: flex; align-items: center; gap: 6px; padding: 7px 16px; color: var(--nav-text); font-size: 12.5px; cursor: pointer; }
+	.group-head:hover { background: var(--nav-hover); color: #fff; }
+	.group-head .caret { color: var(--nav-text-dim); font-size: 9px; }
+	.group-head .count { color: var(--nav-text-dim); font-size: 11px; }
+	.engine-head { display: flex; align-items: center; gap: 6px; padding: 5px 16px 5px 28px; color: var(--nav-text-dim); font-size: 12px; cursor: pointer; }
+	.engine-head:hover { color: #fff; }
+	.engine-head .caret { font-size: 9px; }
+	.task-item { padding-left: 40px; }
+	.task-item .status-tag { font-size: 10.5px; padding: 0 5px; border-radius: 3px; flex: none; line-height: 16px; }
+	.tag-running { background: #4cc2ff22; color: #4cc2ff; }
+	.tag-done { background: #67c23a22; color: #8fdd6a; }
+	.tag-failed { background: #f56c6c22; color: #f09393; }
+
+	/* 方案 2：平铺 + 徽章 + 筛选 */
+	.filter-bar { display: flex; gap: 4px; padding: 2px 16px 6px; }
+	.filter-pill { background: none; border: none; color: var(--nav-text-dim); font-size: 11.5px; padding: 2px 8px; border-radius: 999px; cursor: pointer; }
+	.filter-pill.on { background: var(--nav-active); color: #fff; }
+	.src-badge { font-size: 10.5px; color: #4cc2ff; background: #4cc2ff1a; border-radius: 3px; padding: 0 5px; line-height: 16px; flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+	/* 起名演示卡 */
+	.demo-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; max-width: 560px; }
+	.tool-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-size: 13px; }
+	.tool-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #f8f8f9; border-bottom: 1px solid var(--border); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+	.tool-body { padding: 8px 12px; color: var(--dim); }
+	.console { background: #0b0f14; color: #c5e1a5; font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 10px 12px; border-radius: 6px; margin: 8px 0 0; white-space: pre-wrap; }
+	.arrow { color: var(--dim); margin: 10px 0; font-size: 13px; }
+	.rename-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 3px 12px; font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<h1>会话分组 + Agent 自主起名 — UI 稿</h1>
+<p class="note">已定：① set_session_title 工具随时改，人工重命名保留（后写覆盖）；② 提示词引导主动起名；③ 旧工程会话自动对账归组；④ 工程组内按工程分组 + 时间倒序。待选：侧栏形态——方案 1（折叠分组）vs 方案 2（平铺 + 徽章 + 筛选），两稿如下。</p>
+
+<h2>方案 1 — 折叠分组：对话 / 工程 两段，工程内按工程名再分节</h2>
+<p class="note">「对话」段就是现状（状态点 + 悬停改名 + 全部/未完成）；「工程」段独立折叠，内部每个工程一个小节，任务行带状态徽章，运行中实时可点开看流式。</p>
+<div class="row">
+	<div class="sider">
+		<div class="sider-brand"><span class="dot"></span>ZGAgent</div>
+		<div class="nav-item active">💬 对话 <span class="caret">▾</span></div>
+		<div class="menu-sub">
+			<div class="group-head"><span class="caret">▾</span>对话 <span class="count">3</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot done"></span><span class="menu-sub-name">10.0.0.5 SQL 注入验证</span></div>
+			<div class="menu-sub-item active"><span class="menu-sub-dot running"></span><span class="menu-sub-name">内网横向凭据收集</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot"></span><span class="menu-sub-name">报告整理：一批 Web 目标</span></div>
+			<div class="group-head" style="margin-top:4px"><span class="caret">▾</span>工程 <span class="count">4</span></div>
+			<div class="engine-head"><span class="caret">▾</span>内网一批 Web 目标 <span class="count" style="font-size:10.5px">3</span></div>
+			<div class="menu-sub-item task-item"><span class="status-tag tag-done">完成</span><span class="menu-sub-name">10.0.0.1 端口枚举</span></div>
+			<div class="menu-sub-item task-item"><span class="status-tag tag-running">运行</span><span class="menu-sub-name">10.0.0.5 Web 深度测试</span></div>
+			<div class="menu-sub-item task-item"><span class="status-tag tag-failed">失败</span><span class="menu-sub-name">10.0.0.9 全端口扫描</span></div>
+			<div class="engine-head"><span class="caret">▸</span>e2e-冒烟 <span class="count" style="font-size:10.5px">1</span></div>
+		</div>
+		<div class="nav-item">📁 项目</div>
+		<div class="nav-item">🛡 漏洞</div>
+		<div class="nav-item">🧭 工程</div>
+	</div>
+	<div style="max-width:340px;font-size:13px;color:var(--dim);line-height:1.8;padding-top:8px">
+		<p style="margin:0 0 8px"><b style="color:var(--text)">优点</b>：结构最清晰，批量打几十个目标时工程会话不淹没普通对话；工程小节自带状态汇总。</p>
+		<p style="margin:0 0 8px"><b style="color:var(--text)">代价</b>：侧栏多一层缩进；「全部/未完成」筛选只作用于对话段，两段各自计数。</p>
+		<p style="margin:0"><b style="color:var(--text)">交互</b>：段头 / 工程头点击折叠（记 localStorage）；行悬停仍是改名/删除。</p>
+	</div>
+</div>
+
+<h2>方案 2 — 平铺 + 来源徽章 + 筛选器（全部 / 未完成 / 对话 / 工程）</h2>
+<p class="note">不分组，列表保持一层；工程会话行首带状态徽章、行尾带工程名徽章；筛选器在原「全部 / 未完成」旁加两个维度，可组合（如「工程 + 未完成」）。</p>
+<div class="row">
+	<div class="sider">
+		<div class="sider-brand"><span class="dot"></span>ZGAgent</div>
+		<div class="nav-item active">💬 对话 <span class="caret">▾</span></div>
+		<div class="menu-sub">
+			<div class="menu-sub-head"><span>7 个会话</span><span class="spacer"></span><button class="mini-btn">＋</button></div>
+			<div class="filter-bar">
+				<button class="filter-pill on">全部</button>
+				<button class="filter-pill">未完成</button>
+				<button class="filter-pill">对话</button>
+				<button class="filter-pill">工程</button>
+			</div>
+			<div class="menu-sub-item"><span class="menu-sub-dot running"></span><span class="menu-sub-name">内网横向凭据收集</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot done"></span><span class="menu-sub-name">10.0.0.5 SQL 注入验证</span><span class="src-badge">内网一批</span></div>
+			<div class="menu-sub-item active"><span class="status-tag tag-running">运行</span><span class="menu-sub-name">10.0.0.5 Web 深度测试</span><span class="src-badge">内网一批</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot done"></span><span class="menu-sub-name">10.0.0.1 端口枚举</span><span class="src-badge">内网一批</span></div>
+			<div class="menu-sub-item"><span class="status-tag tag-failed">失败</span><span class="menu-sub-name">10.0.0.9 全端口扫描</span><span class="src-badge">内网一批</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot"></span><span class="menu-sub-name">报告整理：一批 Web 目标</span></div>
+			<div class="menu-sub-item"><span class="menu-sub-dot done"></span><span class="menu-sub-name">127.0.0.1 端口枚举</span><span class="src-badge">e2e-冒烟</span></div>
+		</div>
+		<div class="nav-item">📁 项目</div>
+		<div class="nav-item">🛡 漏洞</div>
+		<div class="nav-item">🧭 工程</div>
+	</div>
+	<div style="max-width:340px;font-size:13px;color:var(--dim);line-height:1.8;padding-top:8px">
+		<p style="margin:0 0 8px"><b style="color:var(--text)">优点</b>：单层列表改动最小，时间线一以贯之；筛选维度更灵活（工程×未完成组合）。</p>
+		<p style="margin:0 0 8px"><b style="color:var(--text)">代价</b>：大批量时工程会话仍会占满列表，靠筛选救；工程归属靠行尾小徽章，扫视略弱。</p>
+		<p style="margin:0"><b style="color:var(--text)">交互</b>：「对话 / 工程」与「未完成」是两个独立维度，点选组合；再点取消。</p>
+	</div>
+</div>
+
+<h2>Agent 自主起名（两案通用，行为演示）</h2>
+<p class="note">set_session_title 工具挂到主 Agent 与工程 worker；提示词引导「任务明确后尽早起一个可检索的描述性标题，范围变化时更新」。人工重命名保留，后写覆盖（人工改完 Agent 再改也会覆盖——按你选的「随时改」）。</p>
+<div class="demo-card">
+	<div class="tool-card">
+		<div class="tool-head">🔧 set_session_title <span style="color:var(--dim)">· 标题</span></div>
+		<div class="tool-body">
+			参数：<code>{ "title": "10.0.0.5 SQL 注入验证（/api/query 布尔盲注）" }</code>
+			<div>返回：会话标题已更新。侧栏与通知中的会话名即时生效。</div>
+		</div>
+	</div>
+	<div class="arrow">↓ 工具执行后，侧栏行即时变为 ↓</div>
+	<div class="sider" style="width:280px">
+		<div class="menu-sub-item active"><span class="menu-sub-dot running"></span><span class="menu-sub-name">10.0.0.5 SQL 注入验证（/api/query 布尔盲注）</span></div>
+		<div class="menu-sub-item"><span class="menu-sub-dot"></span><span class="menu-sub-name">内网横向凭据收集</span></div>
+	</div>
+	<div class="console">运行通知里同样用新标题：
+[工程已完成] 10.0.0.5 SQL 注入验证（/api/query 布尔盲注） · 耗时 41 分钟 · 中枢 2 条</div>
+	<p class="note" style="margin-top:10px">防滥用：标题长度上限 80 字；工程任务会话默认名「工程名 · 任务标题」仍由引擎写入，worker 起名会覆盖任务标题部分但保留工程前缀（列表分组/徽章不受影响）。</p>
+</div>
+
+</body>
+</html>

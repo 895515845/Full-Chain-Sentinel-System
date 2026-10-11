@@ -169,6 +169,27 @@ export class EngineManager {
 		return this.store.listEvents(taskId);
 	}
 
+	/**
+	 * sessionId → engine/task for every task that owns a session, so the
+	 * session list can badge engineering conversations. Live tasks of any
+	 * engine are included, finished ones too (their conversations persist).
+	 */
+	taskSessionIndex(): Map<string, { engineId: string; engineName: string; taskStatus: string }> {
+		const index = new Map<string, { engineId: string; engineName: string; taskStatus: string }>();
+		for (const engine of this.store.listEngines()) {
+			for (const task of engine.tasks) {
+				if (task.sessionId) {
+					index.set(task.sessionId, {
+						engineId: engine.id,
+						engineName: engine.name,
+						taskStatus: task.status,
+					});
+				}
+			}
+		}
+		return index;
+	}
+
 	/** Doctrine list for the create form. */
 	doctrines(): ZGDoctrine[] {
 		return listDoctrines(this.agentDir);

@@ -51,6 +51,17 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];
 
+/** Sidebar tags for an engineering task session's live status. */
+const TASK_TAG_LABELS: Record<string, string> = {
+	queued: "排队",
+	running: "运行",
+	done: "完成",
+	failed: "失败",
+	blocked: "阻塞",
+	aborted: "中止",
+	paused: "暂停",
+};
+
 export function AppSider({
 	collapsed,
 	onToggleCollapse,
@@ -101,23 +112,39 @@ export function AppSider({
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [editingName, setEditingName] = useState("");
 	/**
-	 * "未完成" hides 已完成 and 已忽略: with a dozen tasks in flight, the point of the
-	 * status is to stop reading the ones that no longer need anything.
+	 * Two independent filter dimensions over the flat session list:
+	 * - status: "未完成" hides 已完成/已忽略 sessions;
+	 * - source: 对话 (console-born) vs 工程 (engineering task conversations),
+	 *   badged with the engine's name so a batch run never drowns the rest.
 	 */
-	const [sessionFilter, setSessionFilter] = useState<"all" | "open">(() =>
+	const [statusFilter, setStatusFilter] = useState<"all" | "open">(() =>
 		localStorage.getItem("zg-session-filter") === "open" ? "open" : "all",
 	);
+	const [sourceFilter, setSourceFilter] = useState<"all" | "chat" | "engine">(() => {
+		const stored = localStorage.getItem("zg-session-source");
+		return stored === "chat" || stored === "engine" ? stored : "all";
+	});
 	const visibleSessions = useMemo(
 		() =>
-			sessionFilter === "open"
-				? sessions.filter((session) => session.status !== "done" && session.status !== "ignored")
-				: sessions,
-		[sessions, sessionFilter],
+			sessions.filter((session) => {
+				if (statusFilter === "open" && (session.status === "done" || session.status === "ignored")) {
+					return false;
+				}
+				if (sourceFilter === "chat" && session.engine) return false;
+				if (sourceFilter === "engine" && !session.engine) return false;
+				return true;
+			}),
+		[sessions, statusFilter, sourceFilter],
 	);
 
-	const setFilter = (next: "all" | "open") => {
+	const setStatus = (next: "all" | "open") => {
 		localStorage.setItem("zg-session-filter", next);
-		setSessionFilter(next);
+		setStatusFilter(next);
+	};
+
+	const setSource = (next: "all" | "chat" | "engine") => {
+		localStorage.setItem("zg-session-source", next);
+		setSourceFilter(next);
 	};
 
 	const startRename = (session: SessionInfoView) => {
@@ -137,28 +164,47 @@ export function AppSider({
 				<span>
 					{sessions.length === 0
 						? "暂无会话"
-						: sessionFilter === "open"
+						: statusFilter === "open" || sourceFilter !== "all"
 							? `${visibleSessions.length} / ${sessions.length} 个会话`
 							: `${sessions.length} 个会话`}
 				</span>
-				<span className="menu-sub-filter" title="未完成会隐藏「已完成」和「已忽略」的会话">
-					<button
-						type="button"
-						className={sessionFilter === "all" ? "on" : ""}
-						onClick={() => setFilter("all")}
-					>
-						全部
-					</button>
-					<button
-						type="button"
-						className={sessionFilter === "open" ? "on" : ""}
-						onClick={() => setFilter("open")}
-					>
-						未完成
-					</button>
-				</span>
 				<button type="button" className="menu-sub-add" title="新建会话" onClick={onNewSession}>
 					＋
+				</button>
+			</div>
+			<div className="menu-sub-filters" title="未完成隐藏「已完成/已忽略」；对话/工程按会话来源筛选，可与未完成组合">
+				<button
+					type="button"
+					className={statusFilter === "all" && sourceFilter === "all" ? "on" : ""}
+					onClick={() => {
+						setStatus("all");
+						setSource("all");
+					}}
+				>
+					全部
+				</button>
+				<button
+					type="button"
+					className={statusFilter === "open" ? "on" : ""}
+					onClick={() => setStatus(statusFilter === "open" ? "all" : "open")}
+				>
+					未完成
+				</button>
+				<button
+					type="button"
+					className={sourceFilter === "chat" ? "on" : ""}
+					disabled={!sessions.some((session) => !session.engine) && sourceFilter !== "chat"}
+					onClick={() => setSource(sourceFilter === "chat" ? "all" : "chat")}
+				>
+					对话
+				</button>
+				<button
+					type="button"
+					className={sourceFilter === "engine" ? "on" : ""}
+					disabled={!sessions.some((session) => session.engine) && sourceFilter !== "engine"}
+					onClick={() => setSource(sourceFilter === "engine" ? "all" : "engine")}
+				>
+					工程
 				</button>
 			</div>
 			{visibleSessions.map((session) => {
@@ -193,8 +239,19 @@ export function AppSider({
 							if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
 						}}
 					>
-						<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
+						{session.engine ? (
+							<span className={`session-task-tag task-${session.engine.taskStatus}`} title={`工程任务：${session.engine.taskStatus}`}>
+								{TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}
+							</span>
+						) : (
+							<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
+						)}
 						<span className="menu-sub-name">{label}</span>
+						{session.engine ? (
+							<span className="session-engine-badge" title={`工程：${session.engine.engineName}`}>
+								{session.engine.engineName}
+							</span>
+						) : null}
 						<SessionStatusControl
 							variant="chip"
 							status={session.status}
