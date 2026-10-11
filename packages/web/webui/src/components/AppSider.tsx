@@ -179,6 +179,32 @@ export function AppSider({
 	}, [visibleSessions]);
 	const chatSessions = useMemo(() => visibleSessions.filter((session) => !session.engine), [visibleSessions]);
 
+	/**
+	 * The hover card renders through a portal to document.body with fixed
+	 * coordinates: the sidebar and its menu both clip overflow, so an absolutely
+	 * positioned card inside a row would never be visible.
+	 */
+	const [hoverCard, setHoverCard] = useState<{ session: SessionInfoView; top: number; left: number } | null>(null);
+	const hideTimer = useRef<number | null>(null);
+	const cancelHide = () => {
+		if (hideTimer.current !== null) {
+			window.clearTimeout(hideTimer.current);
+			hideTimer.current = null;
+		}
+	};
+	const showCard = (session: SessionInfoView, row: HTMLElement) => {
+		cancelHide();
+		const rect = row.getBoundingClientRect();
+		const left = Math.min(rect.right + 8, window.innerWidth - 268);
+		const top = Math.max(8, Math.min(rect.top - 6, window.innerHeight - 250));
+		setHoverCard({ session, top, left });
+	};
+	const scheduleHide = () => {
+		cancelHide();
+		hideTimer.current = window.setTimeout(() => setHoverCard(null), 150);
+	};
+	useEffect(() => cancelHide, []);
+
 	/** Live task info behind a session id, for the hover card. */
 	const taskOfSession = (sessionId: string) => {
 		for (const engine of engines) {
@@ -248,6 +274,8 @@ export function AppSider({
 				onKeyDown={(event) => {
 					if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
 				}}
+				onMouseEnter={(event) => showCard(session, event.currentTarget)}
+				onMouseLeave={scheduleHide}
 			>
 				{railClass ? <span className={railClass} title={session.status === "todo" ? "人工标记：待跟进" : "人工标记：进行中"} /> : null}
 				<span
@@ -261,63 +289,6 @@ export function AppSider({
 					}
 				/>
 				<span className="menu-sub-name">{label}</span>
-				{/* Hover card: every piece of metadata and action lives here, so the
-				    row itself stays dot + title and the title keeps the full width. */}
-				<div className="session-hovercard" onClick={(event) => event.stopPropagation()}>
-					<div className="hc-name">{label}</div>
-					{session.engine ? (
-						<div className="hc-row">
-							<span>工程</span>
-							<b>{session.engine.engineName}</b>
-						</div>
-					) : null}
-					{live ? (
-						<div className="hc-row">
-							<span>任务状态</span>
-							<b>
-								{TASK_TAG_LABELS[live.task.status] ?? live.task.status}
-								{live.task.status === "running" || live.task.status === "queued"
-									? ` · 轮 ${live.task.roundsUsed}/${live.task.roundLimit}`
-									: ""}
-							</b>
-						</div>
-					) : null}
-					<div className="hc-row">
-						<span>人工标记</span>
-						<b>{session.status ? SESSION_STATUS_LABELS[session.status] : "未设置"}</b>
-					</div>
-					<div className="hc-row">
-						<span>最近活动</span>
-						<b>{new Date(session.modified).toLocaleString("zh-CN", { hour12: false })}</b>
-					</div>
-					<div className="hc-actions">
-						<button
-							type="button"
-							title="重命名"
-							onClick={() => {
-								startRename(session);
-							}}
-						>
-							✎ 改名
-						</button>
-						<SessionStatusControl
-							variant="chip"
-							status={session.status}
-							onPick={(next) => onSetSessionStatus(session.path, next)}
-						/>
-						<button
-							type="button"
-							title="删除会话（不可恢复）"
-							onClick={() => {
-								if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) {
-									onDeleteSession(session.path);
-								}
-							}}
-						>
-							🗑 删除
-						</button>
-					</div>
-				</div>
 			</div>
 		);
 	};
@@ -513,6 +484,109 @@ export function AppSider({
 					<RefreshIcon />
 				</button>
 			</div>
+			{hoverCard ? (
+				<SessionHoverCard
+					data={hoverCard}
+					engines={engines}
+					onRename={(session) => {
+						setHoverCard(null);
+						startRename(session);
+					}}
+					onSetStatus={onSetSessionStatus}
+					onDelete={onDeleteSession}
+					onEnter={cancelHide}
+					onLeave={() => setHoverCard(null)}
+				/>
+			) : null}
 		</aside>
+	);
+}
+
+/**
+ * The session hover card, portaled to document.body so no ancestor's overflow
+ * clipping can hide it. Pinned open while the pointer is over the card itself.
+ */
+function SessionHoverCard({
+	data,
+	engines,
+	onRename,
+	onSetStatus,
+	onDelete,
+	onEnter,
+	onLeave,
+}: {
+	data: { session: SessionInfoView; top: number; left: number };
+	engines: ZGEngine[];
+	onRename(session: SessionInfoView): void;
+	onSetStatus(path: string, status: ZGSessionStatus | null): void;
+	onDelete(path: string): void;
+	onEnter(): void;
+	onLeave(): void;
+}) {
+	const { session, top, left } = data;
+	const label = session.name ?? session.firstMessage.slice(0, 40);
+	const live = (() => {
+		for (const engine of engines) {
+			for (const task of engine.tasks) {
+				if (task.sessionId === session.id) return { engine, task };
+			}
+		}
+		return undefined;
+	})();
+	return createPortal(
+		<div
+			className="session-hovercard"
+			style={{ top, left }}
+			onMouseEnter={onEnter}
+			onMouseLeave={onLeave}
+			onClick={(event) => event.stopPropagation()}
+		>
+			<div className="hc-name">{label}</div>
+			{session.engine ? (
+				<div className="hc-row">
+					<span>工程</span>
+					<b>{session.engine.engineName}</b>
+				</div>
+			) : null}
+			{live ? (
+				<div className="hc-row">
+					<span>任务状态</span>
+					<b>
+						{TASK_TAG_LABELS[live.task.status] ?? live.task.status}
+						{live.task.status === "running" || live.task.status === "queued"
+							? ` · 轮 ${live.task.roundsUsed}/${live.task.roundLimit}`
+							: ""}
+					</b>
+				</div>
+			) : null}
+			<div className="hc-row">
+				<span>人工标记</span>
+				<b>{session.status ? SESSION_STATUS_LABELS[session.status] : "未设置"}</b>
+			</div>
+			<div className="hc-row">
+				<span>最近活动</span>
+				<b>{new Date(session.modified).toLocaleString("zh-CN", { hour12: false })}</b>
+			</div>
+			<div className="hc-actions">
+				<button type="button" title="重命名" onClick={() => onRename(session)}>
+					✎ 改名
+				</button>
+				<SessionStatusControl
+					variant="chip"
+					status={session.status}
+					onPick={(next) => onSetStatus(session.path, next)}
+				/>
+				<button
+					type="button"
+					title="删除会话（不可恢复）"
+					onClick={() => {
+						if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) onDelete(session.path);
+					}}
+				>
+					🗑 删除
+				</button>
+			</div>
+		</div>,
+		document.body,
 	);
 }

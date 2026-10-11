@@ -5866,25 +5866,18 @@ button.link {
 	50% { opacity: 0.45; }
 }
 
-/* Hover card: metadata + actions, anchored to the row's right edge. */
-.session-row .session-hovercard {
-	display: none;
-	position: absolute;
-	left: calc(100% - 6px);
-	top: -6px;
+/* Hover card: portaled to body with fixed coordinates, so no ancestor's
+   overflow clipping (the sider clips!) can hide it. */
+.session-hovercard {
+	position: fixed;
 	width: 252px;
 	background: #16222f;
 	border: 1px solid #2f3d4d;
 	border-radius: 8px;
 	padding: 10px 12px;
 	box-shadow: 0 10px 30px #00000066;
-	z-index: 30;
+	z-index: 300;
 	cursor: default;
-}
-
-.session-row:hover .session-hovercard,
-.session-row:focus-within .session-hovercard {
-	display: block;
 }
 
 .session-hovercard .hc-name {
