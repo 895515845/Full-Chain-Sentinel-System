@@ -9,12 +9,16 @@
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { WebSocket, WebSocketServer } from "ws";
 import { readWebuiFile } from "./assets.ts";
 import { buildImage } from "./docker.ts";
+import { deleteDoctrine, listDoctrines, saveDoctrine } from "./doctrines.ts";
 import { testModelConfig } from "./endpoint-probe.ts";
+import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
+import { readCommanderModelConfig, writeCommanderModelConfig } from "./model-config.ts";
 import {
 	addProject,
 	ensureProjectReady,
@@ -24,6 +28,13 @@ import {
 	setLastActiveProject,
 } from "./projects.ts";
 import type { ZGClientMessage, ZGEnvReport, ZGProjectInfo, ZGServerMessage } from "./protocol.ts";
+import type { WorkerSession } from "./worker.ts";
+
+interface AcquiredTaskSession {
+	session: WorkerSession;
+	manager: SessionManager;
+}
+
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { ZGAgentRuntime } from "./zg-session.ts";
 
@@ -164,6 +175,31 @@ export async function startZGServer(
 	let envCheck: Promise<ZGEnvReport> | undefined;
 	let imageBuild: AbortController | undefined;
 
+	/**
+	 * Engineering mode. One manager owns every engine across projects; the
+	 * hooks push engine state and the commander's decision log to all consoles.
+	 */
+	const engines = agentDir
+		? new EngineManager(
+				agentDir,
+				{
+					onChange: (engine) => broadcast({ type: "engine_update", engine }),
+					onCommanderEvent: (engineId, event) => broadcast({ type: "engine_commander_event", engineId, event }),
+					onTaskEvent: (taskId, event) => broadcast({ type: "engine_task_event", taskId, event }),
+				},
+				// Task sessions are created by the runtime in the project's normal
+				// session directory, so they are first-class conversations.
+				(options) => runtime.acquireTaskSession(options) as unknown as Promise<AcquiredTaskSession>,
+			)
+		: undefined;
+
+	function broadcastEngines(socket?: WebSocket): void {
+		if (!engines) return;
+		const view = { type: "engines", engines: engines.listEngines() } satisfies ZGServerMessage;
+		if (socket) sendTo(socket, view);
+		else broadcast(view);
+	}
+
 	function consoleUrl(): string {
 		const address = server.address();
 		const boundPort = address && typeof address === "object" ? address.port : (options.port ?? 7777);
@@ -271,6 +307,10 @@ export async function startZGServer(
 		});
 		socket.on("close", () => clients.delete(socket));
 		socket.on("error", () => clients.delete(socket));
+		// Engineering mode: the board and doctrine list are pushed per connect.
+		broadcastEngines(socket);
+		if (agentDir) sendTo(socket, { type: "doctrines", doctrines: listDoctrines(agentDir) });
+		if (agentDir) sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
 	});
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -609,6 +649,9 @@ export async function startZGServer(
 						sendError(socket, result.error);
 						return;
 					}
+					// The project's container is gone: its engines cannot run and
+					// their task sessions die with the project, so cascade.
+					if (engines) await engines.purgeProject(message.id);
 					const purged = runtime.purgeProjectVulns(message.id);
 					console.error(`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录`);
 					// The removed project's container is gone, so its sessions cannot run;
@@ -771,6 +814,155 @@ export async function startZGServer(
 					});
 					return;
 				}
+				case "list_engines":
+					broadcastEngines(socket);
+					return;
+				case "engine_create": {
+					if (!engines) {
+						sendError(socket, "未配置配置目录，无法使用工程模式");
+						return;
+					}
+					const project = runtime.snapshot().project;
+					if (!project) {
+						sendError(socket, "请先创建或选择一个项目，工程属于项目");
+						return;
+					}
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						broadcastEnvironment();
+						return;
+					}
+					await engines.createEngine(project, message.input);
+					broadcastEngines();
+					return;
+				}
+				case "engine_pause":
+					if (engines) await engines.pauseEngine(message.id);
+					return;
+				case "engine_resume": {
+					if (!engines) return;
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						return;
+					}
+					await engines.resumeEngine(message.id);
+					return;
+				}
+				case "engine_abort":
+					if (engines) await engines.abortEngine(message.id);
+					return;
+				case "engine_delete":
+					if (engines) {
+						await engines.deleteEngine(message.id);
+						broadcastEngines();
+					}
+					return;
+				case "engine_add_targets":
+					if (engines) engines.addTargets(message.id, message.targets);
+					return;
+				case "engine_steer_commander":
+					if (engines) await engines.steerCommander(message.id, message.text);
+					return;
+				case "engine_abort_task": {
+					if (!engines) return;
+					try {
+						await engines.abortTask(message.taskId, "操作员在工程页中止");
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "engine_task_events": {
+					if (!engines) return;
+					sendTo(socket, {
+						type: "engine_task_events",
+						taskId: message.taskId,
+						events: engines.taskEvents(message.taskId),
+					});
+					return;
+				}
+				case "engine_commander_events": {
+					if (!engines) return;
+					sendTo(socket, {
+						type: "engine_commander_events",
+						id: message.id,
+						events: engines.commanderEvents(message.id),
+					});
+					return;
+				}
+				case "engine_open_task_session": {
+					if (!engines) return;
+					try {
+						const path = engines.taskSessionPath(message.taskId);
+						await runtime.switchSession(path);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "engine_report_snapshot": {
+					if (!engines) return;
+					const reportView = engines.reportSnapshot(message.id);
+					sendTo(socket, {
+						type: "engine_report",
+						id: message.id,
+						markdown: reportView.markdown,
+						filename: reportView.filename,
+					});
+					return;
+				}
+				case "list_doctrines":
+					sendTo(socket, {
+						type: "doctrines",
+						doctrines: agentDir ? listDoctrines(agentDir) : [],
+					});
+					return;
+				case "save_doctrine": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法保存指挥思路");
+						return;
+					}
+					const result = saveDoctrine(agentDir, message.input);
+					sendTo(socket, {
+						type: "doctrine_saved",
+						doctrine: result.doctrine ?? {
+							id: message.input.id ?? "",
+							name: message.input.name,
+							text: message.input.text,
+							builtin: false,
+						},
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "delete_doctrine": {
+					if (!agentDir) return;
+					const result = agentDir ? deleteDoctrine(agentDir, message.id) : { ok: false, error: "未配置配置目录" };
+					sendTo(socket, {
+						type: "doctrine_deleted",
+						id: message.id,
+						ok: result.ok,
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "get_commander_config":
+					sendTo(socket, {
+						type: "commander_config",
+						config: agentDir ? readCommanderModelConfig(agentDir) : null,
+					});
+					return;
+				case "save_commander_config": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法保存指挥官配置");
+						return;
+					}
+					writeCommanderModelConfig(agentDir, message.config);
+					sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
+					return;
+				}
 				default:
 					sendError(socket, `未知消息类型: ${(message as { type?: string }).type ?? "?"}`);
 			}
@@ -829,6 +1021,7 @@ export async function startZGServer(
 				url: `http://${shownHost}:${shownPort}`,
 				environment,
 				close: () => {
+					engines?.dispose();
 					runtime.dispose();
 					for (const client of clients) client.terminate();
 					wss.close();

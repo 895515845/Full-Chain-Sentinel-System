@@ -10,6 +10,7 @@ export type ZGPageId =
 	| "chat"
 	| "projects"
 	| "vulns"
+	| "engine"
 	| "settings.model"
 	| "settings.notify"
 	| "settings.permissions"
@@ -104,12 +105,18 @@ export type ZGPermissionKey =
 /** The switches of one agent; a missing entry means "not allowed". */
 export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
 
+export type ZGCommanderPermissionKey = "bash" | "read";
+
+export type ZGCommanderPermissionSet = Record<ZGCommanderPermissionKey, boolean>;
+
 export interface ZGPermissionsConfig {
 	main: ZGPermissionSet;
 	subagent: ZGPermissionSet;
+	commander: ZGCommanderPermissionSet;
 }
 
 export interface ZGPermissionPreset {
+	commander: ZGCommanderPermissionSet;
 	id: string;
 	label: string;
 	hint: string;
@@ -496,7 +503,25 @@ export type ZGClientMessage =
 	| { type: "check_environment" }
 	| { type: "build_image" }
 	| { type: "abort_image_build" }
-	| { type: "set_sources"; sources: ZGSources };
+	| { type: "set_sources"; sources: ZGSources }
+	| { type: "list_engines" }
+	| { type: "engine_create"; input: ZGEngineCreateInput }
+	| { type: "engine_pause"; id: string }
+	| { type: "engine_resume"; id: string }
+	| { type: "engine_abort"; id: string }
+	| { type: "engine_delete"; id: string }
+	| { type: "engine_add_targets"; id: string; targets: string }
+	| { type: "engine_steer_commander"; id: string; text: string }
+	| { type: "engine_abort_task"; taskId: string }
+	| { type: "engine_task_events"; taskId: string }
+	| { type: "engine_open_task_session"; taskId: string }
+	| { type: "engine_commander_events"; id: string }
+	| { type: "engine_report_snapshot"; id: string }
+	| { type: "list_doctrines" }
+	| { type: "save_doctrine"; input: { id?: string; name: string; text: string } }
+	| { type: "delete_doctrine"; id: string }
+	| { type: "get_commander_config" }
+	| { type: "save_commander_config"; config: ZGModelConfig | null };
 
 export type ZGServerMessage =
 	| { type: "snapshot"; snapshot: ZGStateSnapshot }
@@ -532,6 +557,17 @@ export type ZGServerMessage =
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }
 	| { type: "sources_saved"; sources: ZGSources; error?: string }
+	| { type: "engines"; engines: ZGEngine[] }
+	| { type: "engine_update"; engine: ZGEngine }
+	| { type: "engine_commander_event"; engineId: string; event: ZGSubagentEvent }
+	| { type: "engine_task_event"; taskId: string; event: ZGSubagentEvent }
+	| { type: "engine_task_events"; taskId: string; events: ZGSubagentEvent[] }
+	| { type: "engine_commander_events"; id: string; events: ZGSubagentEvent[] }
+	| { type: "engine_report"; id: string; markdown: string; filename: string }
+	| { type: "doctrines"; doctrines: ZGDoctrineView[] }
+	| { type: "doctrine_saved"; doctrine: ZGDoctrineView; error?: string }
+	| { type: "doctrine_deleted"; id: string; ok: boolean; error?: string }
+	| { type: "commander_config"; config: ZGModelConfig | null }
 	| { type: "error"; message: string };
 
 /**
@@ -596,3 +632,75 @@ export type SessionEventView =
 	| { type: "agent_start" }
 	| { type: "agent_settled"; aborted: boolean }
 	| { type: "queue_update"; steering: string[]; followUp: string[] };
+
+
+// ---------------------------------------------------------------------------
+// Engineering mode (mirrors packages/web/src/protocol.ts)
+// ---------------------------------------------------------------------------
+
+export type ZGEngineStatus = "running" | "paused" | "completed" | "stopped";
+
+export type ZGEngineTaskStatus = "queued" | "running" | "done" | "failed" | "blocked" | "aborted" | "paused";
+
+export interface ZGEngineTarget {
+	target: string;
+	note?: string;
+}
+
+export interface ZGEngineLimits {
+	concurrency: number;
+	roundLimit: number;
+	tokenLimit: number | null;
+	timeLimitMin: number | null;
+	maxRetries: number;
+}
+
+export interface ZGEngineTask {
+	id: string;
+	engineId: string;
+	title: string;
+	objective: string;
+	target: string | null;
+	workspace: string;
+	status: ZGEngineTaskStatus;
+	attempt: number;
+	criteria: string[];
+	roundLimit: number;
+	sessionId: string | null;
+	startedAt: number | null;
+	endedAt: number | null;
+	summary: string | null;
+	error: string | null;
+	usage: ZGGoalUsage | null;
+	vulns: number;
+}
+
+export interface ZGEngine {
+	id: string;
+	projectId: string;
+	projectName: string;
+	name: string;
+	status: ZGEngineStatus;
+	pauseNote: string | null;
+	targets: ZGEngineTarget[];
+	doctrines: string[];
+	limits: ZGEngineLimits;
+	createdAt: number;
+	endedAt: number | null;
+	report: string | null;
+	tasks: ZGEngineTask[];
+}
+
+export interface ZGDoctrineView {
+	id: string;
+	name: string;
+	text: string;
+	builtin: boolean;
+}
+
+export interface ZGEngineCreateInput {
+	name: string;
+	targets: string;
+	doctrines: string[];
+	limits: ZGEngineLimits;
+}

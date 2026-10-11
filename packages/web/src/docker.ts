@@ -260,14 +260,38 @@ export function containerNameFor(projectId: string): string {
 }
 
 /**
+ * Map a host-side working directory to its path inside a project container.
+ * The project work directory is always mounted at /work, so anything under it
+ * maps to /work/<relative>; anything else falls back to /work. Never pass the
+ * host path through as-is: a container without the same-path convenience mount
+ * may still contain a stale copy of that path, and commands would silently run
+ * against it instead of the live project directory.
+ */
+export function containerWorkPath(hostCwd: string | undefined, hostWorkDir: string): string {
+	if (!hostCwd) return "/work";
+	const normalized = hostCwd.replace(/\/+$/, "");
+	if (normalized === hostWorkDir) return "/work";
+	if (normalized.startsWith(`${hostWorkDir}/`)) {
+		const relative = normalized.slice(hostWorkDir.length + 1);
+		return `/work/${relative}`;
+	}
+	return "/work";
+}
+
+/**
  * Bash execution inside a project container. Every command runs via
  * `docker exec`; output streams through onData like the local shell backend.
+ *
+ * The session cwd decides the exec working directory through `containerWorkPath`:
+ * without it every command would run in the container's `-w /work` default and
+ * per-task workspaces (/work/tasks/<name>) would not actually isolate anything.
  */
-export function dockerBashOperations(containerName: string): BashOperations {
+export function dockerBashOperations(containerName: string, options: { hostWorkDir?: string } = {}): BashOperations {
 	return {
-		exec: (command, _cwd, options) => {
+		exec: (command, cwd, execOptions) => {
 			return new Promise((resolve, reject) => {
-				const child = spawn("docker", ["exec", "-i", containerName, "sh", "-c", command], {
+				const workdir = options.hostWorkDir ? containerWorkPath(cwd, options.hostWorkDir) : cwd || "/work";
+				const child = spawn("docker", ["exec", "-i", "-w", workdir, containerName, "sh", "-c", command], {
 					stdio: ["ignore", "pipe", "pipe"],
 				});
 				let killed = false;
@@ -275,19 +299,19 @@ export function dockerBashOperations(containerName: string): BashOperations {
 					killed = true;
 					child.kill("SIGKILL");
 				};
-				options?.signal?.addEventListener("abort", onAbort, { once: true });
-				child.stdout.on("data", (chunk: Buffer) => options?.onData(chunk));
-				child.stderr.on("data", (chunk: Buffer) => options?.onData(chunk));
+				execOptions?.signal?.addEventListener("abort", onAbort, { once: true });
+				child.stdout.on("data", (chunk: Buffer) => execOptions?.onData(chunk));
+				child.stderr.on("data", (chunk: Buffer) => execOptions?.onData(chunk));
 				child.on("close", (code) => {
-					options?.signal?.removeEventListener("abort", onAbort);
-					if (options?.signal?.aborted || killed) {
+					execOptions?.signal?.removeEventListener("abort", onAbort);
+					if (execOptions?.signal?.aborted || killed) {
 						reject(new Error("aborted"));
 						return;
 					}
 					resolve({ exitCode: code ?? 1 });
 				});
 				child.on("error", (error) => {
-					options?.signal?.removeEventListener("abort", onAbort);
+					execOptions?.signal?.removeEventListener("abort", onAbort);
 					reject(error);
 				});
 			});

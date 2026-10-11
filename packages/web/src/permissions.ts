@@ -50,9 +50,32 @@ export const SUBAGENT_PERMISSION_KEYS: readonly ZGPermissionKey[] = PERMISSION_K
 /** The switches of one agent. Missing entries mean "not allowed". */
 export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
 
+/**
+ * The engineering-mode commander's switches. Its scheduling tools
+ * (dispatch_task and friends) are its essence and always mounted; what the
+ * operator controls is the fenced execution surface it gets for scoping
+ * targets: bash (budgeted, timeout, denylisted by the engine) and read.
+ */
+export type ZGCommanderPermissionKey = "bash" | "read";
+
+export type ZGCommanderPermissionSet = Record<ZGCommanderPermissionKey, boolean>;
+
+export const COMMANDER_PERMISSION_KEYS: readonly ZGCommanderPermissionKey[] = ["bash", "read"];
+
+export const COMMANDER_PERMISSION_LABELS: Record<ZGCommanderPermissionKey, string> = {
+	bash: "bash 执行命令（受限）",
+	read: "read 读取文件",
+};
+
+export const COMMANDER_PERMISSION_HINTS: Record<ZGCommanderPermissionKey, string> = {
+	bash: "在项目容器内执行命令，用于拆解任务前的一次性轻量确认；受每工程 40 条预算、单条 20 秒超时、输出截断与破坏性命令拦截约束",
+	read: "读取项目工作目录中的文件（只读，不能修改）",
+};
+
 export interface ZGPermissionsConfig {
 	main: ZGPermissionSet;
 	subagent: ZGPermissionSet;
+	commander: ZGCommanderPermissionSet;
 }
 
 /** One-click permission bundles offered above the switches. */
@@ -62,6 +85,7 @@ export interface ZGPermissionPreset {
 	hint: string;
 	main: ZGPermissionSet;
 	subagent: ZGPermissionSet;
+	commander: ZGCommanderPermissionSet;
 }
 
 export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
@@ -144,13 +168,15 @@ export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
 		hint: "全部工具可用，和默认行为一致",
 		main: fullSet(),
 		subagent: { ...fullSet(), spawn_agent: false },
+		commander: { bash: true, read: true },
 	},
 	{
 		id: "recon",
 		label: "只读侦察",
-		hint: "只读文件与 MCP 查询，不能执行命令、不能改文件；子代理同样只读",
+		hint: "只读文件与 MCP 查询，不能执行命令、不能改文件；子代理同样只读，指挥官只保留 read",
 		main: reconSet(),
 		subagent: { ...reconSet(), spawn_agent: false },
+		commander: { bash: false, read: true },
 	},
 	{
 		id: "locked",
@@ -158,11 +184,16 @@ export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
 		hint: "不挂载任何工具，只保留纯对话",
 		main: emptySet(),
 		subagent: emptySet(),
+		commander: { bash: false, read: false },
 	},
 ];
 
 export function defaultPermissions(): ZGPermissionsConfig {
-	return { main: fullSet(), subagent: { ...fullSet(), spawn_agent: false } };
+	return {
+		main: fullSet(),
+		subagent: { ...fullSet(), spawn_agent: false },
+		commander: { bash: true, read: true },
+	};
 }
 
 /**
@@ -189,11 +220,20 @@ export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
 	};
 	const main = readSet(record.main, defaults.main);
 	const subagent = readSet(record.subagent, defaults.subagent);
-	return { main, subagent: effectiveSubagent({ main, subagent }) };
+	// The commander section follows the same rule as every other switch: a file
+	// that predates it never agreed to it, so an absent section reads as off.
+	const commander: ZGCommanderPermissionSet = { bash: false, read: false };
+	if (typeof record.commander === "object" && record.commander !== null) {
+		const source = record.commander as Record<string, unknown>;
+		for (const key of COMMANDER_PERMISSION_KEYS) {
+			commander[key] = source[key] === true;
+		}
+	}
+	return { main, subagent: effectiveSubagent({ main, subagent }), commander };
 }
 
 /** What a sub-agent actually receives: the main agent's set, minus spawn_agent. */
-export function effectiveSubagent(config: ZGPermissionsConfig): ZGPermissionSet {
+export function effectiveSubagent(config: Pick<ZGPermissionsConfig, "main" | "subagent">): ZGPermissionSet {
 	const set = emptySet();
 	for (const key of SUBAGENT_PERMISSION_KEYS) {
 		set[key] = config.main[key] && config.subagent[key];

@@ -368,6 +368,87 @@ export interface ZGVulnStats {
 	byStatus: Record<ZGVulnStatus, number>;
 }
 
+// ---------------------------------------------------------------------------
+// Engineering mode (工程模式)
+// ---------------------------------------------------------------------------
+
+/** Lifecycle of one engineering run. */
+export type ZGEngineStatus = "running" | "paused" | "completed" | "stopped";
+
+/** Lifecycle of one engine task. Paused means interrupted (e.g. a restart). */
+export type ZGEngineTaskStatus = "queued" | "running" | "done" | "failed" | "blocked" | "aborted" | "paused";
+
+/** One line of the operator's target list: a target plus an optional note. */
+export interface ZGEngineTarget {
+	target: string;
+	note?: string;
+}
+
+/** Per-engine knobs; per-task limits derive from these unless overridden. */
+export interface ZGEngineLimits {
+	/** How many tasks of this engine may run at the same time. */
+	concurrency: number;
+	/** Automatic continuation rounds per task. */
+	roundLimit: number;
+	/** Total tokens per task; null means no token limit. */
+	tokenLimit: number | null;
+	/** Wall-clock minutes per task; null means no time limit. */
+	timeLimitMin: number | null;
+	/** Dispatch attempts allowed per target (the first one counts). */
+	maxRetries: number;
+}
+
+/** One task the commander dispatched. Executed by its own agent session. */
+export interface ZGEngineTask {
+	id: string;
+	engineId: string;
+	title: string;
+	/** Self-contained instructions for the worker, written by the commander. */
+	objective: string;
+	target: string | null;
+	/** Directory inside the project work dir this task owns. */
+	workspace: string;
+	status: ZGEngineTaskStatus;
+	/** Which dispatch attempt for its target this is; 1 is the first. */
+	attempt: number;
+	/** Acceptance criteria the commander attached; the worker's goal enforces them. */
+	criteria: string[];
+	roundLimit: number;
+	/** pi session id of the worker, once it exists. */
+	sessionId: string | null;
+	startedAt: number | null;
+	endedAt: number | null;
+	summary: string | null;
+	error: string | null;
+	usage: ZGGoalUsage | null;
+	/** Findings submitted to the hub while this task ran. */
+	vulns: number;
+}
+
+/** An engineering run: a commander plus its targets, tasks, and report. */
+export interface ZGEngine {
+	id: string;
+	projectId: string;
+	projectName: string;
+	name: string;
+	status: ZGEngineStatus;
+	pauseNote: string | null;
+	targets: ZGEngineTarget[];
+	doctrines: string[];
+	limits: ZGEngineLimits;
+	createdAt: number;
+	endedAt: number | null;
+	/** Final report markdown, once the commander declared the engine done. */
+	report: string | null;
+	tasks: ZGEngineTask[];
+}
+
+/**
+ * One step of the commander's decision log or a worker's process, in the same
+ * shape as the sub-agent events so the console can render both alike.
+ */
+export type ZGEngineEvent = ZGSubagentEvent;
+
 /** Snapshot of the runtime state sent on connect and after state changes. */
 export interface ZGStateSnapshot {
 	mode: ZGMode;
@@ -488,7 +569,25 @@ export type ZGClientMessage =
 	| { type: "check_environment" }
 	| { type: "build_image" }
 	| { type: "abort_image_build" }
-	| { type: "set_sources"; sources: ZGSources };
+	| { type: "set_sources"; sources: ZGSources }
+	| { type: "list_engines" }
+	| { type: "engine_create"; input: ZGEngineCreateInput }
+	| { type: "engine_pause"; id: string }
+	| { type: "engine_resume"; id: string }
+	| { type: "engine_abort"; id: string }
+	| { type: "engine_delete"; id: string }
+	| { type: "engine_add_targets"; id: string; targets: string }
+	| { type: "engine_steer_commander"; id: string; text: string }
+	| { type: "engine_abort_task"; taskId: string }
+	| { type: "engine_task_events"; taskId: string }
+	| { type: "engine_open_task_session"; taskId: string }
+	| { type: "engine_commander_events"; id: string }
+	| { type: "engine_report_snapshot"; id: string }
+	| { type: "list_doctrines" }
+	| { type: "save_doctrine"; input: { id?: string; name: string; text: string } }
+	| { type: "delete_doctrine"; id: string }
+	| { type: "get_commander_config" }
+	| { type: "save_commander_config"; config: ZGModelConfig | null };
 
 /** Server-to-client messages. */
 export type ZGServerMessage =
@@ -525,6 +624,17 @@ export type ZGServerMessage =
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }
 	| { type: "sources_saved"; sources: ZGSources; error?: string }
+	| { type: "engines"; engines: ZGEngine[] }
+	| { type: "engine_update"; engine: ZGEngine }
+	| { type: "engine_commander_event"; engineId: string; event: ZGEngineEvent }
+	| { type: "engine_task_event"; taskId: string; event: ZGEngineEvent }
+	| { type: "engine_task_events"; taskId: string; events: ZGEngineEvent[] }
+	| { type: "engine_commander_events"; id: string; events: ZGEngineEvent[] }
+	| { type: "engine_report"; id: string; markdown: string; filename: string }
+	| { type: "doctrines"; doctrines: ZGDoctrineView[] }
+	| { type: "doctrine_saved"; doctrine: ZGDoctrineView; error?: string }
+	| { type: "doctrine_deleted"; id: string; ok: boolean; error?: string }
+	| { type: "commander_config"; config: ZGModelConfig | null }
 	| { type: "error"; message: string };
 
 /**
@@ -566,4 +676,21 @@ export interface ZGEnvReport {
 	url: string;
 	/** Build sources as configured (empty fields mean the official source). */
 	sources: ZGSources;
+}
+
+/** A doctrine as the wire shows it (same shape as the stored one). */
+export interface ZGDoctrineView {
+	id: string;
+	name: string;
+	text: string;
+	builtin: boolean;
+}
+
+/** Operator input when creating an engineering run. */
+export interface ZGEngineCreateInput {
+	name: string;
+	/** One target per line, `target [note]`; blank lines dropped. */
+	targets: string;
+	doctrines: string[];
+	limits: ZGEngineLimits;
 }

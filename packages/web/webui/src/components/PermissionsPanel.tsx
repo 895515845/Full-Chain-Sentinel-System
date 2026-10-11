@@ -12,7 +12,14 @@
  */
 
 import { useEffect, useState } from "react";
-import type { ZGPermissionKey, ZGPermissionSet, ZGPermissionsConfig, ZGPermissionPreset, ZGToolInfo } from "../types.ts";
+import type {
+	ZGCommanderPermissionKey,
+	ZGPermissionKey,
+	ZGPermissionSet,
+	ZGPermissionsConfig,
+	ZGPermissionPreset,
+	ZGToolInfo,
+} from "../types.ts";
 import { RefreshIcon } from "./icons.tsx";
 
 /** Order and wording of the switches; spawn_agent is main-agent only. */
@@ -28,6 +35,16 @@ const SWITCHES: { key: ZGPermissionKey; label: string; hint: string; subagent: b
 ];
 
 const SUBAGENT_SWITCHES = SWITCHES.filter((item) => item.subagent);
+
+/** The engineering-mode commander's switches: its scheduling tools are always mounted. */
+const COMMANDER_SWITCHES: { key: ZGCommanderPermissionKey; label: string; hint: string }[] = [
+	{
+		key: "bash",
+		label: "bash（受限）",
+		hint: "项目容器内执行命令，仅用于拆解任务前的一次性轻量确认；受每工程 40 条预算、单条 20 秒超时、输出截断与破坏性命令拦截约束",
+	},
+	{ key: "read", label: "read", hint: "读取项目工作目录中的文件（只读，不能修改）" },
+];
 
 export function PermissionsPanel({
 	config,
@@ -59,6 +76,7 @@ export function PermissionsPanel({
 			const next: ZGPermissionsConfig = {
 				main: { ...prev.main },
 				subagent: { ...prev.subagent },
+				commander: { ...prev.commander },
 			};
 			next[agent][key] = !prev[agent][key];
 			if (agent === "main" && !next.main[key] && key !== "spawn_agent") {
@@ -69,8 +87,16 @@ export function PermissionsPanel({
 		});
 	};
 
+	const toggleCommander = (key: ZGCommanderPermissionKey) => {
+		setDraft((prev) => ({
+			main: prev.main,
+			subagent: prev.subagent,
+			commander: { ...prev.commander, [key]: !prev.commander[key] },
+		}));
+	};
+
 	const applyPreset = (preset: ZGPermissionPreset) => {
-		setDraft({ main: { ...preset.main }, subagent: { ...preset.subagent } });
+		setDraft({ main: { ...preset.main }, subagent: { ...preset.subagent }, commander: { ...preset.commander } });
 	};
 
 	const disabledCount = (set: ZGPermissionSet) =>
@@ -128,7 +154,9 @@ export function PermissionsPanel({
 					type="button"
 					className="primary"
 					disabled={busy || !dirty}
-					onClick={() => onSave({ main: { ...draft.main }, subagent: { ...draft.subagent } })}
+					onClick={() =>
+					onSave({ main: { ...draft.main }, subagent: { ...draft.subagent }, commander: { ...draft.commander } })
+				}
 				>
 					保存并重建会话
 				</button>
@@ -161,6 +189,34 @@ export function PermissionsPanel({
 					)}
 				</section>
 			</div>
+
+			<section className="perm-commander">
+				<h3>指挥官（工程模式）</h3>
+				<p className="perm-column-note">
+					指挥官的调度工具（dispatch_task 等）始终挂载；这里控制的是它拆解任务用的受限执行面。修改在指挥官会话下次创建时生效（新建或恢复工程），运行中的工程不受影响。
+				</p>
+				<div className="perm-commander-switches">
+					{COMMANDER_SWITCHES.map((item) => (
+						<label key={item.key} className={`perm-switch ${draft.commander[item.key] ? "on" : ""}`}>
+							<input
+								type="checkbox"
+								checked={draft.commander[item.key]}
+								disabled={busy}
+								onChange={() => toggleCommander(item.key)}
+							/>
+							<span className="perm-switch-body">
+								<span className="perm-switch-name">{item.label}</span>
+								<span className="perm-switch-hint">{item.hint}</span>
+							</span>
+						</label>
+					))}
+					{draft.commander.bash ? null : (
+						<p className="perm-column-note">
+							bash 已关闭：指挥官将完全基于目标清单与任务结果摘要编排，不能再自行确认目标类型。
+						</p>
+					)}
+				</div>
+			</section>
 
 			{draft.main.bash || draft.main.edit || draft.main.write ? null : (
 				<p className="perm-warn">

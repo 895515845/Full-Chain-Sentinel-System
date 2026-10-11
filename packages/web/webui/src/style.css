@@ -5035,3 +5035,477 @@ button.link {
 	color: var(--dim);
 }
 
+
+/* ---------- Engineering mode (工程模式) ----------
+   Same language as the rest of the console: light page cards, ws-panel
+   headers, data-table rows, tag badges; dark blocks only for terminal
+   output (ws-console__body). */
+
+.engines-table .data-row {
+	grid-template-columns: minmax(170px, 1.6fr) 88px 90px minmax(150px, 1.1fr) 84px 100px 118px;
+	cursor: pointer;
+}
+
+.engine-stats {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px 8px;
+	font-size: 12.5px;
+	color: var(--dim);
+	padding-bottom: 12px;
+}
+
+.engine-stats .stat-num {
+	font-weight: 600;
+	color: var(--text);
+}
+
+.engine-tag-gap {
+	margin: 0 2px;
+	color: var(--disabled);
+}
+
+.engine-subline {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.steer-box {
+	display: flex;
+	gap: 8px;
+	padding-bottom: 14px;
+	flex-wrap: wrap;
+}
+
+.steer-box input {
+	flex: 1;
+	min-width: 200px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	padding: 5px 10px;
+	font-size: 13px;
+	font-family: var(--sans);
+}
+
+.board {
+	display: grid;
+	grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+	gap: 14px;
+	align-items: stretch;
+}
+
+.board-col {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 420px;
+	max-height: calc(100vh - 300px);
+}
+
+.board-col__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 9px 14px;
+	border-bottom: 1px solid var(--border);
+	background: var(--raised);
+	border-radius: var(--radius) var(--radius) 0 0;
+	flex: none;
+}
+
+.board-col__title {
+	font-size: 13px;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--text-bright);
+}
+
+.board-col__title::before {
+	content: "";
+	flex: none;
+	width: 3px;
+	height: 12px;
+	border-radius: 2px;
+	background: var(--accent);
+}
+
+.board-col__body {
+	padding: 12px 14px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.board-col__body .data-table {
+	margin: 0;
+	border: none;
+	border-radius: 0;
+}
+
+.tasks-table .data-row {
+	grid-template-columns: 72px minmax(130px, 1.3fr) minmax(90px, 1fr) 56px 62px minmax(110px, 1.4fr) 48px;
+}
+
+.task-summary {
+	color: var(--dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12.5px;
+}
+
+.tasks-table .mini-btn {
+	padding: 1px 8px;
+	font-size: 12px;
+}
+
+/* Commander decision log: a light conversation feed. */
+.commander-feed {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.commander-item__meta {
+	font-size: 11.5px;
+	color: var(--disabled);
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	margin-bottom: 3px;
+}
+
+.commander-item__text {
+	font-size: 13px;
+	line-height: 1.65;
+	color: var(--text);
+	white-space: pre-wrap;
+	background: var(--raised);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 8px 11px;
+}
+
+.commander-item__thinking {
+	font-size: 12px;
+	color: var(--dim);
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.commander-item__thinking::before {
+	content: "··";
+	letter-spacing: 2px;
+	color: var(--disabled);
+}
+
+.commander-tool-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12.5px;
+	padding: 6px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.commander-tool-row .tname {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--accent);
+	flex: none;
+}
+
+.commander-tool-row .targ {
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+
+.commander-tool-row .tok {
+	font-size: 11px;
+	color: var(--ok);
+	flex: none;
+}
+
+.commander-tool-row .terr {
+	font-size: 11px;
+	color: var(--danger);
+	flex: none;
+}
+
+.commander-tool-row.is-error {
+	border-color: var(--danger);
+	background: var(--danger-dim);
+}
+
+.commander-sep {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--disabled);
+	font-size: 11.5px;
+	padding: 2px 0;
+}
+
+.commander-sep::before,
+.commander-sep::after {
+	content: "";
+	flex: 1;
+	border-top: 1px dashed var(--border);
+}
+
+.commander-thinking-open {
+	font-size: 12.5px;
+	color: var(--dim);
+	line-height: 1.6;
+	background: var(--raised);
+	border: 1px dashed var(--border-strong);
+	border-radius: var(--radius);
+	padding: 8px 11px;
+	white-space: pre-wrap;
+}
+
+/* Task detail modal: the vulnerability-detail pattern. */
+.engine-task-modal {
+	width: min(860px, calc(100vw - 48px));
+}
+
+.engine-task-summary {
+	font-size: 13px;
+	line-height: 1.65;
+	color: var(--text);
+}
+
+.engine-task-error {
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--danger);
+}
+
+.engine-task-events {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.engine-task-event {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.engine-task-event__head {
+	font-size: 12px;
+	color: var(--dim);
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+}
+
+.engine-task-event__head .tname {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--accent);
+}
+
+.engine-task-event__head .is-error {
+	color: var(--danger);
+}
+
+/* Engine create form: full page, form-grid fields. */
+.form-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	max-width: 760px;
+}
+
+.form-field {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+.form-field > label {
+	font-size: 13px;
+	color: var(--text-bright);
+	font-weight: 500;
+}
+
+.form-field .hint,
+.form-hint {
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.form-field input[type="text"],
+.form-field input[type="number"],
+.form-field input[type="password"],
+.form-field textarea {
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	padding: 6px 10px;
+	font-size: 13px;
+	font-family: var(--sans);
+}
+
+.form-field textarea {
+	min-height: 130px;
+	resize: vertical;
+	font-family: var(--mono);
+	font-size: 12.5px;
+}
+
+.check-group {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.check-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 9px 12px;
+	border-top: 1px solid var(--border);
+	cursor: pointer;
+	font-size: 13px;
+}
+
+.check-item:first-child {
+	border-top: none;
+}
+
+.check-item:hover {
+	background: var(--accent-dim);
+}
+
+.check-item input {
+	margin-top: 3px;
+	flex: none;
+}
+
+.check-item .cname {
+	font-weight: 500;
+	flex: none;
+}
+
+.check-item .ctext {
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.55;
+}
+
+.limit-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: 12px;
+}
+
+.doctrine-row {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 10px 12px;
+}
+
+.doctrine-row__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+	font-size: 13px;
+}
+
+.doctrine-row__head strong {
+	color: var(--text-bright);
+}
+
+.doctrine-row pre {
+	margin: 0;
+	white-space: pre-wrap;
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.6;
+	max-height: 180px;
+	overflow: auto;
+}
+
+.doctrine-new {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-width: 720px;
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border);
+}
+
+.report-preview {
+	flex: 1;
+	overflow: auto;
+	white-space: pre-wrap;
+	font-size: 12.5px;
+	line-height: 1.6;
+	font-family: var(--mono);
+}
+
+.link-btn {
+	background: none;
+	border: none;
+	color: var(--accent);
+	cursor: pointer;
+	padding: 0;
+	font-size: 12.5px;
+}
+
+/* Engine status badges: the console's tag palette applied to lifecycle states. */
+.tag-running { background: var(--accent-dim); color: var(--accent); }
+.tag-done { background: var(--ok-dim); color: var(--ok); }
+.tag-failed, .tag-blocked { background: var(--danger-dim); color: var(--danger); }
+.tag-paused { background: var(--warn-dim); color: var(--warn); }
+.tag-queued, .tag-stopped, .tag-aborted {
+	background: var(--raised);
+	color: var(--dim);
+	border: 1px solid var(--border-strong);
+}
+
+/* Commander permissions section on the permissions page. */
+.perm-commander {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.perm-commander h3 {
+	margin: 0 0 6px;
+	font-size: 13px;
+	color: var(--text-bright);
+}
+
+.perm-commander-switches {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+	gap: 8px;
+}

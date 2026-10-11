@@ -21,6 +21,8 @@ case "$cmd" in
 	exec)
 		shift
 		[ "$1" = "-i" ] && shift
+		# dockerBashOperations passes the session cwd as the exec working dir.
+		[ "$1" = "-w" ] && shift 2
 		shift
 		# Remaining arguments: sh -c <script> zg <args...>
 		shift 2

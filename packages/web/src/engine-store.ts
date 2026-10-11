@@ -1,0 +1,397 @@
+/**
+ * Persistent record of engineering runs: one row per engine and per task, plus
+ * the commander's decision log and each worker's process steps. Everything the
+ * console needs to resume or review an engine lives here, so a service restart
+ * loses no state (running tasks come back paused, the operator resumes them).
+ *
+ * Mirrors subagent-store.ts: two entity tables plus append-only event tables
+ * ordered by `seq`, with a size cap on long tool output.
+ */
+
+import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import type {
+	ZGEngine,
+	ZGEngineEvent,
+	ZGEngineLimits,
+	ZGEngineStatus,
+	ZGEngineTarget,
+	ZGEngineTask,
+	ZGEngineTaskStatus,
+	ZGGoalUsage,
+} from "./protocol.ts";
+import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
+
+const MAX_EVENT_BYTES = 64 * 1024;
+const MAX_TASKS_KEPT = 500;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS engines (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  project_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  pause_note TEXT,
+  targets TEXT NOT NULL,
+  doctrines TEXT NOT NULL,
+  limits TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  report TEXT
+);
+CREATE TABLE IF NOT EXISTS engine_tasks (
+  id TEXT PRIMARY KEY,
+  engine_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  objective TEXT NOT NULL,
+  target TEXT,
+  workspace TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempt INTEGER NOT NULL DEFAULT 1,
+  criteria TEXT NOT NULL DEFAULT '[]',
+  round_limit INTEGER NOT NULL,
+  session_id TEXT,
+  started_at INTEGER,
+  ended_at INTEGER,
+  summary TEXT,
+  error TEXT,
+  usage TEXT,
+  vulns INTEGER NOT NULL DEFAULT 0,
+  seq INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS engine_events (
+  owner_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY (owner_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_engine_tasks_engine ON engine_tasks(engine_id, seq ASC);
+CREATE INDEX IF NOT EXISTS idx_engine_events_owner ON engine_events(owner_id, seq ASC);
+`;
+
+interface EngineRow {
+	id: string;
+	project_id: string;
+	project_name: string;
+	name: string;
+	status: string;
+	pause_note: string | null;
+	targets: string;
+	doctrines: string;
+	limits: string;
+	created_at: number;
+	ended_at: number | null;
+	report: string | null;
+}
+
+interface TaskRow {
+	id: string;
+	engine_id: string;
+	title: string;
+	objective: string;
+	target: string | null;
+	workspace: string;
+	status: string;
+	attempt: number;
+	criteria: string;
+	round_limit: number;
+	session_id: string | null;
+	started_at: number | null;
+	ended_at: number | null;
+	summary: string | null;
+	error: string | null;
+	usage: string | null;
+	vulns: number;
+}
+
+export function engineDbPath(agentDir: string): string {
+	return `${agentDir}/engines.db`;
+}
+
+export class EngineStore {
+	private readonly db: SqliteDatabase;
+
+	constructor(path: string) {
+		mkdirSync(dirname(path), { recursive: true });
+		this.db = openSqliteDatabase(path);
+		this.db.exec("PRAGMA journal_mode = WAL");
+		this.db.exec(SCHEMA);
+	}
+
+	createEngine(input: {
+		projectId: string;
+		projectName: string;
+		name: string;
+		targets: ZGEngineTarget[];
+		doctrines: string[];
+		limits: ZGEngineLimits;
+	}): ZGEngine {
+		const engine: ZGEngine = {
+			id: `engine-${randomUUID()}`,
+			projectId: input.projectId,
+			projectName: input.projectName,
+			name: input.name,
+			status: "running",
+			pauseNote: null,
+			targets: input.targets,
+			doctrines: input.doctrines,
+			limits: input.limits,
+			createdAt: Date.now(),
+			endedAt: null,
+			report: null,
+			tasks: [],
+		};
+		this.db
+			.prepare(
+				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				engine.id,
+				engine.projectId,
+				engine.projectName,
+				engine.name,
+				engine.status,
+				JSON.stringify(engine.targets),
+				JSON.stringify(engine.doctrines),
+				JSON.stringify(engine.limits),
+				engine.createdAt,
+			);
+		return engine;
+	}
+
+	getEngine(id: string): ZGEngine | undefined {
+		const row = this.db.prepare("SELECT * FROM engines WHERE id = ?").get(id) as unknown as EngineRow | undefined;
+		if (!row) return undefined;
+		const tasks = this.db
+			.prepare("SELECT * FROM engine_tasks WHERE engine_id = ? ORDER BY seq ASC")
+			.all(id) as unknown as TaskRow[];
+		return engineFromRow(row, tasks.map(taskFromRow));
+	}
+
+	listEngines(projectId?: string): ZGEngine[] {
+		const rows = (projectId
+			? this.db.prepare("SELECT * FROM engines WHERE project_id = ? ORDER BY created_at DESC").all(projectId)
+			: this.db.prepare("SELECT * FROM engines ORDER BY created_at DESC").all()) as unknown as EngineRow[];
+		const statement = this.db.prepare("SELECT * FROM engine_tasks WHERE engine_id = ? ORDER BY seq ASC");
+		return rows.map((row) => engineFromRow(row, (statement.all(row.id) as unknown as TaskRow[]).map(taskFromRow)));
+	}
+
+	setEngineStatus(id: string, status: ZGEngineStatus, pauseNote: string | null, endedAt: number | null): void {
+		this.db
+			.prepare("UPDATE engines SET status = ?, pause_note = ?, ended_at = ? WHERE id = ?")
+			.run(status, pauseNote, endedAt, id);
+	}
+
+	setEngineReport(id: string, report: string): void {
+		this.db.prepare("UPDATE engines SET report = ? WHERE id = ?").run(report, id);
+	}
+
+	/** Delete an engine with its tasks and event logs. The manager ensures it is not running. */
+	deleteEngine(id: string): void {
+		this.db.prepare("DELETE FROM engine_events WHERE owner_id = ?").run(id);
+		const tasks = this.db.prepare("SELECT id FROM engine_tasks WHERE engine_id = ?").all(id) as unknown as {
+			id: string;
+		}[];
+		for (const task of tasks) {
+			this.db.prepare("DELETE FROM engine_events WHERE owner_id = ?").run(task.id);
+			this.db.prepare("DELETE FROM engine_tasks WHERE id = ?").run(task.id);
+		}
+		this.db.prepare("DELETE FROM engines WHERE id = ?").run(id);
+	}
+
+	addTargets(id: string, targets: ZGEngineTarget[]): void {
+		const engine = this.getEngine(id);
+		if (!engine) return;
+		const merged = [...engine.targets];
+		for (const target of targets) {
+			if (!merged.some((item) => item.target === target.target)) merged.push(target);
+		}
+		this.db.prepare("UPDATE engines SET targets = ? WHERE id = ?").run(JSON.stringify(merged), id);
+	}
+
+	createTask(input: {
+		engineId: string;
+		title: string;
+		objective: string;
+		target: string | null;
+		workspace: string;
+		roundLimit: number;
+		attempt: number;
+		criteria?: string[];
+	}): ZGEngineTask {
+		const engine = this.getEngine(input.engineId);
+		const seq = engine ? engine.tasks.length : 0;
+		// The task list is bounded so a runaway commander cannot grow the row
+		// count forever; the oldest finished tasks fall off the front.
+		if (engine && engine.tasks.length >= MAX_TASKS_KEPT) {
+			const removable = engine.tasks.filter((task) => task.status === "done").slice(0, 10);
+			for (const task of removable) this.db.prepare("DELETE FROM engine_tasks WHERE id = ?").run(task.id);
+		}
+		const task: ZGEngineTask = {
+			id: `task-${randomUUID()}`,
+			engineId: input.engineId,
+			title: input.title,
+			objective: input.objective,
+			target: input.target,
+			workspace: input.workspace,
+			status: "queued",
+			attempt: input.attempt,
+			roundLimit: input.roundLimit,
+			criteria: input.criteria ?? [],
+			sessionId: null,
+			startedAt: null,
+			endedAt: null,
+			summary: null,
+			error: null,
+			usage: null,
+			vulns: 0,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, session_id, seq)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			)
+			.run(
+				task.id,
+				task.engineId,
+				task.title,
+				task.objective,
+				task.target,
+				task.workspace,
+				task.status,
+				task.attempt,
+				JSON.stringify(task.criteria),
+				task.roundLimit,
+				seq,
+			);
+		return task;
+	}
+
+	updateTask(id: string, patch: Partial<Omit<ZGEngineTask, "id" | "engineId">>): void {
+		const current = this.getTask(id);
+		if (!current) return;
+		const next = { ...current, ...patch };
+		this.db
+			.prepare(
+				`UPDATE engine_tasks SET status = ?, criteria = ?, session_id = ?, started_at = ?, ended_at = ?, summary = ?,
+				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ? WHERE id = ?`,
+			)
+			.run(
+				next.status,
+				JSON.stringify(next.criteria),
+				next.sessionId,
+				next.startedAt,
+				next.endedAt,
+				next.summary,
+				next.error,
+				next.usage ? JSON.stringify(next.usage) : null,
+				next.vulns,
+				next.title,
+				next.objective,
+				next.roundLimit,
+				id,
+			);
+	}
+
+	getTask(id: string): ZGEngineTask | undefined {
+		const row = this.db.prepare("SELECT * FROM engine_tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
+		return row ? taskFromRow(row) : undefined;
+	}
+
+	/** Append one event to an owner (engine id for the commander, task id for a worker). */
+	appendEvent(ownerId: string, event: ZGEngineEvent): void {
+		let payload = JSON.stringify(event);
+		if (payload.length > MAX_EVENT_BYTES) {
+			payload = JSON.stringify({ ...event, text: undefined, output: truncate(event.output), truncated: true });
+		}
+		this.db
+			.prepare("INSERT OR REPLACE INTO engine_events (owner_id, seq, kind, at, payload) VALUES (?, ?, ?, ?, ?)")
+			.run(ownerId, event.seq, event.kind, event.at, payload);
+	}
+
+	listEvents(ownerId: string): ZGEngineEvent[] {
+		const rows = this.db
+			.prepare("SELECT payload FROM engine_events WHERE owner_id = ? ORDER BY seq ASC")
+			.all(ownerId) as unknown as { payload: string }[];
+		const events: ZGEngineEvent[] = [];
+		for (const row of rows) {
+			try {
+				events.push(JSON.parse(row.payload) as ZGEngineEvent);
+			} catch {
+				// A corrupt row must not hide the rest of the log.
+			}
+		}
+		return events;
+	}
+
+	/** Running tasks left behind by a previous process come back as paused. */
+	interruptRunning(): number {
+		const result = this.db
+			.prepare(`UPDATE engine_tasks SET status = 'paused', ended_at = ? WHERE status IN ('running', 'queued')`)
+			.run(Date.now());
+		return Number(result.changes ?? 0);
+	}
+
+	close(): void {
+		this.db.close();
+	}
+}
+
+function engineFromRow(row: EngineRow, tasks: ZGEngineTask[]): ZGEngine {
+	return {
+		id: row.id,
+		projectId: row.project_id,
+		projectName: row.project_name,
+		name: row.name,
+		status: row.status as ZGEngineStatus,
+		pauseNote: row.pause_note,
+		targets: parseJson(row.targets, []) as ZGEngineTarget[],
+		doctrines: parseJson(row.doctrines, []) as string[],
+		limits: parseJson(row.limits, null) as unknown as ZGEngineLimits,
+		createdAt: row.created_at,
+		endedAt: row.ended_at,
+		report: row.report,
+		tasks,
+	};
+}
+
+function taskFromRow(row: TaskRow): ZGEngineTask {
+	return {
+		id: row.id,
+		engineId: row.engine_id,
+		title: row.title,
+		objective: row.objective,
+		target: row.target,
+		workspace: row.workspace,
+		status: row.status as ZGEngineTaskStatus,
+		attempt: row.attempt,
+		roundLimit: row.round_limit,
+		criteria: parseJson(row.criteria, []) as string[],
+		sessionId: row.session_id,
+		startedAt: row.started_at,
+		endedAt: row.ended_at,
+		summary: row.summary,
+		error: row.error,
+		usage: row.usage ? (parseJson(row.usage, null) as unknown as ZGGoalUsage | null) : null,
+		vulns: row.vulns,
+	};
+}
+
+function parseJson<T>(raw: string, fallback: T): T {
+	try {
+		return JSON.parse(raw) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+function truncate(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined;
+	if (value.length <= MAX_EVENT_BYTES) return value;
+	return `${value.slice(0, MAX_EVENT_BYTES)}\n…（已截断）`;
+}

@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>工程页 UI 稿</title>
+<style>
+	:root {
+		color-scheme: light;
+		--bg: #fafafa;
+		--card: #ffffff;
+		--raised: #f8f8f9;
+		--border: #eee;
+		--border-strong: #d9d9d9;
+		--text: #000000d9;
+		--text-bright: #000000e6;
+		--dim: #606266;
+		--disabled: #bfbfbf;
+		--accent: #0960bd;
+		--accent-hover: #0a6cd5;
+		--accent-dim: #0960bd0d;
+		--danger: #f56c6c;
+		--danger-dim: #fef0f0;
+		--ok: #67c23a;
+		--ok-dim: #f0f9eb;
+		--warn: #e6a23c;
+		--warn-dim: #fdf6ec;
+		--console-bg: #0b0f14;
+		--console-border: #1d2733;
+		--console-text: #c5e1a5;
+		--radius: 6px;
+		--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+		--sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+	}
+	* { box-sizing: border-box; }
+	body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; margin: 0; padding: 24px; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	h2 { font-size: 15px; margin: 40px 0 4px; padding-top: 16px; border-top: 1px dashed var(--border-strong); }
+	.note { color: var(--dim); font-size: 12.5px; margin: 0 0 14px; }
+	button { font-family: var(--sans); font-size: 13px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--card); color: var(--text); padding: 5px 14px; line-height: 1.5; cursor: pointer; }
+	button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+	button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	button.primary:hover:not(:disabled) { background: var(--accent-hover); color: #fff; }
+	.page-card { display: flex; flex-direction: column; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); max-width: 1180px; }
+	.ws-panel__head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+	.ws-panel__title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text); }
+	.ws-panel__title::before { content: ""; flex: none; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
+	.ws-panel__sub { font-size: 12px; font-weight: 400; color: var(--dim); }
+	.ws-panel__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.ws-panel__body { padding-top: 14px; display: flex; flex-direction: column; min-height: 0; }
+	.ws-empty { padding: 36px 0; text-align: center; color: var(--dim); font-size: 13px; }
+	.inline-input { border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 10px; font-size: 13px; font-family: var(--sans); width: 180px; }
+	.tag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; }
+	.tag-running { background: var(--accent-dim); color: var(--accent); }
+	.tag-done { background: var(--ok-dim); color: var(--ok); }
+	.tag-failed { background: var(--danger-dim); color: var(--danger); }
+	.tag-paused { background: var(--warn-dim); color: var(--warn); }
+	.tag-queued { background: var(--raised); color: var(--dim); border: 1px solid var(--border-strong); }
+	.tag-stopped { background: var(--raised); color: var(--dim); border: 1px solid var(--border-strong); }
+	.tag-blocked { background: var(--danger-dim); color: var(--danger); }
+	.tag-aborted { background: var(--raised); color: var(--dim); border: 1px solid var(--border-strong); }
+	.data-table { margin-top: 4px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+	.data-row { position: relative; display: grid; align-items: center; gap: 12px; padding: 9px 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text); }
+	.data-row:first-child { border-top: none; }
+	.data-head { background: var(--raised); color: var(--dim); font-size: 12px; }
+	.data-row:hover:not(.data-head) { background: var(--accent-dim); }
+	.data-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; color: var(--text-bright); }
+	.data-mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+	.engine-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 12.5px; color: var(--dim); padding: 2px 0 12px; }
+	.stat-num { font-weight: 600; color: var(--text); }
+
+	/* ---- 变体 A：工程列表 = data-table 行 ---- */
+	.engines-table .data-row { grid-template-columns: minmax(180px, 1.6fr) 88px 90px 110px 100px 96px 120px; cursor: pointer; }
+
+	/* ---- 变体 B：工程列表 = 卡片网格 ---- */
+	.engine-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+	.engine-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; transition: border-color 120ms, box-shadow 120ms; display: flex; flex-direction: column; gap: 8px; background: var(--card); }
+	.engine-card:hover { border-color: var(--accent); box-shadow: 0 2px 12px #0000001a; }
+	.engine-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.engine-card__name { font-weight: 600; font-size: 14px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.engine-card__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); }
+	.engine-card__bar { height: 4px; border-radius: 2px; background: var(--raised); overflow: hidden; display: flex; }
+	.engine-card__bar > i { height: 100%; }
+	.engine-card__progress { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dim); }
+
+	/* ---- 看板：左右分栏 7:5 ---- */
+	.board { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 14px; align-items: start; }
+	.board-col { border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; min-width: 0; min-height: 480px; }
+	.board-col__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--raised); border-radius: var(--radius) var(--radius) 0 0; }
+	.board-col__title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+	.board-col__title::before { content: ""; width: 3px; height: 12px; border-radius: 2px; background: var(--accent); }
+	.board-col__body { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 0; }
+	.tasks-table .data-row { grid-template-columns: 74px minmax(140px, 1.3fr) minmax(100px, 1fr) 56px 64px minmax(120px, 1.4fr) 52px; }
+	.task-summary { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+	.engine-subbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 0 0 12px; font-size: 12.5px; color: var(--dim); }
+	.engine-subbar .ops { display: flex; gap: 8px; flex-wrap: wrap; }
+	.steer-box { display: flex; gap: 8px; padding: 0 0 12px; }
+	.steer-box input { flex: 1; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 5px 10px; font-size: 13px; font-family: var(--sans); }
+
+	/* ---- 指挥官日志：对话流（浅色） ---- */
+.commander-feed { display: flex; flex-direction: column; gap: 10px; }
+.commander-item { display: flex; flex-direction: column; gap: 3px; }
+.commander-item__meta { font-size: 11.5px; color: var(--disabled); display: flex; gap: 8px; align-items: center; }
+.commander-item__text { font-size: 13px; line-height: 1.65; color: var(--text); white-space: pre-wrap; background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 11px; }
+.commander-item__thinking { font-size: 12px; color: var(--dim); background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.commander-item__thinking::before { content: "··"; letter-spacing: 2px; color: var(--disabled); }
+.commander-tool-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.commander-tool-row .tname { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.commander-tool-row .targ { font-family: var(--mono); font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.commander-tool-row .tok { font-size: 11px; color: var(--ok); }
+.commander-tool-row .terr { font-size: 11px; color: var(--danger); }
+.commander-tool-row.is-error { border-color: var(--danger); background: var(--danger-dim); }
+.commander-sep { display: flex; align-items: center; gap: 10px; color: var(--disabled); font-size: 11.5px; padding: 2px 0; }
+.commander-sep::before, .commander-sep::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+
+	/* ---- 任务详情弹窗（复用 modal） ---- */
+	.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+	.modal { width: min(860px, calc(100vw - 48px)); max-height: calc(100vh - 96px); overflow-y: auto; background: var(--card); border-radius: 8px; padding: 18px 20px; box-shadow: 0 16px 48px rgba(16,24,40,0.18); }
+	.vuln-detail__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+	.vuln-detail__title { font-size: 14.5px; color: var(--text-bright); line-height: 1.6; }
+	.vuln-detail__meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+	.vuln-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--raised); font-size: 12.5px; }
+	.vuln-meta-grid > div { display: flex; flex-direction: column; gap: 2px; }
+	.vuln-meta-grid > div > span:first-child { color: var(--dim); font-size: 11.5px; }
+	.modal h3 { font-size: 13px; margin: 16px 0 8px; color: var(--text-bright); }
+	pre.ws-console__body { background: var(--console-bg); color: var(--console-text); border: 1px solid var(--console-border); border-radius: var(--radius); padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 260px; white-space: pre-wrap; margin: 0; }
+
+	/* ---- 新建表单（独立全页） ---- */
+	.form-grid { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+	.form-field { display: flex; flex-direction: column; gap: 5px; }
+	.form-field > label { font-size: 13px; color: var(--text-bright); font-weight: 500; }
+	.form-field > .hint { font-size: 12px; color: var(--dim); }
+	.form-field input[type="text"], .form-field input[type="number"], .form-field textarea, .form-field input[type="password"] { border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 6px 10px; font-size: 13px; font-family: var(--sans); }
+	.form-field textarea { min-height: 130px; resize: vertical; font-family: var(--mono); font-size: 12.5px; }
+	.check-group { border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; }
+	.check-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+	.check-item:first-child { border-top: none; }
+	.check-item:hover { background: var(--accent-dim); }
+	.check-item input { margin-top: 3px; }
+	.check-item .cname { font-weight: 500; font-size: 13px; flex: none; }
+	.check-item .ctext { font-size: 12px; color: var(--dim); line-height: 1.55; }
+	.limit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+	.form-actions { display: flex; gap: 8px; padding-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>工程页 UI 稿（浅色全局风格）</h1>
+<p class="note">已按你的选择：列表页入口 · 看板左右分栏 7:5 · 指挥官日志对话流（浅色）· 任务详情弹窗 · 新建独立全页 · 彩色徽章统计。唯一待选维度：<b>工程列表用「表格行」还是「卡片网格」</b>，两种都在下面，其余部分两版共用。</p>
+
+<!-- ============ 变体 A：工程列表 = 表格行 ============ -->
+<h2>变体 A — 工程列表：表格行</h2>
+<p class="note">信息密度高，一屏看更多工程；与漏洞页同款 data-table。</p>
+<div class="page-card">
+	<div class="ws-panel__head">
+		<div class="ws-panel__title">工程 <span class="ws-panel__sub">当前项目：测试项目 · 3 个工程</span></div>
+		<div class="ws-panel__actions">
+			<button>指挥思路</button>
+			<button>指挥官端点</button>
+			<button class="primary">新建工程</button>
+		</div>
+	</div>
+	<div class="ws-panel__body">
+		<div class="data-table engines-table">
+			<div class="data-row data-head">
+				<span>工程</span><span>状态</span><span>目标 / 任务</span><span>进度</span><span>中枢提交</span><span>耗时</span><span>创建时间</span>
+			</div>
+			<div class="data-row">
+				<span class="data-name">内网一批 Web 目标</span>
+				<span><span class="tag tag-running">运行中</span></span>
+				<span class="data-mono">12 / 18</span>
+				<span>8 完成 · 2 运行 · 1 失败</span>
+				<span>5 条</span>
+				<span>2 小时 13 分</span>
+				<span class="data-mono">10-11 11:20</span>
+			</div>
+			<div class="data-row">
+				<span class="data-name">e2e-冒烟</span>
+				<span><span class="tag tag-done">已完成</span></span>
+				<span class="data-mono">1 / 1</span>
+				<span>1 完成</span>
+				<span>0 条</span>
+				<span>3 分钟</span>
+				<span class="data-mono">10-11 10:48</span>
+			</div>
+			<div class="data-row">
+				<span class="data-name">分区打点演练</span>
+				<span><span class="tag tag-paused">已暂停</span></span>
+				<span class="data-mono">30 / 44</span>
+				<span>31 完成 · 3 排队 · 2 失败</span>
+				<span>17 条</span>
+				<span>6 小时 40 分</span>
+				<span class="data-mono">10-10 21:02</span>
+			</div>
+		</div>
+		<p class="note" style="margin-top:10px">点行进入看板（见下方「工程看板」一节）。</p>
+	</div>
+</div>
+
+<!-- ============ 变体 B：工程列表 = 卡片网格 ============ -->
+<h2>变体 B — 工程列表：卡片网格</h2>
+<p class="note">每个工程一张卡，顶部进度条 + 彩色状态徽章，更醒目；工程多时占纵向空间。</p>
+<div class="page-card">
+	<div class="ws-panel__head">
+		<div class="ws-panel__title">工程 <span class="ws-panel__sub">当前项目：测试项目 · 3 个工程</span></div>
+		<div class="ws-panel__actions">
+			<button>指挥思路</button>
+			<button>指挥官端点</button>
+			<button class="primary">新建工程</button>
+		</div>
+	</div>
+	<div class="ws-panel__body">
+		<div class="engine-cards">
+			<div class="engine-card">
+				<div class="engine-card__head">
+					<span class="engine-card__name">内网一批 Web 目标</span>
+					<span class="tag tag-running">运行中</span>
+				</div>
+				<div class="engine-card__meta">
+					<span>目标 12</span><span>任务 18</span><span>失败 1</span><span>中枢 5 条</span><span>2 小时 13 分</span>
+				</div>
+				<div class="engine-card__bar">
+					<i style="width:67%;background:var(--ok)"></i><i style="width:16%;background:var(--accent)"></i><i style="width:8%;background:var(--danger)"></i>
+				</div>
+				<div class="engine-card__progress"><span>完成 8 · 运行 2 · 失败 1</span><span>67%</span></div>
+			</div>
+			<div class="engine-card">
+				<div class="engine-card__head">
+					<span class="engine-card__name">e2e-冒烟</span>
+					<span class="tag tag-done">已完成</span>
+				</div>
+				<div class="engine-card__meta"><span>目标 1</span><span>任务 1</span><span>中枢 0 条</span><span>3 分钟</span></div>
+				<div class="engine-card__bar"><i style="width:100%;background:var(--ok)"></i></div>
+				<div class="engine-card__progress"><span>查看总报告 →</span><span>100%</span></div>
+			</div>
+			<div class="engine-card">
+				<div class="engine-card__head">
+					<span class="engine-card__name">分区打点演练</span>
+					<span class="tag tag-paused">已暂停</span>
+				</div>
+				<div class="engine-card__meta"><span>目标 30</span><span>任务 44</span><span>失败 2</span><span>中枢 17 条</span><span>6 小时 40 分</span></div>
+				<div class="engine-card__bar">
+					<i style="width:70%;background:var(--ok)"></i><i style="width:7%;background:var(--danger)"></i>
+				</div>
+				<div class="engine-card__progress"><span>服务重启，点「继续」恢复</span><span>70%</span></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- ============ 工程看板（两版共用） ============ -->
+<h2>工程看板（列表点入后；左右分栏 7:5）</h2>
+<p class="note">顶栏：返回列表 · 工程名与状态 · 操作按钮。副栏：彩色徽章统计 + 参数摘要 + steer/追加目标。左列任务看板，右列指挥官对话流。</p>
+<div class="page-card">
+	<div class="ws-panel__head">
+		<div class="ws-panel__title">
+			<button style="padding:2px 10px">← 返回</button>
+			内网一批 Web 目标
+			<span class="tag tag-running">运行中</span>
+			<span class="ws-panel__sub">测试项目 · 创建于 10-11 11:20 · 已运行 2 小时 13 分</span>
+		</div>
+		<div class="ws-panel__actions">
+			<button>进度快照</button>
+			<button>暂停</button>
+			<button>终止</button>
+		</div>
+	</div>
+	<div class="ws-panel__body">
+		<div class="engine-stats">
+			<span class="tag tag-running">运行 2</span>
+			<span class="tag tag-queued">排队 1</span>
+			<span class="tag tag-done">完成 8</span>
+			<span class="tag tag-failed">失败 1</span>
+			<span class="tag tag-blocked">阻塞 0</span>
+			<span>· 中枢提交 <span class="stat-num">5</span> 条</span>
+			<span>· 并发 <span class="stat-num">3</span> / 轮数 <span class="stat-num">5</span> / 重试 <span class="stat-num">1</span> / token 上限 <span class="stat-num">2M</span> / 时间上限 <span class="stat-num">60 分</span></span>
+		</div>
+		<div class="steer-box">
+			<input type="text" placeholder="给指挥官追加指令（steer）…">
+			<button>发送</button>
+			<input type="text" placeholder="追加目标（一行一个，可带备注）…">
+			<button>追加</button>
+		</div>
+		<div class="board">
+			<div class="board-col">
+				<div class="board-col__head">
+					<span class="board-col__title">任务看板</span>
+					<span class="ws-panel__sub">18 个任务 · 点行看详情</span>
+				</div>
+				<div class="board-col__body">
+					<div class="data-table tasks-table" style="margin:0;border:none;border-radius:0">
+						<div class="data-row data-head" style="margin:0 -14px;padding:8px 14px">
+							<span>状态</span><span>任务</span><span>目标</span><span>次数</span><span>用量</span><span>结论</span><span></span>
+						</div>
+						<div class="data-row" style="margin:0 -14px">
+							<span><span class="tag tag-running">运行中</span></span>
+							<span class="data-name">10.0.0.5 Web 深度测试</span>
+							<span class="data-mono">10.0.0.5</span>
+							<span>第 2 次</span>
+							<span class="data-mono">812k</span>
+							<span class="task-summary">已确认 SQL 注入，正在验证联合查询出数据…</span>
+							<span><button style="padding:1px 8px;font-size:12px">中止</button></span>
+						</div>
+						<div class="data-row" style="margin:0 -14px">
+							<span><span class="tag tag-done">已完成</span></span>
+							<span class="data-name">10.0.0.1 端口枚举</span>
+							<span class="data-mono">10.0.0.1</span>
+							<span>第 1 次</span>
+							<span class="data-mono">402k</span>
+							<span class="task-summary">开放 80/443/8080，指纹 Nginx 1.24 + Tomcat</span>
+							<span></span>
+						</div>
+						<div class="data-row" style="margin:0 -14px">
+							<span><span class="tag tag-failed">失败</span></span>
+							<span class="data-name">10.0.0.9 全端口扫描</span>
+							<span class="data-mono">10.0.0.9</span>
+							<span>第 3 次</span>
+							<span class="data-mono">1.9M</span>
+							<span class="task-summary">连续 3 轮阻塞：主机不响应任何探测</span>
+							<span></span>
+						</div>
+						<div class="data-row" style="margin:0 -14px">
+							<span><span class="tag tag-queued">排队中</span></span>
+							<span class="data-name">凭据复用验证</span>
+							<span class="data-mono">10.0.0.1-12</span>
+							<span>第 1 次</span>
+							<span class="data-mono">—</span>
+							<span class="task-summary"></span>
+							<span><button style="padding:1px 8px;font-size:12px">中止</button></span>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="board-col">
+				<div class="board-col__head">
+					<span class="board-col__title">指挥官</span>
+					<span class="ws-panel__sub">MiniMax-M3.1 · 决策日志</span>
+				</div>
+				<div class="board-col__body">
+					<div class="commander-feed">
+						<div class="commander-item">
+							<div class="commander-item__meta">11:22:04</div>
+							<button class="commander-item__thinking">思考 · 412 字（点开）</button>
+						</div>
+						<div class="commander-item">
+							<div class="commander-item__meta">11:22:31 · 决策</div>
+							<div class="commander-item__text">看板为空。按标准编排，先对 12 个目标各派发一轮快速侦察，按暴露面大小排序后再决定深度任务。</div>
+						</div>
+						<div class="commander-item">
+							<div class="commander-item__meta">11:22:32 · 派发</div>
+							<div class="commander-tool-row">
+								<span class="tname">dispatch_task</span>
+								<span class="targ">10.0.0.1 端口枚举 · 目标 10.0.0.1 · 第 1 次</span>
+								<span class="tok">✓</span>
+							</div>
+						</div>
+						<div class="commander-item">
+							<div class="commander-item__meta">11:31:08 · 情报注入</div>
+							<div class="commander-tool-row">
+								<span class="tname">steer_task</span>
+								<span class="targ">→ 10.0.0.5：10.0.0.1 验证 admin/admin123 可用，先试同凭据</span>
+								<span class="tok">✓</span>
+							</div>
+						</div>
+						<div class="commander-item">
+							<div class="commander-item__meta">11:47:55</div>
+							<div class="commander-tool-row is-error">
+								<span class="tname">engine_done</span>
+								<span class="targ">还有 2 个任务未结束，先等它们结束或 abort_task</span>
+								<span class="terr">✕</span>
+							</div>
+						</div>
+						<div class="commander-sep">任务 10.0.0.1 端口枚举 完成</div>
+						<div class="commander-item">
+							<div class="commander-item__meta">11:31:02 · 收到摘要</div>
+							<div class="commander-item__text">任务结束（已完成）。开放 80/443/8080，Nginx 1.24 反代 Tomcat，8080 直接暴露管理页。建议派发 Web 深度任务。</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- ============ 任务详情弹窗 ============ -->
+<h2>任务详情弹窗（点任务行弹出；与漏洞详情同款）</h2>
+<p class="note">浅色元信息栅格 + 指令原文；执行过程里的命令/输出用全局深色控制台块。</p>
+<div class="page-card" style="position:relative;min-height:520px">
+	<div class="modal-backdrop" style="position:absolute;background:rgba(0,0,0,0.12)">
+		<div class="modal">
+			<div class="vuln-detail__head">
+				<div>
+					<div class="vuln-detail__title">10.0.0.5 Web 深度测试 <span class="tag tag-running" style="margin-left:6px">运行中</span></div>
+					<div class="vuln-detail__meta">
+						<span>目标：10.0.0.5</span><span>第 2 次派发</span><span>轮数 3/5</span>
+						<span>工作目录 /work/tasks/10-0-0-5-web-a2-x7kq</span>
+					</div>
+				</div>
+				<div class="ws-panel__actions"><button>中止任务</button><button>关闭</button></div>
+			</div>
+			<div class="vuln-meta-grid">
+				<div><span>耗时</span><span>41 分钟（进行中）</span></div>
+				<div><span>用量</span><span>812k tokens</span></div>
+				<div><span>中枢提交</span><span>2 条（HIGH-0003、MED-0007）</span></div>
+				<div><span>会话</span><span style="font-family:var(--mono)">task-468dedc5</span></div>
+			</div>
+			<h3>当前结论</h3>
+			<div style="font-size:13px;line-height:1.6">已确认 `/api/query` 的 id 参数存在布尔盲注，正在验证联合查询能否带出用户表。</div>
+			<h3>任务指令（指挥官原文）</h3>
+			<pre class="ws-console__body">【目标】10.0.0.5 Web 深度测试
+【范围】仅 10.0.0.5 的 80/443/8080，禁止越出
+【已知情报】admin/admin123 在后台可用（来自 10.0.0.1 任务）
+【验收标准】1. 每个可利用点给出证据  2. 提交漏洞中枢  3. 输出修复建议</pre>
+			<h3>执行过程 <span class="ws-panel__sub">最近步骤 · 工具输出为终端块</span></h3>
+			<pre class="ws-console__body">$ sqlmap -u "https://10.0.0.5/api/query?id=1" --batch --technique=BT
+[INFO] the back-end DBMS is MySQL
+[INFO] GET parameter 'id' is 'AND boolean-based blind' injectable</pre>
+		</div>
+	</div>
+</div>
+
+<!-- ============ 新建工程（独立全页） ============ -->
+<h2>新建工程（独立全页表单）</h2>
+<div class="page-card">
+	<div class="ws-panel__head">
+		<div class="ws-panel__title">新建工程</div>
+		<div class="ws-panel__actions"><button>取消</button><button class="primary">启动工程</button></div>
+	</div>
+	<div class="ws-panel__body">
+		<div class="form-grid">
+			<div class="form-field">
+				<label>工程名称</label>
+				<input type="text" placeholder="如：内网一批 Web 目标">
+			</div>
+			<div class="form-field">
+				<label>目标清单 <span class="hint">一行一个：目标 + 可选备注，共 0 个</span></label>
+				<textarea placeholder="10.0.0.1 这台是 Web 服务器&#10;http://target.example.com 只测登录功能"></textarea>
+			</div>
+			<div class="form-field">
+				<label>指挥思路 <span class="hint">可多选叠加，合并注入指挥官</span></label>
+				<div class="check-group">
+					<label class="check-item"><input type="checkbox" checked><span class="cname">标准编排</span><span class="ctext">先侦察枚举，拿到结果再决定深度任务；一次一个明确目标；失败换思路重派。</span></label>
+					<label class="check-item"><input type="checkbox"><span class="cname">先易后难</span><span class="ctext">全部目标先快速侦察一轮，按暴露面排序，容易的先拿结果。</span></label>
+					<label class="check-item"><input type="checkbox"><span class="cname">优先 Web</span><span class="ctext">开放 HTTP/HTTPS 的目标先派 Web 侦察，无果再转向服务漏洞方向。</span></label>
+				</div>
+			</div>
+			<div class="form-field">
+				<label>上限设置</label>
+				<div class="limit-grid">
+					<div class="form-field"><label>最大并发</label><input type="number" value="3"></div>
+					<div class="form-field"><label>单任务轮数上限</label><input type="number" value="5"></div>
+					<div class="form-field"><label>重试上限（每目标）</label><input type="number" value="1"></div>
+					<div class="form-field"><label>token 上限（留空不限）</label><input type="number" placeholder="如 2000000"></div>
+					<div class="form-field"><label>时间上限分钟（留空不限）</label><input type="number" placeholder="如 60"></div>
+				</div>
+			</div>
+			<p class="hint">启动后指挥官全权调度（免审），各任务在项目容器内自动执行命令；人保留暂停 / 终止 / 追加目标 / steer。</p>
+		</div>
+	</div>
+</div>
+
+</body>
+</html>

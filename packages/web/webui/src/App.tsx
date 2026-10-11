@@ -19,6 +19,7 @@ import { ProjectsPage } from "./components/ProjectsPage.tsx";
 import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
+import { EnginePage } from "./components/EnginePage.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
@@ -52,6 +53,9 @@ import type {
 	ZGVulnSummary,
 	ZGVulnUpdate,
 	ZGVulnerability,
+	ZGEngine,
+	ZGDoctrineView,
+	ZGClientMessage,
 } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
 
@@ -181,6 +185,12 @@ export function App() {
 	/** The record the detail overlay shows, and the evidence file it is previewing. */
 	const [vulnDetail, setVulnDetail] = useState<ZGVulnerability | null>(null);
 	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
+	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
+	const [engines, setEngines] = useState<ZGEngine[]>([]);
+	const [doctrines, setDoctrines] = useState<ZGDoctrineView[]>([]);
+	const [commanderConfig, setCommanderConfig] = useState<ZGModelConfig | null>(null);
+	const [commanderEvents, setCommanderEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
+	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
 	const testResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
@@ -312,6 +322,64 @@ export function App() {
 				}
 				case "stats":
 					setStats(message.stats);
+					break;
+				case "engines":
+					setEngines(message.engines);
+					break;
+				case "engine_update":
+					setEngines((prev) => {
+						const index = prev.findIndex((engine) => engine.id === message.engine.id);
+						if (index === -1) return [message.engine, ...prev];
+						const next = [...prev];
+						next[index] = message.engine;
+						return next;
+					});
+					break;
+				case "engine_commander_events":
+					setCommanderEvents((prev) => ({ ...prev, [message.id]: message.events }));
+					break;
+				case "engine_commander_event":
+					setCommanderEvents((prev) => ({
+						...prev,
+						[message.engineId]: [...(prev[message.engineId] ?? []).slice(-499), message.event],
+					}));
+					break;
+				case "engine_task_event":
+					setEngineTaskEvents((prev) => ({
+						...prev,
+						[message.taskId]: [...(prev[message.taskId] ?? []).slice(-999), message.event],
+					}));
+					break;
+				case "engine_task_events":
+					setEngineTaskEvents((prev) => ({ ...prev, [message.taskId]: message.events }));
+					break;
+				case "engine_report": {
+					const blob = new Blob([message.markdown], { type: "text/markdown" });
+					const url = URL.createObjectURL(blob);
+					const anchor = document.createElement("a");
+					anchor.href = url;
+					anchor.download = message.filename;
+					anchor.click();
+					URL.revokeObjectURL(url);
+					break;
+				}
+				case "doctrines":
+					setDoctrines(message.doctrines);
+					break;
+				case "doctrine_saved": {
+					if (message.error) {
+						pushError(`思路保存失败：${message.error}`);
+						return;
+					}
+					send({ type: "list_doctrines" });
+					break;
+				}
+				case "doctrine_deleted":
+					if (!message.ok) pushError(`思路删除失败：${message.error ?? "未知错误"}`);
+					else send({ type: "list_doctrines" });
+					break;
+				case "commander_config":
+					setCommanderConfig(message.config);
 					break;
 				case "tree":
 					setTree(message.tree);
@@ -1127,6 +1195,19 @@ export function App() {
 							onFiltersChange={loadVulns}
 							onOpen={openVuln}
 							onExport={(filters) => send({ type: "export_vulns", filters })}
+						/>
+					) : page === "engine" ? (
+						<EnginePage
+							engines={snapshot?.project ? engines.filter((engine) => engine.projectId === snapshot.project?.id) : engines}
+							doctrines={doctrines}
+							commanderConfig={commanderConfig}
+							onSend={(message) => send(message as ZGClientMessage)}
+							onError={pushError}
+							commanderEvents={commanderEvents}
+							taskEvents={engineTaskEvents}
+							onOpenTaskEvents={(taskId) => send({ type: "engine_task_events", taskId })}
+							onOpenCommanderEvents={(engineId) => send({ type: "engine_commander_events", id: engineId })}
+							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 						/>
 					) : page === "settings.model" ? (
 						<div className="page-card">

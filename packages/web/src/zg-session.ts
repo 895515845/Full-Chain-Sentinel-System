@@ -173,6 +173,32 @@ interface ManagedSession {
 	 * minutes, so the console tracks it to show the wait and to offer a cancel.
 	 */
 	compactionStartedAt?: number;
+	/**
+	 * True when this session belongs to an engineering-mode task. Task sessions
+	 * are created by the engine through `acquireTaskSession`, run ungated, are
+	 * never rebuilt by config/permission saves, and their goal is driven by the
+	 * engine's worker — not by the console's goal bar.
+	 */
+	taskSession?: boolean;
+}
+
+/** Extra wiring a task session needs beyond a console session. */
+export interface TaskSessionOptions {
+	engineId: string;
+	/** The engine's project, which may differ from the viewed one. */
+	project: { id: string; name: string; container: string; cwd: string };
+	/** Extra system-prompt text: the worker's engineering identity note. */
+	appendPrompt: string;
+	engineName: string;
+	taskTitle: string;
+	/** pi session id when resuming a paused task; null for a fresh one. */
+	taskSessionId: string | null;
+	/** True when the task is being resumed (reopen its session file). */
+	paused: boolean;
+	/** Goal tools bind to the engine worker's goal state, not the console's. */
+	goalPort: GoalPort;
+	/** A finding was submitted; the worker counts it towards its goal. */
+	onFinding(): void;
 }
 
 export class ZGAgentRuntime {
@@ -315,9 +341,12 @@ export class ZGAgentRuntime {
 		return { resourceLoader, settingsManager };
 	}
 
-	private async createSessionInto(manager: SessionManager): Promise<string> {
-		// Every tool call runs in the project container; there is no host backend.
-		const container = this.requireContainer();
+	private async createSessionInto(manager: SessionManager, task?: TaskSessionOptions): Promise<string> {
+		// Every tool call runs in a project container; there is no host backend.
+		// A task session runs in the engine's project (which may not be the one
+		// on screen) and its bash is ungated: engineering mode never stops at an
+		// approval queue nobody is watching.
+		const container = task ? task.project.container : this.requireContainer();
 		if (!this.modelRuntime) {
 			this.modelRuntime = await ModelRuntime.create({
 				authPath: `${this.agentDir}/auth.json`,
@@ -332,15 +361,23 @@ export class ZGAgentRuntime {
 			manager,
 			unsubscribe: () => {},
 		};
-		const bash = this.createGatedBash(
-			manager.getCwd(),
-			() => this.sessionLabel(managed),
-			dockerBashOperations(container),
-		);
+		const bash = task
+			? createBashTool(manager.getCwd(), {
+					operations: dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+				})
+			: this.createGatedBash(
+					manager.getCwd(),
+					() => this.sessionLabel(managed),
+					dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+				);
 
 		const permissions = readPermissionsConfig(this.agentDir).main;
 		const subagentPermissions = effectiveSubagent(readPermissionsConfig(this.agentDir));
-		const { resourceLoader, settingsManager } = await this.createSessionContext(manager.getCwd(), permissions);
+		const { resourceLoader, settingsManager } = await this.createSessionContext(
+			manager.getCwd(),
+			permissions,
+			task ? [task.appendPrompt] : undefined,
+		);
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
 		// tools must be listed explicitly alongside the gated bash. Passing only bash
@@ -356,21 +393,24 @@ export class ZGAgentRuntime {
 		};
 		// The hub tools are mounted here as well, so a session that may not delegate
 		// can still report what it found.
-		const sessionProject = this.activeProjectId
-			? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
-			: undefined;
+		const sessionProject = task
+			? { id: task.project.id, name: task.project.name }
+			: this.activeProjectId
+				? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
+				: undefined;
 		const customTools: ToolDefinition[] = [
 			// The goal tools are always mounted; they refuse to do anything while no
-			// goal is running, which keeps the mount set stable across a goal.
-			...createGoalTools(this.createGoalPort(managed)),
+			// goal is running, which keeps the mount set stable across a goal. Task
+			// sessions bind to the engine worker's goal state instead.
+			...createGoalTools(task ? task.goalPort : this.createGoalPort(managed)),
 			...this.createVulnTools({
 				project: sessionProject,
 				permissions,
 				getSessionId: () => manager.getSessionId(),
-				getSource: () => "主代理",
+				getSource: () => (task ? `工程任务「${task.taskTitle}」` : "主代理"),
 				// A finding counts towards the goal's hub statement whether the main
 				// agent or one of its sub-agents submitted it.
-				onSubmit: () => this.noteGoalFinding(managed),
+				onSubmit: task ? task.onFinding : () => this.noteGoalFinding(managed),
 			}),
 			...(permissions.spawn_agent
 				? [
@@ -384,7 +424,15 @@ export class ZGAgentRuntime {
 							getProjectId: () => this.activeProjectId,
 							permissions: subagentPermissions,
 							createGatedBash: () =>
-								this.createGatedBash(manager.getCwd(), () => "子代理", dockerBashOperations(container)),
+								task
+									? createBashTool(manager.getCwd(), {
+											operations: dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+										})
+									: this.createGatedBash(
+											manager.getCwd(),
+											() => "子代理",
+											dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+										),
 							createSessionContext: (appendSystemPrompt) =>
 								this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
 							// A sub-agent reports under the parent session and project.
@@ -413,13 +461,22 @@ export class ZGAgentRuntime {
 			excludeTools: excludeToolsFor(permissions),
 		});
 		managed.session = created.session;
+		managed.taskSession = task !== undefined;
 		// Emits session_start, which connects MCP servers and lets extensions
 		// contribute skills and prompt templates.
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
-		// The goal is restored from the session file, so a reopened conversation
-		// keeps the objective it was working on.
-		managed.goal = this.restoreGoal(managed);
+		if (task) {
+			// The session list shows task sessions like any other conversation;
+			// the name says which engine and task it belongs to.
+			manager.appendSessionInfo(`${task.engineName} · ${task.taskTitle}`);
+			// The task's goal is the worker's state, not the console's: no restore
+			// here (the worker resumes it itself), and the goal bar never claims it.
+		} else {
+			// The goal is restored from the session file, so a reopened conversation
+			// keeps the objective it was working on.
+			managed.goal = this.restoreGoal(managed);
+		}
 		managed.unsubscribe = created.session.subscribe((event) => {
 			// Only the viewed session streams events; background sessions run silently.
 			if (managed.key === this.activeKey) this.hooks.onSessionEvent(event);
@@ -444,6 +501,38 @@ export class ZGAgentRuntime {
 		});
 		this.sessions.set(managed.key, managed);
 		return managed.key;
+	}
+
+	/**
+	 * Create (or reattach to) the console-visible session of one engineering
+	 * task. The session lives in the project's normal session directory, so it
+	 * shows up in the 对话 list with its 「工程 · 任务」 name and can be opened in
+	 * the full conversation view while it runs — there is exactly one live
+	 * instance, owned by this runtime, whether the engine or the operator is
+	 * the one looking at it.
+	 */
+	async acquireTaskSession(
+		options: TaskSessionOptions,
+	): Promise<{ session: ManagedSession["session"]; manager: SessionManager; unsubscribe: () => void }> {
+		const sessionDir = getDefaultSessionDir(options.project.cwd, this.agentDir);
+		// A paused task reopens its own session file, so its goal and transcript
+		// come back exactly as they were; a fresh task starts a new one.
+		const manager =
+			options.taskSessionId && options.paused
+				? SessionManager.open(
+						resolveFsPath(`${sessionDir}/${options.taskSessionId}.jsonl`),
+						sessionDir || undefined,
+						options.project.cwd,
+					)
+				: SessionManager.create(options.project.cwd, sessionDir || undefined);
+		const key = await this.createSessionInto(manager, options);
+		const managed = this.sessions.get(key);
+		if (!managed) throw new Error("任务会话创建失败");
+		return {
+			session: managed.session,
+			manager: managed.manager,
+			unsubscribe: managed.unsubscribe,
+		};
 	}
 
 	private sessionLabel(managed: ManagedSession): string {
@@ -1205,18 +1294,20 @@ export class ZGAgentRuntime {
 	/** Apply a new endpoint: rebuild the model runtime and every live session. */
 	async saveConfig(config: ZGModelConfig): Promise<void> {
 		writeModelConfig(this.agentDir, config);
-		const existing = [...this.sessions.values()];
-		this.sessions.clear();
+		// Task sessions keep their tools and their engine driver: disposing them
+		// would kill running engineering tasks. They stay on the old endpoint;
+		// every task started afterwards uses the new one.
+		const existing = [...this.sessions.values()].filter((managed) => !managed.taskSession);
 		for (const managed of existing) managed.unsubscribe();
 		for (const managed of existing) managed.session.dispose();
-		this.activeKey = undefined;
+		for (const managed of existing) this.sessions.delete(managed.key);
 		this.modelRuntime = undefined;
 		// Recreate each session on the new runtime, restoring the previous view last.
 		const order = [...existing];
 		const viewed = order.findIndex((managed) => managed.key === this.activeKey);
 		if (viewed !== -1) order.push(...order.splice(viewed, 1));
 		for (const managed of order) {
-			this.activeKey = await this.createSessionInto(managed.manager);
+			await this.createSessionInto(managed.manager);
 		}
 		this.hooks.onStateChange();
 	}
@@ -1264,18 +1355,19 @@ export class ZGAgentRuntime {
 		const running = [...this.sessions.values()].filter((managed) => managed.session.isStreaming);
 		if (running.length > 0) throw new Error("有会话正在运行，请先中止再修改权限");
 		writePermissionsConfig(this.agentDir, config);
-		const existing = [...this.sessions.values()];
+		// Task sessions are skipped for the same reason as in saveConfig: the
+		// engine owns their lifecycle, and new tasks pick up the new switches.
+		const existing = [...this.sessions.values()].filter((managed) => !managed.taskSession);
 		const activeKey = this.activeKey;
-		this.sessions.clear();
 		for (const managed of existing) managed.unsubscribe();
 		for (const managed of existing) managed.session.dispose();
-		this.activeKey = undefined;
+		for (const managed of existing) this.sessions.delete(managed.key);
 		// Recreate every session, restoring the previously viewed one last.
 		const order = [...existing];
 		const viewed = order.findIndex((managed) => managed.key === activeKey);
 		if (viewed !== -1) order.push(...order.splice(viewed, 1));
 		for (const managed of order) {
-			this.activeKey = await this.createSessionInto(managed.manager);
+			await this.createSessionInto(managed.manager);
 		}
 		this.hooks.onStateChange();
 	}

@@ -1480,6 +1480,7 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 	const relaxed: ZGPermissionsConfig = {
 		main: { ...config.main, vuln_submit: false },
 		subagent: { ...config.subagent },
+		commander: { ...config.commander },
 	};
 
 	drainIncoming();
@@ -1513,7 +1514,10 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 
 	// Restore the full set so the remaining tests see the default.
 	drainIncoming();
-	send({ type: "save_permissions", config: { main: { ...config.main }, subagent: { ...config.subagent } } });
+	send({
+		type: "save_permissions",
+		config: { main: { ...config.main }, subagent: { ...config.subagent }, commander: { ...config.commander } },
+	});
 	await waitFor((message) => message.type === "permissions" && message.config.main.vuln_submit);
 });
 

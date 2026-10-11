@@ -11,6 +11,8 @@ import { dirname } from "node:path";
 import type { ZGModelConfig } from "./protocol.ts";
 
 export const ZG_PROVIDER_ID = "zg-endpoint";
+/** Separate provider entry for the engineering-mode commander; may point at a cheaper model. */
+export const ZG_COMMANDER_PROVIDER_ID = "zg-commander";
 
 /** Bearer placeholder for unauthenticated endpoints; written so Pi treats the provider as credentialed. */
 export const NO_AUTH_PLACEHOLDER_KEY = "zgagent-no-auth";
@@ -48,6 +50,35 @@ export function modelsJsonPath(agentDir: string): string {
 
 /** Read the persisted endpoint config, if a model entry exists. */
 export function readModelConfig(agentDir: string): ZGModelConfig | null {
+	return readProviderConfig(agentDir, ZG_PROVIDER_ID);
+}
+
+/**
+ * The commander's endpoint. When none is configured the engine falls back to
+ * the main endpoint, so engineering mode works out of the box.
+ */
+export function readCommanderModelConfig(agentDir: string): ZGModelConfig | null {
+	return readProviderConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
+}
+
+export function writeCommanderModelConfig(agentDir: string, config: ZGModelConfig | null): void {
+	// null removes the commander entry, which restores the fallback to the main endpoint.
+	if (config === null) {
+		const path = modelsJsonPath(agentDir);
+		if (!existsSync(path)) return;
+		try {
+			const parsed = JSON.parse(readFileSync(path, "utf-8")) as ModelsJson;
+			if (parsed.providers) delete parsed.providers[ZG_COMMANDER_PROVIDER_ID];
+			writeFileSync(path, `${JSON.stringify(parsed, null, "\t")}\n`, { mode: 0o600 });
+		} catch {
+			// A corrupt file is left alone; the fallback endpoint still works.
+		}
+		return;
+	}
+	writeProviderConfig(agentDir, ZG_COMMANDER_PROVIDER_ID, "ZGAgent Commander", config);
+}
+
+function readProviderConfig(agentDir: string, providerId: string): ZGModelConfig | null {
 	const path = modelsJsonPath(agentDir);
 	if (!existsSync(path)) return null;
 	let parsed: ModelsJson;
@@ -56,7 +87,7 @@ export function readModelConfig(agentDir: string): ZGModelConfig | null {
 	} catch {
 		return null;
 	}
-	const provider = parsed.providers?.[ZG_PROVIDER_ID];
+	const provider = parsed.providers?.[providerId];
 	const model = provider?.models?.[0];
 	if (!provider?.baseUrl || !model || typeof model.id !== "string") return null;
 	return {
@@ -66,8 +97,7 @@ export function readModelConfig(agentDir: string): ZGModelConfig | null {
 	};
 }
 
-/** Persist the endpoint config, merging into any existing models.json. */
-export function writeModelConfig(agentDir: string, config: ZGModelConfig): void {
+function writeProviderConfig(agentDir: string, providerId: string, name: string, config: ZGModelConfig): void {
 	const path = modelsJsonPath(agentDir);
 	let parsed: ModelsJson = { providers: {} };
 	if (existsSync(path)) {
@@ -78,9 +108,9 @@ export function writeModelConfig(agentDir: string, config: ZGModelConfig): void 
 		}
 	}
 	if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
-	const previous = parsed.providers[ZG_PROVIDER_ID];
-	parsed.providers[ZG_PROVIDER_ID] = {
-		name: "ZGAgent Endpoint",
+	const previous = parsed.providers[providerId];
+	parsed.providers[providerId] = {
+		name,
 		baseUrl: config.baseUrl,
 		// Pi requires a credential before it will prompt. Unauthenticated local
 		// endpoints get a placeholder bearer, which they ignore (same trick the
@@ -106,4 +136,9 @@ export function writeModelConfig(agentDir: string, config: ZGModelConfig): void 
 	} catch {
 		// chmod is best-effort (some filesystems reject it)
 	}
+}
+
+/** Persist the endpoint config, merging into any existing models.json. */
+export function writeModelConfig(agentDir: string, config: ZGModelConfig): void {
+	writeProviderConfig(agentDir, ZG_PROVIDER_ID, "ZGAgent Endpoint", config);
 }

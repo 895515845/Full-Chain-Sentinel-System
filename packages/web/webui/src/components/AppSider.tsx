@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import type { SessionInfoView, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
-import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, VulnIcon } from "./icons.tsx";
+import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
 import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
@@ -31,6 +31,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "chat", label: "对话", icon: ChatIcon },
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
 			{ page: "vulns", label: "漏洞", icon: VulnIcon },
+			{ page: "engine", label: "工程", icon: SubagentIcon },
 		],
 	},
 	{
