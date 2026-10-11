@@ -295,20 +295,26 @@ export class EngineManager {
 		await this.promptCommander(entry, `操作员指令：${trimmed}`);
 	}
 
-	/** Operator abort of one task; the commander is told why. */
-	async abortTask(taskId: string, reason: string): Promise<void> {
+	/**
+	 * Abort one task (operator or commander). Never throws: an unknown id is
+	 * model input — the caller gets a result it can show instead, and an
+	 * exception here would take the whole console down.
+	 */
+	async abortTask(taskId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
 		const task = this.store.getTask(taskId);
-		if (!task) throw new Error("任务不存在");
+		if (!task) return { ok: false, error: `任务 ${taskId} 不存在（可能已完成、已删除或 id 有误）` };
 		const entry = this.live.get(task.engineId);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) return { ok: false, error: "任务所属工程不存在" };
 		if (task.status === "queued") {
 			this.store.updateTask(taskId, { status: "aborted", endedAt: Date.now(), error: reason });
 			entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 			this.hooks.onChange(entry.engine);
-			return;
+			return { ok: true };
 		}
 		const worker = entry.workers.get(taskId);
-		if (worker) await worker.abort(`操作员中止：${reason}`);
+		if (!worker) return { ok: false, error: `任务 ${taskId} 不在运行中（当前状态：${task.status}）` };
+		await worker.abort(`中止：${reason}`);
+		return { ok: true };
 	}
 
 	/** Deterministic progress snapshot the operator can pull at any time. */
@@ -380,15 +386,22 @@ export class EngineManager {
 				const position = entry.engine.tasks.filter((item) => item.status === "queued").length;
 				return { task, position };
 			},
-			abortTask: (taskId, reason) => {
-				void this.abortTask(taskId, `指挥官中止：${reason}`);
-				return { ok: true };
+			abortTask: async (taskId, reason) => {
+				try {
+					return await this.abortTask(taskId, `指挥官中止：${reason}`);
+				} catch (error) {
+					return { ok: false, error: errorText(error) };
+				}
 			},
-			steerTask: (taskId, instruction) => {
+			steerTask: async (taskId, instruction) => {
 				const worker = entry.workers.get(taskId);
 				if (!worker || !worker.isRunning) return { ok: false, error: "任务不在运行中，无法注入指令" };
-				void worker.steer(instruction);
-				return { ok: true };
+				try {
+					const delivered = await worker.steer(instruction);
+					return delivered ? { ok: true } : { ok: false, error: "指令未能注入（任务刚好结束）" };
+				} catch (error) {
+					return { ok: false, error: errorText(error) };
+				}
 			},
 			board: () => this.store.getEngine(entry.engine.id)?.tasks ?? entry.engine.tasks,
 			finish: (report) => {
@@ -603,7 +616,9 @@ export class EngineManager {
 			for (const task of board) {
 				if (slots <= 0) break;
 				if (task.status !== "queued") continue;
-				void this.startTask(entry, task.id);
+				void this.startTask(entry, task.id).catch((error: unknown) => {
+					console.error(`[zg-engine] 任务 ${task.id} 启动失败：`, error);
+				});
 				slots -= 1;
 			}
 		}

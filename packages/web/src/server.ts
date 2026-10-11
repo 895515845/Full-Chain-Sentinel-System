@@ -884,11 +884,8 @@ export async function startZGServer(
 					return;
 				case "engine_abort_task": {
 					if (!engines) return;
-					try {
-						await engines.abortTask(message.taskId, "操作员在工程页中止");
-					} catch (error) {
-						sendError(socket, error instanceof Error ? error.message : String(error));
-					}
+					const aborted = await engines.abortTask(message.taskId, "操作员在工程页中止");
+					if (!aborted.ok) sendError(socket, aborted.error ?? "任务未能中止");
 					return;
 				}
 				case "engine_task_events": {

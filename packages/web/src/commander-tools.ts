@@ -20,6 +20,8 @@ interface DispatchDetails {
 }
 
 /** What the engine has to provide for the commander's tools to act. */
+type MaybePromise<T> = T | Promise<T>;
+
 export interface CommanderPort {
 	/** Queue a task; the engine assigns id, attempt, workspace, and turn order. */
 	dispatch(input: {
@@ -30,9 +32,9 @@ export interface CommanderPort {
 		roundLimit: number | null;
 	}): { task?: ZGEngineTask; position?: number; error?: string };
 	/** Stop one task (queued or running) with a reason. */
-	abortTask(taskId: string, reason: string): { ok: boolean; error?: string };
+	abortTask(taskId: string, reason: string): MaybePromise<{ ok: boolean; error?: string }>;
 	/** Queue an instruction into a running task (intel injection, mid-course correction). */
-	steerTask(taskId: string, instruction: string): { ok: boolean; error?: string };
+	steerTask(taskId: string, instruction: string): MaybePromise<{ ok: boolean; error?: string }>;
 	/** The task board right now, for `list_tasks`. */
 	board(): ZGEngineTask[];
 	/** Declare the engine finished; refused while work is outstanding. */
@@ -204,7 +206,7 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 			reason: Type.String({ description: "Why the task is being aborted; recorded on the task." }),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult> {
-			const result = port.abortTask(params.task_id.trim(), params.reason.trim());
+			const result = await port.abortTask(params.task_id.trim(), params.reason.trim());
 			if (!result.ok) {
 				return {
 					content: [{ type: "text", text: `中止失败：${result.error}` }],
@@ -229,7 +231,7 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 			instruction: Type.String({ description: "The instruction or intelligence to deliver, self-contained." }),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult> {
-			const result = port.steerTask(params.task_id.trim(), params.instruction.trim());
+			const result = await port.steerTask(params.task_id.trim(), params.instruction.trim());
 			if (!result.ok) {
 				return {
 					content: [{ type: "text", text: `注入失败：${result.error}` }],
