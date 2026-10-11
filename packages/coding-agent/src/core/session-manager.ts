@@ -240,6 +240,13 @@ export interface SessionInfo {
 	messageCount: number;
 	firstMessage: string;
 	allMessagesText: string;
+	/**
+	 * The latest `custom` entry's data per customType. Console features keep
+	 * per-session operator state (the persistent goal, a manual status) in
+	 * `custom` entries, so a list can show it without opening the file again.
+	 * Absent when the session has no `custom` entries.
+	 */
+	customState?: Record<string, unknown>;
 }
 
 export type ReadonlySessionManager = Pick<
@@ -815,6 +822,7 @@ async function buildSessionInfo(
 		let messageCount = 0;
 		let firstMessage = "";
 		const allMessages: string[] = [];
+		const customState: Record<string, unknown> = {};
 		let name: string | undefined;
 		let lastActivityTime: number | undefined;
 
@@ -836,6 +844,11 @@ async function buildSessionInfo(
 			// Extract session name (use latest, including explicit clears)
 			if (entry.type === "session_info") {
 				name = entry.name?.trim() || undefined;
+			}
+
+			// The latest state of each `custom` entry, last one wins.
+			if (entry.type === "custom") {
+				customState[entry.customType] = entry.data;
 			}
 
 			if (entry.type !== "message") continue;
@@ -882,6 +895,7 @@ async function buildSessionInfo(
 			messageCount,
 			firstMessage: firstMessage || "(no messages)",
 			allMessagesText: allMessages.join(" "),
+			...(Object.keys(customState).length > 0 ? { customState } : {}),
 		};
 	} catch {
 		signal?.throwIfAborted();

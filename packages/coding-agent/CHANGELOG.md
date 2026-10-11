@@ -14,7 +14,9 @@
 ### Added
 
 - Added `baseToolsOverride` to `createAgentSession()` options so custom runtimes can replace built-in base tools (used by the ZGAgent web console to wrap the bash tool with an approval gate)
+- Added `customState` to `SessionInfo`: the latest `custom` entry's data per `customType`, read in the same pass that already computes `name` and `firstMessage`. A host that keeps per-session operator state in `custom` entries (the console's persistent goal and manual session status) can show it in a session list without opening every file a second time
 - Exported the `ThinkingLevel` and `ImageContent` types, which hosts need to call `setThinkingLevel()` and to pass `images` to `prompt()`
+- Added the `loop-guard` built-in extension. It watches the streaming response and, when one line or a short cycle starts repeating, aborts the request, trims the repeated tail so it does not re-enter the context, and continues the run with a nudge to change approach (after three nudges it stops and leaves the decision to the operator). The nudge is sent once the aborted run has settled, because a run that came back `aborted` cannot be continued from a turn boundary. It also counts consecutive identical tool calls per session and injects an advisory reminder at 3, 5 and 8 calls. Both notices are `custom_message` entries (`customType` `zg-loop-guard`), so the model reads them as a user message while the console shows them as a notice. Disable it with `-builtin:loop-guard` in the `extensions` setting.
 
 ### Changed
 

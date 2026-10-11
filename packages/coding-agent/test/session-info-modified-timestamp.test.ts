@@ -81,3 +81,32 @@ describe("SessionInfo.modified", () => {
 		expect(s!.modified.getTime()).not.toBe(before.mtime.getTime());
 	});
 });
+
+describe("SessionInfo.customState", () => {
+	it("carries the latest custom entry of each customType", async () => {
+		const filePath = join(tmpdir(), `pi-session-${Date.now()}-custom.jsonl`);
+		createSessionFile(filePath);
+
+		const mgr = SessionManager.open(filePath);
+		mgr.appendCustomEntry("zg-status", { status: "todo", at: 1 });
+		mgr.appendCustomEntry("zg-goal-state", { objective: "扫一遍" });
+		mgr.appendCustomEntry("zg-status", { status: "done", at: 2 });
+
+		const sessions = await SessionManager.list("/tmp", dirname(filePath));
+		const s = sessions.find((x) => x.path === filePath);
+		expect(s?.customState).toEqual({
+			"zg-status": { status: "done", at: 2 },
+			"zg-goal-state": { objective: "扫一遍" },
+		});
+	});
+
+	it("is absent for a session that never wrote one", async () => {
+		const filePath = join(tmpdir(), `pi-session-${Date.now()}-no-custom.jsonl`);
+		createSessionFile(filePath);
+
+		const sessions = await SessionManager.list("/tmp", dirname(filePath));
+		const s = sessions.find((x) => x.path === filePath);
+		expect(s).toBeDefined();
+		expect(s?.customState).toBeUndefined();
+	});
+});
