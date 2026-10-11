@@ -623,6 +623,189 @@ button.ghost.small {
 	transition: opacity 150ms;
 }
 
+/* All / 未完成: the status filter in the session list head. */
+.menu-sub-filter {
+	display: inline-flex;
+	flex: none;
+	margin-left: auto;
+	border: 1px solid var(--nav-border);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.menu-sub-filter button {
+	padding: 0 6px;
+	height: 17px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: var(--nav-text-dim);
+	font-size: 10px;
+	line-height: 1;
+}
+
+.menu-sub-filter button + button {
+	border-left: 1px solid var(--nav-border);
+}
+
+.menu-sub-filter button.on {
+	background: var(--accent);
+	color: #fff;
+}
+
+/* ---------- operator session status ---------- */
+
+.session-status-control {
+	display: inline-flex;
+	flex: none;
+}
+
+/* The chip in a session row: a small label, and a muted one when unset. */
+.session-status-chip {
+	flex: none;
+	padding: 1px 6px;
+	border: none;
+	border-radius: 4px;
+	background: #ffffff14;
+	color: var(--nav-text-dim);
+	font-family: var(--sans);
+	font-size: 11px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.session-status-chip.todo {
+	background: #e6a23c2e;
+	color: #e6a23c;
+}
+
+.session-status-chip.active {
+	background: #409eff2e;
+	color: #5aa9ff;
+}
+
+.session-status-chip.done {
+	background: #52c41a26;
+	color: #6fce4a;
+}
+
+.session-status-chip.ignored {
+	background: #8c98a826;
+	color: #9aa6b5;
+}
+
+.session-status-chip:hover:not(:disabled) {
+	border-color: transparent;
+	filter: brightness(1.15);
+}
+
+/* The toolbar trigger: same colors on the light page background. */
+.session-status-trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: var(--card);
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.session-status-trigger.todo {
+	border-color: #e6a23c55;
+	background: #e6a23c14;
+	color: #b7791f;
+}
+
+.session-status-trigger.active {
+	border-color: #409eff55;
+	background: #409eff14;
+	color: #0960bd;
+}
+
+.session-status-trigger.done {
+	border-color: #52c41a55;
+	background: #52c41a14;
+	color: #4a9a1f;
+}
+
+.session-status-trigger.ignored {
+	border-color: #8c98a855;
+	background: #8c98a814;
+	color: #606266;
+}
+
+.session-status-caret {
+	font-size: 10px;
+	opacity: 0.7;
+}
+
+.session-status-dot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--disabled);
+}
+
+.session-status-dot.none {
+	background: var(--disabled);
+}
+
+/*
+ * The picker is fixed rather than absolute: the session list is a scroll
+ * container and the sider clips, so a panel anchored in the row would be cut
+ * off on the last rows.
+ */
+.session-status-picker {
+	position: fixed;
+	z-index: 40;
+	width: 168px;
+	padding: 5px 0;
+	border: 1px solid #1d2b3d;
+	border-radius: 8px;
+	background: #0d1b2a;
+	box-shadow: 0 8px 24px #00000066;
+}
+
+.session-status-picker button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	height: 30px;
+	padding: 0 10px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: var(--nav-text);
+	font-size: 13px;
+	text-align: left;
+}
+
+.session-status-picker button:hover:not(:disabled) {
+	border-color: transparent;
+	background: #ffffff14;
+	color: #fff;
+}
+
+.session-status-picker button.on {
+	color: #fff;
+}
+
+.session-status-tick {
+	margin-left: auto;
+	color: #5aa9ff;
+	font-size: 12px;
+}
+
+/* The toolbar chip sits at the right end of its row. */
+.toolbar-status {
+	display: inline-flex;
+	margin-left: auto;
+}
+
 .menu-sub-item:hover .menu-sub-ops,
 .menu-sub-item.active .menu-sub-ops {
 	opacity: 1;
@@ -2065,6 +2248,15 @@ button.ghost.small {
 	color: var(--dim);
 	line-height: 1.7;
 	margin: 0 0 12px;
+}
+
+/* Guidance under one settings field, e.g. what a character limit applies to. */
+.field-sub {
+	display: block;
+	margin-top: 4px;
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.6;
 }
 
 .settings .project-form-actions,
@@ -3719,6 +3911,22 @@ svg.lucide {
    like a marker rather than like something the agent said. */
 .goal-row {
 	margin: 2px 0 6px;
+}
+
+/* Loop-guard notices: the run was cut short because the output stuttered, or a
+   tool call repeated. Folded like a goal row, but marked so an interrupted round
+   is visible at a glance. */
+.loop-guard-row {
+	margin: 2px 0 6px;
+	border-left: 2px solid var(--border);
+}
+
+.loop-guard-row .loop-guard-stutter {
+	color: var(--danger);
+}
+
+.loop-guard-row .loop-guard-repeat {
+	color: var(--warn);
 }
 
 /* ============================================================

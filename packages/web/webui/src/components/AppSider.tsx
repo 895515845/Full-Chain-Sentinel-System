@@ -7,9 +7,10 @@
  * navigation only; every page lives in the content area.
  */
 
-import { useState } from "react";
-import type { SessionInfoView, ZGMode, ZGPageId } from "../types.ts";
+import { useMemo, useState } from "react";
+import type { SessionInfoView, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, VulnIcon } from "./icons.tsx";
+import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
@@ -67,6 +68,7 @@ export function AppSider({
 	onSwitchSession,
 	onRenameSession,
 	onDeleteSession,
+	onSetSessionStatus,
 	projectSlot,
 	onRefresh,
 }: {
@@ -87,6 +89,7 @@ export function AppSider({
 	onSwitchSession: (path: string) => void;
 	onRenameSession: (path: string, name: string) => void;
 	onDeleteSession: (path: string) => void;
+	onSetSessionStatus: (path: string, status: ZGSessionStatus | null) => void;
 	projectSlot: React.ReactNode;
 	onRefresh: () => void;
 }) {
@@ -96,6 +99,25 @@ export function AppSider({
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [editingName, setEditingName] = useState("");
+	/**
+	 * "未完成" hides 已完成 and 已忽略: with a dozen tasks in flight, the point of the
+	 * status is to stop reading the ones that no longer need anything.
+	 */
+	const [sessionFilter, setSessionFilter] = useState<"all" | "open">(() =>
+		localStorage.getItem("zg-session-filter") === "open" ? "open" : "all",
+	);
+	const visibleSessions = useMemo(
+		() =>
+			sessionFilter === "open"
+				? sessions.filter((session) => session.status !== "done" && session.status !== "ignored")
+				: sessions,
+		[sessions, sessionFilter],
+	);
+
+	const setFilter = (next: "all" | "open") => {
+		localStorage.setItem("zg-session-filter", next);
+		setSessionFilter(next);
+	};
 
 	const startRename = (session: SessionInfoView) => {
 		setEditingPath(session.path);
@@ -111,12 +133,34 @@ export function AppSider({
 	const sessionRows = () => (
 		<div className="menu-sub">
 			<div className="menu-sub-head">
-				<span>{sessions.length > 0 ? `${sessions.length} 个会话` : "暂无会话"}</span>
+				<span>
+					{sessions.length === 0
+						? "暂无会话"
+						: sessionFilter === "open"
+							? `${visibleSessions.length} / ${sessions.length} 个会话`
+							: `${sessions.length} 个会话`}
+				</span>
+				<span className="menu-sub-filter" title="未完成会隐藏「已完成」和「已忽略」的会话">
+					<button
+						type="button"
+						className={sessionFilter === "all" ? "on" : ""}
+						onClick={() => setFilter("all")}
+					>
+						全部
+					</button>
+					<button
+						type="button"
+						className={sessionFilter === "open" ? "on" : ""}
+						onClick={() => setFilter("open")}
+					>
+						未完成
+					</button>
+				</span>
 				<button type="button" className="menu-sub-add" title="新建会话" onClick={onNewSession}>
 					＋
 				</button>
 			</div>
-			{sessions.map((session) => {
+			{visibleSessions.map((session) => {
 				const isActive = session.id === activeSessionId;
 				const label = session.name ?? session.firstMessage.slice(0, 40);
 				if (editingPath === session.path) {
@@ -150,6 +194,11 @@ export function AppSider({
 					>
 						<span className={`menu-sub-dot ${runningSessions.includes(session.id) ? "running" : ""}`} />
 						<span className="menu-sub-name">{label}</span>
+						<SessionStatusControl
+							variant="chip"
+							status={session.status}
+							onPick={(next) => onSetSessionStatus(session.path, next)}
+						/>
 						<span className="menu-sub-ops">
 							<button
 								type="button"

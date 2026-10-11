@@ -11,13 +11,27 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname } from "node:path";
 import type { ZGNotifyConfig } from "./protocol.ts";
 
+/**
+ * Characters of notification body kept by default. 500 was too short to read a
+ * finding from the phone, so the body is longer and the operator can change it.
+ */
+export const DEFAULT_SUMMARY_LIMIT = 2000;
+
 /** Notifications stay off until an operator configures and enables them. */
 const DEFAULT_CONFIG: ZGNotifyConfig = {
 	enabled: false,
 	webhook: "",
 	secret: "",
 	keyword: "",
+	summaryLimit: DEFAULT_SUMMARY_LIMIT,
 };
+
+/** A limit is a character count: 0 means "keep everything", anything else is positive. */
+function coerceSummaryLimit(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SUMMARY_LIMIT;
+	const limit = Math.floor(value);
+	return limit <= 0 ? 0 : limit;
+}
 
 export function notificationsJsonPath(agentDir: string): string {
 	return `${agentDir}/notifications.json`;
@@ -39,6 +53,7 @@ export function readNotifyConfig(agentDir: string): ZGNotifyConfig {
 			webhook: coerce(dingtalk.webhook),
 			secret: coerce(dingtalk.secret),
 			keyword: coerce(dingtalk.keyword),
+			summaryLimit: coerceSummaryLimit(dingtalk.summaryLimit),
 		};
 	} catch {
 		return { ...DEFAULT_CONFIG };
@@ -54,6 +69,7 @@ export function writeNotifyConfig(agentDir: string, config: ZGNotifyConfig): voi
 			webhook: config.webhook.trim(),
 			secret: config.secret.trim(),
 			keyword: config.keyword.trim(),
+			summaryLimit: coerceSummaryLimit(config.summaryLimit),
 		},
 	};
 	mkdirSync(dirname(path), { recursive: true });

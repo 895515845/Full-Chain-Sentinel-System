@@ -383,6 +383,20 @@ export async function startZGServer(
 					broadcast({ type: "sessions", sessions });
 					return;
 				}
+				case "set_session_status": {
+					// The toolbar labels the session it is showing; the list passes a path.
+					const statusPath = message.path ?? runtime.currentSessionPath;
+					if (!statusPath) {
+						sendError(socket, "没有活动会话");
+						return;
+					}
+					// Setting it on a loaded session also refreshes the snapshot, which is
+					// where the toolbar reads the active session's status from.
+					await runtime.setSessionStatus(statusPath, message.status);
+					const sessions = await runtime.listSessions();
+					broadcast({ type: "sessions", sessions });
+					return;
+				}
 				case "delete_session": {
 					await runtime.deleteSession(message.path);
 					const sessions = await runtime.listSessions();

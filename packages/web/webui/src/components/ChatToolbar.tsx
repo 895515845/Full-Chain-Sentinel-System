@@ -10,8 +10,9 @@
 
 import { useEffect, useState } from "react";
 
-import type { ZGMode, ZGThinkingLevel } from "../types.ts";
+import type { ZGMode, ZGSessionStatus, ZGThinkingLevel } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
+import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
 /** Elapsed time of a compaction, so a slow model is visible as a wait, not a hang. */
 function compactionElapsed(startedAt: number | null, now: number): string {
@@ -44,6 +45,8 @@ export function ChatToolbar({
 	filesOpen,
 	subagentsOpen,
 	allowedPrefixes,
+	sessionStatus,
+	onSetSessionStatus,
 	onToggleFiles,
 	onToggleSubagents,
 	onSetMode,
@@ -66,6 +69,9 @@ export function ChatToolbar({
 	filesOpen: boolean;
 	subagentsOpen: boolean;
 	allowedPrefixes: string[];
+	/** The active session's operator status, shown as a chip at the right end. */
+	sessionStatus: ZGSessionStatus | null;
+	onSetSessionStatus: (status: ZGSessionStatus | null) => void;
 	onToggleFiles: () => void;
 	onToggleSubagents: () => void;
 	onSetMode: (mode: ZGMode) => void;
@@ -181,6 +187,9 @@ export function ChatToolbar({
 				子代理
 				{subagentRunning > 0 ? <span className="toolbar-count">{subagentRunning}</span> : null}
 			</button>
+			<span className="toolbar-status">
+				<SessionStatusControl variant="toolbar" status={sessionStatus} onPick={onSetSessionStatus} />
+			</span>
 			{pendingApprovals > 0 ? <span className="toolbar-alert">待审批 {pendingApprovals}</span> : null}
 			{mode === "review" && allowedPrefixes.length > 0 ? (
 				<div className="prefix-inline">

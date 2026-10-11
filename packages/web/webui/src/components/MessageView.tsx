@@ -219,18 +219,38 @@ export function MessageView({
 		// goal started under, and the one injected for each automatic continuation.
 		// They fold like a summary, because they are a boundary line between rounds
 		// rather than part of what the agent said.
-		if (message.customType !== "zg-goal") return null;
-		const text = textFromContent(message.content);
-		const label = text.startsWith("【持续目标已启动】") ? "持续目标已启动" : "目标续跑";
-		return (
-			<details className="summary goal-row">
-				<summary>
-					{label}
-					{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
-				</summary>
-				<pre>{text}</pre>
-			</details>
-		);
+		if (message.customType === "zg-goal") {
+			const text = textFromContent(message.content);
+			const label = text.startsWith("【持续目标已启动】") ? "持续目标已启动" : "目标续跑";
+			return (
+				<details className="summary goal-row">
+					<summary>
+						{label}
+						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
+					</summary>
+					<pre>{text}</pre>
+				</details>
+			);
+		}
+		// Loop-guard notices: the run was cut short because the output stuttered, or a
+		// tool call repeated. They are injected into the conversation like a prompt, so
+		// they fold the same way, but they are not the operator's words.
+		if (message.customType === "zg-loop-guard") {
+			const text = textFromContent(message.content);
+			const stutter = text.startsWith("【输出重复】");
+			return (
+				<details className="summary loop-guard-row">
+					<summary>
+						<span className={stutter ? "loop-guard-stutter" : "loop-guard-repeat"}>
+							{stutter ? "输出重复已中止" : "重复工具调用提醒"}
+						</span>
+						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
+					</summary>
+					<pre>{text}</pre>
+				</details>
+			);
+		}
+		return null;
 	}
 
 	return null;

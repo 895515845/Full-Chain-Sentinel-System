@@ -27,7 +27,6 @@ import {
 	getDefaultSessionDir,
 	type ImageContent,
 	ModelRuntime,
-	type SessionInfo,
 	SessionManager,
 	type SessionStats,
 	type SessionTreeNode,
@@ -106,6 +105,13 @@ import type {
 	ZGVulnSummary,
 	ZGVulnUpdate,
 } from "./protocol.ts";
+import {
+	readSessionStatus,
+	SESSION_STATUS_CUSTOM_TYPE,
+	withSessionStatus,
+	type ZGSessionListEntry,
+	type ZGSessionStatus,
+} from "./session-status.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
@@ -220,6 +226,12 @@ export class ZGAgentRuntime {
 
 	get currentSessionId(): string | null {
 		return this.active?.manager.getSessionId() ?? null;
+	}
+
+	/** The active session's file path, for messages that mean "the current session". */
+	get currentSessionPath(): string | null {
+		const file = this.active?.manager.getSessionFile();
+		return file ? resolveFsPath(file) : null;
 	}
 
 	get currentMode(): ZGMode {
@@ -505,7 +517,7 @@ export class ZGAgentRuntime {
 	private notifyHighSeverity(vuln: ZGVulnerability): void {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim()) return;
-		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName);
+		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName, config.summaryLimit);
 		void sendDingTalk(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
@@ -675,23 +687,27 @@ export class ZGAgentRuntime {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim()) return;
 		const lastRound = goal.rounds[goal.rounds.length - 1];
-		const report = buildGoalNotification({
-			label: goalStatusLabel(goal),
-			projectName: this.activeProjectName ?? "",
-			sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? goal.objective,
-			objective: goal.objective,
-			rounds: { used: goal.roundsUsed, limit: goal.roundLimit },
-			durationMs: (goal.endedAt ?? Date.now()) - goal.startedAt,
-			summary: goal.completion?.summary ?? goal.blocked?.reason ?? goal.pauseNote ?? lastRound?.summary ?? "",
-			...(goal.completion
-				? {
-						evidence: goal.completion.evidence,
-						criteria: goal.completion.criteria,
-						findings: { submitted: goal.completion.submitted, note: goal.completion.findingsNote },
-					}
-				: {}),
-			...(goal.blocked ? { evidence: goal.blocked.evidence } : {}),
-		});
+		const report = buildGoalNotification(
+			{
+				label: goalStatusLabel(goal),
+				projectName: this.activeProjectName ?? "",
+				sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? goal.objective,
+				sessionStatus: readSessionStatus(managed.manager.getBranch()),
+				objective: goal.objective,
+				rounds: { used: goal.roundsUsed, limit: goal.roundLimit },
+				durationMs: (goal.endedAt ?? Date.now()) - goal.startedAt,
+				summary: goal.completion?.summary ?? goal.blocked?.reason ?? goal.pauseNote ?? lastRound?.summary ?? "",
+				...(goal.completion
+					? {
+							evidence: goal.completion.evidence,
+							criteria: goal.completion.criteria,
+							findings: { submitted: goal.completion.submitted, note: goal.completion.findingsNote },
+						}
+					: {}),
+				...(goal.blocked ? { evidence: goal.blocked.evidence } : {}),
+			},
+			config.summaryLimit,
+		);
 		void sendDingTalk(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
@@ -941,18 +957,23 @@ export class ZGAgentRuntime {
 		const status =
 			aborted || last?.stopReason === "aborted" ? "aborted" : last?.stopReason === "error" ? "failed" : "done";
 		const stats = managed.session.getSessionStats();
-		const report = buildRunNotification({
-			status,
-			projectName: this.activeProjectName ?? "",
-			sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? run.instruction,
-			durationMs: Date.now() - run.startedAt,
-			summary: messageText(last),
-			...(status === "failed" && last?.errorMessage ? { error: last.errorMessage } : {}),
-			tokens: stats?.tokens
-				? { input: stats.tokens.input, output: stats.tokens.output, total: stats.tokens.total }
-				: undefined,
-			...(typeof stats?.cost === "number" ? { cost: stats.cost } : {}),
-		});
+		const report = buildRunNotification(
+			{
+				status,
+				projectName: this.activeProjectName ?? "",
+				sessionTitle:
+					managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? run.instruction,
+				sessionStatus: readSessionStatus(managed.manager.getBranch()),
+				durationMs: Date.now() - run.startedAt,
+				summary: messageText(last),
+				...(status === "failed" && last?.errorMessage ? { error: last.errorMessage } : {}),
+				tokens: stats?.tokens
+					? { input: stats.tokens.input, output: stats.tokens.output, total: stats.tokens.total }
+					: undefined,
+				...(typeof stats?.cost === "number" ? { cost: stats.cost } : {}),
+			},
+			config.summaryLimit,
+		);
 		void sendDingTalk(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
@@ -1080,8 +1101,9 @@ export class ZGAgentRuntime {
 		this.hooks.onStateChange();
 	}
 
-	async listSessions(): Promise<SessionInfo[]> {
-		return SessionManager.list(this.cwd, this.sessionDir || undefined);
+	async listSessions(): Promise<ZGSessionListEntry[]> {
+		const sessions = await SessionManager.list(this.cwd, this.sessionDir || undefined);
+		return sessions.map(withSessionStatus);
 	}
 
 	/** Rename any session in the managed session directory by appending a session_info entry. */
@@ -1089,6 +1111,28 @@ export class ZGAgentRuntime {
 		const normalized = this.guardSessionPath(path);
 		const manager = SessionManager.open(normalized, this.sessionDir || undefined, this.cwd);
 		manager.appendSessionInfo(name);
+	}
+
+	/**
+	 * Set the operator status of any session in the managed session directory. The
+	 * status is an entry, so the conversation itself is untouched; `null` clears it.
+	 */
+	async setSessionStatus(path: string, status: ZGSessionStatus | null): Promise<void> {
+		const normalized = this.guardSessionPath(path);
+		const data = status ? { status, at: Date.now() } : null;
+		// A loaded session owns the live branch, and the toolbar reads the status
+		// from that branch. A second handle on the same file would write the entry
+		// without the running session seeing it, so write through the owner.
+		for (const managed of this.sessions.values()) {
+			const file = managed.manager.getSessionFile();
+			if (file && resolveFsPath(file) === normalized) {
+				managed.manager.appendCustomEntry(SESSION_STATUS_CUSTOM_TYPE, data);
+				this.hooks.onStateChange();
+				return;
+			}
+		}
+		const manager = SessionManager.open(normalized, this.sessionDir || undefined, this.cwd);
+		manager.appendCustomEntry(SESSION_STATUS_CUSTOM_TYPE, data);
 	}
 
 	/** Delete a session file. Running sessions and foreign paths are rejected. */
@@ -1270,6 +1314,9 @@ export class ZGAgentRuntime {
 				.map((managed) => managed.key),
 			subagents: this.listSubagents(),
 			goal: this.goalView(active),
+			// The active session's operator status, read from the branch: a status set
+			// in the list must show up here without a second file read.
+			sessionStatus: active ? readSessionStatus(active.manager.getBranch()) : null,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,
 		};

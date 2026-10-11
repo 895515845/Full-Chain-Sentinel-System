@@ -3,12 +3,12 @@
 import type {
 	AgentSessionEvent,
 	ImageContent,
-	SessionInfo,
 	SessionStats,
 	SessionTreeNode,
 	ThinkingLevel,
 } from "@earendil-works/pi-coding-agent";
 import type { ZGPermissionPreset, ZGPermissionSet, ZGPermissionsConfig } from "./permissions.ts";
+import type { ZGSessionListEntry, ZGSessionStatus } from "./session-status.ts";
 
 /** Operator approval mode for bash tool calls. */
 export type ZGMode = "review" | "auto";
@@ -147,6 +147,13 @@ export interface ZGNotifyConfig {
 	secret: string;
 	/** Optional custom keyword, prepended to the body for keyword-secured robots. */
 	keyword: string;
+	/**
+	 * How many characters of notification body to keep, counted per section (a run's
+	 * closing summary, a goal's conclusion, a finding's raw packet). 0 keeps all of
+	 * it. DingTalk rejects a request body over 20000 bytes, which is enforced
+	 * separately, whatever this says.
+	 */
+	summaryLimit: number;
 }
 
 /** Outcome of the most recent notification send, for the settings screen. */
@@ -387,6 +394,8 @@ export interface ZGStateSnapshot {
 	subagents: ZGSubagentRun[];
 	/** Persistent goal of the active session, with live counters; null when there is none. */
 	goal: ZGGoalView | null;
+	/** Operator status of the active session, as a label the agent never sees. */
+	sessionStatus: ZGSessionStatus | null;
 	/**
 	 * Compaction (or branch summarization) is running for the active session. It
 	 * blocks prompts, and a slow model can hold it for minutes, so the console has
@@ -438,6 +447,7 @@ export type ZGClientMessage =
 	| { type: "new_session" }
 	| { type: "switch_session"; path: string }
 	| { type: "rename_session"; path: string; name: string }
+	| { type: "set_session_status"; path?: string; status: ZGSessionStatus | null }
 	| { type: "delete_session"; path: string }
 	| { type: "list_sessions" }
 	| { type: "navigate"; entryId: string; summarize?: boolean }
@@ -484,7 +494,7 @@ export type ZGClientMessage =
 export type ZGServerMessage =
 	| { type: "snapshot"; snapshot: ZGStateSnapshot }
 	| { type: "session_event"; event: AgentSessionEvent }
-	| { type: "sessions"; sessions: SessionInfo[] }
+	| { type: "sessions"; sessions: ZGSessionListEntry[] }
 	| { type: "tree"; tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] }
 	| { type: "config"; config: ZGModelConfig | null }
 	| { type: "test_result"; result: ZGTestResult }

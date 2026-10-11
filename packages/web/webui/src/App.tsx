@@ -102,6 +102,7 @@ export function App() {
 		webhook: "",
 		secret: "",
 		keyword: "",
+		summaryLimit: 2000,
 	});
 	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });
 	const [permissions, setPermissions] = useState<ZGPermissionsConfig | null>(null);
@@ -828,6 +829,7 @@ export function App() {
 				}}
 				onRenameSession={(path, name) => send({ type: "rename_session", path, name })}
 				onDeleteSession={(path) => send({ type: "delete_session", path })}
+				onSetSessionStatus={(path, status) => send({ type: "set_session_status", path, status })}
 				onRefresh={refreshPage}
 				projectSlot={
 					<ProjectPicker
@@ -908,6 +910,8 @@ export function App() {
 								filesOpen={filesOpen}
 								subagentsOpen={subagentsOpen}
 								allowedPrefixes={snapshot?.allowedPrefixes ?? []}
+								sessionStatus={snapshot?.sessionStatus ?? null}
+								onSetSessionStatus={(status) => send({ type: "set_session_status", status })}
 								onToggleFiles={() => setFilesOpen((prev) => !prev)}
 								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
 								onSetMode={(next) => send({ type: "set_mode", mode: next })}

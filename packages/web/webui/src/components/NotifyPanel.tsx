@@ -22,12 +22,19 @@ export function NotifyPanel({
 	const [webhook, setWebhook] = useState(config.webhook);
 	const [secret, setSecret] = useState(config.secret);
 	const [keyword, setKeyword] = useState(config.keyword);
+	const [summaryLimit, setSummaryLimit] = useState(String(config.summaryLimit));
 	const [testing, setTesting] = useState(false);
 	const [result, setResult] = useState<ZGTestResult | null>(null);
 
 	const draft = useMemo(
-		() => ({ enabled, webhook: webhook.trim(), secret: secret.trim(), keyword: keyword.trim() }),
-		[enabled, webhook, secret, keyword],
+		() => ({
+			enabled,
+			webhook: webhook.trim(),
+			secret: secret.trim(),
+			keyword: keyword.trim(),
+			summaryLimit: Math.max(0, Math.floor(Number(summaryLimit) || 0)),
+		}),
+		[enabled, webhook, secret, keyword, summaryLimit],
 	);
 	const canSend = draft.webhook.length > 0;
 
@@ -78,6 +85,20 @@ export function NotifyPanel({
 					placeholder="ZGAgent"
 					spellCheck={false}
 				/>
+			</label>
+			<label>
+				通知正文字数上限
+				<input
+					value={summaryLimit}
+					inputMode="numeric"
+					onChange={(event) => setSummaryLimit(event.target.value.replace(/[^\d]/g, ""))}
+					placeholder="2000"
+					spellCheck={false}
+				/>
+				<span className="field-sub">
+					留空或填 0 = 不截断。作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」；正文超过钉钉单条
+					20000 字节时仍会被硬截断并注明。
+				</span>
 			</label>
 			{result ? (
 				<div className={`test-result ${result.ok ? "ok" : "bad"}`}>

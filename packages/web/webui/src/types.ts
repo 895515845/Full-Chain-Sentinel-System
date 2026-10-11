@@ -137,6 +137,8 @@ export interface ZGNotifyConfig {
 	webhook: string;
 	secret: string;
 	keyword: string;
+	/** Characters of notification body to keep per section; 0 keeps all of it. */
+	summaryLimit: number;
 }
 
 /** Outcome of the most recent notification send. */
@@ -274,6 +276,8 @@ export interface ZGStateSnapshot {
 	subagents: ZGSubagentRun[];
 	/** Persistent goal of the active session, with live counters; null when there is none. */
 	goal: ZGGoalView | null;
+	/** Operator status of the active session, as a label the agent never sees. */
+	sessionStatus: ZGSessionStatus | null;
 	/** Compaction is running for the active session, which blocks prompts. */
 	compacting: boolean;
 	/** When that compaction started, for the elapsed time; null when idle. */
@@ -289,7 +293,12 @@ export interface SessionInfoView {
 	modified: string;
 	messageCount: number;
 	firstMessage: string;
+	/** Operator status, absent when the session was never labeled. */
+	status?: ZGSessionStatus;
 }
+
+/** The operator's manual label for a session. The agent never sees it. */
+export type ZGSessionStatus = "todo" | "active" | "done" | "ignored";
 
 export interface SessionTreeNodeView {
 	entry: {
@@ -446,6 +455,7 @@ export type ZGClientMessage =
 	| { type: "new_session" }
 	| { type: "switch_session"; path: string }
 	| { type: "rename_session"; path: string; name: string }
+	| { type: "set_session_status"; path?: string; status: ZGSessionStatus | null }
 	| { type: "delete_session"; path: string }
 	| { type: "list_sessions" }
 	| { type: "navigate"; entryId: string; summarize?: boolean }

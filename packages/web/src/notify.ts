@@ -14,6 +14,7 @@
 
 import { createHmac } from "node:crypto";
 import type { ZGNotifyConfig, ZGNotifyStatus, ZGTestResult, ZGVulnerability } from "./protocol.ts";
+import { SESSION_STATUS_LABELS, type ZGSessionStatus } from "./session-status.ts";
 import { ZG_VULN_SEVERITY_LABELS, ZG_VULN_STATUS_LABELS } from "./vulnerabilities.ts";
 
 const SEND_TIMEOUT_MS = 10000;
@@ -49,6 +50,49 @@ export function buildPayload(config: ZGNotifyConfig, title: string, markdown: st
 	});
 }
 
+/** DingTalk rejects a request body over this many bytes with errcode 460101. */
+const MAX_BODY_BYTES = 20000;
+/** Room for the JSON envelope, the keyword, and the trailing note. */
+const BODY_BYTE_MARGIN = 300;
+
+/** Keep the first `limit` characters; 0 keeps all of it. */
+export function clipText(text: string, limit: number): string {
+	if (limit <= 0 || text.length <= limit) return text;
+	return `${text.slice(0, limit)}…（已截断，全文 ${text.length} 字）`;
+}
+
+/** The longest prefix of `text` that fits in `maxBytes` UTF-8 bytes. */
+function clipToBytes(text: string, maxBytes: number): string {
+	let bytes = 0;
+	let end = 0;
+	for (const char of text) {
+		const size = Buffer.byteLength(char, "utf-8");
+		if (bytes + size > maxBytes) break;
+		bytes += size;
+		end += char.length;
+	}
+	return text.slice(0, end);
+}
+
+/**
+ * The request body, clipped until it fits DingTalk's own limit.
+ *
+ * The character limit each section applies is the operator's choice; this is the
+ * platform's, and it applies to the whole body including the envelope. A summary
+ * the operator asked to keep in full still has to fit, so it is cut here and the
+ * note says which limit did it.
+ */
+export function fitPayload(config: ZGNotifyConfig, title: string, markdown: string): string {
+	const overhead = Buffer.byteLength(buildPayload(config, title, ""), "utf-8");
+	if (overhead + Buffer.byteLength(markdown, "utf-8") <= MAX_BODY_BYTES) {
+		return buildPayload(config, title, markdown);
+	}
+	const note = `…（超出钉钉单条上限，已截断，全文 ${markdown.length} 字）`;
+	const budget = MAX_BODY_BYTES - BODY_BYTE_MARGIN - overhead - Buffer.byteLength(note, "utf-8");
+	const kept = budget > 0 ? clipToBytes(markdown, budget) : "";
+	return buildPayload(config, title, `${kept}${note}`);
+}
+
 /** One delivery attempt. Returns the failure reason, or undefined on success. */
 async function attempt(config: ZGNotifyConfig, title: string, markdown: string): Promise<string | undefined> {
 	const url = signedWebhookUrl(config.webhook, config.secret, Date.now());
@@ -57,7 +101,7 @@ async function attempt(config: ZGNotifyConfig, title: string, markdown: string):
 		response = await fetch(url, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: buildPayload(config, title, markdown),
+			body: fitPayload(config, title, markdown),
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
 	} catch (error) {
@@ -145,15 +189,14 @@ export function shouldNotifyRun(runNotify: boolean | undefined, enabled: boolean
 	return runNotify ?? enabled;
 }
 
-/** How long a run's closing summary may be in the notification. */
-const SUMMARY_LIMIT = 500;
-
 /** Everything the notification reports about one finished run. */
 export interface ZGRunReport {
 	status: "done" | "failed" | "aborted";
 	projectName: string;
 	/** Session name if the operator set one, else the first instruction. */
 	sessionTitle: string;
+	/** The operator's manual label for that session, when it has one. */
+	sessionStatus?: ZGSessionStatus | null;
 	durationMs: number;
 	/** The run's closing assistant text. */
 	summary: string;
@@ -177,8 +220,11 @@ function formatDuration(ms: number): string {
 	return `${minutes}m${Math.round(seconds % 60)}s`;
 }
 
-/** The markdown body and robot title for a finished run. */
-export function buildRunNotification(report: ZGRunReport): { title: string; markdown: string } {
+/**
+ * The markdown body and robot title for a finished run. `limit` is the operator's
+ * character budget for the closing summary; 0 keeps it whole.
+ */
+export function buildRunNotification(report: ZGRunReport, limit: number): { title: string; markdown: string } {
 	const label = STATUS_LABEL[report.status];
 	const title = `ZGAgent 任务${label}`;
 	const lines = [
@@ -187,8 +233,11 @@ export function buildRunNotification(report: ZGRunReport): { title: string; mark
 		`- **状态**：${label}`,
 		`- **项目**：${report.projectName || "未命名项目"}`,
 		`- **会话**：${report.sessionTitle || "未命名会话"}`,
-		`- **耗时**：${formatDuration(report.durationMs)}`,
 	];
+	// The operator labels sessions by hand to remember which one still needs them;
+	// the notification is read away from the console, so it carries the label too.
+	if (report.sessionStatus) lines.push(`- **会话状态**：${SESSION_STATUS_LABELS[report.sessionStatus]}`);
+	lines.push(`- **耗时**：${formatDuration(report.durationMs)}`);
 	if (report.tokens) {
 		const cost = typeof report.cost === "number" ? ` / 花费 $${report.cost.toFixed(4)}` : "";
 		lines.push(
@@ -197,10 +246,7 @@ export function buildRunNotification(report: ZGRunReport): { title: string; mark
 	}
 	if (report.error) lines.push(`- **错误**：${report.error}`);
 	const summary = report.summary.trim();
-	if (summary) {
-		const clipped = summary.length > SUMMARY_LIMIT ? `${summary.slice(0, SUMMARY_LIMIT)}…（已截断）` : summary;
-		lines.push("", "**最后回复**", "", clipped);
-	}
+	if (summary) lines.push("", "**最后回复**", "", clipText(summary, limit));
 	return { title, markdown: lines.join("\n") };
 }
 
@@ -210,6 +256,8 @@ export interface ZGGoalReport {
 	label: string;
 	projectName: string;
 	sessionTitle: string;
+	/** The operator's manual label for that session, when it has one. */
+	sessionStatus?: ZGSessionStatus | null;
 	objective: string;
 	rounds: { used: number; limit: number };
 	durationMs: number;
@@ -225,8 +273,10 @@ export interface ZGGoalReport {
  * One notification per goal state change. A goal runs unattended, so this is the
  * only way the operator learns that it stopped, ran out of rounds, or finished;
  * the per-round run report is switched off for goal-driven runs to avoid noise.
+ *
+ * `limit` is the operator's character budget for the conclusion; 0 keeps it whole.
  */
-export function buildGoalNotification(report: ZGGoalReport): { title: string; markdown: string } {
+export function buildGoalNotification(report: ZGGoalReport, limit: number): { title: string; markdown: string } {
 	const title = `ZGAgent 持续目标${report.label}`;
 	const lines = [
 		`### ${title}`,
@@ -234,20 +284,20 @@ export function buildGoalNotification(report: ZGGoalReport): { title: string; ma
 		`- **状态**：${report.label}`,
 		`- **项目**：${report.projectName || "未命名项目"}`,
 		`- **会话**：${report.sessionTitle || "未命名会话"}`,
+	];
+	if (report.sessionStatus) lines.push(`- **会话状态**：${SESSION_STATUS_LABELS[report.sessionStatus]}`);
+	lines.push(
 		`- **目标**：${report.objective}`,
 		`- **轮次**：自动续跑 ${report.rounds.used}/${report.rounds.limit} 轮`,
 		`- **耗时**：${formatDuration(report.durationMs)}`,
-	];
+	);
 	if (report.findings) {
 		lines.push(
 			`- **漏洞中枢**：${report.findings.submitted} 条${report.findings.note ? `（${report.findings.note}）` : ""}`,
 		);
 	}
 	const summary = report.summary.trim();
-	if (summary) {
-		const clipped = summary.length > SUMMARY_LIMIT ? `${summary.slice(0, SUMMARY_LIMIT)}…（已截断）` : summary;
-		lines.push("", "**结论**", "", clipped);
-	}
+	if (summary) lines.push("", "**结论**", "", clipText(summary, limit));
 	if (report.criteria && report.criteria.length > 0) {
 		lines.push("", "**验收标准**");
 		for (const item of report.criteria) {
@@ -263,14 +313,17 @@ export function buildGoalNotification(report: ZGGoalReport): { title: string; ma
 	return { title, markdown: lines.join("\n") };
 }
 
-/** How much of the raw packet the immediate notification carries. */
-const PACKET_PREVIEW = 400; /**
+/**
  * Immediate notification for one critical/high finding, sent the moment it is
  * submitted instead of waiting for the run to end. It carries the headline, the
- * score, the target, and enough of the packet to recognize the issue; the hub
- * page holds the rest.
+ * score, the target, and as much of the packet as `limit` allows; the hub page
+ * holds the rest.
  */
-export function buildVulnNotification(vuln: ZGVulnerability, projectName: string): { title: string; markdown: string } {
+export function buildVulnNotification(
+	vuln: ZGVulnerability,
+	projectName: string,
+	limit: number,
+): { title: string; markdown: string } {
 	const severity = ZG_VULN_SEVERITY_LABELS[vuln.severity];
 	const title = `ZGAgent 发现${severity}漏洞`;
 	const lines = [
@@ -290,8 +343,7 @@ export function buildVulnNotification(vuln: ZGVulnerability, projectName: string
 	if (packet) {
 		// No code fence: DingTalk's markdown renderer is narrow, and the raw text
 		// survives better as a paragraph.
-		const clipped = packet.length > PACKET_PREVIEW ? `${packet.slice(0, PACKET_PREVIEW)}…（已截断）` : packet;
-		lines.push("", "**原始数据包**", "", clipped);
+		lines.push("", "**原始数据包**", "", clipText(packet, limit));
 	}
 	return { title, markdown: lines.join("\n") };
 }

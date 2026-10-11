@@ -416,14 +416,18 @@ function startFakeEndpoint(): Promise<void> {
 				? body.includes(SECOND_SCENARIO_TASK)
 				: body.includes(SECOND_SCENARIO_PROMPT);
 			const newestPrompt = lastUserText(body);
-			const notifyStep: ScriptStep | undefined =
+			// Prompts answered with fixed text: they must not consume the shared
+			// scripted steps, which every scenario in this file draws from in order.
+			const staticStep: ScriptStep | undefined =
 				newestPrompt === "notify me when this finishes"
 					? { text: "NOTIFY_RUN_COMPLETE" }
 					: newestPrompt === "force a notification"
 						? { text: "FORCED_NOTIFY_COMPLETE" }
 						: newestPrompt === "stay quiet"
 							? { text: "QUIET_RUN_COMPLETE" }
-							: undefined;
+							: newestPrompt === "label this session"
+								? { text: "LABEL_RUN_DONE" }
+								: undefined;
 			// Hub scenarios: the first turn submits, the second recognizes its own
 			// tool call (its target is echoed back in the transcript) and finishes.
 			// A failed call ends the scenario too, so a disabled tool cannot make
@@ -442,8 +446,8 @@ function startFakeEndpoint(): Promise<void> {
 			if (goal && !fromSubagent) goalTools = toolNamesOf(body);
 			const step = isImageTurn
 				? { text: "IMAGE_TURN_OK" }
-				: notifyStep
-					? notifyStep
+				: staticStep
+					? staticStep
 					: vulnStep
 						? vulnStep
 						: probeStep
@@ -461,10 +465,10 @@ function startFakeEndpoint(): Promise<void> {
 												? { text: "SECOND_PARENT_SUMMARY" }
 												: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
 										: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
-			if (!isImageTurn && !inSecondScenario && !notifyStep && !vulnStep && !probeStep && !compactFillStep && !goal) {
+			if (!isImageTurn && !inSecondScenario && !staticStep && !vulnStep && !probeStep && !compactFillStep && !goal) {
 				requestCount += 1;
 			}
-			const id = `chatcmpl-${isImageTurn ? "image" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : goal ? "goal" : inSecondScenario ? "second" : requestCount}`;
+			const id = `chatcmpl-${isImageTurn ? "image" : staticStep ? "static" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : goal ? "goal" : inSecondScenario ? "second" : requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCall
@@ -1252,6 +1256,43 @@ test("sessions can be renamed and deleted from the sidebar", async () => {
 	await waitFor((message) => message.type === "error" && message.message.includes("拒绝"));
 });
 
+test("a session carries an operator status, from the toolbar and into the session list", async () => {
+	// The previous test deleted the viewed session, so start from a fresh one. It
+	// needs one real run first: an empty session is not written to disk at all, and
+	// the session list reads statuses from files.
+	send({ type: "new_session" });
+	await snapshotWhere((snapshot_) => snapshot_.activeSessionId !== null && snapshot_.messages.length === 0);
+	drainIncoming();
+	send({ type: "prompt", text: "label this session" });
+	const settled = await snapshotWhere((snapshot_) => !snapshot_.streaming && snapshot_.messages.length > 0);
+	expect(settled.sessionStatus).toBeNull();
+	const sessionId = settled.activeSessionId;
+
+	// No path: this is the toolbar entry point, which labels the active session.
+	drainIncoming();
+	send({ type: "set_session_status", status: "todo" });
+	expect((await snapshotWhere((snapshot_) => snapshot_.sessionStatus === "todo")).sessionStatus).toBe("todo");
+
+	// The list carries the label, and the raw custom state stays on the server.
+	drainIncoming();
+	send({ type: "list_sessions" });
+	const listed = await waitFor((message) => message.type === "sessions");
+	const rows = (listed as { sessions: Array<{ id: string; status?: string; customState?: unknown }> }).sessions;
+	const row = rows.find((session) => session.id === sessionId);
+	expect(row?.status).toBe("todo");
+	expect(row?.customState).toBeUndefined();
+
+	// It is a session entry, so clearing it is written the same way.
+	drainIncoming();
+	send({ type: "set_session_status", status: null });
+	expect((await snapshotWhere((snapshot_) => snapshot_.sessionStatus === null)).sessionStatus).toBeNull();
+
+	// A path outside the session directory is refused.
+	drainIncoming();
+	send({ type: "set_session_status", path: "/etc/passwd", status: "todo" });
+	await waitFor((message) => message.type === "error" && message.message.includes("拒绝"));
+});
+
 test("a finished run notifies the DingTalk group, and the composer flag can force one", async () => {
 	// The session-management test deleted the viewed session, so start a fresh one.
 	send({ type: "new_session" });
@@ -1268,7 +1309,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent" },
+		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent", summaryLimit: 2000 },
 	});
 	const saved = await waitFor((message) => message.type === "notify_config");
 	expect((saved as { config: { enabled: boolean; keyword: string } }).config).toMatchObject({
@@ -1330,7 +1371,10 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	// With the switch off, the composer flag still forces a notification.
 	dingtalk.length = 0;
 	drainIncoming();
-	send({ type: "save_notify_config", config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "" } });
+	send({
+		type: "save_notify_config",
+		config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "", summaryLimit: 2000 },
+	});
 	await waitFor((message) => message.type === "notify_config" && !message.config.enabled);
 	send({ type: "prompt", text: "force a notification", notify: true });
 	await waitUntil(() => dingtalk.length > 0);
@@ -1401,7 +1445,7 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent" },
+		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent", summaryLimit: 2000 },
 	});
 	await waitFor((message) => message.type === "notify_config" && message.config.enabled);
 	dingtalk.length = 0;
@@ -1421,7 +1465,10 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 
 	// Restore the quiet default for any later run.
 	drainIncoming();
-	send({ type: "save_notify_config", config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "" } });
+	send({
+		type: "save_notify_config",
+		config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "", summaryLimit: 2000 },
+	});
 	await waitFor((message) => message.type === "notify_config" && !message.config.enabled);
 });
 
