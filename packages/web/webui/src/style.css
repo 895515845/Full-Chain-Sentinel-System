@@ -4995,14 +4995,20 @@ button.link {
 	align-items: stretch;
 }
 
+/* The board fills the panel body and each column scrolls its own content:
+   flex sizing instead of viewport arithmetic, which broke on short windows. */
+.board {
+	flex: 1;
+	min-height: 0;
+}
+
 .board-col {
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
-	min-height: 420px;
-	max-height: calc(100vh - 300px);
+	min-height: 0;
 }
 
 .board-col__head {
@@ -5041,6 +5047,9 @@ button.link {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	/* Without flex:1 the body sizes to its content, the column clips instead
+	   of scrolling, and the board cannot be scrolled down. */
+	flex: 1;
 }
 
 .board-col__body .data-table {
