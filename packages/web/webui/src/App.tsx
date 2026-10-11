@@ -89,12 +89,10 @@ function commandFromArgs(args: Record<string, unknown> | undefined): string {
  * Whether the operator sent anything after the goal ended: the terminal badge
  * belongs to the goal's stretch, not to whatever conversation followed it.
  */
-function chattedAfterGoalEnd(goal: { endedAt?: number }): boolean {
+function chattedAfterGoalEnd(messages: unknown[], goal: { endedAt?: number }): boolean {
 	const endedAt = goal.endedAt;
 	if (!endedAt) return false;
-	return (snapshotRef.current?.messages ?? []).some(
-		(entry) => entry.role === "user" && (entry.timestamp ?? 0) > endedAt,
-	);
+	return messages.some((entry) => entry.role === "user" && (entry.timestamp ?? 0) > endedAt);
 }
 
 /** Compact total duration for the terminal goal badge. */
@@ -104,8 +102,7 @@ function formatGoalTotalMs(ms: number): string {
 	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
 }
 
-function goalMarkerElapsed(marker: AgentMessageView): number | undefined {
-	const messages = snapshotRef.current?.messages ?? [];
+function goalMarkerElapsed(messages: unknown[], marker: AgentMessageView): number | undefined {
 	const index = messages.findIndex(
 		(entry) =>
 			(entry as { customType?: string }).customType === "zg-goal" &&
@@ -1079,8 +1076,13 @@ export function App() {
 														// closed took: the stretch since the previous
 														// boundary (prompt or earlier round) started.
 														{...(group.marker.customType === "zg-goal" &&
-														goalMarkerElapsed(group.marker)
-															? { goalElapsedMs: goalMarkerElapsed(group.marker) }
+														goalMarkerElapsed(snapshotRef.current?.messages ?? [], group.marker)
+															? {
+																	goalElapsedMs: goalMarkerElapsed(
+																		snapshotRef.current?.messages ?? [],
+																		group.marker,
+																	),
+																}
 															: {})}
 													/>
 												</div>
@@ -1160,7 +1162,9 @@ export function App() {
 											</div>
 										);
 									})}
-									{snapshot?.goal && snapshot.goal.status !== "active" && !chattedAfterGoalEnd(snapshot.goal) ? (
+									{snapshot?.goal &&
+									  snapshot.goal.status !== "active" &&
+									  !chattedAfterGoalEnd(snapshotRef.current?.messages ?? [], snapshot.goal) ? (
 										<div className={`goal-end-badge ${snapshot.goal.status}`}>
 											<span className="chip">
 												<b>
