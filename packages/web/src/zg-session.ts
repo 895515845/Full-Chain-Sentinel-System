@@ -134,6 +134,8 @@ export interface ZGRuntimeHooks {
 	onVulnChange(): void;
 	/** A session's name changed (operator or agent); consoles refresh the list. */
 	onSessionRenamed(): void;
+	/** A finding reached the hub; the reviewer LLM queues it for calibration. */
+	onVulnSubmitted(id: string): void;
 }
 
 /**
@@ -603,7 +605,12 @@ export class ZGAgentRuntime {
 			getSource: options.getSource,
 			onHighSeverity: (vuln) => this.notifyHighSeverity(vuln),
 			onChange: () => this.hooks.onVulnChange(),
-			onSubmit: () => options.onSubmit(),
+			onSubmit: (vuln) => {
+				options.onSubmit();
+				// Every fresh submission queues for the reviewer LLM (hub layer;
+				// the main agent never waits for or sees the calibration).
+				this.hooks.onVulnSubmitted(vuln.id);
+			},
 		});
 		return tools.filter((tool) =>
 			tool.name === "vuln_submit" ? options.permissions.vuln_submit : options.permissions.vuln_read,
@@ -1079,6 +1086,20 @@ export class ZGAgentRuntime {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
 		});
+	}
+
+	/** The shared hub store; the reviewer LLM reads and calibrates through it. */
+	vulnerabilityStore(): VulnerabilityStore {
+		return this.vulnerabilities;
+	}
+
+	/**
+	 * A reviewer calibration raised a record into critical/high: push it now,
+	 * the same way a freshly submitted high finding is pushed. The agent's own
+	 * rating may have undersold it.
+	 */
+	notifyReviewedHighSeverity(vuln: ZGVulnerability): void {
+		this.notifyHighSeverity(vuln);
 	}
 
 	/** Notification configuration, for the settings screen. */

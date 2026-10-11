@@ -461,6 +461,9 @@ export function App() {
 					if (!message.ok && message.error) pushError(message.error);
 					if (message.ok && message.action === "删除") setVulnDetail(null);
 					break;
+				case "vuln_review_result":
+					if (!message.ok) pushError(`重试评审失败：${message.error ?? "未知错误"}`);
+					break;
 				case "vulns_export": {
 					// Markdown is text, so the download is built directly instead of
 					// going through the base64 path the file panel uses.
@@ -1195,6 +1198,7 @@ export function App() {
 							onFiltersChange={loadVulns}
 							onOpen={openVuln}
 							onExport={(filters) => send({ type: "export_vulns", filters })}
+							onRetryReview={(id) => send({ type: "retry_vuln_review", id })}
 						/>
 					) : page === "engine" ? (
 						<EnginePage
@@ -1414,6 +1418,7 @@ export function App() {
 					}}
 					onUpdate={(id, patch: ZGVulnUpdate) => send({ type: "update_vuln", id, patch })}
 					onDelete={(id) => send({ type: "delete_vuln", id })}
+					onRetryReview={(id) => send({ type: "retry_vuln_review", id })}
 					onPreview={previewVulnFile}
 				/>
 			) : null}

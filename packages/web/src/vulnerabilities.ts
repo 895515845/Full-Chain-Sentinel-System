@@ -20,6 +20,7 @@ import type {
 	ZGVulnerability,
 	ZGVulnFilters,
 	ZGVulnNote,
+	ZGVulnReview,
 	ZGVulnSeverity,
 	ZGVulnStats,
 	ZGVulnStatus,
@@ -125,6 +126,7 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
   repro TEXT,
   remediation TEXT,
   refs TEXT,
+  review TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -172,6 +174,7 @@ interface VulnRow {
 	repro: string | null;
 	remediation: string | null;
 	refs: string | null;
+	review: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -236,6 +239,14 @@ export class VulnerabilityStore {
 		this.db = openSqliteDatabase(path);
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		this.addReviewColumn();
+	}
+
+	/** Databases created before the reviewer existed have no review column. */
+	private addReviewColumn(): void {
+		const columns = this.db.prepare("PRAGMA table_info(vulnerabilities)").all() as unknown as Array<{ name: string }>;
+		if (columns.some((column) => column.name === "review")) return;
+		this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN review TEXT");
 	}
 
 	/** Next sequence number inside one project; the hub is single-process, so no race. */
@@ -252,13 +263,16 @@ export class VulnerabilityStore {
 		const prefix = vulnPrefix(input.projectName);
 		const label = vulnLabel(prefix, number);
 		const now = new Date().toISOString();
+		// Fresh submissions start queued for the reviewer LLM; it calibrates the
+		// agent's self-assigned rating asynchronously at the hub layer.
+		const review: ZGVulnReview = { state: "queued", at: Date.now() };
 		this.db
 			.prepare(
 				`INSERT INTO vulnerabilities (
 					id, label, number, project_id, project_name, session_id, source, title, severity, cvss,
-					cvss_vector, status, target, category, description, packet, repro, remediation, refs,
+					cvss_vector, status, target, category, description, packet, repro, remediation, refs, review,
 					created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -279,6 +293,7 @@ export class VulnerabilityStore {
 				input.repro ?? null,
 				input.remediation ?? null,
 				input.references && input.references.length > 0 ? JSON.stringify(input.references) : null,
+				JSON.stringify(review),
 				now,
 				now,
 			);
@@ -340,6 +355,94 @@ export class VulnerabilityStore {
 		return found ? this.get(found.id) : undefined;
 	}
 
+	/**
+	 * Apply the reviewer LLM's verdict. Only a still-pending record with a
+	 * queued review is calibrated — anything the operator already touched is
+	 * out of the machine's hands. The change rides the same timeline as every
+	 * other edit, authored as "system".
+	 */
+	applyReview(
+		id: string,
+		verdict: {
+			severity: ZGVulnSeverity;
+			cvss: number;
+			cvssVector?: string;
+			dubious: boolean;
+			reason: string;
+			model: string;
+		},
+	): ZGVulnerability | undefined {
+		const existing = this.get(id);
+		if (!existing) return undefined;
+		if (existing.status !== "pending" || existing.review.state !== "queued") return existing;
+		const review: ZGVulnReview = {
+			state: "done",
+			severity: verdict.severity,
+			cvss: verdict.cvss,
+			...(verdict.cvssVector ? { cvssVector: verdict.cvssVector } : {}),
+			verdict: verdict.dubious ? "dubious" : "solid",
+			reason: verdict.reason,
+			model: verdict.model,
+			at: Date.now(),
+		};
+		this.db
+			.prepare(
+				"UPDATE vulnerabilities SET severity = ?, cvss = ?, cvss_vector = ?, review = ?, updated_at = ? WHERE id = ?",
+			)
+			.run(
+				verdict.severity,
+				verdict.cvss,
+				verdict.cvssVector ?? existing.cvssVector ?? null,
+				JSON.stringify(review),
+				new Date().toISOString(),
+				id,
+			);
+		const changes = [
+			`等级 ${ZG_VULN_SEVERITY_LABELS[existing.severity]} → ${ZG_VULN_SEVERITY_LABELS[verdict.severity]}`,
+			`CVSS ${existing.cvss.toFixed(1)} → ${verdict.cvss.toFixed(1)}`,
+		];
+		this.appendNote(id, {
+			author: "system",
+			text: `LLM 评审${verdict.dubious ? "（存疑）" : ""}：${changes.join("，")}。${verdict.reason}`,
+		});
+		return this.get(id);
+	}
+
+	/** The reviewer could not produce a verdict; keep the agent's values, keep the reason. */
+	markReviewFailed(id: string, error: string): void {
+		const existing = this.get(id);
+		if (!existing || existing.review.state !== "queued") return;
+		const review: ZGVulnReview = { state: "failed", error, at: Date.now() };
+		this.db.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?").run(JSON.stringify(review), id);
+	}
+
+	/** Manual retry: a failed (or stuck queued) review goes back to the queue. */
+	requeueReview(id: string): boolean {
+		const existing = this.get(id);
+		if (!existing) return false;
+		if (existing.review.state !== "failed" && existing.review.state !== "queued") return false;
+		this.db
+			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
+			.run(JSON.stringify({ state: "queued", at: Date.now() } satisfies ZGVulnReview), id);
+		return true;
+	}
+
+	/** Records still waiting for the reviewer, oldest first (crash recovery). */
+	queuedReviewIds(projectId?: string): string[] {
+		const rows = (projectId
+			? this.db
+					.prepare(
+						"SELECT id FROM vulnerabilities WHERE project_id = ? AND review IS NOT NULL AND json_extract(review, '$.state') = 'queued' ORDER BY number ASC",
+					)
+					.all(projectId)
+			: this.db
+					.prepare(
+						"SELECT id FROM vulnerabilities WHERE review IS NOT NULL AND json_extract(review, '$.state') = 'queued' ORDER BY number ASC",
+					)
+					.all()) as unknown as Array<{ id: string }>;
+		return rows.map((row) => row.id);
+	}
+
 	list(projectId: string, filters: ZGVulnFilters = {}): ZGVulnSummary[] {
 		const conditions = ["project_id = ?"];
 		const params: SqliteValue[] = [projectId];
@@ -350,6 +453,9 @@ export class VulnerabilityStore {
 		if (filters.severity) {
 			conditions.push("severity = ?");
 			params.push(filters.severity);
+		}
+		if (filters.dubious) {
+			conditions.push("json_extract(review, '$.verdict') = 'dubious'");
 		}
 		if (filters.target?.trim()) {
 			conditions.push("target LIKE ? ESCAPE '\\'");
@@ -418,8 +524,21 @@ export class VulnerabilityStore {
 		if (changes.length === 0) return existing;
 
 		this.db
-			.prepare("UPDATE vulnerabilities SET severity = ?, cvss = ?, status = ?, updated_at = ? WHERE id = ?")
-			.run(severity, cvss, status, new Date().toISOString(), id);
+			.prepare(
+				"UPDATE vulnerabilities SET severity = ?, cvss = ?, status = ?, updated_at = ?, review = ? WHERE id = ?",
+			)
+			.run(
+				severity,
+				cvss,
+				status,
+				new Date().toISOString(),
+				// The operator acted before the reviewer did: their decision outranks
+				// the machine's, so the pending review is skipped for good.
+				existing.review.state === "queued"
+					? JSON.stringify({ ...existing.review, state: "skipped" })
+					: JSON.stringify(existing.review),
+				id,
+			);
 		this.appendNote(id, {
 			author: "operator",
 			text: changes.join("；"),
@@ -489,11 +608,36 @@ export class VulnerabilityStore {
 	}
 }
 
+/** The stored review JSON, defensively parsed: a corrupt value reads as skipped. */
+function normalizeReview(raw: string | null): ZGVulnReview {
+	if (!raw) return { state: "skipped", at: 0 };
+	try {
+		const value = JSON.parse(raw) as Partial<ZGVulnReview>;
+		if (value.state !== "queued" && value.state !== "done" && value.state !== "failed" && value.state !== "skipped") {
+			return { state: "skipped", at: 0 };
+		}
+		return {
+			state: value.state,
+			...(value.severity ? { severity: value.severity } : {}),
+			...(typeof value.cvss === "number" ? { cvss: value.cvss } : {}),
+			...(typeof value.cvssVector === "string" ? { cvssVector: value.cvssVector } : {}),
+			...(value.verdict ? { verdict: value.verdict } : {}),
+			...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+			...(typeof value.model === "string" ? { model: value.model } : {}),
+			...(typeof value.error === "string" ? { error: value.error } : {}),
+			at: typeof value.at === "number" ? value.at : 0,
+		};
+	} catch {
+		return { state: "skipped", at: 0 };
+	}
+}
+
 function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]): ZGVulnerability {
 	const severity = row.severity as ZGVulnSeverity;
 	const cvss = Number(row.cvss);
 	return {
 		id: row.id,
+		review: normalizeReview(row.review),
 		label: row.label,
 		number: Number(row.number),
 		projectId: row.project_id,

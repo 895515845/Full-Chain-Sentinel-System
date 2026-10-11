@@ -302,7 +302,28 @@ export interface ZGVulnNote {
  * One finding in the hub. `packet` holds the raw request or packet that proves
  * it, which is why it is a required field rather than part of the description.
  */
+/** The dedicated reviewer LLM's verdict on one finding. */
+export interface ZGVulnReview {
+	/** queued = waiting for the reviewer; done = verdict applied; failed = endpoint/parse error; skipped = operator acted first. */
+	state: "queued" | "done" | "failed" | "skipped";
+	/** The reviewer's own rating, present when state is "done". */
+	severity?: ZGVulnSeverity;
+	cvss?: number;
+	cvssVector?: string;
+	/** solid = evidence supports the finding; dubious = it does not (hallucination suspects). */
+	verdict?: "solid" | "dubious";
+	/** One-paragraph justification, always in Chinese for the operator. */
+	reason?: string;
+	/** Which model produced the verdict, e.g. "gpt-4o-mini". */
+	model?: string;
+	/** Failure reason, present when state is "failed". */
+	error?: string;
+	at: number;
+}
+
 export interface ZGVulnerability {
+	/** The reviewer LLM's verdict; a fresh submission starts as "queued". */
+	review: ZGVulnReview;
 	id: string;
 	/** Human-readable id, `<project prefix>-<sequence>`, e.g. "E2E-PROJECT-0003". */
 	label: string;
@@ -350,6 +371,8 @@ export interface ZGVulnFilters {
 	target?: string;
 	/** Case-insensitive substring match on label, title, category and description. */
 	search?: string;
+	/** Only records the reviewer marked as dubious (hallucination suspects). */
+	dubious?: boolean;
 }
 
 /** Operator edits; the agent may not change a record after submitting it. */
@@ -565,6 +588,7 @@ export type ZGClientMessage =
 	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
 	| { type: "delete_vuln"; id: string }
 	| { type: "export_vulns"; filters?: ZGVulnFilters }
+	| { type: "retry_vuln_review"; id: string }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -620,6 +644,7 @@ export type ZGServerMessage =
 	| { type: "vuln"; vuln: ZGVulnerability }
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
+	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

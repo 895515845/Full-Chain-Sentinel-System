@@ -214,7 +214,21 @@ export interface ZGVulnNote {
 	statusTo?: ZGVulnStatus;
 }
 
+export interface ZGVulnReview {
+	state: "queued" | "done" | "failed" | "skipped";
+	severity?: ZGVulnSeverity;
+	cvss?: number;
+	cvssVector?: string;
+	verdict?: "solid" | "dubious";
+	reason?: string;
+	model?: string;
+	error?: string;
+	at: number;
+}
+
 export interface ZGVulnerability {
+	/** The reviewer LLM's verdict; a fresh submission starts as "queued". */
+	review: ZGVulnReview;
 	id: string;
 	label: string;
 	number: number;
@@ -249,6 +263,8 @@ export interface ZGVulnFilters {
 	severity?: ZGVulnSeverity;
 	target?: string;
 	search?: string;
+	/** Only records the reviewer marked as dubious (hallucination suspects). */
+	dubious?: boolean;
 }
 
 export interface ZGVulnUpdate {
@@ -501,6 +517,7 @@ export type ZGClientMessage =
 	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
 	| { type: "delete_vuln"; id: string }
 	| { type: "export_vulns"; filters?: ZGVulnFilters }
+	| { type: "retry_vuln_review"; id: string }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -555,6 +572,7 @@ export type ZGServerMessage =
 	| { type: "vuln"; vuln: ZGVulnerability }
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
+	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

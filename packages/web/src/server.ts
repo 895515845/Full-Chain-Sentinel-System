@@ -28,6 +28,7 @@ import {
 	setLastActiveProject,
 } from "./projects.ts";
 import type { ZGClientMessage, ZGEnvReport, ZGProjectInfo, ZGServerMessage } from "./protocol.ts";
+import { VulnReviewer } from "./reviewer.ts";
 import type { WorkerSession } from "./worker.ts";
 
 interface AcquiredTaskSession {
@@ -164,6 +165,7 @@ export async function startZGServer(
 			onNotifyStatus: (status) => broadcast({ type: "notify_config", config: runtime.getNotifyConfig(), status }),
 			onVulnChange: () => broadcastVulns(),
 			onSessionRenamed: () => void broadcastSessions(),
+			onVulnSubmitted: (id) => reviewer?.enqueue(id),
 		},
 	});
 
@@ -197,6 +199,28 @@ export async function startZGServer(
 				(options) => runtime.acquireTaskSession(options) as unknown as Promise<AcquiredTaskSession>,
 			)
 		: undefined;
+
+	/**
+	 * The vulnerability reviewer: a dedicated LLM calibrating every fresh
+	 * finding's severity/CVSS and flagging hallucination suspects. Hub layer
+	 * only — the main agent never sees or waits for it. Shares the commander's
+	 * endpoint configuration, falling back to the main endpoint.
+	 */
+	const reviewer = agentDir
+		? new VulnReviewer(
+				runtime.vulnerabilityStore(),
+				{
+					onSettled: (vuln) => {
+						void broadcastVulns();
+						if (vuln && (vuln.severity === "critical" || vuln.severity === "high")) {
+							runtime.notifyReviewedHighSeverity(vuln);
+						}
+					},
+				},
+				agentDir,
+			)
+		: undefined;
+	reviewer?.recover();
 
 	function broadcastEngines(socket?: WebSocket): void {
 		if (!engines) return;
@@ -773,6 +797,20 @@ export async function startZGServer(
 					}
 					sendTo(socket, { type: "vuln", vuln: updated });
 					sendTo(socket, { type: "vuln_result", action: "复核", id: updated.id, ok: true });
+					return;
+				}
+				case "retry_vuln_review": {
+					if (!reviewer) {
+						sendError(socket, "未配置配置目录，无法评审");
+						return;
+					}
+					const result = reviewer.retry(message.id);
+					sendTo(socket, {
+						type: "vuln_review_result",
+						id: message.id,
+						ok: result.ok,
+						...(result.error ? { error: result.error } : {}),
+					});
 					return;
 				}
 				case "delete_vuln": {
