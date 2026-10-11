@@ -5610,3 +5610,172 @@ button.link {
 .review-done { background: var(--ok-dim); color: var(--ok); }
 .review-dubious { background: var(--warn-dim); color: var(--warn); font-weight: 600; }
 .review-failed { background: var(--danger-dim); color: var(--danger); }
+
+/* ---------- Goal round markers: start block, iteration badges, end line ---------- */
+.goal-start {
+	border: 1px solid var(--border);
+	background: var(--raised);
+	border-radius: var(--radius);
+	margin: 12px 0;
+	font-size: 13px;
+}
+
+.goal-start > summary {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	flex-wrap: wrap;
+	padding: 9px 14px;
+	cursor: pointer;
+	list-style: none;
+}
+
+.goal-start > summary::-webkit-details-marker {
+	display: none;
+}
+
+.goal-start__title {
+	font-weight: 600;
+	color: var(--text-bright);
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.goal-start__title::before {
+	content: "";
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+
+.goal-start__sub {
+	color: var(--dim);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+	min-width: 120px;
+}
+
+.goal-start__body {
+	margin: 0;
+	padding: 8px 14px;
+	border-top: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--dim);
+	white-space: pre-wrap;
+	line-height: 1.6;
+	max-height: 320px;
+	overflow: auto;
+}
+
+/* Continuation rounds: a centered badge divider, not a new-session marker. */
+.goal-iter-badge {
+	display: flex;
+	justify-content: center;
+	margin: 18px 0 10px;
+	position: relative;
+}
+
+.goal-iter-badge::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 0;
+	right: 0;
+	border-top: 1px solid var(--border);
+}
+
+.goal-iter-badge > summary {
+	position: relative;
+	list-style: none;
+	cursor: pointer;
+	padding: 0 4px;
+}
+
+.goal-iter-badge > summary::-webkit-details-marker {
+	display: none;
+}
+
+.goal-iter-badge .chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	background: var(--card);
+	border: 1px solid var(--border-strong);
+	border-radius: 999px;
+	padding: 2px 13px;
+	font-size: 11.5px;
+	color: var(--dim);
+	transition: border-color 120ms;
+}
+
+.goal-iter-badge .chip b {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.goal-iter-badge .chip .t {
+	color: var(--disabled);
+	font-weight: 400;
+}
+
+.goal-iter-badge:hover .chip {
+	border-color: var(--accent);
+}
+
+.goal-iter-body {
+	margin: 0 0 10px;
+	padding: 8px 12px;
+	border-left: 2px solid var(--border);
+	background: var(--raised);
+	border-radius: 0 4px 4px 0;
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.6;
+	white-space: pre-wrap;
+	max-height: 320px;
+	overflow: auto;
+}
+
+/* Terminal states: the same divider language in color. */
+.goal-end-badge {
+	display: flex;
+	justify-content: center;
+	margin: 18px 0 10px;
+	position: relative;
+}
+
+.goal-end-badge::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 0;
+	right: 0;
+	border-top-width: 1.5px;
+}
+
+.goal-end-badge .chip {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	border-radius: 999px;
+	padding: 2px 13px;
+	font-size: 11.5px;
+	border: 1px solid;
+}
+
+.goal-end-badge.completed::before { border-top-style: solid; }
+.goal-end-badge.completed .chip { border-color: var(--ok); background: var(--ok-dim); }
+.goal-end-badge.completed .chip b { color: var(--ok); }
+.goal-end-badge.blocked::before { border-top-style: solid; }
+.goal-end-badge.blocked .chip { border-color: var(--danger); background: var(--danger-dim); }
+.goal-end-badge.blocked .chip b { color: var(--danger); }
+.goal-end-badge.paused::before { border-top-style: dashed; }
+.goal-end-badge.paused .chip { border-color: var(--warn); background: var(--warn-dim); }
+.goal-end-badge.paused .chip b { color: var(--warn); }
+.goal-end-badge .chip .t { color: var(--dim); font-weight: 400; }

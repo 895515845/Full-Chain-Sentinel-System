@@ -80,6 +80,48 @@ function commandFromArgs(args: Record<string, unknown> | undefined): string {
 }
 
 /** Command of the tool call a result message answers, when the transcript has it. */
+/**
+ * How long the round a goal continuation marker closed took: from the previous
+ * boundary (an operator prompt or an earlier round marker) to this marker.
+ * Returns undefined when the timestamps needed are missing.
+ */
+/**
+ * Whether the operator sent anything after the goal ended: the terminal badge
+ * belongs to the goal's stretch, not to whatever conversation followed it.
+ */
+function chattedAfterGoalEnd(goal: { endedAt?: number }): boolean {
+	const endedAt = goal.endedAt;
+	if (!endedAt) return false;
+	return (snapshotRef.current?.messages ?? []).some(
+		(entry) => entry.role === "user" && (entry.timestamp ?? 0) > endedAt,
+	);
+}
+
+/** Compact total duration for the terminal goal badge. */
+function formatGoalTotalMs(ms: number): string {
+	const minutes = Math.round(ms / 60000);
+	if (minutes < 60) return `${minutes} 分`;
+	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+}
+
+function goalMarkerElapsed(marker: AgentMessageView): number | undefined {
+	const messages = snapshotRef.current?.messages ?? [];
+	const index = messages.findIndex(
+		(entry) =>
+			(entry as { customType?: string }).customType === "zg-goal" &&
+			messageKey(entry) === messageKey(marker),
+	);
+	if (index <= 0 || !marker.timestamp) return undefined;
+	for (let i = index - 1; i >= 0; i -= 1) {
+		const entry = messages[i] as { role?: string; customType?: string; timestamp?: number };
+		if (entry.role === "user" || entry.customType === "zg-goal") {
+			if (!entry.timestamp) return undefined;
+			return Math.max(0, marker.timestamp - entry.timestamp);
+		}
+	}
+	return undefined;
+}
+
 function toolCommandOf(message: AgentMessageView, commands: Map<string, string>): string | undefined {
 	return message.role === "toolResult" ? commands.get(message.toolCallId) : undefined;
 }
@@ -1030,7 +1072,17 @@ export function App() {
 										if (group.marker) {
 											return (
 												<div className="run-group run-marker" key={group.key}>
-													<MessageView message={group.marker} onFullscreen={openViewer} />
+													<MessageView
+														message={group.marker}
+														onFullscreen={openViewer}
+														// A continuation badge shows how long the round it
+														// closed took: the stretch since the previous
+														// boundary (prompt or earlier round) started.
+														{...(group.marker.customType === "zg-goal" &&
+														goalMarkerElapsed(group.marker)
+															? { goalElapsedMs: goalMarkerElapsed(group.marker) }
+															: {})}
+													/>
 												</div>
 											);
 										}
@@ -1108,6 +1160,25 @@ export function App() {
 											</div>
 										);
 									})}
+									{snapshot?.goal && snapshot.goal.status !== "active" && !chattedAfterGoalEnd(snapshot.goal) ? (
+										<div className={`goal-end-badge ${snapshot.goal.status}`}>
+											<span className="chip">
+												<b>
+													{snapshot.goal.status === "completed"
+														? "✓ 目标完成"
+														: snapshot.goal.status === "blocked"
+															? "✕ 目标阻塞"
+															: "⏸ 目标暂停"}
+												</b>
+												<span className="t">
+													共 {snapshot.goal.rounds.length} 次迭代 · 总耗时{" "}
+													{formatGoalTotalMs(
+														(snapshot.goal.endedAt ?? Date.now()) - snapshot.goal.startedAt,
+													)}
+												</span>
+											</span>
+										</div>
+									) : null}
 									{optimisticUserMessages.map((item, index) => (
 										<div key={`optimistic-${index}`} className="log-op pending">
 											<span className="log-op-mark">&gt;</span>

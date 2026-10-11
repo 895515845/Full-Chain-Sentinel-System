@@ -98,12 +98,74 @@ function hintForError(message: string): string {
 	return "运行失败：可重试；持续失败请用「设置 → 模型 → 测试连接」检查端点。";
 }
 
+/**
+ * A goal round boundary: the opening contract renders as a distinct start
+ * block; every automatic continuation renders as a centered badge divider
+ * （迭代 N · 轮 N/Y · 上轮耗时） so a whole goal reads as one continuous
+ * conversation instead of a sequence of "new sessions". Both expand to the
+ * full contract text for auditing.
+ */
+function GoalMarker({
+	text,
+	timestamp,
+	elapsedMs,
+}: {
+	text: string;
+	timestamp?: number;
+	elapsedMs?: number;
+}) {
+	if (text.startsWith("【持续目标已启动】")) {
+		const objective = /^目标（来自操作员）：(.+)$/m.exec(text)?.[1];
+		const limit = /自动续跑上限为 (\d+) 轮/.exec(text)?.[1];
+		return (
+			<details className="goal-start">
+				<summary>
+					<span className="goal-start__title">持续目标已启动</span>
+					<span className="goal-start__sub">
+						{objective ? `目标：${objective}` : "见合约"}
+						{limit ? ` · 轮数上限 ${limit}` : ""}
+					</span>
+				</summary>
+				<pre className="goal-start__body">{text}</pre>
+			</details>
+		);
+	}
+	const round = /第 (\d+)\/(\d+) 轮/.exec(text);
+	const iteration = round?.[1] ?? "?";
+	const roundLimit = round?.[2] ?? "?";
+	return (
+		<details className="goal-iter-badge">
+			<summary>
+				<span className="chip">
+					<b>迭代 {iteration}</b>
+					<span className="t">
+						轮 {iteration}/{roundLimit}
+						{elapsedMs !== undefined ? ` · ${formatDurationShort(elapsedMs)}` : ""}
+						{timestamp ? ` · ${formatTime(timestamp)}` : ""}
+					</span>
+				</span>
+			</summary>
+			<pre className="goal-iter-body">{text}</pre>
+		</details>
+	);
+}
+
+/** Compact mm:ss / h 小时 m 分 for badge metadata. */
+function formatDurationShort(ms: number): string {
+	const totalSeconds = Math.round(ms / 1000);
+	if (totalSeconds < 60) return `${totalSeconds} 秒`;
+	const minutes = Math.floor(totalSeconds / 60);
+	if (minutes < 60) return `${minutes} 分 ${totalSeconds % 60} 秒`;
+	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+}
+
 export function MessageView({
 	message,
 	toolCommand,
 	forkEntryId,
 	onFork,
 	onFullscreen,
+	goalElapsedMs,
 }: {
 	message: AgentMessageView;
 	/** Command of the tool call this result belongs to, when the transcript has it. */
@@ -111,6 +173,8 @@ export function MessageView({
 	forkEntryId?: string;
 	onFork?: (entryId: string) => void;
 	onFullscreen?: (command: string | undefined, output: string) => void;
+	/** For a goal continuation marker: how long the round it closed took. */
+	goalElapsedMs?: number;
 }) {
 	if (message.role === "user") {
 		const text = Array.isArray(message.content)
@@ -221,16 +285,7 @@ export function MessageView({
 		// rather than part of what the agent said.
 		if (message.customType === "zg-goal") {
 			const text = textFromContent(message.content);
-			const label = text.startsWith("【持续目标已启动】") ? "持续目标已启动" : "目标续跑";
-			return (
-				<details className="summary goal-row">
-					<summary>
-						{label}
-						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
-					</summary>
-					<pre>{text}</pre>
-				</details>
-			);
+			return <GoalMarker text={text} timestamp={message.timestamp} elapsedMs={goalElapsedMs} />;
 		}
 		// Loop-guard notices: the run was cut short because the output stuttered, or a
 		// tool call repeated. They are injected into the conversation like a prompt, so

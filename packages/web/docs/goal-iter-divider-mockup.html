@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Goal 迭代分隔线 — 样式稿</title>
+<style>
+	:root {
+		--bg: #fafafa; --card: #fff; --raised: #f8f8f9; --border: #eee; --border-strong: #d9d9d9;
+		--text: #000000d9; --bright: #000000e6; --dim: #606266; --disabled: #bfbfbf;
+		--accent: #0960bd; --ok: #67c23a; --warn: #e6a23c; --danger: #f56c6c;
+		--console-bg: #0b0f14; --console-text: #c9d1d9;
+		--radius: 6px;
+		--sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		--mono: ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; }
+	body { background: var(--bg); font-family: var(--sans); font-size: 14px; color: var(--text); margin: 0; padding: 24px; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	h2 { font-size: 15px; margin: 36px 0 4px; padding-top: 16px; border-top: 1px dashed var(--border-strong); }
+	p.note { color: var(--dim); font-size: 12.5px; margin: 0 0 14px; }
+	.demo { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; max-width: 760px; }
+
+	/* 对话内容模拟 */
+	.msg-user { display: flex; gap: 8px; margin: 14px 0 6px; font-family: var(--mono); font-size: 13px; color: var(--bright); }
+	.msg-user::before { content: "$"; color: var(--accent); flex: none; }
+	.msg-agent { margin: 8px 0 8px 16px; font-size: 13.5px; line-height: 1.7; color: var(--text); }
+	.process-fold { margin: 6px 0 6px 16px; font-size: 12px; color: var(--dim); }
+	.process-fold::before { content: "▸ "; color: var(--disabled); }
+
+	/* 启动块（保留，现状微调） */
+	.goal-start { border: 1px solid var(--border); background: var(--raised); border-radius: var(--radius); padding: 10px 14px; margin: 12px 0; font-size: 13px; }
+	.goal-start .t { font-weight: 600; color: var(--bright); display: flex; align-items: center; gap: 8px; }
+	.goal-start .t::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+	.goal-start .s { color: var(--dim); font-size: 12px; margin-top: 4px; }
+
+	/* ===== 方案 1：居中断线 + 文字标签（衬线控制台风） ===== */
+.iter-line { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; color: var(--disabled); font-size: 11.5px; user-select: none; }
+	.iter-line::before, .iter-line::after { content: ""; flex: 1; border-top: 1px dashed var(--border-strong); }
+	.iter-line .n { color: var(--dim); }
+	.iter-line .meta { color: var(--disabled); }
+	.iter-line .expand-hint { color: var(--disabled); font-size: 10.5px; }
+	.iter-line.done::before, .iter-line.done::after { border-top: 1.5px solid var(--ok); }
+	.iter-line.done .n { color: var(--ok); font-weight: 600; }
+	.iter-line.blocked::before, .iter-line.blocked::after { border-top: 1.5px solid var(--danger); }
+	.iter-line.blocked .n { color: var(--danger); font-weight: 600; }
+	.iter-line.paused::before, .iter-line.paused::after { border-top: 1.5px dashed var(--warn); }
+	.iter-line.paused .n { color: var(--warn); font-weight: 600; }
+
+	/* ===== 方案 2：左对齐短粗线 + 标签（编辑器 diff 风格） ===== */
+	.iter-mark { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; }
+	.iter-mark::before { content: ""; width: 34px; height: 3px; border-radius: 2px; background: var(--accent); opacity: 0.55; }
+	.iter-mark .n { font-size: 12px; font-weight: 600; color: var(--accent); }
+	.iter-mark .meta { font-size: 11.5px; color: var(--disabled); }
+	.iter-mark::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+	.iter-mark.done::before { background: var(--ok); opacity: 1; }
+	.iter-mark.done .n { color: var(--ok); }
+	.iter-mark.blocked::before { background: var(--danger); opacity: 1; }
+	.iter-mark.blocked .n { color: var(--danger); }
+
+	/* ===== 方案 3：居中徽章线（信息最强） ===== */
+	.iter-badge { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; }
+	.iter-badge::before, .iter-badge::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+	.iter-badge .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--border-strong); border-radius: 999px; padding: 2px 12px; font-size: 11.5px; color: var(--dim); }
+	.iter-badge .chip b { color: var(--accent); font-weight: 600; }
+	.iter-badge .chip .t { color: var(--disabled); font-weight: 400; }
+	.iter-badge.done .chip { border-color: var(--ok); background: #f0f9eb; }
+	.iter-badge.done .chip b { color: var(--ok); }
+	.iter-badge.blocked .chip { border-color: var(--danger); background: #fef0f0; }
+	.iter-badge.blocked .chip b { color: var(--danger); }
+
+	/* 展开内容示意 */
+	.iter-body { margin: 0 0 10px; padding: 8px 12px; border-left: 2px solid var(--border); background: var(--raised); border-radius: 0 4px 4px 0; font-size: 12px; color: var(--dim); line-height: 1.6; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>Goal 迭代分隔线 — 三种样式</h1>
+<p class="note">已定：线上显示「迭代第 N 次 · 轮 N/Y · 上轮耗时」；点开显示本轮合约全文；启动块保留；完成/阻塞结尾用同款彩色线。三种横线风格如下，看稿选。</p>
+
+<h2>方案 1 — 居中虚线 + 文字（轻，最像"一场对话"）</h2>
+<div class="demo">
+	<div class="goal-start">
+		<div class="t">持续目标已启动</div>
+		<div class="s">目标：拿下 10.0.0.5 的 Web 攻击面 · 轮数上限 5 · 验收标准 3 条</div>
+	</div>
+	<div class="msg-user">对 10.0.0.5 做完整渗透测试</div>
+	<div class="process-fold">过程 · 23 次工具调用 · 4 段思考 · 6 分 12 秒</div>
+	<div class="msg-agent">端口枚举完成：80/443/8080 开放，8080 为 Tomcat 管理页，准备深入验证……</div>
+
+	<div class="iter-line"><span class="n">迭代第 2 次</span><span class="meta">轮 2/5 · 上轮 6 分 12 秒</span><span class="expand-hint">▾</span></div>
+
+	<div class="msg-agent">管理页爆破成功（admin/admin123），发现部署 WAR 功能，尝试上传 jsp shell……</div>
+	<div class="process-fold">过程 · 41 次工具调用 · 8 分 40 秒</div>
+
+	<div class="iter-line"><span class="n">迭代第 3 次</span><span class="meta">轮 3/5 · 上轮 8 分 40 秒</span><span class="expand-hint">▾</span></div>
+	<div class="iter-body">【持续目标续跑】第 3/5 轮
+目标（来自操作员）：拿下 10.0.0.5 的 Web 攻击面
+当前进度：已完成 端口枚举、管理页登录；待办 WAR 上传、shell 验证……（点开时的合约全文示意）</div>
+	<div class="msg-agent">WAR 部署成功，webshell 可执行命令，开始收集证据并提交漏洞中枢……</div>
+
+	<div class="iter-line done"><span class="n">✓ 目标完成</span><span class="meta">共 3 次迭代 · 总耗时 24 分</span></div>
+</div>
+
+<h2>方案 2 — 左侧短粗线（diff/编辑器风，节奏感强）</h2>
+<div class="demo">
+	<div class="goal-start">
+		<div class="t">持续目标已启动</div>
+		<div class="s">目标：拿下 10.0.0.5 的 Web 攻击面 · 轮数上限 5 · 验收标准 3 条</div>
+	</div>
+	<div class="msg-user">对 10.0.0.5 做完整渗透测试</div>
+	<div class="process-fold">过程 · 23 次工具调用 · 6 分 12 秒</div>
+	<div class="msg-agent">端口枚举完成：80/443/8080 开放……</div>
+
+	<div class="iter-mark"><span class="n">迭代 2</span><span class="meta">轮 2/5 · 6 分 12 秒</span></div>
+	<div class="msg-agent">管理页爆破成功，尝试上传 jsp shell……</div>
+
+	<div class="iter-mark"><span class="n">迭代 3</span><span class="meta">轮 3/5 · 8 分 40 秒</span></div>
+	<div class="msg-agent">webshell 可执行命令，开始收集证据……</div>
+
+	<div class="iter-mark done"><span class="n">✓ 目标完成</span><span class="meta">共 3 次迭代 · 24 分</span></div>
+	<div class="iter-mark blocked"><span class="n">✕ 目标阻塞</span><span class="meta">连续 3 轮同一阻塞</span></div>
+</div>
+
+<h2>方案 3 — 居中徽章（信息最醒目，徽章可点开）</h2>
+<div class="demo">
+	<div class="goal-start">
+		<div class="t">持续目标已启动</div>
+		<div class="s">目标：拿下 10.0.0.5 的 Web 攻击面 · 轮数上限 5 · 验收标准 3 条</div>
+	</div>
+	<div class="msg-user">对 10.0.0.5 做完整渗透测试</div>
+	<div class="process-fold">过程 · 23 次工具调用 · 6 分 12 秒</div>
+	<div class="msg-agent">端口枚举完成：80/443/8080 开放……</div>
+
+	<div class="iter-badge"><span class="chip"><b>迭代 2</b><span class="t">轮 2/5 · 6 分 12 秒 · 点开合约</span></span></div>
+	<div class="msg-agent">管理页爆破成功，尝试上传 jsp shell……</div>
+
+	<div class="iter-badge"><span class="chip"><b>迭代 3</b><span class="t">轮 3/5 · 8 分 40 秒 · 点开合约</span></span></div>
+	<div class="msg-agent">webshell 可执行命令，开始收集证据……</div>
+
+	<div class="iter-badge done"><span class="chip"><b>✓ 目标完成</b><span class="t">共 3 次迭代 · 24 分</span></span></div>
+	<div class="iter-badge blocked"><span class="chip"><b>✕ 存疑阻塞</b><span class="t">连续 3 轮同一阻塞</span></span></div>
+</div>
+
+</body>
+</html>
