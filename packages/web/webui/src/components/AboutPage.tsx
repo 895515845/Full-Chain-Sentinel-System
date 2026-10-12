@@ -6,17 +6,19 @@
  * when something looks wrong.
  */
 
-import type { ZGModelConfig, ZGProjectInfo, ZGStateSnapshot, ZGStatsView } from "../types.ts";
+import type { ZGProjectInfo, ZGResolvedModelView, ZGStateSnapshot, ZGStatsView } from "../types.ts";
+import { ZG_MODE_LABELS } from "../types.ts";
 
 export function AboutPage({
 	snapshot,
-	config,
+	main,
 	stats,
 	project,
 	connected,
 }: {
 	snapshot: ZGStateSnapshot | null;
-	config: ZGModelConfig | null;
+	/** What the 主模型 role resolves to. */
+	main: ZGResolvedModelView | null;
 	stats: ZGStatsView | null;
 	project: ZGProjectInfo | null;
 	connected: boolean;
@@ -24,9 +26,9 @@ export function AboutPage({
 	const rows: { label: string; value: string }[] = [
 		{ label: "控制台", value: "ZGAgent Web 控制台" },
 		{ label: "连接状态", value: connected ? "已连接" : "已断开" },
-		{ label: "模型端点", value: config?.baseUrl || "未配置" },
+		{ label: "主模型", value: main ? `${main.entryName}（${main.modelId}）` : "未配置" },
 		{ label: "模型", value: snapshot?.model ? `${snapshot.model.provider} / ${snapshot.model.id}` : "未配置" },
-		{ label: "执行模式", value: snapshot?.mode === "auto" ? "自动执行" : "审批模式" },
+		{ label: "执行模式", value: snapshot ? ZG_MODE_LABELS[snapshot.mode] : "—" },
 		{ label: "思考等级", value: snapshot?.thinkingLevel ?? "—" },
 		{ label: "当前项目", value: project ? `${project.name}（${project.container ?? "无容器"}）` : "未选择" },
 		{ label: "工作目录", value: snapshot?.cwd ?? "—" },

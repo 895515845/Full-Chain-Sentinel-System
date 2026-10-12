@@ -8,9 +8,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { writeModelConfig } from "../src/model-config.ts";
 import { parseVerdict, VulnReviewer } from "../src/reviewer.ts";
 import { VulnerabilityStore } from "../src/vulnerabilities.ts";
+import { writeTestModel } from "./model-fixtures.ts";
 
 let dir: string;
 let store: VulnerabilityStore;
@@ -36,7 +36,11 @@ beforeAll(() => {
 	store = new VulnerabilityStore(join(dir, "vulns.db"));
 	// The reviewer resolves its endpoint from the agent dir; a stub config
 	// keeps the real path exercised while the model call itself is stubbed.
-	writeModelConfig(join(dir, "agent"), { baseUrl: "http://127.0.0.1:9/v1", apiKey: "stub", modelId: "reviewer-stub" });
+	writeTestModel(
+		join(dir, "agent"),
+		{ baseUrl: "http://127.0.0.1:9/v1", apiKey: "stub", modelId: "reviewer-stub" },
+		"reviewer",
+	);
 	reviewer = new VulnReviewer(
 		store,
 		{

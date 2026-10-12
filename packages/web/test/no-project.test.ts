@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
-import { writeModelConfig } from "../src/model-config.ts";
 import type { ZGClientMessage, ZGServerMessage, ZGStateSnapshot } from "../src/protocol.ts";
 import { startZGServer } from "../src/server.ts";
 import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
+import { writeTestModel } from "./model-fixtures.ts";
 
 let tempRoot = "";
 let fakeDocker: FakeDocker | undefined;
@@ -73,9 +73,9 @@ beforeAll(async () => {
 	const cwd = join(tempRoot, "workspace");
 	// A model is configured so that entering a project can build a session; no
 	// request is ever sent, so the endpoint does not need to exist.
-	writeModelConfig(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "zg-unused-model" });
+	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "zg-unused-model" });
 	fakeDocker = installFakeDocker(tempRoot, join(tempRoot, "projects", projectSlug("noproject-test")));
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0 });
+	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	closeServer = started.close;
 	ws = new WebSocket(started.url.replace("http://", "ws://").concat("/ws"));
 	ws.on("message", (data) => dispatch(JSON.parse(String(data)) as ZGServerMessage));

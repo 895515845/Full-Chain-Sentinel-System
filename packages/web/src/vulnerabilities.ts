@@ -427,6 +427,26 @@ export class VulnerabilityStore {
 		return true;
 	}
 
+	/**
+	 * Mark one queued review as not reviewed. Used when automatic review is off:
+	 * the record keeps the agent's own rating instead of waiting for a reviewer
+	 * that will never run.
+	 */
+	skipReview(id: string): void {
+		const existing = this.get(id);
+		if (!existing || existing.review.state !== "queued") return;
+		this.db
+			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
+			.run(JSON.stringify({ state: "skipped", at: Date.now() } satisfies ZGVulnReview), id);
+	}
+
+	/** Drop every queued review, so turning automatic review off clears the backlog. */
+	skipQueuedReviews(): number {
+		const ids = this.queuedReviewIds();
+		for (const id of ids) this.skipReview(id);
+		return ids.length;
+	}
+
 	/** Records still waiting for the reviewer, oldest first (crash recovery). */
 	queuedReviewIds(projectId?: string): string[] {
 		const rows = (projectId

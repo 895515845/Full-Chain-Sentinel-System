@@ -1,18 +1,27 @@
 /**
- * OpenAI-compatible endpoint configuration stored in models.json.
+ * Provider entries in models.json.
  *
- * ZGAgent drives a self-hosted or proxied endpoint declared under the provider
- * id "zg-endpoint" with api "openai-completions". Other providers in the file
- * are preserved on write.
+ * The file belongs to the Pi SDK: one provider per model-library entry, keyed by
+ * the entry id, api "openai-completions". What the SDK schema has no place for
+ * (display names, role assignments, the reviewer switch) lives in
+ * model-library.json; see model-library.ts.
+ *
+ * Three ids are leftovers from the fixed-slot layout. `zg-endpoint` and
+ * `zg-judge` are read only by the one-time migration, which reuses them as entry
+ * ids so a downgrade still finds its slots. `zg-commander` is still live:
+ * engineering mode keeps its own endpoint, configured in the engine page.
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZGModelConfig } from "./protocol.ts";
 
+/** Legacy main-endpoint provider id. */
 export const ZG_PROVIDER_ID = "zg-endpoint";
-/** Separate provider entry for the engineering-mode commander; may point at a cheaper model. */
+/** The engineering commander's own endpoint; may point at a cheaper model. */
 export const ZG_COMMANDER_PROVIDER_ID = "zg-commander";
+/** Legacy judge provider id. */
+export const ZG_JUDGE_PROVIDER_ID = "zg-judge";
 
 /** Bearer placeholder for unauthenticated endpoints; written so Pi treats the provider as credentialed. */
 export const NO_AUTH_PLACEHOLDER_KEY = "zgagent-no-auth";
@@ -48,37 +57,22 @@ export function modelsJsonPath(agentDir: string): string {
 	return `${agentDir}/models.json`;
 }
 
-/** Read the persisted endpoint config, if a model entry exists. */
-export function readModelConfig(agentDir: string): ZGModelConfig | null {
-	return readProviderConfig(agentDir, ZG_PROVIDER_ID);
-}
-
-/**
- * The commander's endpoint. When none is configured the engine falls back to
- * the main endpoint, so engineering mode works out of the box.
- */
+/** The commander's endpoint. When none is configured the engine falls back to the main role. */
 export function readCommanderModelConfig(agentDir: string): ZGModelConfig | null {
-	return readProviderConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
+	return readProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
 }
 
 export function writeCommanderModelConfig(agentDir: string, config: ZGModelConfig | null): void {
-	// null removes the commander entry, which restores the fallback to the main endpoint.
+	// null removes the commander entry, which restores the fallback to the main role.
 	if (config === null) {
-		const path = modelsJsonPath(agentDir);
-		if (!existsSync(path)) return;
-		try {
-			const parsed = JSON.parse(readFileSync(path, "utf-8")) as ModelsJson;
-			if (parsed.providers) delete parsed.providers[ZG_COMMANDER_PROVIDER_ID];
-			writeFileSync(path, `${JSON.stringify(parsed, null, "\t")}\n`, { mode: 0o600 });
-		} catch {
-			// A corrupt file is left alone; the fallback endpoint still works.
-		}
+		removeProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
 		return;
 	}
-	writeProviderConfig(agentDir, ZG_COMMANDER_PROVIDER_ID, "ZGAgent Commander", config);
+	writeProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID, "ZGAgent Commander", config);
 }
 
-function readProviderConfig(agentDir: string, providerId: string): ZGModelConfig | null {
+/** One provider entry, or null when it is missing or incomplete. */
+export function readProviderModelConfig(agentDir: string, providerId: string): ZGModelConfig | null {
 	const path = modelsJsonPath(agentDir);
 	if (!existsSync(path)) return null;
 	let parsed: ModelsJson;
@@ -97,7 +91,13 @@ function readProviderConfig(agentDir: string, providerId: string): ZGModelConfig
 	};
 }
 
-function writeProviderConfig(agentDir: string, providerId: string, name: string, config: ZGModelConfig): void {
+/** Write one provider entry, merging into any existing models.json. */
+export function writeProviderModelConfig(
+	agentDir: string,
+	providerId: string,
+	name: string,
+	config: ZGModelConfig,
+): void {
 	const path = modelsJsonPath(agentDir);
 	let parsed: ModelsJson = { providers: {} };
 	if (existsSync(path)) {
@@ -138,7 +138,15 @@ function writeProviderConfig(agentDir: string, providerId: string, name: string,
 	}
 }
 
-/** Persist the endpoint config, merging into any existing models.json. */
-export function writeModelConfig(agentDir: string, config: ZGModelConfig): void {
-	writeProviderConfig(agentDir, ZG_PROVIDER_ID, "ZGAgent Endpoint", config);
+/** Drop one provider entry. A corrupt file is left alone. */
+export function removeProviderModelConfig(agentDir: string, providerId: string): void {
+	const path = modelsJsonPath(agentDir);
+	if (!existsSync(path)) return;
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf-8")) as ModelsJson;
+		if (parsed.providers) delete parsed.providers[providerId];
+		writeFileSync(path, `${JSON.stringify(parsed, null, "\t")}\n`, { mode: 0o600 });
+	} catch {
+		// A corrupt file is left alone; the endpoint still works.
+	}
 }

@@ -117,10 +117,11 @@ export function SessionStatusControl({
 						{status ? SESSION_STATUS_LABELS[status] : "无状态"}
 						<span className="session-status-caret">▾</span>
 					</>
-				) : status ? (
-					SESSION_STATUS_LABELS[status]
 				) : (
-					"无状态"
+					<>
+						{status ? SESSION_STATUS_LABELS[status] : "无状态"}
+						<span className="session-status-caret">▾</span>
+					</>
 				)}
 			</button>
 			{anchor ? (

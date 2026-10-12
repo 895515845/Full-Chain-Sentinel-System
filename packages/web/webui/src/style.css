@@ -38,6 +38,10 @@
 	--ok: #67c23a;
 	--ok-dim: #f0f9eb;
 	--warn: #e6a23c;
+	--warn-dim: #fdf6ec;
+	--info: #0958d9;
+	--blue: #409eff;
+	--info-dim: #e6f4ff;
 	--purple: #0960bd;
 	/* Terminal blocks */
 	--console-bg: #0b0f14;
@@ -867,6 +871,19 @@ button.ghost.small {
 	background: var(--nav-hover);
 	border-color: transparent;
 	color: #fff;
+}
+
+.sider-foot-user {
+	max-width: 76px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	color: var(--nav-text-dim);
+}
+
+.sider.collapsed .sider-foot-user {
+	display: none;
 }
 
 .sider-foot-status {
@@ -3510,6 +3527,13 @@ svg.lucide {
 	color: var(--accent);
 }
 
+/* A table inside the scrolling panel body must keep its natural height: as a
+   flex item it would otherwise shrink to the panel and clip its rows. */
+.ws-panel__body > .data-table,
+.ws-panel__body > .model-table-wrap {
+	flex: none;
+}
+
 .data-table {
 	margin-top: 4px;
 	border: 1px solid var(--border);
@@ -4638,8 +4662,8 @@ button.link {
 .vuln-stats {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 8px;
-	margin-bottom: 10px;
+	gap: 6px;
+	margin-bottom: 8px;
 }
 
 .vuln-stat-status {
@@ -4757,7 +4781,7 @@ button.link {
 }
 
 .vuln-detail__body h3 {
-	margin: 18px 0 8px;
+	margin: 14px 0 6px;
 	font-size: 13px;
 	color: var(--text-bright);
 }
@@ -4780,8 +4804,8 @@ button.link {
 .vuln-meta-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-	gap: 8px 16px;
-	padding: 10px 12px;
+	gap: 6px 16px;
+	padding: 9px 12px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
 	background: var(--raised);
@@ -4841,10 +4865,28 @@ button.link {
 }
 
 .vuln-evidence {
-	margin-bottom: 10px;
-	padding: 10px 12px;
+	margin-bottom: 8px;
+	padding: 8px 10px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
+}
+
+/* Evidence keeps a fixed footprint: a command's full output is one scroll away
+   instead of stretching the dialog by thousands of pixels. */
+.vuln-evidence .ws-console__body {
+	max-height: 190px;
+	overflow: auto;
+	margin: 0 0 4px;
+}
+
+.vuln-packet {
+	max-height: 260px;
+	overflow: auto;
+}
+
+.vuln-text {
+	max-height: 320px;
+	overflow: auto;
 }
 
 .vuln-evidence__head {
@@ -5468,10 +5510,31 @@ button.link {
 
 
 /* ---------- Vulnerability hub: status badges, mid-dense rows, action bands ---------- */
+.vuln-table {
+	/* Sticky rows need the table itself not to be a clip box. */
+	overflow: visible;
+}
+
 .vuln-table .data-row {
-	grid-template-columns: 104px 128px 84px minmax(150px, 1.1fr) minmax(220px, 1.5fr) 118px 108px;
-	padding: 7px 14px;
-	font-size: 13px;
+	grid-template-columns: 96px 120px 78px minmax(140px, 1fr) minmax(260px, 1.7fr) 108px 96px;
+	padding: 5px 12px;
+	font-size: 12.5px;
+}
+
+.vuln-table .data-head {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: var(--raised);
+	border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* The agent writes whole sentences as titles; the row keeps one line and the
+   full text stays available in the tooltip. */
+.vuln-table .data-name {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .vuln-status-tag {
@@ -5503,8 +5566,8 @@ button.link {
 	align-items: center;
 	gap: 8px;
 	flex-wrap: wrap;
-	margin: 12px 0;
-	padding: 8px 12px;
+	margin: 10px 0 0;
+	padding: 7px 12px;
 	background: var(--raised);
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
@@ -5835,6 +5898,7 @@ button.link {
 
 /* ---------- Session rows: color-dot + hover card (variant A) ---------- */
 .menu-sub-item.session-row {
+	position: relative;
 	overflow: visible;
 	min-height: 30px;
 	padding-top: 5px;
@@ -5921,7 +5985,7 @@ button.link {
 	align-items: center;
 }
 
-.session-hovercard .hc-actions button {
+.session-hovercard .hc-actions button:not(.session-status-chip) {
 	flex: 1;
 	background: #0d2136;
 	color: var(--nav-text);
@@ -5931,6 +5995,18 @@ button.link {
 	padding: 3px 0;
 	cursor: pointer;
 	white-space: nowrap;
+}
+
+/* The status control shares the row: same width as its neighbours, but it keeps
+   the status colour so the label reads as a tag, not as an action. */
+.session-hovercard .hc-actions .session-status-control {
+	flex: 1;
+}
+
+.session-hovercard .hc-actions .session-status-chip {
+	width: 100%;
+	justify-content: center;
+	line-height: 18px;
 }
 
 .session-hovercard .hc-actions button:hover {
@@ -5959,4 +6035,800 @@ button.link {
 .session-section-label .n {
 	letter-spacing: 0;
 	font-size: 10.5px;
+}
+
+/* ---------------------------------------------------------------------------
+   Gatekeeper (AI 审批 / 守门审计)
+
+   The mode switch gained a third state and a scope marker; the audit page is a
+   read-only table with stat tiles; a failing judge raises a yellow banner that
+   must not look like the red Docker lock.
+--------------------------------------------------------------------------- */
+
+.mode-scope {
+	display: inline-flex;
+	align-items: center;
+	padding: 0 6px;
+	font-size: 11px;
+	color: var(--dim);
+	white-space: nowrap;
+}
+
+.gate-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: none;
+	margin-bottom: 12px;
+	padding: 8px 12px;
+	border: 1px solid #e6a23c4d;
+	border-radius: var(--radius);
+	background: #fdf6ec;
+	color: #b88230;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.gate-banner-dot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--warn);
+	animation: conn-pulse 1.4s ease-in-out infinite;
+}
+
+.gate-banner-close {
+	flex: none;
+	margin-left: auto;
+	padding: 0 6px;
+	border: 0;
+	background: none;
+	color: inherit;
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0.7;
+}
+
+.gate-banner-close:hover {
+	opacity: 1;
+}
+
+.settings-section {
+	margin: 22px 0 6px;
+	padding-top: 16px;
+	border-top: 1px solid var(--border);
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text-bright);
+}
+
+/* One summary line instead of eight stat tiles: the judgments are the content
+   of this page, not the counters about it. */
+.gate-summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 14px;
+	margin-bottom: 10px;
+	padding: 7px 12px;
+	background: var(--raised);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.gate-summary > span {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 5px;
+	white-space: nowrap;
+}
+
+.gate-summary > span:not(:first-child)::before {
+	content: "·";
+	margin-right: 14px;
+	color: var(--border-strong);
+}
+
+.gate-summary b {
+	font-weight: 600;
+	color: var(--text-bright);
+	font-variant-numeric: tabular-nums;
+}
+
+.gate-summary > span.bad b {
+	color: var(--danger);
+}
+
+.gate-filters {
+	display: flex;
+	align-items: flex-end;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.gate-filters label {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.gate-filters select,
+.gate-filters input {
+	height: 28px;
+	padding: 0 8px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-size: 12px;
+	outline: none;
+}
+
+.gate-search input {
+	min-width: 200px;
+}
+
+.gate-filters button {
+	height: 28px;
+	padding: 0 10px;
+	font-size: 12px;
+}
+
+.gate-table {
+	width: 100%;
+	border-collapse: collapse;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 12px;
+	table-layout: fixed;
+}
+
+.gate-table th {
+	padding: 7px 10px;
+	background: var(--raised);
+	color: var(--dim);
+	font-weight: 500;
+	text-align: left;
+	border-bottom: 1px solid var(--border);
+}
+
+.gate-table td {
+	padding: 7px 10px;
+	border-top: 1px solid var(--border);
+	vertical-align: top;
+	color: var(--text);
+}
+
+.ws-panel__body > .gate-table {
+	/* Same rule as the data tables: without it the table shrinks to the panel
+	   and the rows past the fold are unreachable. */
+	flex: none;
+}
+
+.gate-table th:nth-child(1) { width: 112px; }
+.gate-table th:nth-child(2) { width: 54px; }
+.gate-table th:nth-child(4) { width: 170px; }
+.gate-table th:nth-child(5) { width: 150px; }
+.gate-table th:nth-child(6) { width: 62px; }
+
+.gate-table th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.gate-row {
+	cursor: pointer;
+}
+
+.gate-row:hover {
+	background: var(--accent-dim);
+}
+
+.gate-row.block td {
+	background: #f56c6c0f;
+}
+
+.gate-row.failed td {
+	background: #e6a23c0f;
+}
+
+.gate-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0 6px;
+	border-radius: 3px;
+	font-size: 11px;
+	line-height: 18px;
+}
+
+.gate-badge.allow {
+	background: var(--ok-dim);
+	color: var(--ok);
+}
+
+.gate-badge.block {
+	background: var(--danger-dim);
+	color: var(--danger);
+}
+
+.gate-badge.failed {
+	background: #fdf6ec;
+	color: var(--warn);
+}
+
+.gate-time {
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.gate-command code {
+	display: block;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: var(--text-bright);
+	/* Closed rows stay on one line; the full command is the tooltip and the
+	   expanded row. */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.gate-command code.open {
+	white-space: pre-wrap;
+	word-break: break-all;
+	overflow: visible;
+}
+
+.gate-source {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Two stacked lines, each clipping on its own: the model id and the library
+   entry it came from. No cell can push the table wider. */
+.gate-model {
+	overflow: hidden;
+}
+
+.gate-model-id {
+	display: block;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--text);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.gate-model-from {
+	display: block;
+	font-size: 10.5px;
+	color: var(--dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.gate-latency {
+	text-align: right;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--dim);
+	white-space: nowrap;
+}
+
+.gate-detail {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px dashed var(--border);
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 1.6;
+}
+
+.gate-detail-error {
+	color: var(--warn);
+}
+
+.gate-pager {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	margin-top: 12px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.gate-pager button {
+	padding: 3px 10px;
+	font-size: 12px;
+}
+
+.engine-gate-switch {
+	margin-left: 4px;
+}
+
+.engine-gate-switch button {
+	padding: 1px 8px;
+	font-size: 11px;
+	line-height: 18px;
+}
+
+
+/* ---------------------------------------------------------------------------
+   设置 → 模型：角色卡片 + 模型库
+   --------------------------------------------------------------------------- */
+
+/* The model page is a role table plus a library table: it uses the page width
+   instead of the 560px form column the other settings pages want. */
+.settings--wide {
+	max-width: none;
+}
+
+/* A select next to a styled input must not look like a raw native control. */
+.settings select {
+	appearance: none;
+	-webkit-appearance: none;
+	width: 100%;
+	background-color: var(--raised);
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23606266' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 10px center;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--text);
+	height: 33px;
+	padding: 0 30px 0 10px;
+	font-size: 13px;
+	font-family: var(--sans);
+	cursor: pointer;
+}
+
+.settings select:hover {
+	border-color: var(--border-strong);
+}
+
+.settings select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.settings-block__head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 26px;
+}
+
+.settings-block__head .settings-section {
+	margin: 0;
+}
+
+/* One role per card: what the role is on the left, its pick and its effect on
+   the right, so the row reads as one sentence instead of three loose columns. */
+.role-card {
+	display: grid;
+	grid-template-columns: minmax(200px, 250px) minmax(260px, 340px) minmax(280px, 1fr);
+	column-gap: 32px;
+	row-gap: 6px;
+	align-items: center;
+	padding: 14px 16px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	margin-top: 10px;
+}
+
+.role-card__name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text-bright);
+}
+
+.role-card__desc {
+	font-size: 11.5px;
+	color: var(--dim);
+	line-height: 1.6;
+	margin-top: 4px;
+}
+
+.role-card__pick {
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+	min-width: 0;
+}
+
+.role-card__effect {
+	min-width: 0;
+}
+
+.role-card__resolved {
+	font-size: 12px;
+	color: var(--text);
+	line-height: 1.5;
+}
+
+.role-card__resolved strong {
+	font-family: var(--mono);
+	font-size: 11.5px;
+	font-weight: 500;
+}
+
+.role-card__resolved .hint {
+	font-size: 11.5px;
+}
+
+.role-card__auto {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--text);
+	cursor: pointer;
+	margin-top: 2px;
+}
+
+.role-card__auto input {
+	margin: 0;
+	flex: none;
+}
+
+.role-card__auto .hint {
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.warn-text {
+	color: var(--warn);
+	font-size: 12px;
+}
+
+/* The library table scrolls horizontally instead of squeezing its columns. */
+.model-table-wrap {
+	overflow-x: auto;
+	margin-top: 6px;
+}
+
+.model-table {
+	margin-top: 0;
+	min-width: 760px;
+}
+
+.model-table .data-row {
+	grid-template-columns:
+		minmax(100px, 1.1fr) minmax(160px, 1.6fr) minmax(140px, 1.3fr)
+		64px minmax(90px, 0.8fr) auto;
+	column-gap: 14px;
+}
+
+.model-table .data-actions {
+	justify-content: flex-end;
+	white-space: nowrap;
+}
+
+.model-table__actions-head {
+	text-align: right;
+}
+
+.data-roles {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	min-width: 0;
+}
+
+.model-table .tag-ok {
+	background: var(--ok-dim);
+	color: var(--ok);
+}
+
+.model-table .tag-bad {
+	background: var(--danger-dim);
+	color: var(--danger);
+}
+
+/* Neutral, because the console defines no info color token in :root. */
+.model-table .tag-info {
+	background: var(--raised);
+	color: var(--dim);
+}
+
+.model-table .tag-accent {
+	background: var(--accent-dim);
+	color: var(--accent);
+}
+
+.model-table .hint {
+	font-size: 11.5px;
+	color: var(--dim);
+}
+
+/* Inline add/edit form under the table: two columns on wide screens. */
+.model-editor {
+	margin-top: 14px;
+	padding: 16px 18px 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+}
+
+.model-editor .settings-section {
+	margin: 0 0 12px;
+	padding-top: 0;
+	border-top: none;
+}
+
+.model-editor__grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: 0 16px;
+}
+
+.model-editor label {
+	display: block;
+	margin-bottom: 10px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.model-editor input[type="text"],
+.model-editor input[type="password"],
+.model-editor input:not([type]) {
+	display: block;
+	width: 100%;
+	margin-top: 4px;
+}
+
+.model-editor__actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+/* ---------- Login screen (鉴权) ----------
+   Standalone dark page per the reference layout: brand visual on the left, the
+   form on the right. It renders outside the console shell, so it carries its
+   own colors instead of the light theme tokens. */
+.auth {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(400px, 520px);
+	background: #0b0f14;
+	color: #e8eaed;
+	font-family: var(--sans);
+}
+
+.auth-visual {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-end;
+	gap: 6px;
+	padding: 52px;
+	overflow: hidden;
+	background: #0b0f14;
+}
+
+/* The animated skyline (LoginBackdrop) fills the panel behind the brand mark. */
+.auth-canvas {
+	position: absolute;
+	inset: 0;
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+/* Depth vignette: sinks the edges of the field so the brand stays readable. */
+.auth-visual::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	background: radial-gradient(120% 90% at 42% 46%, transparent 55%, #05070acc 100%);
+}
+
+.auth-brand {
+	position: relative;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.auth-brand-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 10px;
+	background: #1668dc;
+	color: #fff;
+	font-size: 17px;
+	font-weight: 700;
+	letter-spacing: 0.5px;
+}
+
+.auth-brand-name {
+	font-size: 22px;
+	font-weight: 600;
+	color: #fff;
+	letter-spacing: 0.3px;
+}
+
+.auth-tagline {
+	position: relative;
+	z-index: 2;
+	color: #8b98a5;
+	font-size: 13px;
+}
+
+.auth-panel {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 40px;
+	background: #0d1218;
+	border-left: 1px solid #1d2733;
+}
+
+.auth-form {
+	width: min(340px, 100%);
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.auth-form h1 {
+	margin: 0;
+	font-size: 21px;
+	font-weight: 600;
+	color: #fff;
+}
+
+.auth-hint {
+	margin: -6px 0 4px;
+	color: #8b98a5;
+	font-size: 12.5px;
+	line-height: 1.6;
+}
+
+.auth-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 12.5px;
+	color: #aab4bf;
+}
+
+.auth-field input {
+	height: 40px;
+	padding: 0 12px;
+	border: 1px solid #24313f;
+	border-radius: 8px;
+	background: #0f161e;
+	color: #e8eaed;
+	font-size: 14px;
+	font-family: var(--sans);
+}
+
+.auth-field input:focus {
+	outline: none;
+	border-color: #3b82c4;
+	box-shadow: 0 0 0 2px #3b82c433;
+}
+
+.auth-remember {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12.5px;
+	color: #aab4bf;
+	cursor: pointer;
+}
+
+.auth-error {
+	padding: 8px 10px;
+	border: 1px solid #57262a;
+	border-radius: 8px;
+	background: #3a1618;
+	color: #ff9a9a;
+	font-size: 12.5px;
+}
+
+.auth-submit {
+	height: 42px;
+	border: none;
+	border-radius: 8px;
+	background: #f2f3f5;
+	color: #101418;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.auth-submit:hover:not(:disabled) {
+	background: #ffffff;
+}
+
+.auth-submit:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+.auth-foot {
+	margin: 16px 0 0;
+	color: #5c6873;
+	font-size: 11.5px;
+}
+
+@media (max-width: 900px) {
+	.auth {
+		grid-template-columns: 1fr;
+	}
+
+	.auth-visual {
+		display: none;
+	}
+}
+
+/* A boot flash instead of a white page while the session is being checked. */
+.app--boot {
+	min-height: 100vh;
+	background: #0b0f14;
+}
+
+/* ---------- 设置 → 安全 ---------- */
+.security-form {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-width: 420px;
+}
+
+.security-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.security-form input {
+	height: 34px;
+	padding: 0 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-size: 13px;
+	font-family: var(--sans);
+}
+
+.security-form input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.ok-text {
+	color: var(--ok);
 }

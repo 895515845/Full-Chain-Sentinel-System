@@ -10,8 +10,18 @@ import type {
 import type { ZGPermissionPreset, ZGPermissionSet, ZGPermissionsConfig } from "./permissions.ts";
 import type { ZGSessionListEntry, ZGSessionStatus } from "./session-status.ts";
 
-/** Operator approval mode for bash tool calls. */
-export type ZGMode = "review" | "auto";
+/**
+ * Who decides whether a bash command may run.
+ *
+ * `review` asks the operator, `ai` asks the gatekeeper model, `auto` runs it.
+ * `ai` is not a weaker `auto`: a judgment that fails is allowed through (so a
+ * dead endpoint cannot stall an unattended run), but a missing endpoint refuses
+ * the mode outright rather than silently degrading.
+ */
+export type ZGMode = "review" | "ai" | "auto";
+
+/** The modes a session may carry; the order the console lists them in. */
+export const ZG_MODES: readonly ZGMode[] = ["review", "ai", "auto"];
 
 /** Lifecycle of a persistent goal. Only the model ends one successfully. */
 export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
@@ -137,6 +147,52 @@ export interface ZGModelConfig {
 	modelId: string;
 }
 
+/** The three jobs a model can be assigned to. */
+export type ZGModelRoleName = "main" | "judge" | "reviewer";
+
+/**
+ * One row of the model library as the settings screen sees it. The key itself is
+ * never sent to the client; `hasKey` only says whether one is stored.
+ */
+export interface ZGModelEntryView {
+	id: string;
+	name: string;
+	baseUrl: string;
+	modelId: string;
+	hasKey: boolean;
+	/** Roles currently pointing at this entry. */
+	roles: ZGModelRoleName[];
+}
+
+/** What a role resolves to right now, so the screen can show the effective endpoint. */
+export interface ZGResolvedModelView {
+	entryId: string;
+	entryName: string;
+	modelId: string;
+	/** True when the role resolved through 主模型 instead of its own entry. */
+	followedMain: boolean;
+}
+
+/**
+ * The whole model screen: the library, the role assignments (entry id, or
+ * "follow-main" for judge/reviewer, or null for an unset main), and what each
+ * role currently resolves to.
+ */
+export interface ZGModelLibraryView {
+	entries: ZGModelEntryView[];
+	roles: {
+		main: string | null;
+		judge: string;
+		reviewer: string;
+	};
+	reviewerAuto: boolean;
+	resolved: {
+		main: ZGResolvedModelView | null;
+		judge: ZGResolvedModelView | null;
+		reviewer: ZGResolvedModelView | null;
+	};
+}
+
 /** DingTalk notification configuration persisted in notifications.json. */
 export interface ZGNotifyConfig {
 	/** Master switch. A run may still force a notification from the composer. */
@@ -197,6 +253,119 @@ export interface ZGApprovalRequest {
 	source?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Gatekeeper (守门审计)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the gatekeeper decided about one bash command.
+ *
+ * `failed` is deliberately separate from `allow`: a judgment that never arrived
+ * is allowed through, but it is a different event from the gatekeeper reading
+ * the command and clearing it, and the audit page has to keep them apart.
+ */
+export type ZGGateDecisionKind = "allow" | "block" | "failed";
+
+/** One gatekeeper judgment, as stored and as streamed to the console. */
+export interface ZGGateDecision {
+	id: string;
+	/** Epoch milliseconds when the judgment started. */
+	at: number;
+	projectId: string | null;
+	projectName: string | null;
+	/** Session that issued the command. */
+	sessionId: string | null;
+	/** Which agent issued it: 主代理 / 子代理 / 工程任务「X」. */
+	source: string;
+	tool: string;
+	command: string;
+	/** The stored command was cut to the per-record cap. */
+	commandTruncated?: boolean;
+	cwd: string | null;
+	decision: ZGGateDecisionKind;
+	/** The gatekeeper's BLOCK reason, or the failure text for `failed`. */
+	reason?: string;
+	latencyMs: number;
+	/** Endpoint that produced the verdict, e.g. "judge-stub". */
+	model?: string;
+	/** Display name of the library entry the endpoint came from. */
+	modelFrom?: string;
+	inputTokens?: number;
+	outputTokens?: number;
+	totalTokens?: number;
+	/** Raw error text when the judgment could not be completed. */
+	error?: string;
+}
+
+/** Audit list filters; every field is optional and they combine with AND. */
+export interface ZGGateFilter {
+	decision?: ZGGateDecisionKind;
+	projectId?: string;
+	sessionId?: string;
+	/** Exact source label, e.g. "子代理". */
+	source?: string;
+	/** Case-insensitive substring match on the command and the reason. */
+	search?: string;
+	/** Only judgments at or after this epoch millisecond. */
+	since?: number;
+}
+
+/** Counts and cost figures for the audit page header. */
+export interface ZGGateStats {
+	total: number;
+	byDecision: Record<ZGGateDecisionKind, number>;
+	/** block / total, 0 when nothing was judged yet. */
+	blockRate: number;
+	avgLatencyMs: number;
+	/** Judge tokens spent; never counted into a session's own usage. */
+	totalTokens: number;
+	/** Judgments in the last 24 hours, so the page can show whether it is alive. */
+	last24h: number;
+	/** Judgments that ended in a failure (all of which were allowed through). */
+	failures: number;
+	lastFailureAt: number | null;
+	/** When the judge last answered at all, block included. */
+	lastSuccessAt: number | null;
+	lastError: string | null;
+}
+
+/** One page of audit records, newest first. */
+export interface ZGGatePage {
+	items: ZGGateDecision[];
+	/** Records matching the filter, not the page size. */
+	total: number;
+	page: number;
+	pageSize: number;
+}
+
+/** Gatekeeper settings persisted in gatekeeper.json. */
+export interface ZGGatekeeperConfig {
+	/** Console-wide default mode; a session may override it. */
+	mode: ZGMode;
+	/** How long one judgment may take before it counts as a failure. */
+	timeoutMs: number;
+	/** Judgments allowed in flight at once; 0 means no limit. */
+	concurrency: number;
+}
+
+/** Live gatekeeper state carried in every snapshot. */
+export interface ZGGatekeeperView {
+	/** The console-wide default. */
+	globalMode: ZGMode;
+	/** Mode in effect for the active session (its override, or the global default). */
+	sessionMode: ZGMode;
+	/** The active session's own choice; null means it follows the global default. */
+	sessionOverride: ZGMode | null;
+	/** The endpoint the 守门模型 role resolves to; null when nothing resolves. */
+	judgeResolved: ZGResolvedModelView | null;
+	/** Judgments that failed and were allowed through. */
+	failures: number;
+	lastFailureAt: number | null;
+	/** When the judge last answered; newer than `lastFailureAt` means it recovered. */
+	lastSuccessAt: number | null;
+	lastError: string | null;
+}
+
 /** A registered project (named working directory). */
 export interface ZGProjectInfo {
 	id: string;
@@ -206,6 +375,8 @@ export interface ZGProjectInfo {
 	container?: string | null;
 	/** Findings recorded for this project, so its deletion can state what it takes. */
 	vulnCount?: number;
+	/** Gatekeeper judgments recorded for this project, for the same reason. */
+	gateCount?: number;
 }
 
 /** One directory entry in the container work directory. */
@@ -398,6 +569,14 @@ export interface ZGVulnStats {
 /** Lifecycle of one engineering run. */
 export type ZGEngineStatus = "running" | "paused" | "completed" | "stopped";
 
+/**
+ * How an engine's workers get their commands approved. Engineering mode is
+ * unattended, so `review` is not offered: a worker would park on an approval
+ * queue nobody is watching. `ai` routes every worker command through the
+ * gatekeeper instead.
+ */
+export type ZGEngineGateMode = "auto" | "ai";
+
 /** Lifecycle of one engine task. Paused means interrupted (e.g. a restart). */
 export type ZGEngineTaskStatus = "queued" | "running" | "done" | "failed" | "blocked" | "aborted" | "paused";
 
@@ -459,6 +638,8 @@ export interface ZGEngine {
 	targets: ZGEngineTarget[];
 	doctrines: string[];
 	limits: ZGEngineLimits;
+	/** How this engine's worker commands are gated; see ZGEngineGateMode. */
+	gateMode: ZGEngineGateMode;
 	createdAt: number;
 	endedAt: number | null;
 	/** Final report markdown, once the commander declared the engine done. */
@@ -500,6 +681,8 @@ export interface ZGStateSnapshot {
 	goal: ZGGoalView | null;
 	/** Operator status of the active session, as a label the agent never sees. */
 	sessionStatus: ZGSessionStatus | null;
+	/** Which mode applies and how the gatekeeper model is doing. */
+	gatekeeper: ZGGatekeeperView;
 	/**
 	 * Compaction (or branch summarization) is running for the active session. It
 	 * blocks prompts, and a slow model can hold it for minutes, so the console has
@@ -540,7 +723,10 @@ export type ZGClientMessage =
 	| { type: "resume_goal"; extraRounds?: number }
 	| { type: "clear_goal" }
 	| { type: "set_thinking_level"; level: ThinkingLevel }
-	| { type: "set_mode"; mode: ZGMode }
+	/** Sets the active session's own mode; null makes it follow the global default. */
+	| { type: "set_mode"; mode: ZGMode | null }
+	/** Sets the console-wide default every session without an override follows. */
+	| { type: "set_global_mode"; mode: ZGMode }
 	| {
 			type: "decide";
 			decision: { id: string; approved: boolean; command?: string; alwaysAllowPrefix?: boolean };
@@ -557,10 +743,24 @@ export type ZGClientMessage =
 	| { type: "navigate"; entryId: string; summarize?: boolean }
 	| { type: "rename_branch"; entryId: string; label: string }
 	| { type: "get_tree" }
-	| { type: "get_config" }
 	| { type: "get_state" }
-	| { type: "save_config"; config: ZGModelConfig }
-	| { type: "test_config"; config: ZGModelConfig }
+	| { type: "get_model_library" }
+	/** Create (`id` omitted) or update one library entry. `apiKey: null` keeps the stored key. */
+	| {
+			type: "save_model_entry";
+			id?: string;
+			name: string;
+			baseUrl: string;
+			apiKey: string | null;
+			modelId: string;
+	  }
+	| { type: "remove_model_entry"; id: string }
+	| { type: "duplicate_model_entry"; id: string }
+	/** Point a role at an entry id, at "follow-main", or (main only) at null. */
+	| { type: "set_model_role"; role: ZGModelRoleName; target: string | null }
+	| { type: "set_reviewer_auto"; enabled: boolean }
+	/** Probe one library entry with a plain chat request. */
+	| { type: "test_model_entry"; id: string }
 	| { type: "get_permissions" }
 	| { type: "save_permissions"; config: ZGPermissionsConfig }
 	| { type: "get_notify_config" }
@@ -596,6 +796,8 @@ export type ZGClientMessage =
 	| { type: "set_sources"; sources: ZGSources }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: ZGEngineCreateInput }
+	/** Change an engine's command gate; refused while a task is in flight. */
+	| { type: "engine_set_gate_mode"; id: string; gateMode: ZGEngineGateMode }
 	| { type: "engine_pause"; id: string }
 	| { type: "engine_resume"; id: string }
 	| { type: "engine_abort"; id: string }
@@ -611,7 +813,13 @@ export type ZGClientMessage =
 	| { type: "save_doctrine"; input: { id?: string; name: string; text: string } }
 	| { type: "delete_doctrine"; id: string }
 	| { type: "get_commander_config" }
-	| { type: "save_commander_config"; config: ZGModelConfig | null };
+	| { type: "save_commander_config"; config: ZGModelConfig | null }
+	| { type: "get_gatekeeper_config" }
+	| { type: "save_gatekeeper_config"; config: ZGGatekeeperConfig }
+	/** Probes whatever the 守门模型 role resolves to with one fixed sample command. */
+	| { type: "test_judge" }
+	| { type: "gate_audit_query"; filter?: ZGGateFilter; page?: number; pageSize?: number }
+	| { type: "gate_audit_stats"; filter?: ZGGateFilter };
 
 /** Server-to-client messages. */
 export type ZGServerMessage =
@@ -619,8 +827,9 @@ export type ZGServerMessage =
 	| { type: "session_event"; event: AgentSessionEvent }
 	| { type: "sessions"; sessions: ZGSessionListEntry[] }
 	| { type: "tree"; tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] }
-	| { type: "config"; config: ZGModelConfig | null }
-	| { type: "test_result"; result: ZGTestResult }
+	/** The whole model screen: library, role assignments, resolved endpoints. */
+	| { type: "model_library"; library: ZGModelLibraryView }
+	| { type: "model_test_result"; result: ZGTestResult }
 	| {
 			type: "permissions";
 			config: ZGPermissionsConfig;
@@ -660,6 +869,18 @@ export type ZGServerMessage =
 	| { type: "doctrine_saved"; doctrine: ZGDoctrineView; error?: string }
 	| { type: "doctrine_deleted"; id: string; ok: boolean; error?: string }
 	| { type: "commander_config"; config: ZGModelConfig | null }
+	| { type: "gatekeeper_config"; config: ZGGatekeeperConfig }
+	/** One sample judgment, so the operator can see the prompt and endpoint work. */
+	| {
+			type: "judge_test_result";
+			result: ZGTestResult;
+			/** The raw one-line answer, when a judgment actually came back. */
+			raw?: string;
+	  }
+	| { type: "gate_audit"; page: ZGGatePage }
+	| { type: "gate_audit_stats"; stats: ZGGateStats }
+	/** One judgment, streamed live so an open audit page prepends it. */
+	| { type: "gate_decision"; decision: ZGGateDecision }
 	| { type: "error"; message: string };
 
 /**
@@ -718,4 +939,6 @@ export interface ZGEngineCreateInput {
 	targets: string;
 	doctrines: string[];
 	limits: ZGEngineLimits;
+	/** Defaults to `auto` when omitted, which is what engines predating it used. */
+	gateMode?: ZGEngineGateMode;
 }

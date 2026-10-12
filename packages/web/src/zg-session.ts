@@ -35,8 +35,11 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { ApprovalGate } from "./approval.ts";
-import { dockerBashOperations } from "./docker.ts";
+import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
+import { buildJudgeInput, GATEKEEPER_SAMPLE_COMMAND, Gatekeeper, type ResolvedJudgeEndpoint } from "./gatekeeper.ts";
+import { readGatekeeperConfig, writeGatekeeperConfig } from "./gatekeeper-config.ts";
+import { GatekeeperStore, gatekeeperDbPath } from "./gatekeeper-store.ts";
 import {
 	advanceGoal,
 	blockGoal,
@@ -61,7 +64,21 @@ import {
 	startRound,
 } from "./goal.ts";
 import { createGoalTools, type GoalPort } from "./goal-tool.ts";
-import { modelsJsonPath, readModelConfig, writeModelConfig, ZG_PROVIDER_ID } from "./model-config.ts";
+import { modelsJsonPath } from "./model-config.ts";
+import {
+	addLibraryEntry,
+	duplicateLibraryEntry,
+	libraryView,
+	readModelLibrary,
+	readStoredModelLibrary,
+	removeLibraryEntry,
+	resolveLibraryRole,
+	setLibraryRole,
+	setReviewerAuto,
+	toResolvedModelView,
+	updateLibraryEntry,
+	writeModelLibrary,
+} from "./model-library.ts";
 import {
 	buildGoalNotification,
 	buildRunNotification,
@@ -85,13 +102,19 @@ import type {
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGForkPoint,
+	ZGGateDecision,
+	ZGGateFilter,
+	ZGGatekeeperConfig,
+	ZGGatekeeperView,
+	ZGGateStats,
 	ZGGoal,
 	ZGGoalPauseReason,
 	ZGGoalRoundOutcome,
 	ZGGoalUsage,
 	ZGGoalView,
 	ZGMode,
-	ZGModelConfig,
+	ZGModelLibraryView,
+	ZGModelRoleName,
 	ZGNotifyConfig,
 	ZGNotifyStatus,
 	ZGStateSnapshot,
@@ -105,6 +128,7 @@ import type {
 	ZGVulnSummary,
 	ZGVulnUpdate,
 } from "./protocol.ts";
+import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
 import {
 	readSessionStatus,
 	SESSION_STATUS_CUSTOM_TYPE,
@@ -136,6 +160,8 @@ export interface ZGRuntimeHooks {
 	onSessionRenamed(): void;
 	/** A finding reached the hub; the reviewer LLM queues it for calibration. */
 	onVulnSubmitted(id: string): void;
+	/** One gatekeeper judgment settled; consoles with the audit page open refresh it. */
+	onGateDecision(decision: ZGGateDecision): void;
 }
 
 /**
@@ -173,6 +199,12 @@ interface ManagedSession {
 	/** Persistent goal of this session, when one was started. */
 	goal?: ManagedGoal;
 	/**
+	 * This session's own mode, when the operator set one. null means it follows
+	 * the console-wide default in gatekeeper.json. Read from the session file at
+	 * creation, so a reopened conversation keeps the mode it was left in.
+	 */
+	modeOverride: ZGMode | null;
+	/**
 	 * When this session's compaction started. The SDK blocks prompts for as long
 	 * as its compaction controller lives, and a slow model can hold that for
 	 * minutes, so the console tracks it to show the wait and to offer a cancel.
@@ -194,6 +226,11 @@ export interface TaskSessionOptions {
 	/** Extra system-prompt text: the worker's engineering identity note. */
 	appendPrompt: string;
 	taskTitle: string;
+	/**
+	 * The engine's gate for this task's commands. A worker never waits for a
+	 * human, so `ai` routes its commands through the gatekeeper instead.
+	 */
+	gateMode: "auto" | "ai";
 	/** pi session id when resuming a paused task; null for a fresh one. */
 	taskSessionId: string | null;
 	/** True when the task is being resumed (reopen its session file). */
@@ -202,6 +239,21 @@ export interface TaskSessionOptions {
 	goalPort: GoalPort;
 	/** A finding was submitted; the worker counts it towards its goal. */
 	onFinding(): void;
+}
+
+/**
+ * What a gated bash tool needs to know about the session it belongs to. The
+ * label is what the approval popup and the audit record call the caller; the
+ * mode is a function because it can change while the session runs.
+ */
+interface BashGateContext {
+	label: () => string;
+	modeOf: () => ZGMode;
+	/** Host side of the /work mount, so the judge is shown the container path. */
+	hostWorkDir: string;
+	projectId: string | null;
+	projectName: string | null;
+	sessionId: () => string | null;
 }
 
 export class ZGAgentRuntime {
@@ -216,11 +268,14 @@ export class ZGAgentRuntime {
 	private readonly subagentStore: SubagentStore;
 	private readonly subagents: SubagentRegistry;
 	private readonly vulnerabilities: VulnerabilityStore;
+	private readonly gateStore: GatekeeperStore;
+	private readonly gatekeeper: Gatekeeper;
 
-	private mode: ZGMode = "review";
 	private sessions = new Map<string, ManagedSession>();
 	private activeKey: string | undefined;
 	private modelRuntime: ModelRuntime | undefined;
+	/** Set when models.json changed under a live runtime, so the next use refreshes it. */
+	private modelRuntimeDirty = false;
 	/** The run in flight for the viewed session, used to report it when it settles. */
 	private notifyStatus: ZGNotifyStatus = { at: null, ok: true };
 
@@ -247,6 +302,12 @@ export class ZGAgentRuntime {
 			onEvent: (runId, event) => this.hooks.onSubagentEvent(runId, event),
 			onRunChange: () => this.hooks.onStateChange(),
 		});
+		this.gateStore = new GatekeeperStore(gatekeeperDbPath(this.agentDir));
+		this.gatekeeper = new Gatekeeper(
+			this.gateStore,
+			{ onDecision: (decision) => this.hooks.onGateDecision(decision) },
+			this.agentDir,
+		);
 	}
 
 	private get active(): ManagedSession | undefined {
@@ -263,8 +324,20 @@ export class ZGAgentRuntime {
 		return file ? resolveFsPath(file) : null;
 	}
 
+	/** The mode in effect for the viewed session: its own override, or the global default. */
 	get currentMode(): ZGMode {
-		return this.mode;
+		return this.effectiveMode(this.active);
+	}
+
+	/**
+	 * The mode that governs one session's commands. The session's own choice wins;
+	 * otherwise the console-wide default applies. Read from disk on each call
+	 * because the default can change while a background session is running, and a
+	 * background session must not be governed by whatever is on screen.
+	 */
+	private effectiveMode(managed: ManagedSession | undefined): ZGMode {
+		if (managed?.modeOverride) return managed.modeOverride;
+		return readGatekeeperConfig(this.agentDir).mode;
 	}
 
 	get isStreaming(): boolean {
@@ -347,15 +420,11 @@ export class ZGAgentRuntime {
 	private async createSessionInto(manager: SessionManager, task?: TaskSessionOptions): Promise<string> {
 		// Every tool call runs in a project container; there is no host backend.
 		// A task session runs in the engine's project (which may not be the one
-		// on screen) and its bash is ungated: engineering mode never stops at an
-		// approval queue nobody is watching.
+		// on screen) and its bash follows the engine's own choice: `auto` runs
+		// straight through, because engineering mode never stops at an approval
+		// queue nobody is watching, while `ai` sends every command to the judge.
 		const container = task ? task.project.container : this.requireContainer();
-		if (!this.modelRuntime) {
-			this.modelRuntime = await ModelRuntime.create({
-				authPath: `${this.agentDir}/auth.json`,
-				modelsPath: modelsJsonPath(this.agentDir),
-			});
-		}
+		await this.ensureModelRuntime();
 
 		const model = this.resolveModel();
 		const managed: ManagedSession = {
@@ -363,16 +432,30 @@ export class ZGAgentRuntime {
 			session: undefined as unknown as ManagedSession["session"],
 			manager,
 			unsubscribe: () => {},
+			// A reopened conversation keeps the mode it was left in.
+			modeOverride: readSessionMode(manager.getBranch()),
 		};
-		const bash = task
-			? createBashTool(manager.getCwd(), {
-					operations: dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
-				})
-			: this.createGatedBash(
-					manager.getCwd(),
-					() => this.sessionLabel(managed),
-					dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
-				);
+		// An engineering task's mode comes from its engine, never from the console:
+		// a worker that waited for the operator would defeat the engine's purpose,
+		// and the console's mode may be `review` while the engine runs unattended.
+		const modeOf: () => ZGMode = task
+			? () => (task.gateMode === "ai" ? "ai" : "auto")
+			: () => this.effectiveMode(managed);
+		const gateContext: Omit<BashGateContext, "label"> = {
+			modeOf,
+			hostWorkDir: manager.getCwd(),
+			projectId: task ? task.project.id : (this.activeProjectId ?? null),
+			projectName: task ? task.project.name : (this.activeProjectName ?? null),
+			sessionId: () => manager.getSessionId(),
+		};
+		const bash = this.createGatedBash(
+			manager.getCwd(),
+			dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+			{
+				...gateContext,
+				label: task ? () => `工程任务「${task.taskTitle}」` : () => this.sessionLabel(managed),
+			},
+		);
 
 		const permissions = readPermissionsConfig(this.agentDir).main;
 		const subagentPermissions = effectiveSubagent(readPermissionsConfig(this.agentDir));
@@ -434,16 +517,14 @@ export class ZGAgentRuntime {
 							getParentSessionId: () => manager.getSessionId(),
 							getProjectId: () => this.activeProjectId,
 							permissions: subagentPermissions,
+							// A sub-agent inherits the parent session's gate: the same mode,
+							// the same project, the same audit attribution except the label.
 							createGatedBash: () =>
-								task
-									? createBashTool(manager.getCwd(), {
-											operations: dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
-										})
-									: this.createGatedBash(
-											manager.getCwd(),
-											() => "子代理",
-											dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
-										),
+								this.createGatedBash(
+									manager.getCwd(),
+									dockerBashOperations(container, { hostWorkDir: manager.getCwd() }),
+									{ ...gateContext, label: () => "子代理" },
+								),
 							createSessionContext: (appendSystemPrompt) =>
 								this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
 							// A sub-agent reports under the parent session and project.
@@ -552,21 +633,46 @@ export class ZGAgentRuntime {
 		return name ? `${name} · 主代理` : "主代理";
 	}
 
-	/** Bash tool whose every command passes the shared approval gate (unless prefix-allowed). */
-	private createGatedBash(cwd: string, label: () => string, operations: BashOperations) {
+	/** Bash tool whose every command passes the gate the session's mode selects. */
+	private createGatedBash(cwd: string, operations: BashOperations, context: BashGateContext) {
 		const gatedOps: BashOperations = {
 			exec: (command, commandCwd, options) => {
-				// Prefix-allowed commands skip the queue; everything else waits for a decision.
-				if (this.mode !== "review" || this.approvals.isAutoAllowed(command)) {
-					return operations.exec(command, commandCwd, options);
+				const mode = context.modeOf();
+				if (mode === "auto") return operations.exec(command, commandCwd, options);
+				if (mode === "review") {
+					// Prefix-allowed commands skip the queue; everything else waits for a decision.
+					if (this.approvals.isAutoAllowed(command)) return operations.exec(command, commandCwd, options);
+					return this.approvals
+						.request(command, commandCwd, options?.signal, context.label())
+						.then((outcome) =>
+							outcome.approved && outcome.command !== undefined
+								? operations.exec(outcome.command, commandCwd, options)
+								: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`)),
+						);
 				}
-				return this.approvals
-					.request(command, commandCwd, options?.signal, label())
-					.then((outcome) =>
-						outcome.approved && outcome.command !== undefined
-							? operations.exec(outcome.command, commandCwd, options)
-							: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`)),
-					);
+				// ai: the operator's prefix allow-list does not apply. Every command is
+				// judged, so "this prefix is fine" can never widen the judge's answer.
+				return this.gatekeeper
+					.guard({
+						command,
+						cwd: containerWorkPath(commandCwd, context.hostWorkDir),
+						source: context.label(),
+						projectId: context.projectId,
+						projectName: context.projectName,
+						sessionId: context.sessionId(),
+						...(options?.signal ? { signal: options.signal } : {}),
+					})
+					.then((outcome) => {
+						// A judgment that never arrived is allowed through: an unattended run
+						// must not stall because the judge endpoint is down. The audit page and
+						// the console banner are what make that visible.
+						if (outcome.kind === "allow" || outcome.kind === "failed") {
+							return operations.exec(command, commandCwd, options);
+						}
+						return Promise.reject(
+							new Error(outcome.kind === "block" ? outcome.message : "Command not executed: aborted"),
+						);
+					});
 			},
 		};
 		return createBashTool(cwd, { operations: gatedOps });
@@ -605,9 +711,15 @@ export class ZGAgentRuntime {
 			onChange: () => this.hooks.onVulnChange(),
 			onSubmit: (vuln) => {
 				options.onSubmit();
-				// Every fresh submission queues for the reviewer LLM (hub layer;
-				// the main agent never waits for or sees the calibration).
-				this.hooks.onVulnSubmitted(vuln.id);
+				// A fresh submission queues for the reviewer LLM (hub layer; the main
+				// agent never waits for or sees the calibration) unless the operator
+				// turned automatic review off, in which case it is marked as not
+				// reviewed so the hub does not show it as queued forever.
+				if (readModelLibrary(this.agentDir).reviewerAuto) {
+					this.hooks.onVulnSubmitted(vuln.id);
+				} else {
+					this.vulnerabilities.skipReview(vuln.id);
+				}
 			},
 		});
 		return tools.filter((tool) =>
@@ -882,16 +994,17 @@ export class ZGAgentRuntime {
 	}
 
 	/**
-	 * Start a persistent goal. Auto mode is a precondition rather than something
-	 * this code flips: an unattended loop that stops at every command is useless,
-	 * and one that silently changes the operator's safety mode is worse.
+	 * Start a persistent goal. An unattended mode is a precondition rather than
+	 * something this code flips: an unattended loop that stops at every command is
+	 * useless, and one that silently changes the operator's safety mode is worse.
+	 * `ai` qualifies because the gatekeeper answers instead of the operator.
 	 */
 	async startGoal(objective: string, criteria: string[], roundLimit: number): Promise<void> {
 		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		if (this.mode !== "auto") {
-			throw new Error("持续目标只在自动模式下可用：请先切到自动模式（目标运行期间命令无人拦截直接执行）");
+		if (this.effectiveMode(active) === "review") {
+			throw new Error("持续目标只在自动执行或 AI 审批模式下可用：审批模式下命令要等人放行");
 		}
 		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止或等本轮结束再启动目标");
 		const text = objective.trim();
@@ -958,7 +1071,9 @@ export class ZGAgentRuntime {
 		const managedGoal = active?.goal;
 		if (!active || !managedGoal) throw new Error("当前会话没有持续目标");
 		if (managedGoal.goal.status === "completed") throw new Error("目标已完成，请清除后新建目标");
-		if (this.mode !== "auto") throw new Error("持续目标只在自动模式下可用：请先切到自动模式");
+		if (this.effectiveMode(active) === "review") {
+			throw new Error("持续目标只在自动执行或 AI 审批模式下可用：请先切到非审批模式");
+		}
 		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再继续目标");
 		if (managedGoal.goal.status === "active") return;
 		const at = Date.now();
@@ -1002,10 +1117,47 @@ export class ZGAgentRuntime {
 		this.hooks.onStateChange();
 	}
 
+	/**
+	 * Create the shared model runtime, or refresh it in place when a library entry
+	 * changed. Every session holds this one instance, so refreshing here is what
+	 * makes a new or edited endpoint visible without rebuilding live sessions.
+	 */
+	private async ensureModelRuntime(): Promise<void> {
+		if (!this.modelRuntime) {
+			this.modelRuntime = await ModelRuntime.create({
+				authPath: `${this.agentDir}/auth.json`,
+				modelsPath: modelsJsonPath(this.agentDir),
+			});
+			this.modelRuntimeDirty = false;
+			return;
+		}
+		if (!this.modelRuntimeDirty) return;
+		this.modelRuntimeDirty = false;
+		await this.modelRuntime.refresh({ allowNetwork: false });
+	}
+
+	/**
+	 * Move an idle session onto whatever 主模型 resolves to now. A run in flight is
+	 * left alone: the operator's next send is what picks up the change.
+	 */
+	private async syncMainModel(active: ManagedSession): Promise<void> {
+		if (active.session.isStreaming) return;
+		const resolved = resolveLibraryRole(this.agentDir, "main");
+		if (!resolved || !this.modelRuntime) return;
+		const current = active.session.model;
+		if (current?.provider === resolved.entryId && current.id === resolved.config.modelId) return;
+		const model = this.modelRuntime.getModel(resolved.entryId, resolved.config.modelId);
+		if (!model) return;
+		await active.session.setModel(model);
+	}
+
 	private resolveModel() {
-		const config = readModelConfig(this.agentDir);
-		if (!config || !this.modelRuntime) return undefined;
-		return this.modelRuntime.getModel(ZG_PROVIDER_ID, config.modelId);
+		// The 主模型 role names a library entry; the entry id is the provider id in
+		// models.json. A main-model change is picked up here, which is why saving one
+		// does not have to tear down running sessions.
+		const resolved = resolveLibraryRole(this.agentDir, "main");
+		if (!resolved || !this.modelRuntime) return undefined;
+		return this.modelRuntime.getModel(resolved.entryId, resolved.config.modelId);
 	}
 
 	async prompt(
@@ -1028,6 +1180,10 @@ export class ZGAgentRuntime {
 		if (active.session.isCompacting) {
 			throw new Error("正在压缩上下文，暂时不能发送；可等待压缩完成，或点「中止压缩」放弃这次压缩");
 		}
+		// 主模型 changes take effect here rather than at save time, so a live session
+		// is never rebuilt behind the operator's back.
+		await this.ensureModelRuntime();
+		await this.syncMainModel(active);
 		// A steer joins the run already in flight: keep its start time, let the
 		// operator's latest choice decide whether the run is reported.
 		active.run = {
@@ -1169,15 +1325,141 @@ export class ZGAgentRuntime {
 		await this.active?.session.abort();
 	}
 
-	setMode(mode: ZGMode): void {
-		if (this.mode === mode) return;
-		this.mode = mode;
-		if (mode === "auto") this.approvals.rejectAll("switched to auto mode");
-		// A goal only runs unattended in auto mode. Leaving it active in review mode
-		// would park it on an approval queue nobody is watching, so it pauses and
-		// says why.
-		if (mode === "review") this.pauseActiveGoal("manual", "已切回审批模式，目标自动暂停");
+	/**
+	 * Set the viewed session's own mode; null makes it follow the global default.
+	 *
+	 * The two consequences are enforced here rather than left to the caller:
+	 * leaving `review` rejects whatever was waiting for a human, and entering
+	 * `review` pauses an active goal. A goal parked on a queue nobody is watching
+	 * is worse than one that pauses and says why.
+	 */
+	setMode(mode: ZGMode | null): void {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (active.modeOverride === mode) return;
+		if (mode === "ai") this.requireJudgeEndpoint();
+		active.modeOverride = mode;
+		active.manager.appendCustomEntry(SESSION_MODE_CUSTOM_TYPE, mode ? { mode, at: Date.now() } : null);
+		this.applyModeConsequences(active);
 		this.hooks.onStateChange();
+	}
+
+	/** Set the console-wide default that every session without an override follows. */
+	setGlobalMode(mode: ZGMode): void {
+		const config = readGatekeeperConfig(this.agentDir);
+		if (config.mode === mode) return;
+		if (mode === "ai") this.requireJudgeEndpoint();
+		writeGatekeeperConfig(this.agentDir, { ...config, mode });
+		for (const managed of this.sessions.values()) this.applyModeConsequences(managed);
+		this.hooks.onStateChange();
+	}
+
+	private applyModeConsequences(managed: ManagedSession): void {
+		if (this.effectiveMode(managed) === "review") {
+			this.pauseGoalOf(managed, "manual", "已切回审批模式，目标自动暂停");
+			return;
+		}
+		// Nothing may still be waiting for a human once the mode stops asking one.
+		this.approvals.rejectAll("已切到非审批模式");
+	}
+
+	/**
+	 * Entering `ai` with no endpoint configured would run every command ungated
+	 * (the judge fails open), which is the one outcome worse than refusing the
+	 * mode. The operator fixes the setting and tries again.
+	 */
+	private requireJudgeEndpoint(): void {
+		if (!this.gatekeeper.resolve().config) {
+			throw new Error(
+				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再切到 AI 审批",
+			);
+		}
+	}
+
+	/** The gatekeeper settings the settings screen edits. */
+	getGatekeeperConfig(): ZGGatekeeperConfig {
+		return readGatekeeperConfig(this.agentDir);
+	}
+
+	saveGatekeeperConfig(config: ZGGatekeeperConfig): void {
+		writeGatekeeperConfig(this.agentDir, config);
+		// A mode saved here is the global default, so it applies to every session
+		// without an override right away.
+		for (const managed of this.sessions.values()) this.applyModeConsequences(managed);
+		this.hooks.onStateChange();
+	}
+
+	/** Which endpoint the judge would use, for the settings screen and the mode guard. */
+	resolveJudge(): ResolvedJudgeEndpoint {
+		return this.gatekeeper.resolve();
+	}
+
+	/** Judged counts for the audit page header. */
+	getGateStats(filter?: ZGGateFilter): ZGGateStats {
+		return this.gateStore.stats(filter);
+	}
+
+	/** One page of audit records, newest first. */
+	listGateDecisions(filter: ZGGateFilter | undefined, page?: number, pageSize?: number) {
+		return this.gateStore.list(filter, page, pageSize);
+	}
+
+	countProjectGates(projectId: string): number {
+		return this.gateStore.countByProject(projectId);
+	}
+
+	purgeProjectGates(projectId: string): number {
+		return this.gateStore.purgeProject(projectId);
+	}
+
+	/**
+	 * Probe the judge with one fixed sample command. Nothing is recorded: this is
+	 * a settings check, not a real command judgment.
+	 */
+	async testJudge(): Promise<{ result: ZGTestResult; raw?: string }> {
+		const resolved = this.gatekeeper.resolve();
+		if (!resolved.config) {
+			return {
+				result: {
+					ok: false,
+					message: "没有可用的守门模型",
+					detail: "在 设置 → 模型 里给「守门模型」选一条模型，或让它跟随主模型",
+				},
+			};
+		}
+		const settings = readGatekeeperConfig(this.agentDir);
+		const controller = new AbortController();
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			controller.abort();
+		}, settings.timeoutMs);
+		const started = Date.now();
+		try {
+			const out = await this.gatekeeper.call(
+				resolved.config,
+				buildJudgeInput({ command: GATEKEEPER_SAMPLE_COMMAND, source: "设置页测试" }),
+				controller.signal,
+			);
+			const verdict = out.verdict.decision === "allow" ? "放行 ALLOW" : `拦截 BLOCK（${out.verdict.reason}）`;
+			return {
+				result: {
+					ok: true,
+					message: `守门模型可用（${Date.now() - started}ms，来源：${resolved.from}）`,
+					detail: `样例命令「${GATEKEEPER_SAMPLE_COMMAND}」判定为 ${verdict}`,
+				},
+				raw: out.raw,
+			};
+		} catch (error) {
+			const text = timedOut
+				? `守门判定超时（${settings.timeoutMs}ms）`
+				: error instanceof Error
+					? error.message
+					: String(error);
+			return { result: { ok: false, message: "守门模型调用失败", detail: text } };
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	decide(id: string, approved: boolean, editedCommand?: string, alwaysAllowPrefix = false): boolean {
@@ -1318,29 +1600,73 @@ export class ZGAgentRuntime {
 		active.manager.appendLabelChange(entryId, label.trim());
 	}
 
-	getConfig(): ZGModelConfig | null {
-		return readModelConfig(this.agentDir);
+	/**
+	 * The model screen. The first call persists the legacy-slot migration, so the
+	 * three old slots show up as library entries the operator can rename and reuse.
+	 */
+	getModelLibrary(): ZGModelLibraryView {
+		if (!readStoredModelLibrary(this.agentDir)) writeModelLibrary(this.agentDir, readModelLibrary(this.agentDir));
+		return libraryView(this.agentDir);
 	}
 
-	/** Apply a new endpoint: rebuild the model runtime and every live session. */
-	async saveConfig(config: ZGModelConfig): Promise<void> {
-		writeModelConfig(this.agentDir, config);
-		// Task sessions keep their tools and their engine driver: disposing them
-		// would kill running engineering tasks. They stay on the old endpoint;
-		// every task started afterwards uses the new one.
-		const existing = [...this.sessions.values()].filter((managed) => !managed.taskSession);
-		for (const managed of existing) managed.unsubscribe();
-		for (const managed of existing) managed.session.dispose();
-		for (const managed of existing) this.sessions.delete(managed.key);
-		this.modelRuntime = undefined;
-		// Recreate each session on the new runtime, restoring the previous view last.
-		const order = [...existing];
-		const viewed = order.findIndex((managed) => managed.key === this.activeKey);
-		if (viewed !== -1) order.push(...order.splice(viewed, 1));
-		for (const managed of order) {
-			await this.createSessionInto(managed.manager);
+	/**
+	 * Create or update one library entry. The cached model runtime is dropped so
+	 * the next session creation re-reads models.json and sees a new provider.
+	 */
+	saveModelEntry(input: {
+		id?: string;
+		name: string;
+		baseUrl: string;
+		apiKey: string | null;
+		modelId: string;
+	}): ZGModelLibraryView {
+		if (input.id) {
+			updateLibraryEntry(this.agentDir, input.id, {
+				name: input.name,
+				baseUrl: input.baseUrl,
+				apiKey: input.apiKey,
+				modelId: input.modelId,
+			});
+		} else {
+			addLibraryEntry(this.agentDir, {
+				name: input.name,
+				baseUrl: input.baseUrl,
+				apiKey: input.apiKey ?? "",
+				modelId: input.modelId,
+			});
 		}
+		this.modelRuntimeDirty = true;
 		this.hooks.onStateChange();
+		return libraryView(this.agentDir);
+	}
+
+	removeModelEntry(id: string): ZGModelLibraryView {
+		removeLibraryEntry(this.agentDir, id);
+		this.modelRuntimeDirty = true;
+		this.hooks.onStateChange();
+		return libraryView(this.agentDir);
+	}
+
+	duplicateModelEntry(id: string): ZGModelLibraryView {
+		duplicateLibraryEntry(this.agentDir, id);
+		this.modelRuntimeDirty = true;
+		this.hooks.onStateChange();
+		return libraryView(this.agentDir);
+	}
+
+	/** Point a role at an entry (or at 主模型). Takes effect on the next use of the role. */
+	setModelRole(role: ZGModelRoleName, target: string | null): ZGModelLibraryView {
+		setLibraryRole(this.agentDir, role, target);
+		this.hooks.onStateChange();
+		return libraryView(this.agentDir);
+	}
+
+	/** Turning automatic review off also clears the queued backlog. */
+	setReviewerAuto(enabled: boolean): ZGModelLibraryView {
+		setReviewerAuto(this.agentDir, enabled);
+		if (!enabled) this.vulnerabilities.skipQueuedReviews();
+		this.hooks.onStateChange();
+		return libraryView(this.agentDir);
 	}
 
 	/** Tool permissions plus the inventory of what the live session mounted. */
@@ -1404,11 +1730,24 @@ export class ZGAgentRuntime {
 	}
 
 	snapshot(): ZGStateSnapshot {
-		const config = readModelConfig(this.agentDir);
+		const resolvedMain = resolveLibraryRole(this.agentDir, "main");
 		const active = this.active;
 		const model = active?.session.model;
+		const globalMode = readGatekeeperConfig(this.agentDir).mode;
+		const sessionMode = this.effectiveMode(active);
+		const health = this.gatekeeper.health();
+		const gatekeeper: ZGGatekeeperView = {
+			globalMode,
+			sessionMode,
+			sessionOverride: active?.modeOverride ?? null,
+			judgeResolved: toResolvedModelView(resolveLibraryRole(this.agentDir, "judge")),
+			failures: health.failures,
+			lastFailureAt: health.lastFailureAt,
+			lastSuccessAt: health.lastSuccessAt,
+			lastError: health.lastError,
+		};
 		return {
-			mode: this.mode,
+			mode: sessionMode,
 			streaming: this.isStreaming,
 			cwd: this.cwd,
 			project: this.activeProjectId
@@ -1420,7 +1759,7 @@ export class ZGAgentRuntime {
 					}
 				: null,
 			model: model ? { provider: model.provider, id: model.id } : null,
-			modelConfigured: config !== null && model !== undefined,
+			modelConfigured: resolvedMain !== null && model !== undefined,
 			thinkingLevel: active?.session.thinkingLevel ?? "off",
 			availableThinkingLevels: active?.session.getAvailableThinkingLevels() ?? [],
 			activeSessionId: this.currentSessionId,
@@ -1440,6 +1779,7 @@ export class ZGAgentRuntime {
 			// The active session's operator status, read from the branch: a status set
 			// in the list must show up here without a second file read.
 			sessionStatus: active ? readSessionStatus(active.manager.getBranch()) : null,
+			gatekeeper,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,
 		};
@@ -1573,6 +1913,7 @@ export class ZGAgentRuntime {
 		this.activeKey = undefined;
 		this.subagentStore.close();
 		this.vulnerabilities.close();
+		this.gateStore.close();
 	}
 }
 

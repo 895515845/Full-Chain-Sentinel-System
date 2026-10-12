@@ -7,7 +7,7 @@
  * review-mode approval with command editing, and auto-mode passthrough.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,12 +15,17 @@ import { DatabaseSync } from "node:sqlite";
 import { getDefaultSessionDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
-import { writeModelConfig } from "../src/model-config.ts";
+import { modelsJsonPath } from "../src/model-config.ts";
+import { readStoredModelLibrary, setLibraryRole } from "../src/model-library.ts";
 import type { ZGPermissionsConfig } from "../src/permissions.ts";
 import type {
 	ZGClientMessage,
 	ZGFileEntry,
 	ZGFilePreview,
+	ZGGateFilter,
+	ZGGatePage,
+	ZGMode,
+	ZGModelLibraryView,
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGSubagentEvent,
@@ -29,6 +34,7 @@ import type {
 } from "../src/protocol.ts";
 import { startZGServer } from "../src/server.ts";
 import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
+import { writeTestModel } from "./model-fixtures.ts";
 
 /** Scripted assistant turns the fake endpoint serves in order. */
 type ScriptStep = {
@@ -191,6 +197,79 @@ function goalStep(body: string): ScriptStep | undefined {
 /** Tool names a goal request mounted, so the test can prove the tools are there. */
 let goalTools: string[] = [];
 
+/**
+ * Gatekeeper scenarios, routed by prompt so they never consume the shared
+ * script. Each runs one bash command, and the fake judge answers for it.
+ */
+const GATE_ALLOW_PROMPT = "zg-gate-allow 跑一条守门放行的命令";
+const GATE_BLOCK_PROMPT = "zg-gate-block 跑一条守门拦截的命令";
+const GATE_FAIL_PROMPT = "zg-gate-fail 跑一条守门判定失败的命令";
+const GATE_PREFIX_PROMPT = "zg-gate-prefix 跑一条白名单前缀命令";
+const GATE_ALLOWED_COMMAND = "echo zg-gate-allowed";
+const GATE_BLOCKED_COMMAND = "echo zg-gate-block-ran";
+const GATE_FAILED_COMMAND = "echo zg-gate-failed";
+const GATE_PREFIXED_COMMAND = "echo zg-gate-prefixed";
+/**
+ * What each command prints. A tool result carries the output only, never the
+ * command, so "did this command run" must be asked of these, not of the command
+ * text (which every transcript shows once the model proposed it).
+ */
+const GATE_ALLOWED_OUTPUT = "zg-gate-allowed";
+const GATE_BLOCKED_OUTPUT = "zg-gate-block-ran";
+const GATE_FAILED_OUTPUT = "zg-gate-failed";
+const GATE_PREFIXED_OUTPUT = "zg-gate-prefixed";
+/** Reason the fake judge returns for a block; distinctive so the transcript can be searched for it. */
+const GATE_BLOCK_REASON = "会破坏目标数据库可用性";
+/** Marker of the judge's own system prompt, which is how a judge call is recognized. */
+const JUDGE_MARKER = "操作守门员";
+
+/**
+ * One bash turn per scenario, then a text turn once the result is in. The block
+ * scenario also ends on the command's own output, so a block that failed to
+ * happen still terminates the run instead of looping on the same tool call; the
+ * test then asserts that output never appeared.
+ */
+function gateStep(prompt: string, body: string): ScriptStep | undefined {
+	const scenarios = [
+		{
+			prompt: GATE_ALLOW_PROMPT,
+			command: GATE_ALLOWED_COMMAND,
+			markers: [GATE_ALLOWED_COMMAND],
+			done: "GATE_ALLOW_DONE",
+		},
+		{
+			prompt: GATE_BLOCK_PROMPT,
+			command: GATE_BLOCKED_COMMAND,
+			markers: [GATE_BLOCK_REASON, GATE_BLOCKED_COMMAND],
+			done: "GATE_BLOCK_DONE",
+		},
+		{
+			prompt: GATE_FAIL_PROMPT,
+			command: GATE_FAILED_COMMAND,
+			markers: [GATE_FAILED_COMMAND],
+			done: "GATE_FAIL_DONE",
+		},
+		{
+			prompt: GATE_PREFIX_PROMPT,
+			command: GATE_PREFIXED_COMMAND,
+			markers: [GATE_PREFIXED_COMMAND],
+			done: "GATE_PREFIX_DONE",
+		},
+	];
+	const scenario = scenarios.find((entry) => entry.prompt === prompt);
+	if (!scenario) return undefined;
+	if (scenario.markers.some((marker) => body.includes(marker))) return { text: scenario.done };
+	return { toolCall: { name: "bash", args: { command: scenario.command } } };
+}
+
+/** Commands the fake judge was asked about, in order, so a test can prove every command was judged. */
+const judgedCommands: string[] = [];
+
+/** What the fake judge answers next. */
+let judgeBehavior: { kind: "allow" } | { kind: "block"; reason: string } | { kind: "error" } | { kind: "garbage" } = {
+	kind: "allow",
+};
+
 let endpoint: Server;
 let endpointPort = 0;
 let tempRoot = "";
@@ -204,6 +283,8 @@ let fakeDocker: FakeDocker | undefined;
 let workDir = "";
 /** Id of the suite's main project, so a test can return to it after switching. */
 let mainProjectId = "";
+/** Library entry 主模型 points at, which is also the provider id in models.json. */
+let mainEntryId = "";
 /** Tool names a chat request advertised, in wire order. */
 function toolNamesOf(body: string): string[] {
 	let parsed: { tools?: Array<{ function?: { name?: string }; name?: string }> };
@@ -380,6 +461,14 @@ function lastUserText(body: string): string {
 	return "";
 }
 
+/** The command inside a judge request, read out of its user message. */
+function judgeCommandOf(body: string): string {
+	const text = lastUserText(body);
+	const marker = "命令：";
+	const index = text.indexOf(marker);
+	return index === -1 ? text : text.slice(index + marker.length).trim();
+}
+
 function startFakeEndpoint(): Promise<void> {
 	endpoint = createHttpServer((request, response) => {
 		if (!(request.method === "POST" && request.url?.includes("/chat/completions"))) {
@@ -393,6 +482,33 @@ function startFakeEndpoint(): Promise<void> {
 		request.on("end", () => {
 			// Consume the request so keep-alive does not stall.
 			lastRequestBody = body;
+			// A gatekeeper judgment: a non-streaming completion whose system prompt is
+			// the judge's own. Answered out of band, so it consumes no scripted step
+			// and never looks like an agent turn.
+			if (body.includes(JUDGE_MARKER)) {
+				judgedCommands.push(judgeCommandOf(body));
+				if (judgeBehavior.kind === "error") {
+					response.writeHead(500, { "content-type": "application/json" });
+					response.end(JSON.stringify({ error: { message: "judge endpoint down" } }));
+					return;
+				}
+				const content =
+					judgeBehavior.kind === "block"
+						? `BLOCK: ${judgeBehavior.reason}`
+						: judgeBehavior.kind === "garbage"
+							? "这条命令看起来有点问题"
+							: "ALLOW";
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(
+					JSON.stringify({
+						id: "chatcmpl-judge",
+						object: "chat.completion",
+						choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+						usage: { prompt_tokens: 320, completion_tokens: 4, total_tokens: 324 },
+					}),
+				);
+				return;
+			}
 			// A compaction's summarization request. `stallCompaction` holds it open
 			// forever, which is what a slow or wedged endpoint looks like to pi.
 			if (COMPACTION_PROMPT_MARKERS.some((marker) => body.includes(marker))) {
@@ -419,15 +535,17 @@ function startFakeEndpoint(): Promise<void> {
 			// Prompts answered with fixed text: they must not consume the shared
 			// scripted steps, which every scenario in this file draws from in order.
 			const staticStep: ScriptStep | undefined =
-				newestPrompt === "notify me when this finishes"
-					? { text: "NOTIFY_RUN_COMPLETE" }
-					: newestPrompt === "force a notification"
-						? { text: "FORCED_NOTIFY_COMPLETE" }
-						: newestPrompt === "stay quiet"
-							? { text: "QUIET_RUN_COMPLETE" }
-							: newestPrompt === "label this session"
-								? { text: "LABEL_RUN_DONE" }
-								: undefined;
+				newestPrompt === "check the main model switch"
+					? { text: "MAIN_MODEL_SWITCH_OK" }
+					: newestPrompt === "notify me when this finishes"
+						? { text: "NOTIFY_RUN_COMPLETE" }
+						: newestPrompt === "force a notification"
+							? { text: "FORCED_NOTIFY_COMPLETE" }
+							: newestPrompt === "stay quiet"
+								? { text: "QUIET_RUN_COMPLETE" }
+								: newestPrompt === "label this session"
+									? { text: "LABEL_RUN_DONE" }
+									: undefined;
 			// Hub scenarios: the first turn submits, the second recognizes its own
 			// tool call (its target is echoed back in the transcript) and finishes.
 			// A failed call ends the scenario too, so a disabled tool cannot make
@@ -444,6 +562,7 @@ function startFakeEndpoint(): Promise<void> {
 				newestPrompt === COMPACT_FILL_PROMPT ? { text: `${COMPACT_FILL_DONE}\n${COMPACT_FILL_TEXT}` } : undefined;
 			const goal = goalStep(body);
 			if (goal && !fromSubagent) goalTools = toolNamesOf(body);
+			const gate = gateStep(newestPrompt, body);
 			const step = isImageTurn
 				? { text: "IMAGE_TURN_OK" }
 				: staticStep
@@ -456,19 +575,30 @@ function startFakeEndpoint(): Promise<void> {
 								? compactFillStep
 								: goal
 									? goal
-									: inSecondScenario
-										? fromSubagent
-											? body.includes(SECOND_SCENARIO_OUTPUT)
-												? { text: "SECOND_SUBAGENT_DONE" }
-												: { toolCallCommand: SECOND_SCENARIO_COMMAND }
-											: body.includes("SECOND_SUBAGENT_DONE")
-												? { text: "SECOND_PARENT_SUMMARY" }
-												: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
-										: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
-			if (!isImageTurn && !inSecondScenario && !staticStep && !vulnStep && !probeStep && !compactFillStep && !goal) {
+									: gate
+										? gate
+										: inSecondScenario
+											? fromSubagent
+												? body.includes(SECOND_SCENARIO_OUTPUT)
+													? { text: "SECOND_SUBAGENT_DONE" }
+													: { toolCallCommand: SECOND_SCENARIO_COMMAND }
+												: body.includes("SECOND_SUBAGENT_DONE")
+													? { text: "SECOND_PARENT_SUMMARY" }
+													: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
+											: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
+			if (
+				!isImageTurn &&
+				!inSecondScenario &&
+				!staticStep &&
+				!vulnStep &&
+				!probeStep &&
+				!compactFillStep &&
+				!goal &&
+				!gate
+			) {
 				requestCount += 1;
 			}
-			const id = `chatcmpl-${isImageTurn ? "image" : staticStep ? "static" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : goal ? "goal" : inSecondScenario ? "second" : requestCount}`;
+			const id = `chatcmpl-${isImageTurn ? "image" : staticStep ? "static" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : goal ? "goal" : gate ? "gate" : inSecondScenario ? "second" : requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCall
@@ -691,7 +821,7 @@ beforeAll(async () => {
 	agentDir = join(tempRoot, "agent");
 	const cwd = join(tempRoot, "workspace");
 	mkdirSync(cwd, { recursive: true });
-	writeModelConfig(agentDir, {
+	mainEntryId = writeTestModel(agentDir, {
 		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 		apiKey: "test-key",
 		modelId: "zg-fake-model",
@@ -700,7 +830,7 @@ beforeAll(async () => {
 	// The fake docker supplies one on PATH so the real container scripts still run.
 	workDir = join(tempRoot, "projects", projectSlug(PROJECT_NAME));
 	fakeDocker = installFakeDocker(tempRoot, workDir);
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0 });
+	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	closeServer = started.close;
 	serverUrl = started.url;
 	ws = new WebSocket(serverUrl.replace("http://", "ws://").concat("/ws"));
@@ -740,7 +870,8 @@ test("starts configured with review mode and the custom endpoint model", async (
 	send({ type: "get_state" });
 	const snapshot = await snapshotWhere((snapshot_) => snapshot_.modelConfigured);
 	expect(snapshot.mode).toBe("review");
-	expect(snapshot.model?.provider).toBe("zg-endpoint");
+	// The provider is the library entry that 主模型 points at.
+	expect(snapshot.model?.provider).toBe(mainEntryId);
 	expect(snapshot.model?.id).toBe("zg-fake-model");
 });
 
@@ -905,18 +1036,23 @@ test("alwaysAllowPrefix skips the queue for later commands with the same first w
 	await snapshotWhere((snapshot_) => !snapshot_.allowedPrefixes.includes("echo"));
 });
 
-test("saving a config with an empty API key keeps the model usable", async () => {
+test("saving an entry with an empty API key keeps the model usable", async () => {
 	drainIncoming();
-	send({ type: "get_config" });
-	const config = await waitFor((message) => message.type === "config").then(
-		(message) => (message as { config: { baseUrl: string; apiKey: string; modelId: string } | null }).config,
+	send({ type: "get_model_library" });
+	const library = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
 	);
-	expect(config).not.toBeNull();
+	const mainId = library.roles.main;
+	expect(mainId).not.toBeNull();
 	send({
-		type: "save_config",
-		config: { baseUrl: config?.baseUrl ?? "", apiKey: "", modelId: config?.modelId ?? "" },
+		type: "save_model_entry",
+		id: mainId ?? "",
+		name: "主端点",
+		baseUrl: library.entries.find((entry) => entry.id === mainId)?.baseUrl ?? "",
+		apiKey: "",
+		modelId: library.entries.find((entry) => entry.id === mainId)?.modelId ?? "",
 	});
-	const snapshot = await snapshotWhere((snapshot_) => snapshot_.modelConfigured === true);
+	const snapshot = await snapshotWhereFirst((snapshot_) => snapshot_.modelConfigured === true);
 	expect(snapshot.model?.id).toBe("zg-fake-model");
 });
 
@@ -1652,7 +1788,7 @@ async function freshGoalSession(): Promise<void> {
 }
 
 /** Switch modes, waiting only when the switch changes something. */
-async function setModeAndWait(mode: "auto" | "review"): Promise<void> {
+async function setModeAndWait(mode: ZGMode): Promise<void> {
 	drainIncoming();
 	send({ type: "get_state" });
 	const current = await snapshotWhere(() => true);
@@ -1763,7 +1899,7 @@ test("a goal cannot start in review mode, and leaving auto mode pauses it", asyn
 	await setModeAndWait("review");
 
 	send({ type: "start_goal", objective: GOAL_LIMIT_PROMPT, roundLimit: 1 });
-	await waitFor((message) => message.type === "error" && message.message.includes("自动模式"));
+	await waitFor((message) => message.type === "error" && message.message.includes("只在自动执行或 AI 审批模式下可用"));
 
 	// In auto mode it starts; switching back to review pauses it with a reason.
 	await setModeAndWait("auto");
@@ -1849,4 +1985,347 @@ test("a compaction that stalls is visible, refuses prompts in Chinese, and can b
 		if (!accepted) await snapshotWhere((snapshot) => !snapshot.compacting, 15000).catch(() => undefined);
 	}
 	expect(accepted).toBe(true);
+});
+
+/**
+ * Gatekeeper (AI 审批) end to end.
+ *
+ * The judge is the same fake endpoint, recognized by its system prompt, so a
+ * test can steer the verdict per command. Every scenario below runs exactly one
+ * bash command through the real gate: allow, block, and fail-open.
+ */
+
+/**
+ * `waitFor`, but registered at the front of the waiter queue.
+ *
+ * `dispatch` hands a message to the first matching waiter, and a broad waiter
+ * left pending by an earlier test — the compaction test races two of them and
+ * the loser lives until its timeout — would swallow the message this test is
+ * waiting for. Registering first makes this test's own predicate win.
+ */
+function waitForFirst(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 30000): Promise<ZGServerMessage> {
+	const queued = waitFor(predicate, timeoutMs);
+	const own = waiters[waiters.length - 1];
+	if (own && own.predicate === predicate) {
+		waiters.pop();
+		waiters.unshift(own);
+	}
+	return queued;
+}
+
+/** `snapshotWhere`, registered at the front of the queue for the same reason. */
+function snapshotWhereFirst(
+	predicate: (snapshot: ZGStateSnapshot) => boolean,
+	timeoutMs = 30000,
+): Promise<ZGStateSnapshot> {
+	return waitForFirst((message) => message.type === "snapshot" && predicate(message.snapshot), timeoutMs).then(
+		(message) => (message as { snapshot: ZGStateSnapshot }).snapshot,
+	);
+}
+
+/** The first audit page matching a filter, so a test can assert what was stored. */
+async function auditPage(filter: ZGGateFilter): Promise<ZGGatePage> {
+	drainIncoming();
+	send({ type: "gate_audit_query", filter, page: 1, pageSize: 50 });
+	const message = await waitForFirst((candidate) => candidate.type === "gate_audit");
+	if (message.type !== "gate_audit") throw new Error("no gate audit page");
+	return message.page;
+}
+
+test("a judge model is added to the library, assigned to the role, and resolves", async () => {
+	drainIncoming();
+	send({
+		type: "save_model_entry",
+		name: "守门模型",
+		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
+		apiKey: "judge-key",
+		modelId: "zg-judge-model",
+	});
+	const added = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
+	);
+	const entry = added.entries.find((candidate) => candidate.modelId === "zg-judge-model");
+	expect(entry).toBeDefined();
+	// The key is stored but never sent back.
+	expect(entry?.hasKey).toBe(true);
+	expect(JSON.stringify(added)).not.toContain("judge-key");
+
+	drainIncoming();
+	send({ type: "set_model_role", role: "judge", target: entry?.id ?? "" });
+	const assigned = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
+	);
+	expect(assigned.roles.judge).toBe(entry?.id);
+	expect(assigned.resolved.judge?.modelId).toBe("zg-judge-model");
+	expect(assigned.resolved.judge?.followedMain).toBe(false);
+
+	// The gatekeeper settings reply no longer carries the endpoint; the library does.
+	drainIncoming();
+	send({ type: "get_gatekeeper_config" });
+	const view = await waitForFirst((message) => message.type === "gatekeeper_config");
+	if (view.type !== "gatekeeper_config") throw new Error("no gatekeeper config reply");
+	expect(view.config.mode).toBe("review");
+	expect(view.config.timeoutMs).toBeGreaterThan(0);
+});
+
+test("changing 主模型 takes effect on the next send, without rebuilding the session", async () => {
+	send({ type: "get_state" });
+	const before = await snapshotWhereFirst((snapshot) => snapshot.activeSessionId !== null);
+	const sessionId = before.activeSessionId;
+
+	drainIncoming();
+	send({
+		type: "save_model_entry",
+		name: "备用主模型",
+		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
+		apiKey: "test-key",
+		modelId: "zg-fake-model-2",
+	});
+	const added = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
+	);
+	const spare = added.entries.find((entry) => entry.modelId === "zg-fake-model-2");
+	expect(spare).toBeDefined();
+
+	drainIncoming();
+	send({ type: "set_model_role", role: "main", target: spare?.id ?? "" });
+	await waitForFirst((message) => message.type === "model_library" && message.library.roles.main === spare?.id);
+
+	// The session keeps running on the old model until the operator sends again.
+	expect((await snapshotWhereFirst((snapshot) => snapshot.activeSessionId === sessionId)).model?.id).toBe(
+		"zg-fake-model",
+	);
+
+	drainIncoming();
+	send({ type: "prompt", text: "check the main model switch" });
+	const settled = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && JSON.stringify(snapshot.messages).includes("MAIN_MODEL_SWITCH_OK"),
+	);
+	// Same session, new provider: nothing was torn down and rebuilt.
+	expect(settled.activeSessionId).toBe(sessionId);
+	expect(settled.model?.provider).toBe(spare?.id);
+	expect(settled.model?.id).toBe("zg-fake-model-2");
+	expect(lastRequestBody).toContain("zg-fake-model-2");
+
+	// Put 主模型 back so the rest of the suite runs on its original endpoint.
+	drainIncoming();
+	send({ type: "set_model_role", role: "main", target: mainEntryId });
+	await waitForFirst((message) => message.type === "model_library" && message.library.roles.main === mainEntryId);
+});
+
+test("ai mode judges a command, lets it run, and records the allow", async () => {
+	await setModeAndWait("ai");
+	send({ type: "get_state" });
+	const switched = await snapshotWhereFirst((snapshot) => snapshot.mode === "ai");
+	expect(switched.gatekeeper.sessionOverride).toBe("ai");
+	expect(switched.gatekeeper.judgeResolved?.modelId).toBe("zg-judge-model");
+
+	judgeBehavior = { kind: "allow" };
+	judgedCommands.length = 0;
+	drainIncoming();
+	send({ type: "prompt", text: GATE_ALLOW_PROMPT });
+	const settled = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && toolResultText(snapshot).includes(GATE_ALLOWED_OUTPUT),
+	);
+	// One command, one judgment: the command ran because the judge said ALLOW.
+	expect(judgedCommands).toHaveLength(1);
+	expect(judgedCommands[0]).toContain(GATE_ALLOWED_COMMAND);
+
+	const page = await auditPage({ decision: "allow" });
+	const record = page.items.find((item) => item.command.includes(GATE_ALLOWED_COMMAND));
+	expect(record).toBeDefined();
+	expect(record?.decision).toBe("allow");
+	expect(record?.source).toBe("主代理");
+	// 来源 names the library entry that judged, not a fixed slot.
+	expect(record?.modelFrom).toBe("守门模型");
+	expect(record?.totalTokens).toBe(324);
+	expect(record?.projectId).toBe(mainProjectId);
+	expect(record?.sessionId).toBe(settled.activeSessionId);
+	// Judge tokens are the audit page's own column, never the session's usage.
+	expect(settled.gatekeeper.failures).toBe(0);
+});
+
+test("a blocked command never runs, the reason reaches the model, and the block is recorded", async () => {
+	judgeBehavior = { kind: "block", reason: GATE_BLOCK_REASON };
+	judgedCommands.length = 0;
+	drainIncoming();
+	send({ type: "prompt", text: GATE_BLOCK_PROMPT });
+	const settled = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && toolResultText(snapshot).includes(GATE_BLOCK_REASON),
+	);
+	// The model is told why, and the command it wanted did not execute.
+	const results = toolResultText(settled);
+	expect(results).toContain("命令未执行");
+	expect(results).not.toContain(GATE_BLOCKED_OUTPUT);
+	expect(judgedCommands.some((command) => command.includes(GATE_BLOCKED_COMMAND))).toBe(true);
+
+	const page = await auditPage({ decision: "block" });
+	const record = page.items.find((item) => item.command.includes(GATE_BLOCKED_COMMAND));
+	expect(record?.reason).toBe(GATE_BLOCK_REASON);
+	// A block is a successful judgment, so it must not look like the judge is down.
+	expect(record?.latencyMs).toBeGreaterThanOrEqual(0);
+	expect(settled.gatekeeper.lastSuccessAt ?? 0).toBeGreaterThan(settled.gatekeeper.lastFailureAt ?? 0);
+});
+
+test("a judge failure is allowed through, recorded as 请求失败, and surfaces as fail-open", async () => {
+	judgeBehavior = { kind: "error" };
+	judgedCommands.length = 0;
+	drainIncoming();
+	send({ type: "prompt", text: GATE_FAIL_PROMPT });
+	const settled = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && toolResultText(snapshot).includes(GATE_FAILED_OUTPUT),
+	);
+	// Fail-open: the command ran even though no verdict came back.
+	expect(settled.gatekeeper.failures).toBeGreaterThan(0);
+	expect(settled.gatekeeper.lastError).toContain("500");
+	// Newer failure than success is what raises the console's yellow banner.
+	expect(settled.gatekeeper.lastFailureAt ?? 0).toBeGreaterThan(settled.gatekeeper.lastSuccessAt ?? 0);
+
+	const page = await auditPage({ decision: "failed" });
+	const record = page.items.find((item) => item.command.includes(GATE_FAILED_COMMAND));
+	expect(record?.decision).toBe("failed");
+	// A failure keeps the endpoint's own words; `reason` is the block slot.
+	expect(record?.error).toContain("500");
+
+	drainIncoming();
+	send({ type: "gate_audit_stats", filter: { decision: "failed" } });
+	const stats = await waitForFirst((message) => message.type === "gate_audit_stats");
+	if (stats.type !== "gate_audit_stats") throw new Error("no gate stats");
+	expect(stats.stats.byDecision.failed).toBeGreaterThan(0);
+	expect(stats.stats.failures).toBeGreaterThan(0);
+	expect(stats.stats.lastFailureAt).not.toBeNull();
+});
+
+test("ai mode ignores the prefix allow-list: a whitelisted prefix is still judged", async () => {
+	// In review mode this prefix skips the approval queue entirely.
+	await setModeAndWait("review");
+	drainIncoming();
+	send({ type: "allow_prefix", prefix: "echo" });
+	await snapshotWhereFirst((snapshot) => snapshot.allowedPrefixes.includes("echo"));
+
+	await setModeAndWait("ai");
+	judgeBehavior = { kind: "allow" };
+	judgedCommands.length = 0;
+	drainIncoming();
+	send({ type: "prompt", text: GATE_PREFIX_PROMPT });
+	await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && toolResultText(snapshot).includes(GATE_PREFIXED_OUTPUT),
+	);
+	expect(judgedCommands.some((command) => command.includes(GATE_PREFIXED_COMMAND))).toBe(true);
+
+	drainIncoming();
+	send({ type: "remove_allowed_prefix", prefix: "echo" });
+	await snapshotWhereFirst((snapshot) => !snapshot.allowedPrefixes.includes("echo"));
+});
+
+test("a persistent goal can start in AI 审批 mode", async () => {
+	// A goal used to require 自动执行 because nothing else could run unattended.
+	// The judge is that gate now, so the precondition accepts both.
+	await setModeAndWait("ai");
+	drainIncoming();
+	send({ type: "start_goal", objective: GOAL_LIMIT_PROMPT, roundLimit: 1 });
+	const active = await snapshotWhereFirst((snapshot) => snapshot.goal?.status === "active");
+	expect(active.goal?.objective).toBe(GOAL_LIMIT_PROMPT);
+
+	// Stop it again: this test is about the precondition, not about the loop. The
+	// reason is not asserted because the round budget may trip first.
+	drainIncoming();
+	send({ type: "pause_goal" });
+	await snapshotWhereFirst((snapshot) => snapshot.goal?.status === "paused");
+	drainIncoming();
+	send({ type: "clear_goal" });
+	await snapshotWhereFirst((snapshot) => snapshot.goal === null);
+});
+
+test("the mode is a per-session override over a console-wide default", async () => {
+	drainIncoming();
+	send({ type: "set_global_mode", mode: "auto" });
+	await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.globalMode === "auto");
+
+	// A session with no choice of its own follows the default.
+	drainIncoming();
+	send({ type: "new_session" });
+	const fresh = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && snapshot.gatekeeper.sessionOverride === null,
+	);
+	expect(fresh.mode).toBe("auto");
+
+	// An override belongs to the session it was set on...
+	drainIncoming();
+	send({ type: "set_mode", mode: "ai" });
+	await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.sessionOverride === "ai");
+	// ...and changing the default does not disturb it.
+	drainIncoming();
+	send({ type: "set_global_mode", mode: "review" });
+	const kept = await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.globalMode === "review");
+	expect(kept.mode).toBe("ai");
+	expect(kept.gatekeeper.sessionOverride).toBe("ai");
+
+	// Clearing the choice returns the session to the default.
+	drainIncoming();
+	send({ type: "set_mode", mode: null });
+	const cleared = await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.sessionOverride === null);
+	expect(cleared.mode).toBe("review");
+});
+
+test("a session's own mode is a session entry, so rebuilding the session keeps it", async () => {
+	drainIncoming();
+	send({ type: "new_session" });
+	const opened = await snapshotWhereFirst(
+		(snapshot) => !snapshot.streaming && snapshot.gatekeeper.sessionOverride === null,
+	);
+	const sessionId = opened.activeSessionId;
+	expect(sessionId).not.toBeNull();
+
+	drainIncoming();
+	send({ type: "set_mode", mode: "ai" });
+	await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.sessionOverride === "ai");
+
+	// Re-reading the session from its own file is the path a console restart takes:
+	// the mode choice must come back with it.
+	drainIncoming();
+	send({ type: "get_state" });
+	const rebuilt = await snapshotWhereFirst(
+		(snapshot) => snapshot.activeSessionId === sessionId && snapshot.mode === "ai",
+		30000,
+	);
+	expect(rebuilt.gatekeeper.sessionOverride).toBe("ai");
+});
+
+test("switching to AI 审批 is refused while no judge endpoint resolves", async () => {
+	// Follow 主模型, then remove the main entry itself: only when nothing is left
+	// does the console refuse, which is the state a fresh install is in.
+	setLibraryRole(agentDir, "judge", "follow-main");
+	const stored = readStoredModelLibrary(agentDir);
+	const mainId = stored?.roles.main?.id;
+	expect(mainId).toBeDefined();
+	// The library file is written by the settings screen; delete the provider so the
+	// role has nothing to resolve, exactly like a hand-emptied models.json.
+	const modelsPath = modelsJsonPath(agentDir);
+	const parsed = JSON.parse(readFileSync(modelsPath, "utf-8")) as { providers: Record<string, unknown> };
+	if (mainId) delete parsed.providers[mainId];
+	writeFileSync(modelsPath, `${JSON.stringify(parsed, null, "\t")}\n`);
+
+	drainIncoming();
+	send({ type: "get_model_library" });
+	const view = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
+	);
+	expect(view.resolved.judge).toBeNull();
+
+	// The session is still on its own AI override from the previous test; clear it
+	// first, otherwise the switch below is a no-op that answers nothing.
+	drainIncoming();
+	send({ type: "set_mode", mode: null });
+	await snapshotWhereFirst((snapshot) => snapshot.gatekeeper.sessionOverride === null);
+
+	drainIncoming();
+	send({ type: "set_mode", mode: "ai" });
+	const refused = await waitForFirst((message) => message.type === "error");
+	expect((refused as { message: string }).message).toContain("未配置守门模型");
+
+	drainIncoming();
+	send({ type: "set_global_mode", mode: "ai" });
+	const refusedGlobal = await waitForFirst((message) => message.type === "error");
+	expect((refusedGlobal as { message: string }).message).toContain("未配置守门模型");
 });

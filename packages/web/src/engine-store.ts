@@ -14,6 +14,7 @@ import { dirname } from "node:path";
 import type {
 	ZGEngine,
 	ZGEngineEvent,
+	ZGEngineGateMode,
 	ZGEngineLimits,
 	ZGEngineStatus,
 	ZGEngineTarget,
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS engines (
   targets TEXT NOT NULL,
   doctrines TEXT NOT NULL,
   limits TEXT NOT NULL,
+  gate_mode TEXT NOT NULL DEFAULT 'auto',
   created_at INTEGER NOT NULL,
   ended_at INTEGER,
   report TEXT
@@ -83,6 +85,7 @@ interface EngineRow {
 	targets: string;
 	doctrines: string;
 	limits: string;
+	gate_mode: string;
 	created_at: number;
 	ended_at: number | null;
 	report: string | null;
@@ -120,6 +123,18 @@ export class EngineStore {
 		this.db = openSqliteDatabase(path);
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		this.addGateModeColumn();
+	}
+
+	/**
+	 * Databases created before engines carried a gate mode have no column for it.
+	 * `auto` is the right default: those engines ran ungated, and reading them as
+	 * anything else would change how an existing run behaves.
+	 */
+	private addGateModeColumn(): void {
+		const columns = this.db.prepare("PRAGMA table_info(engines)").all() as unknown as Array<{ name: string }>;
+		if (columns.some((column) => column.name === "gate_mode")) return;
+		this.db.exec("ALTER TABLE engines ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'auto'");
 	}
 
 	createEngine(input: {
@@ -129,6 +144,7 @@ export class EngineStore {
 		targets: ZGEngineTarget[];
 		doctrines: string[];
 		limits: ZGEngineLimits;
+		gateMode: ZGEngineGateMode;
 	}): ZGEngine {
 		const engine: ZGEngine = {
 			id: `engine-${randomUUID()}`,
@@ -140,6 +156,7 @@ export class EngineStore {
 			targets: input.targets,
 			doctrines: input.doctrines,
 			limits: input.limits,
+			gateMode: input.gateMode,
 			createdAt: Date.now(),
 			endedAt: null,
 			report: null,
@@ -147,8 +164,8 @@ export class EngineStore {
 		};
 		this.db
 			.prepare(
-				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, gate_mode, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				engine.id,
@@ -159,6 +176,7 @@ export class EngineStore {
 				JSON.stringify(engine.targets),
 				JSON.stringify(engine.doctrines),
 				JSON.stringify(engine.limits),
+				engine.gateMode,
 				engine.createdAt,
 			);
 		return engine;
@@ -189,6 +207,11 @@ export class EngineStore {
 
 	setEngineReport(id: string, report: string): void {
 		this.db.prepare("UPDATE engines SET report = ? WHERE id = ?").run(report, id);
+	}
+
+	/** Change how this engine's workers are gated; the manager refuses while it runs. */
+	setEngineGateMode(id: string, gateMode: ZGEngineGateMode): void {
+		this.db.prepare("UPDATE engines SET gate_mode = ? WHERE id = ?").run(gateMode, id);
 	}
 
 	/** Delete an engine with its tasks and event logs. The manager ensures it is not running. */
@@ -353,6 +376,8 @@ function engineFromRow(row: EngineRow, tasks: ZGEngineTask[]): ZGEngine {
 		targets: parseJson(row.targets, []) as ZGEngineTarget[],
 		doctrines: parseJson(row.doctrines, []) as string[],
 		limits: parseJson(row.limits, null) as unknown as ZGEngineLimits,
+		// A row written before the column existed reads as `auto`, which is how it ran.
+		gateMode: row.gate_mode === "ai" ? "ai" : "auto",
 		createdAt: row.created_at,
 		endedAt: row.ended_at,
 		report: row.report,

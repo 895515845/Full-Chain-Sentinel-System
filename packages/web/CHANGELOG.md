@@ -8,6 +8,8 @@
 - Removed the host-session fallback and the `ZG_ALLOW_HOST_SESSIONS` escape hatch, the "back to default directory" picker entry, and `switch_project: null`. Bash, the file tools, and the file panel all require the project container
 
 ### Added
+- 控制台登录鉴权：默认强制（本地回环也一样），每条 `/api` 路由和 WebSocket 升级握手都要会话 Cookie。首次访问登录页变成「创建管理员账号」（用户名 + 密码，scrypt 哈希存 `~/.zgagent/agent/auth.json`，0600，从不落明文），登录页为深色左右分栏布局。会话是无状态签名 Cookie（HMAC，密钥在 auth.json），「记住登录」30 天；登出与改密码都会让之前签发的会话全部失效（改密码还会换签名密钥，其他浏览器一并退出）；登录失败按来源地址限流（5 次锁 30 秒）。设置 → 安全 页可改密码，退出登录在侧栏底部（用户名旁）。静态资源（前端代码）不带密钥仍然开放，接口与 WebSocket 全部收口
+- 登录页左侧面板的动画背景：等距方块地形上有一片从面板正中向外生长的天际线——波纹从中心扩散，中心拔起最高的一圈楼（约 12 层），越往外楼越矮，封顶后只做地形波纹。纯 Canvas 2D、无第三方库，鼠标移动带视差；`prefers-reduced-motion` 下把场景跑完一遍后静止成一帧
 
 - Engineering mode (工程模式): batch target orchestration under a commander that only assigns work. New "工程" page with an engine per run (target list with per-line notes, multi-select command doctrines, concurrency/round/token/time/retry limits), a task board, and the commander's decision log; the commander is an LLM session with scheduling tools only (`dispatch_task` / `list_tasks` / `steer_task` / `abort_task` / `engine_done`) and may use a dedicated OpenAI-compatible endpoint. The commander also gets a strictly fenced bash (per-engine 40-command budget, 20s per-command timeout, 16KB output cap, destructive-command denylist, every refusal tells it to dispatch instead) plus project-scoped read, so it can scope targets before decomposing them without ever doing the work itself; no edit/write Tasks are worker sessions with a persistent goal (round fuses, criteria verdicts, hub counting) running ungated in the project container under `/work/tasks/<workspace>`; per-engine concurrency plus a global cap bound the load. Engines persist in `engines.db` (SQLite): a service restart pauses in-flight tasks and engines, and resuming reopens the commander with a board recap and the workers with their session files. Operator controls: pause/resume/abort/delete, steer the commander, append targets, abort single tasks, manual progress snapshot; the final report comes from the commander's `engine_done` and lands on the engine record
 - Engineering task sessions are first-class conversations: every worker session is created by the console runtime in the project's normal session directory, named 「工程名 · 任务标题」, listed in the 对话 sidebar, and openable in the full conversation view while it runs (live streaming) and after it ends (normal chat, ungated bash). Opening a running task mid-run shows its live output; user messages during a run steer it. Task sessions are never disposed by config/permission saves (new tasks pick up new settings), and deleting a project cascades to its engines
@@ -81,8 +83,22 @@
 - 复读保护 notices in the transcript: the loop-guard extension's `zg-loop-guard` messages fold like a goal row, labeled 输出重复已中止 (red) when a stuttering response was cut short and 重复工具调用提醒 (amber) when the same tool call repeated
 - 通知正文字数上限（设置 → 通知）：默认从 500 提到 2000，可改成任意值，`0` 表示不截断。作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」，截断处写明 `…（已截断，全文 N 字）`。钉钉单条请求体上限 20000 字节仍然单独兜底：超了按字节硬截断并注明，不再出现 `460101 body 大小不合法`
 - 会话状态（人工标记）：每个会话可以标 待跟进 / 进行中 / 已完成 / 已忽略，列表行显示彩色标签、点标签即可切换，会话顶部工具条也有同一个入口；列表头多了 全部 / 未完成 过滤（未完成会隐藏已完成与已忽略，并显示 `N / M 个会话`）。状态存在会话文件里（`custom` 条目 `zg-status`），跟着会话走、fork 会继承，且不进模型上下文——它只是操作员自己的备忘，模型看不到
+- AI 审批模式：模式开关多了第三个状态，每条 bash 命令执行前由守门员模型判一次 ALLOW / BLOCK。判定只针对这一条命令的直接效果，只拦截会破坏目标可用性、业务数据完整性或系统配置的六类操作（改密码、改服务配置、改用户与权限、删改业务数据、停服重启、大规模压测），授权渗透的探测与利用 payload（含 SQL 注入、文件上传、弱口令爆破、路径遍历读文件）一律放行。判 BLOCK 时命令不执行，理由回给模型（告诉它换一种不破坏目标的方式，或请操作员在审批/自动模式下执行），没有重放。判定失败、超时或回复无法解析一律放行并记为「请求失败」，界面上是一条黄色提示条而不是拦截。AI 模式下命令前缀白名单失效：每条命令都过模型，不做本地短路
+- 守门员模型（设置 → 模型）：独立的 OpenAI 兼容端点槽位 `zg-judge`，未配置时依次回落到指挥官、主端点，页面直接写明当前生效的是哪一个；可设判定超时（默认 15 秒）与并发上限（默认不限，最多 64），并有「测试判定」用一条样例命令验证端点是否可用。判定用 `temperature: 0`、`max_tokens: 128`，一次命令一次调用
+- 守门审计页面：只读的判定流水，统计块给出 拦截 / 放行 / 请求失败 / 拦截率 / 平均耗时 / 最近 24 小时 / 判定 tokens / 最近一次成功，下面可按判定、来源（主代理 / 子代理 / 工程任务）、时间窗口、项目、关键字过滤，表格逐条列出时间、判定、来源、命令、理由、耗时，展开一行看完整命令、cwd、模型来源与 tokens，并可直接跳到发起该命令的会话。ALLOW 也记录，记录存 `<agentDir>/gatekeeper.db`（SQLite），永久保留；判定消耗的 tokens 只出现在这一页，不计入会话或工程的用量。判定失败时页面顶部显示最近一次错误
+- 模型库（设置 → 模型，方案 D「以角色为中心」）：页面先给三个角色——主模型 / 守门模型 / 漏洞评审，每个角色一个下拉，从模型库里挑一条模型，守门模型与漏洞评审另有「跟随主模型」。角色下面才是模型库维护：一条模型 = 一个（Base URL + 模型 ID + API Key），支持添加、编辑、复制（同地址多条靠它）、测试连接、删除；被任何角色引用的模型删不掉，提示点名是哪些角色在用。密钥明文存 `<agentDir>/model-library.json`（0600），前端只回 `hasKey`，编辑时留空表示不改，另有「清除已保存的密钥」把端点改成无鉴权。打开页面时把老版本的三个固定槽位（`zg-endpoint` / `zg-commander` / `zg-judge`）迁成条目，角色按旧的回落链还原（守门 = zg-judge ?? 指挥官 ?? 主模型，漏洞评审 = 指挥官 ?? 主模型），迁移只做一次并落盘。SDK 读的 `models.json` 由模型库同步生成，一条模型一个 provider（id 即条目 id）
+- 漏洞评审的角色与总开关：评审端点从「漏洞评审」角色解析（原来复用指挥官端点、主模型兜底），设置页上另有「自动评审」开关，关掉后新提交不再排队，已在排队的评审也会停下
+- 守门员/评审立即生效，主模型下次使用生效：模型库改动只标记运行时脏，不重建任何会话。下一次发送时先把 SDK 的 provider 表按新的 models.json 刷新一遍，再把空闲会话切到新的主模型（`setModel`，会写一条模型变更记录）；正在跑的会话不切，等这一轮结束后的下一次发送
+- 模式作用域：模式分「全局默认」与「本会话覆盖」两层。工具条上的切换只改当前会话，存在会话文件里（`custom` 条目 `zg-mode`），重开或重建会话仍然生效，fork 也继承；设置 → 模型 改的是全局默认，新会话跟随它，已有覆盖的会话不受影响
+- 工程任务的守门方式：每个工程在创建时选「自动执行」或「AI 裁判」，工程页上可随时改（有任务运行或排队时拒绝，避免同一批 worker 用两种模式）。选 AI 裁判时 worker 的每条命令都过守门员；指挥官自己的 bash 不受影响
 
 ### Changed
+
+- 持续目标在 AI 审批模式下也可用（原来只允许自动执行）：有守门员兜底破坏性操作，无人值守的循环同样安全。按钮的禁用提示与模式切换时的暂停逻辑都按这个新规则
+- 删除项目时一并删除该项目的守门审计记录，删除确认框里和漏洞记录一起列出条数
+- 设置 → 模型 从「一个端点表单 + 守门端点表单」改成「角色 + 模型库」：端点不再写在两处，守门段只剩判定超时、并发上限与「测试判定」，端点显示改为只读的当前生效条目
+- 协议上 `save_config` / `test_config` / `get_judge_config` / `save_judge_config` / `test_judge_config` 被模型库消息取代（`get_model_library` / `save_model_entry` / `remove_model_entry` / `duplicate_model_entry` / `set_model_role` / `set_reviewer_auto` / `test_model_entry` / `test_judge`）；守门审计记录里的「模型来源」现在写模型库条目的名字，而不是固定的槽位名
+- 根 `npm run check` 现在也跑 `packages/web` 的 `check:webui`（`tsc -p webui/tsconfig.json`），前端类型错误不会再绕过检查
 
 - Under the 全部 filter the session list gains light section labels — 「对话 N」 above the flat chats and 「工程 N」 above the engine groups, each with a hairline — so the two zones read as separate areas instead of one jumbled list; the labels only appear when both zones have content
 
@@ -135,3 +151,10 @@
 - The file panel did not show subdirectories at all. The listing asked `wc -c` for every entry's size, and on Linux `wc -c < dir` prints a `0` *and* exits non-zero, so the `|| echo 0` fallback emitted a second line; the tab-separated record then spanned two lines and the line parser dropped both halves, taking the directory with it. Directories were invisible in the panel while macOS hid the bug, because BSD `wc` prints nothing for a directory. The listing is now done with `readdir` and `stat` on the host side of the mount, and a directory's size is never asked of `wc`
 - 手动压缩上下文 looked dead while it ran: nothing on screen changed, the composer's send was refused with pi's English "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.", and there was no way out of a compaction whose model request never came back. Snapshots now carry `compacting` and `compactionStartedAt`, the chat toolbar replaces 压缩上下文 with a running chip (压缩中 12 秒) and a 中止压缩 button, the composer and the goal dialog are locked with a Chinese reason, and the send guard answers in Chinese instead of leaking pi's message. 中止压缩 aborts the summarization and leaves the session usable, and the cancel itself is not reported as a failure
 - A kept stretch with no prompt could not be folded: only runs that started with an operator message folded, so after a compaction the retained tail rendered expanded with no 过程 row to close it — the row that appeared to belong to it belonged to a later run. Any finished run whose last word is prose now folds, prompt or not
+
+### Fixed
+
+- 漏洞中枢的标题不再是一段话：`vuln_submit` 现在会规范化标题（去掉 `【计划编号 …】`/任务号等前缀、行首列表标记、末尾标点与换行），规范化后仍超过 40 字就拒绝入库并回一条可执行的错误，要求改写成「漏洞类型 + 受影响对象」的一句话（计划编号、轮次、结论更正、建议撤销这些流程信息进 description）。（真实记录统计已省略），列表行因此被撑高、详情标题被当成正文读
+- 守门审计页改版（方案 A 紧凑流水）：8 张统计卡压成一行汇总条（拦截/放行/失败/拦截率/平均耗时/24 小时/tokens/最近成功），表格改单行制——命令一行省略（悬停看全文、点击展开完整命令与理由/失败原因），模型列两行显示（模型 ID + 模型库条目名，各自省略号 + 悬停完整名），修复了模型名溢出单元格被裁掉的问题；表头吸顶，理由列从表格挪进展开区
+- 会话「进行中」标记的左侧色条是透明的：`.status-rail.rail-active` 引用的 `--blue` 从未在 `:root` 定义（「待跟进」用的 `--warn` 有定义所以正常），补上 `--blue: #409eff` 后色条与工具栏圆点、状态选择器同色
+- 会话状态标记的两处显示错误：状态色条是 `position: absolute` 但会话行没有 `position: relative`，色条锚到了外层容器，在侧栏左缘画成一条贯穿列表的细线而不是行上的短标记；悬停卡里 `.hc-actions button` 的通用样式（特异性更高）压过了状态芯片自己的琥珀色，把「待跟进」渲染成和「改名/删除」一样的灰按钮。现在色条锚定在行上，芯片保留状态色并与邻键等宽，加了下拉箭头示意可点

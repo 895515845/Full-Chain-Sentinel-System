@@ -6,19 +6,33 @@
  * local operator; every connected console receives the same event stream.
  */
 
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { WebSocket, WebSocketServer } from "ws";
 import { readWebuiFile } from "./assets.ts";
+import {
+	changePassword,
+	clearSessionCookieHeader,
+	createAuth,
+	createLoginLimiter,
+	hasValidSession,
+	issueSessionToken,
+	readStoredAuth,
+	revokeSessions,
+	type StoredAuth,
+	sessionCookieHeader,
+	validateCredentials,
+	verifyLogin,
+} from "./auth.ts";
 import { buildImage } from "./docker.ts";
 import { deleteDoctrine, listDoctrines, saveDoctrine } from "./doctrines.ts";
 import { testModelConfig } from "./endpoint-probe.ts";
 import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
-import { readCommanderModelConfig, writeCommanderModelConfig } from "./model-config.ts";
+import { readCommanderModelConfig, readProviderModelConfig, writeCommanderModelConfig } from "./model-config.ts";
 import {
 	addProject,
 	ensureProjectReady,
@@ -65,6 +79,11 @@ export interface ZGServerOptions {
 	agentDir?: string;
 	host?: string;
 	port?: number;
+	/**
+	 * Console authentication (default on). Only the automated tests turn it off;
+	 * the credential file is created on first visit.
+	 */
+	auth?: boolean;
 }
 
 export function webuiDistDir(): string {
@@ -72,9 +91,31 @@ export function webuiDistDir(): string {
 	return resolve(dirname(fileURLToPath(import.meta.url)), "..", "webui", "dist");
 }
 
-function sendJson(response: ServerResponse, payload: unknown): void {
-	response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
+	response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
 	response.end(JSON.stringify(payload));
+}
+
+/** Read one JSON request body; oversize or malformed bodies become null. */
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown> | null> {
+	const chunks: Buffer[] = [];
+	let size = 0;
+	for await (const chunk of request) {
+		size += (chunk as Buffer).byteLength;
+		if (size > 64 * 1024) return null;
+		chunks.push(chunk as Buffer);
+	}
+	try {
+		const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+		return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}
+
+function textField(body: Record<string, unknown>, key: string): string {
+	const value = body[key];
+	return typeof value === "string" ? value : "";
 }
 
 function sendTo(socket: WebSocket, message: ZGServerMessage): void {
@@ -166,6 +207,9 @@ export async function startZGServer(
 			onVulnChange: () => broadcastVulns(),
 			onSessionRenamed: () => void broadcastSessions(),
 			onVulnSubmitted: (id) => reviewer?.enqueue(id),
+			// Every judgment is broadcast: a console with the audit page open appends
+			// the new row live instead of waiting for a refresh.
+			onGateDecision: (decision) => broadcast({ type: "gate_decision", decision }),
 		},
 	});
 
@@ -290,7 +334,7 @@ export async function startZGServer(
 		broadcast({ type: "vulns", items: view.items, stats: view.stats });
 	}
 
-	/** Project list with each project's finding count, for the hub's delete warning. */
+	/** Project list with each project's finding and gate-record counts, for the delete warning. */
 	function projectInfos(): ZGProjectInfo[] {
 		if (!agentDir) return [];
 		return listProjects(agentDir).projects.map(({ id, name, workDir, container }) => ({
@@ -299,6 +343,7 @@ export async function startZGServer(
 			cwd: workDir,
 			container,
 			vulnCount: runtime.countProjectVulns(id),
+			gateCount: runtime.countProjectGates(id),
 		}));
 	}
 
@@ -329,16 +374,170 @@ export async function startZGServer(
 		});
 	}
 
-	const server = createServer((request, response) => {
-		const url = new URL(request.url ?? "/", "http://localhost");
-		if (url.pathname === "/api/health") {
-			sendJson(response, { ok: true, sessionId: runtime.currentSessionId, mode: runtime.currentMode });
+	// --- Console authentication -------------------------------------------
+	// Static files carry no secrets and stay open; everything under /api and the
+	// WebSocket needs the session cookie. The credential file is created by the
+	// first visitor (设置引导), so a fresh install has no default password.
+	const authEnabled = options.auth !== false && Boolean(agentDir);
+	const currentAuth = (): StoredAuth | null => (authEnabled && agentDir ? readStoredAuth(agentDir) : null);
+	const limiter = createLoginLimiter();
+
+	async function handleSetup(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		if (!agentDir) {
+			sendJson(response, { error: "缺少配置目录，无法创建账号" }, 500);
 			return;
 		}
-		serveStatic(webuiDistDir(), url.pathname, response);
+		if (readStoredAuth(agentDir)) {
+			sendJson(response, { error: "管理员账号已存在，请直接登录" }, 409);
+			return;
+		}
+		const body = await readJsonBody(request);
+		if (!body) {
+			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			return;
+		}
+		const username = textField(body, "username").trim();
+		const password = textField(body, "password");
+		const problem = validateCredentials(username, password);
+		if (problem) {
+			sendJson(response, { error: problem }, 400);
+			return;
+		}
+		const stored = createAuth(agentDir, username, password);
+		const token = issueSessionToken(stored);
+		response.setHeader("set-cookie", sessionCookieHeader(token.value, token.maxAge));
+		sendJson(response, { ok: true, username: stored.username });
+	}
+
+	async function handleLogin(
+		request: IncomingMessage,
+		response: ServerResponse,
+		stored: StoredAuth | null,
+	): Promise<void> {
+		if (!stored) {
+			sendJson(response, { error: "还没有管理员账号，请先创建" }, 409);
+			return;
+		}
+		const key = request.socket.remoteAddress ?? "unknown";
+		const lockedFor = limiter.blocked(key);
+		if (lockedFor > 0) {
+			sendJson(response, { error: `尝试次数过多，请 ${Math.ceil(lockedFor / 1000)} 秒后再试` }, 429);
+			return;
+		}
+		const body = await readJsonBody(request);
+		if (!body) {
+			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			return;
+		}
+		const username = textField(body, "username").trim();
+		const password = textField(body, "password");
+		if (!verifyLogin(stored, username, password)) {
+			limiter.failure(key);
+			sendJson(response, { error: "用户名或密码不正确" }, 401);
+			return;
+		}
+		limiter.success(key);
+		const token = issueSessionToken(stored);
+		// 记住登录 keeps the cookie across browser restarts (30 days); otherwise it
+		// dies with the browser session. The token's own expiry never moves.
+		const remember = body.remember !== false;
+		response.setHeader("set-cookie", sessionCookieHeader(token.value, remember ? token.maxAge : 0));
+		sendJson(response, { ok: true, username: stored.username });
+	}
+
+	async function handleChangePassword(
+		request: IncomingMessage,
+		response: ServerResponse,
+		stored: StoredAuth,
+	): Promise<void> {
+		if (!agentDir) {
+			sendJson(response, { error: "缺少配置目录" }, 500);
+			return;
+		}
+		const body = await readJsonBody(request);
+		if (!body) {
+			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			return;
+		}
+		if (!verifyLogin(stored, stored.username, textField(body, "current"))) {
+			sendJson(response, { error: "当前密码不正确" }, 400);
+			return;
+		}
+		try {
+			// Rotates the signing secret: every other session is logged out.
+			changePassword(agentDir, stored, textField(body, "next"));
+		} catch (error) {
+			sendJson(response, { error: error instanceof Error ? error.message : String(error) }, 400);
+			return;
+		}
+		const updated = readStoredAuth(agentDir) ?? stored;
+		const token = issueSessionToken(updated);
+		response.setHeader("set-cookie", sessionCookieHeader(token.value, token.maxAge));
+		sendJson(response, { ok: true });
+	}
+
+	const server = createServer((request, response) => {
+		const url = new URL(request.url ?? "/", "http://localhost");
+		const path = url.pathname;
+		const auth = currentAuth();
+		if (authEnabled) {
+			if (path === "/api/auth/state") {
+				sendJson(response, { configured: Boolean(auth), username: auth?.username ?? null });
+				return;
+			}
+			if (path === "/api/auth/setup" && request.method === "POST") {
+				void handleSetup(request, response);
+				return;
+			}
+			if (path === "/api/auth/login" && request.method === "POST") {
+				void handleLogin(request, response, auth);
+				return;
+			}
+			if (path === "/api/auth/logout" && request.method === "POST") {
+				// The cookie is stateless, so revocation is recorded in auth.json:
+				// sessions issued before now stop working, including this one.
+				if (auth && agentDir) revokeSessions(agentDir, auth);
+				response.setHeader("set-cookie", clearSessionCookieHeader());
+				sendJson(response, { ok: true });
+				return;
+			}
+		}
+		const authorized = authEnabled ? hasValidSession(auth, request) : true;
+		if (authorized) {
+			if (path === "/api/health") {
+				sendJson(response, { ok: true, sessionId: runtime.currentSessionId, mode: runtime.currentMode });
+				return;
+			}
+			if (path === "/api/auth/session") {
+				sendJson(response, { ok: true, username: auth?.username ?? null });
+				return;
+			}
+			if (path === "/api/auth/change-password" && request.method === "POST") {
+				if (!auth) {
+					sendJson(response, { error: "Not logged in" }, 401);
+					return;
+				}
+				void handleChangePassword(request, response, auth);
+				return;
+			}
+		} else if (path.startsWith("/api/")) {
+			sendJson(response, { error: "未登录" }, 401);
+			return;
+		}
+		serveStatic(webuiDistDir(), path, response);
 	});
 
-	const wss = new WebSocketServer({ server, path: "/ws" });
+	const wss = new WebSocketServer({ noServer: true });
+	// The upgrade handshake is where the WebSocket is gated: no valid session, no console.
+	server.on("upgrade", (request, socket, head) => {
+		const url = new URL(request.url ?? "/", "http://localhost");
+		if (url.pathname !== "/ws" || (authEnabled && !hasValidSession(currentAuth(), request))) {
+			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+			socket.destroy();
+			return;
+		}
+		wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
+	});
 	wss.on("connection", (socket) => {
 		clients.add(socket);
 		socket.send(JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies ZGServerMessage));
@@ -358,6 +557,8 @@ export async function startZGServer(
 		broadcastEngines(socket);
 		if (agentDir) sendTo(socket, { type: "doctrines", doctrines: listDoctrines(agentDir) });
 		if (agentDir) sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
+		if (agentDir) sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
+		if (agentDir) sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 	});
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -427,6 +628,9 @@ export async function startZGServer(
 					return;
 				case "set_mode":
 					runtime.setMode(message.mode);
+					return;
+				case "set_global_mode":
+					runtime.setGlobalMode(message.mode);
 					return;
 				case "decide": {
 					const ok = runtime.decide(
@@ -514,16 +718,35 @@ export async function startZGServer(
 						JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies ZGServerMessage),
 					);
 					return;
-				case "get_config":
-					socket.send(JSON.stringify({ type: "config", config: runtime.getConfig() } satisfies ZGServerMessage));
+				case "get_model_library":
+					sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 					return;
-				case "save_config":
-					await runtime.saveConfig(message.config);
-					socket.send(JSON.stringify({ type: "config", config: runtime.getConfig() } satisfies ZGServerMessage));
+				case "save_model_entry":
+					// The view comes back after every mutation, so the screen never has to
+					// guess what the store did (ids, role usage, resolved endpoints).
+					sendTo(socket, { type: "model_library", library: runtime.saveModelEntry(message) });
+					broadcastSnapshot();
 					return;
-				case "test_config": {
-					const result = await testModelConfig(message.config);
-					socket.send(JSON.stringify({ type: "test_result", result } satisfies ZGServerMessage));
+				case "remove_model_entry":
+					sendTo(socket, { type: "model_library", library: runtime.removeModelEntry(message.id) });
+					broadcastSnapshot();
+					return;
+				case "duplicate_model_entry":
+					sendTo(socket, { type: "model_library", library: runtime.duplicateModelEntry(message.id) });
+					return;
+				case "set_model_role":
+					sendTo(socket, { type: "model_library", library: runtime.setModelRole(message.role, message.target) });
+					broadcastSnapshot();
+					return;
+				case "set_reviewer_auto":
+					sendTo(socket, { type: "model_library", library: runtime.setReviewerAuto(message.enabled) });
+					return;
+				case "test_model_entry": {
+					const config = agentDir ? readProviderModelConfig(agentDir, message.id) : null;
+					const result = config
+						? await testModelConfig(config)
+						: { ok: false, message: "这个模型没有可用的端点配置" };
+					sendTo(socket, { type: "model_test_result", result });
 					return;
 				}
 				case "get_permissions": {
@@ -695,7 +918,10 @@ export async function startZGServer(
 					// their task sessions die with the project, so cascade.
 					if (engines) await engines.purgeProject(message.id);
 					const purged = runtime.purgeProjectVulns(message.id);
-					console.error(`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录`);
+					const purgedGates = runtime.purgeProjectGates(message.id);
+					console.error(
+						`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录`,
+					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.
 					if (wasActive) await runtime.detachProject(target.workDir);
@@ -892,6 +1118,15 @@ export async function startZGServer(
 					broadcastEngines();
 					return;
 				}
+				case "engine_set_gate_mode": {
+					if (!engines) {
+						sendError(socket, "未配置配置目录，无法使用工程模式");
+						return;
+					}
+					engines.setGateMode(message.id, message.gateMode);
+					broadcastEngines();
+					return;
+				}
 				case "engine_pause":
 					if (engines) await engines.pauseEngine(message.id);
 					return;
@@ -1015,6 +1250,30 @@ export async function startZGServer(
 					sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
 					return;
 				}
+				case "get_gatekeeper_config":
+					sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
+					return;
+				case "save_gatekeeper_config": {
+					runtime.saveGatekeeperConfig(message.config);
+					sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
+					// The saved mode is the global default, so it can change the active
+					// session's effective mode and the toolbar switch that shows it.
+					broadcastSnapshot();
+					return;
+				}
+				case "test_judge": {
+					const result = await runtime.testJudge();
+					sendTo(socket, { type: "judge_test_result", ...result });
+					return;
+				}
+				case "gate_audit_query": {
+					const page = runtime.listGateDecisions(message.filter, message.page, message.pageSize);
+					sendTo(socket, { type: "gate_audit", page });
+					return;
+				}
+				case "gate_audit_stats":
+					sendTo(socket, { type: "gate_audit_stats", stats: runtime.getGateStats(message.filter) });
+					return;
 				default:
 					sendError(socket, `未知消息类型: ${(message as { type?: string }).type ?? "?"}`);
 			}

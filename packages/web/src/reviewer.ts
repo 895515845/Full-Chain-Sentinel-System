@@ -14,7 +14,7 @@
  * third settings page.
  */
 
-import { readCommanderModelConfig, readModelConfig } from "./model-config.ts";
+import { readModelLibrary, resolveLibraryRole } from "./model-library.ts";
 import type { ZGVulnerability } from "./protocol.ts";
 import type { VulnerabilityStore } from "./vulnerabilities.ts";
 
@@ -170,8 +170,12 @@ export class VulnReviewer {
 		this.call = callReviewer;
 	}
 
-	/** Re-enqueue records that were queued when a previous process died. */
+	/**
+	 * Re-enqueue records that were queued when a previous process died. Skipped
+	 * entirely while automatic review is off: nothing should be judged then.
+	 */
 	recover(): void {
+		if (!readModelLibrary(this.agentDir).reviewerAuto) return;
 		for (const id of this.store.queuedReviewIds()) this.enqueue(id);
 	}
 
@@ -205,7 +209,7 @@ export class VulnReviewer {
 	}
 
 	private async reviewOne(id: string): Promise<void> {
-		const config = readCommanderModelConfig(this.agentDir) ?? readModelConfig(this.agentDir);
+		const config = resolveLibraryRole(this.agentDir, "reviewer")?.config ?? null;
 		const vuln = this.store.get(id);
 		// Re-check arbitration at execution time: the operator may have acted
 		// while the record sat in the queue.

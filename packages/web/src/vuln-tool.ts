@@ -26,6 +26,39 @@ import {
 /** Longest tool output handed back to the model, so one record cannot flood the context. */
 const MAX_TOOL_OUTPUT = 8000;
 
+/** Longest title accepted. A finding title is a label, not a paragraph. */
+export const MAX_VULN_TITLE_CHARS = 40;
+
+/**
+ * Leading decoration an agent attaches when it echoes its own plan: the plan
+ * number in brackets, a task id, a list marker. Only *leading* groups are
+ * stripped, so a trailing "(CWE-307)" stays part of the title.
+ */
+const TITLE_LEAD = /^(?:[【[（(][^】\]）)]{0,60}[】\]）)]|\d+\s*[.、)）]|[-*#])\s*/;
+
+/** Closing punctuation a one-line title does not need. */
+const TITLE_TAIL = /[。．.；;，,、：:\s]+$/;
+
+/**
+ * Turn a submitted title into a one-line label.
+ *
+ * Agents that carry a plan number through a run tend to prefix it to every
+ * output, so the hub ended up with titles like
+ * "【计划编号 PLAN-0109】结论更正：api/report/export 非 SSRF（建议撤销）".
+ * The plan number, the round, and the verdict are process notes: they belong in
+ * the description, and the title is only the flaw.
+ */
+export function normalizeVulnTitle(raw: string): string {
+	let title = raw.replace(/\s+/g, " ").trim();
+	for (;;) {
+		const next = title.replace(TITLE_LEAD, "").trim();
+		// A title that is nothing but decoration keeps its original text, so the
+		// operator still sees what the agent tried to submit.
+		if (next === title || next === "") return title.replace(TITLE_TAIL, "").trim();
+		title = next;
+	}
+}
+
 function clip(text: string, limit = MAX_TOOL_OUTPUT): string {
 	if (text.length <= limit) return text;
 	return `${text.slice(0, limit)}\n…（输出已截断，共 ${text.length} 字符）`;
@@ -118,7 +151,11 @@ const evidenceSchema = Type.Object({
 });
 
 const submitSchema = Type.Object({
-	title: Type.String({ minLength: 1, description: "Finding title, e.g. '后台登录处 SQL 注入'" }),
+	title: Type.String({
+		minLength: 1,
+		description:
+			"One-line finding title: vulnerability class plus affected object, at most 40 characters (e.g. '后台登录处 SQL 注入'). No 【】 prefix, plan number, round, verdict or fix advice; those go in description.",
+	}),
 	severity: Type.Union(
 		[
 			Type.Literal("critical"),
@@ -193,6 +230,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 			"Submit every validated finding with vuln_submit as soon as it is confirmed, not only in the final report",
 			"Give vuln_submit the raw request or packet that proves the finding, plus a CVSS score that matches the severity bucket",
 			"Check vuln_list before submitting so an already-recorded finding is updated in your notes instead of submitted twice",
+			"Keep the vuln_submit title to one line of at most 40 characters: the flaw plus what it affects. Plan numbers, rounds, corrected verdicts and fix advice go into description, never into the title",
 		],
 		parameters: submitSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<SubmitDetails>> {
@@ -204,12 +242,33 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 					isError: true,
 				};
 			}
+			const submittedTitle = params.title.trim();
+			const title = normalizeVulnTitle(submittedTitle);
+			if (!title) {
+				return {
+					content: [{ type: "text", text: "标题不能为空。" }],
+					details: { ok: false, error: "empty-title" },
+					isError: true,
+				};
+			}
+			if (title.length > MAX_VULN_TITLE_CHARS) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `标题太长（${title.length} 字，上限 ${MAX_VULN_TITLE_CHARS} 字），没有入库。请改成一句话漏洞标题：「漏洞类型 + 受影响对象」，例如「后台登录处 SQL 注入」「/api/report/export 免验证码登录」。计划编号、轮次、结论更正、建议撤销、括号里的判定说明都属于流程信息，写进 description；改好后重新调用 vuln_submit。`,
+						},
+					],
+					details: { ok: false, error: "title-too-long" },
+					isError: true,
+				};
+			}
 			const vuln = options.store.create({
 				projectId: project.id,
 				projectName: project.name,
 				...(options.getSessionId() ? { sessionId: options.getSessionId() as string } : {}),
 				source: options.getSource(),
-				title: params.title.trim(),
+				title,
 				severity: params.severity,
 				cvss: params.cvss,
 				...(params.cvssVector?.trim() ? { cvssVector: params.cvssVector.trim() } : {}),
@@ -230,11 +289,12 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 			const warning = vuln.severityMismatch
 				? `\n注意：等级与 CVSS 分数不一致（${vuln.cvss.toFixed(1)} 对应 ${severityForCvss(vuln.cvss)}），已照你给的等级记录，操作员会复核。`
 				: "";
+			const titleNote = title === submittedTitle ? "" : `（标题已规范化为「${title}」：去掉了前缀与末尾标点）`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `已提交到漏洞中枢：${vuln.label} ${vuln.title}（${severityTag(vuln.severity, vuln.cvss)}），状态：待确认。${warning}`,
+						text: `已提交到漏洞中枢：${vuln.label} ${vuln.title}（${severityTag(vuln.severity, vuln.cvss)}），状态：待确认。${titleNote}${warning}`,
 					},
 				],
 				details: { ok: true, id: vuln.id, label: vuln.label, severity: vuln.severity, status: vuln.status },

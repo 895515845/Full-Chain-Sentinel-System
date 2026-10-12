@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
 	ZGDoctrineView,
 	ZGEngine,
+	ZGEngineGateMode,
 	ZGEngineLimits,
 	ZGEngineTask,
 	ZGEngineTaskStatus,
@@ -82,6 +83,8 @@ export interface EnginePageProps {
 	onOpenTaskEvents: (taskId: string) => void;
 	onOpenCommanderEvents: (engineId: string) => void;
 	hasProject: boolean;
+	/** Whether a judge endpoint resolves, so the create form can offer AI 裁判. */
+	judgeAvailable: boolean;
 }
 
 type View = "list" | "board" | "create" | "doctrines" | "commander-config";
@@ -111,6 +114,7 @@ export function EnginePage(props: EnginePageProps) {
 				<CreateEngineForm
 					doctrines={props.doctrines}
 					hasProject={props.hasProject}
+					judgeAvailable={props.judgeAvailable}
 					onCancel={() => setView("list")}
 					onSubmit={(input) => {
 						send({ type: "engine_create", input });
@@ -204,7 +208,11 @@ export function EnginePage(props: EnginePageProps) {
 					</div>
 				</div>
 				<div className="ws-panel__body">
-					<EngineStats engine={board} />
+					<EngineStats
+						engine={board}
+						judgeAvailable={props.judgeAvailable}
+						onSetGateMode={(gateMode) => send({ type: "engine_set_gate_mode", id: board.id, gateMode })}
+					/>
 					{(board.status === "running" || board.status === "paused") && (
 						<SteerBox engineId={board.id} running={board.status === "running"} onSend={send} />
 					)}
@@ -338,9 +346,21 @@ export function EnginePage(props: EnginePageProps) {
 	);
 }
 
-function EngineStats({ engine }: { engine: ZGEngine }) {
+function EngineStats({
+	engine,
+	judgeAvailable,
+	onSetGateMode,
+}: {
+	engine: ZGEngine;
+	judgeAvailable: boolean;
+	onSetGateMode: (mode: ZGEngineGateMode) => void;
+}) {
 	const count = (status: ZGEngineTaskStatus) => engine.tasks.filter((task) => task.status === status).length;
 	const vulns = engine.tasks.reduce((sum, task) => sum + task.vulns, 0);
+	// The server refuses a change while a worker is in flight, because each task
+	// session captures its gate when it is created.
+	const busy = engine.tasks.some((task) => task.status === "running" || task.status === "queued");
+	const gateLockedReason = busy ? "有任务正在运行或排队，等它们结束再改" : undefined;
 	return (
 		<div className="engine-stats">
 			<span className="tag tag-running">运行 {count("running")}</span>
@@ -370,6 +390,25 @@ function EngineStats({ engine }: { engine: ZGEngine }) {
 					时间上限 <span className="stat-num">{engine.limits.timeLimitMin} 分</span>
 				</span>
 			) : null}
+			<span className="mode-switch engine-gate-switch" title={gateLockedReason ?? "worker 命令的守门方式"}>
+				<button
+					type="button"
+					className={engine.gateMode === "auto" ? "on" : ""}
+					disabled={busy}
+					onClick={() => onSetGateMode("auto")}
+				>
+					自动执行
+				</button>
+				<button
+					type="button"
+					className={engine.gateMode === "ai" ? "on" : ""}
+					disabled={busy || !judgeAvailable}
+					title={judgeAvailable ? undefined : "未配置守门模型端点"}
+					onClick={() => onSetGateMode("ai")}
+				>
+					AI 裁判
+				</button>
+			</span>
 			{engine.pauseNote ? <span className="ws-panel__sub">{engine.pauseNote}</span> : null}
 		</div>
 	);
@@ -681,8 +720,16 @@ function TaskModal(props: {
 function CreateEngineForm(props: {
 	doctrines: ZGDoctrineView[];
 	hasProject: boolean;
+	/** Whether a judge endpoint resolves; `ai` is only offered when it does. */
+	judgeAvailable: boolean;
 	onCancel(): void;
-	onSubmit(input: { name: string; targets: string; doctrines: string[]; limits: ZGEngineLimits }): void;
+	onSubmit(input: {
+		name: string;
+		targets: string;
+		doctrines: string[];
+		limits: ZGEngineLimits;
+		gateMode: ZGEngineGateMode;
+	}): void;
 }) {
 	const [name, setName] = useState("");
 	const [targets, setTargets] = useState("");
@@ -692,6 +739,7 @@ function CreateEngineForm(props: {
 	const [maxRetries, setMaxRetries] = useState(1);
 	const [tokenLimit, setTokenLimit] = useState("");
 	const [timeLimitMin, setTimeLimitMin] = useState("");
+	const [gateMode, setGateMode] = useState<ZGEngineGateMode>("auto");
 
 	const targetCount = targets.split("\n").filter((line) => line.trim()).length;
 
@@ -722,6 +770,7 @@ function CreateEngineForm(props: {
 									tokenLimit: tokenLimit.trim() ? Number.parseInt(tokenLimit, 10) : null,
 									timeLimitMin: timeLimitMin.trim() ? Number.parseInt(timeLimitMin, 10) : null,
 								},
+								gateMode,
 							})
 						}
 					>
@@ -792,8 +841,38 @@ function CreateEngineForm(props: {
 							</div>
 						</div>
 					</div>
+					<div className="form-field">
+						<label>
+							命令守门 <span className="hint">决定 worker 的每条命令是否先交给守门模型判定</span>
+						</label>
+						<div className="check-group">
+							<label className="check-item">
+								<input type="radio" checked={gateMode === "auto"} onChange={() => setGateMode("auto")} />
+								<span className="cname">自动执行</span>
+								<span className="ctext">worker 的命令直接执行，不做任何拦截（最快）。</span>
+							</label>
+							<label className="check-item">
+								<input
+									type="radio"
+									checked={gateMode === "ai"}
+									disabled={!props.judgeAvailable}
+									onChange={() => setGateMode("ai")}
+								/>
+								<span className="cname">AI 裁判</span>
+								<span className="ctext">
+									{props.judgeAvailable
+										? "每条命令先由守门模型判定，拦截时把理由回给 worker 换一条路（会慢一些，判定失败放行）。"
+										: "未配置守门模型端点：请先到 设置 → 模型 配置守门模型（或指挥官模型）。"}
+								</span>
+							</label>
+						</div>
+					</div>
 					<p className="form-hint">
-						启动后指挥官全权调度（免审），各任务在项目容器内自动执行命令、无人拦截；人保留暂停 / 终止 / 追加目标与 steer。
+						启动后指挥官全权调度（免审），各任务在项目容器内自动执行命令；
+						{gateMode === "ai"
+							? "worker 的命令先经守门模型判定，判定结果记录在「守门审计」。"
+							: "无人拦截直接执行。"}
+						人保留暂停 / 终止 / 追加目标与 steer。
 					</p>
 				</div>
 			</div>

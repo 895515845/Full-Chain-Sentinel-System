@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runDocker, ZG_IMAGE } from "./docker.ts";
-import { readModelConfig } from "./model-config.ts";
+import { resolveLibraryRole } from "./model-library.ts";
 import { listProjects } from "./projects.ts";
 import type { ZGEnvItem, ZGEnvReport } from "./protocol.ts";
 import { DEFAULT_BASE_IMAGE, EMPTY_SOURCES, effectiveSources, readSources } from "./sources.ts";
@@ -402,7 +402,7 @@ function checkModelConfig(agentDir: string | undefined): ZGEnvItem {
 		return skipped("model-config", GROUP_HOST, "模型端点", "未配置配置目录");
 	}
 	try {
-		const config = readModelConfig(agentDir);
+		const config = resolveLibraryRole(agentDir, "main")?.config ?? null;
 		if (!config || !config.baseUrl || !config.modelId) {
 			return warned(
 				"model-config",

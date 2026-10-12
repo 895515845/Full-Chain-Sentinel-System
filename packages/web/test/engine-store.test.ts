@@ -12,6 +12,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { containerWorkPath } from "../src/docker.ts";
 import { EngineStore } from "../src/engine-store.ts";
 import type { ZGEngineLimits } from "../src/protocol.ts";
+import { openSqliteDatabase } from "../src/sqlite.ts";
 import { parseTargetLines } from "../src/worker.ts";
 
 let dir: string;
@@ -43,6 +44,7 @@ test("engine and tasks round-trip", () => {
 		targets: [{ target: "10.0.0.1", note: "Web 服务器" }, { target: "10.0.0.2" }],
 		doctrines: ["standard"],
 		limits,
+		gateMode: "auto",
 	});
 	const task = store.createTask({
 		engineId: engine.id,
@@ -74,6 +76,7 @@ test("interruptRunning pauses queued and running tasks", () => {
 		targets: [{ target: "10.0.0.9" }],
 		doctrines: ["standard"],
 		limits,
+		gateMode: "auto",
 	});
 	const queued = store.createTask({
 		engineId: engine.id,
@@ -112,6 +115,7 @@ test("commander and task events append in order and reload", () => {
 		targets: [{ target: "t" }],
 		doctrines: ["standard"],
 		limits,
+		gateMode: "auto",
 	});
 	store.appendEvent(engine.id, { seq: 1, kind: "text", text: "第一条", at: 1 });
 	store.appendEvent(engine.id, { seq: 2, kind: "tool_start", toolName: "dispatch_task", at: 2 });
@@ -129,6 +133,7 @@ test("deleteEngine removes tasks and events", () => {
 		targets: [{ target: "t" }],
 		doctrines: ["standard"],
 		limits,
+		gateMode: "auto",
 	});
 	const task = store.createTask({
 		engineId: engine.id,
@@ -146,6 +151,64 @@ test("deleteEngine removes tasks and events", () => {
 	expect(store.getTask(task.id)).toBeUndefined();
 	expect(store.listEvents(engine.id)).toHaveLength(0);
 	expect(store.listEvents(task.id)).toHaveLength(0);
+});
+
+test("gate mode round-trips and can be changed", () => {
+	const engine = store.createEngine({
+		projectId: "p4",
+		projectName: "P4",
+		name: "守门场景",
+		targets: [{ target: "t" }],
+		doctrines: ["standard"],
+		limits,
+		gateMode: "ai",
+	});
+	expect(store.getEngine(engine.id)?.gateMode).toBe("ai");
+	store.setEngineGateMode(engine.id, "auto");
+	expect(store.getEngine(engine.id)?.gateMode).toBe("auto");
+});
+
+test("a database written before gate_mode existed is migrated to auto", () => {
+	// The pre-change schema: same table, no gate_mode column.
+	const legacyPath = join(dir, "legacy.db");
+	const legacy = openSqliteDatabase(legacyPath);
+	legacy.exec(`CREATE TABLE engines (
+		id TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		project_name TEXT NOT NULL,
+		name TEXT NOT NULL,
+		status TEXT NOT NULL,
+		pause_note TEXT,
+		targets TEXT NOT NULL,
+		doctrines TEXT NOT NULL,
+		limits TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		report TEXT
+	)`);
+	legacy
+		.prepare(
+			"INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run(
+			"engine-legacy",
+			"p1",
+			"旧项目",
+			"旧工程",
+			"paused",
+			'[{"target":"t"}]',
+			'["standard"]',
+			JSON.stringify(limits),
+			1,
+		);
+	legacy.close();
+
+	const migrated = new EngineStore(legacyPath);
+	// The old row keeps running ungated, which is how it ran before the column existed.
+	expect(migrated.getEngine("engine-legacy")?.gateMode).toBe("auto");
+	migrated.setEngineGateMode("engine-legacy", "ai");
+	expect(migrated.getEngine("engine-legacy")?.gateMode).toBe("ai");
+	migrated.close();
 });
 
 test("parseTargetLines splits target and note, drops blanks", () => {

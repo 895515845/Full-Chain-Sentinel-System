@@ -13,6 +13,8 @@ import {
 	Bot,
 	Bug,
 	Check,
+	KeyRound,
+	LogOut,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -34,6 +36,7 @@ import {
 	RefreshCw,
 	Settings,
 	Shield,
+	ShieldCheck,
 	SlidersHorizontal,
 	Target,
 	Trash,
@@ -197,6 +200,16 @@ export function VulnIcon(props: IconProps) {
 	return <Bug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
+/** Sider menu: console security settings. */
+export function LockIcon(props: IconProps) {
+	return <KeyRound size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Log out of the console. */
+export function LogoutIcon(props: IconProps) {
+	return <LogOut size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
 /** Export the hub as a Markdown report. */
 export function DownloadIcon(props: IconProps) {
 	return <Download size={SIZE} strokeWidth={STROKE} {...props} />;
@@ -205,4 +218,9 @@ export function DownloadIcon(props: IconProps) {
 /** Confirm a finding. */
 export function CheckIcon(props: IconProps) {
 	return <Check size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Sider menu: the gatekeeper audit log of AI 审批 judgments. */
+export function GateIcon(props: IconProps) {
+	return <ShieldCheck size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }

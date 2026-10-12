@@ -32,18 +32,21 @@ import { type CommanderPort, createCommanderTools, formatTaskBoard, retryDecisio
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { listDoctrines, resolveDoctrines, type ZGDoctrine } from "./doctrines.ts";
 import { EngineStore } from "./engine-store.ts";
-import {
-	modelsJsonPath,
-	readCommanderModelConfig,
-	readModelConfig,
-	ZG_COMMANDER_PROVIDER_ID,
-	ZG_PROVIDER_ID,
-} from "./model-config.ts";
+import { resolveJudgeEndpoint } from "./gatekeeper.ts";
+import { modelsJsonPath, readCommanderModelConfig, ZG_COMMANDER_PROVIDER_ID } from "./model-config.ts";
+import { resolveLibraryRole } from "./model-library.ts";
 import { sendDingTalk } from "./notify.ts";
 import { readNotifyConfig } from "./notify-config.ts";
 import { readPermissionsConfig } from "./permissions.ts";
 import { listProjects } from "./projects.ts";
-import type { ZGEngine, ZGEngineCreateInput, ZGEngineEvent, ZGGoalUsage, ZGProjectInfo } from "./protocol.ts";
+import type {
+	ZGEngine,
+	ZGEngineCreateInput,
+	ZGEngineEvent,
+	ZGEngineGateMode,
+	ZGGoalUsage,
+	ZGProjectInfo,
+} from "./protocol.ts";
 import {
 	EngineWorker,
 	errorText,
@@ -207,6 +210,14 @@ export class EngineManager {
 		const limits = normalizeLimits(input.limits);
 		const doctrines = resolveDoctrines(this.agentDir, input.doctrines);
 		if (doctrines.length === 0) throw new Error("请至少选择一个指挥思路");
+		// An engine that judges its commands needs somewhere to send them; refusing
+		// here beats creating an engine whose gate silently fails open on every task.
+		const gateMode: ZGEngineGateMode = input.gateMode === "ai" ? "ai" : "auto";
+		if (gateMode === "ai" && !this.judgeAvailable()) {
+			throw new Error(
+				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
+			);
+		}
 		const stored = this.store.createEngine({
 			projectId: project.id,
 			projectName: project.name,
@@ -214,6 +225,7 @@ export class EngineManager {
 			targets,
 			doctrines: doctrines.map((doctrine) => doctrine.id),
 			limits,
+			gateMode,
 		});
 		const entry = this.emptyLive(stored);
 		this.live.set(stored.id, entry);
@@ -266,6 +278,34 @@ export class EngineManager {
 		entry.commander?.dispose();
 		this.live.delete(id);
 		this.store.deleteEngine(id);
+	}
+
+	/**
+	 * Change how this engine's workers are gated.
+	 *
+	 * Refused while a task is running or queued: each task session captures its
+	 * gate when it is created, so saving mid-flight would leave the board showing
+	 * one mode while half the workers used another.
+	 */
+	setGateMode(id: string, gateMode: ZGEngineGateMode): void {
+		const entry = this.live.get(id);
+		if (!entry) throw new Error("工程不存在");
+		if (entry.engine.gateMode === gateMode) return;
+		const busy = entry.engine.tasks.some((task) => task.status === "running" || task.status === "queued");
+		if (busy) throw new Error("有任务正在运行或排队，请先暂停工程并等任务结束再修改");
+		if (gateMode === "ai" && !this.judgeAvailable()) {
+			throw new Error(
+				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
+			);
+		}
+		this.store.setEngineGateMode(id, gateMode);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+	}
+
+	/** Whether a judge endpoint resolves at all, so `ai` is a choice that can work. */
+	judgeAvailable(): boolean {
+		return resolveJudgeEndpoint(this.agentDir).config !== null;
 	}
 
 	/** Add targets mid-run; the commander learns about them through its next prompt. */
@@ -641,6 +681,9 @@ export class EngineManager {
 				taskTitle: task.title,
 				appendPrompt: WORKER_APPEND_PROMPT,
 				project: { id: project.id, name: project.name, container: project.container ?? "", cwd: project.cwd },
+				// Read from the engine per task, so a mode changed while the engine was
+				// paused applies to the tasks started after it resumes.
+				gateMode: entry.engine.gateMode,
 				...input,
 			});
 		const worker = new EngineWorker(
@@ -798,11 +841,14 @@ export class EngineManager {
 	}
 
 	private async resolveCommanderModel(): Promise<Model<any> | undefined> {
+		// The commander keeps its own slot (configured in the engine page); when it
+		// is unset the engine runs on whatever 主模型 points at.
 		const own = readCommanderModelConfig(this.agentDir);
-		const config = own ?? readModelConfig(this.agentDir);
+		const main = resolveLibraryRole(this.agentDir, "main");
+		const config = own ?? main?.config;
 		if (!config) return undefined;
 		const runtime = await this.ensureModelRuntime();
-		return runtime.getModel(own ? ZG_COMMANDER_PROVIDER_ID : ZG_PROVIDER_ID, config.modelId);
+		return runtime.getModel(own ? ZG_COMMANDER_PROVIDER_ID : (main?.entryId ?? ""), config.modelId);
 	}
 
 	private notifyEngineDone(engine: ZGEngine): void {

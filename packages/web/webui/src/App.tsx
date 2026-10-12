@@ -20,6 +20,10 @@ import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
 import { EnginePage } from "./components/EnginePage.tsx";
+import { GateAuditPage } from "./components/GateAuditPage.tsx";
+import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
+import { AuthGate } from "./components/AuthGate.tsx";
+import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
@@ -28,6 +32,11 @@ import type {
 	ZGEnvReport,
 	ZGFileEntry,
 	ZGFilePreview,
+	ZGGateDecision,
+	ZGGateFilter,
+	ZGGateStats,
+	ZGGatekeeperConfig,
+	ZGModelLibraryView,
 	ZGProjectInfo,
 	SessionEventView,
 	SessionInfoView,
@@ -143,7 +152,6 @@ function hasVisibleAssistantContent(message: AgentMessageView): boolean {
 export function App() {
 	const [snapshot, setSnapshot] = useState<ZGStateSnapshot | null>(null);
 	const [sessions, setSessions] = useState<SessionInfoView[]>([]);
-	const [config, setConfig] = useState<ZGModelConfig | null>(null);
 	const [notifyConfig, setNotifyConfig] = useState<ZGNotifyConfig>({
 		enabled: false,
 		webhook: "",
@@ -178,6 +186,12 @@ export function App() {
 	const [errors, setErrors] = useState<string[]>([]);
 	/** The one page the content area shows; navigation lives in the sider. */
 	const [page, setPage] = useState<ZGPageId>("chat");
+	/**
+	 * Console authentication: the console renders only once the session is
+	 * confirmed; otherwise the login (or first-run setup) screen replaces it.
+	 */
+	const [authState, setAuthState] = useState<"checking" | "ready" | "setup" | "login">("checking");
+	const [authUser, setAuthUser] = useState<string | null>(null);
 	/** Overlays opened from the chat toolbar. */
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [subagentsOpen, setSubagentsOpen] = useState(false);
@@ -234,10 +248,28 @@ export function App() {
 	const [commanderConfig, setCommanderConfig] = useState<ZGModelConfig | null>(null);
 	const [commanderEvents, setCommanderEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
 	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
+	/** Model screen: the library, the role assignments, and each role's effective endpoint. */
+	const [modelLibrary, setModelLibrary] = useState<ZGModelLibraryView | null>(null);
+	/** Gatekeeper: its settings and the audit page's current view. */
+	const [gatekeeperConfig, setGatekeeperConfig] = useState<ZGGatekeeperConfig>({
+		mode: "review",
+		timeoutMs: 15000,
+		concurrency: 0,
+	});
+	const [gateItems, setGateItems] = useState<ZGGateDecision[]>([]);
+	const [gateStats, setGateStats] = useState<ZGGateStats | null>(null);
+	const [gateTotal, setGateTotal] = useState(0);
+	const [gatePage, setGatePage] = useState(1);
+	const [gateFilter, setGateFilter] = useState<ZGGateFilter>({});
+	/** Failure instant the operator dismissed the fail-open banner for. */
+	const [dismissedGateFailure, setDismissedGateFailure] = useState<number | null>(null);
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
-	const testResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
+	const modelTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
 	const notifyTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
+	const judgeTestResolverRef = useRef<((result: { result: ZGTestResult; raw?: string } | null) => void) | null>(null);
+	/** The audit query on screen, so a live judgment can refresh exactly that view. */
+	const gateQueryRef = useRef<{ filter: ZGGateFilter; page: number } | null>(null);
 	const snapshotRef = useRef<ZGStateSnapshot | null>(null);
 	/** Directory the file panel is showing; read by handlers that must re-list it. */
 	const filePathRef = useRef("/work");
@@ -309,13 +341,13 @@ export function App() {
 				case "sessions":
 					setSessions(message.sessions);
 					break;
-				case "config":
-					setConfig(message.config);
+				case "model_library":
+					setModelLibrary(message.library);
 					break;
-				case "test_result":
-					if (testResolverRef.current) {
-						const resolve = testResolverRef.current;
-						testResolverRef.current = null;
+				case "model_test_result":
+					if (modelTestResolverRef.current) {
+						const resolve = modelTestResolverRef.current;
+						modelTestResolverRef.current = null;
 						resolve(message.result);
 					}
 					break;
@@ -337,6 +369,38 @@ export function App() {
 						resolve(message.result);
 					}
 					break;
+				case "gatekeeper_config":
+					setGatekeeperConfig(message.config);
+					break;
+				case "judge_test_result":
+					if (judgeTestResolverRef.current) {
+						const resolve = judgeTestResolverRef.current;
+						judgeTestResolverRef.current = null;
+						resolve({ result: message.result, ...(message.raw ? { raw: message.raw } : {}) });
+					}
+					break;
+				case "gate_audit":
+					setGateItems(message.page.items);
+					setGateTotal(message.page.total);
+					setGatePage(message.page.page);
+					break;
+				case "gate_audit_stats":
+					setGateStats(message.stats);
+					break;
+				case "gate_decision": {
+					// A judgment landed. Re-reading the visible query keeps the page
+					// honest under a filter: an allow must not appear in a block-only list.
+					const query = gateQueryRef.current;
+					if (!query) break;
+					connectionRef.current?.send({
+						type: "gate_audit_query",
+						filter: query.filter,
+						page: query.page,
+						pageSize: 50,
+					});
+					connectionRef.current?.send({ type: "gate_audit_stats", filter: query.filter });
+					break;
+				}
 				case "environment": {
 					setEnvReport(message.report);
 					setImageBuilding(message.building);
@@ -640,6 +704,41 @@ export function App() {
 	}, []);
 
 	useEffect(() => {
+		let cancelled = false;
+		const check = async () => {
+			try {
+				const session = await fetch("/api/auth/session");
+				if (cancelled) return;
+				if (session.ok) {
+					const data = (await session.json().catch(() => ({}))) as { username?: unknown };
+					setAuthUser(typeof data.username === "string" ? data.username : null);
+					setAuthState("ready");
+					return;
+				}
+				const state = (await fetch("/api/auth/state").then((r) => r.json()).catch(() => null)) as {
+					configured?: boolean;
+				} | null;
+				setAuthState(state?.configured ? "login" : "setup");
+			} catch {
+				if (!cancelled) setAuthState("login");
+			}
+		};
+		void check();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const authReady = authState === "ready";
+
+	const logout = useCallback(async () => {
+		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+		// Back to the login screen; the connection effect below closes the socket.
+		setAuthState("login");
+	}, []);
+
+	useEffect(() => {
+		if (!authReady) return;
 		const connection = new ZGConnection(
 			(message) => handleServerMessage(message),
 			(open) => {
@@ -649,13 +748,14 @@ export function App() {
 				// events, so the snapshot and the listings are the only way to catch up.
 				for (const request of [
 					"list_sessions",
-					"get_config",
 					"get_notify_config",
 					"get_permissions",
 					"get_environment",
 					"get_stats",
 					"list_projects",
 					"get_state",
+					"get_gatekeeper_config",
+					"get_model_library",
 				] as const) {
 					connection.send({ type: request });
 				}
@@ -670,7 +770,7 @@ export function App() {
 		window.clearInterval(poll);
 		connection.close();
 	};
-	}, [handleServerMessage]);
+	}, [handleServerMessage, authReady]);
 
 	const send = useCallback((message: Parameters<ZGConnection["send"]>[0]) => {
 		connectionRef.current?.send(message);
@@ -738,6 +838,19 @@ export function App() {
 		if (filesOpen) loadFiles(filePathRef.current);
 	}, [filesOpen, loadFiles]);
 
+	/**
+	 * Read one page of the audit log under a filter. The query is remembered so a
+	 * live judgment can refresh the very view on screen instead of resetting it.
+	 */
+	const loadGates = useCallback(
+		(filter: ZGGateFilter, page: number) => {
+			gateQueryRef.current = { filter, page };
+			send({ type: "gate_audit_query", filter, page, pageSize: 50 });
+			send({ type: "gate_audit_stats", filter });
+		},
+		[send],
+	);
+
 	/** Re-read whatever the active page (or overlay) is showing. */
 	const refreshPage = useCallback(() => {
 		if (filesOpen) loadFiles(filePathRef.current);
@@ -755,7 +868,12 @@ export function App() {
 				send({ type: "list_vulns", filters: vulnFilters });
 				break;
 			case "settings.model":
-				send({ type: "get_config" });
+				send({ type: "get_model_library" });
+				send({ type: "get_gatekeeper_config" });
+				break;
+			case "gates":
+				// Re-read the view on screen rather than resetting it to page 1.
+				loadGates(gateFilter, gatePage);
 				break;
 			case "settings.notify":
 				send({ type: "get_notify_config" });
@@ -766,13 +884,32 @@ export function App() {
 			case "settings.environment":
 				send({ type: "get_environment" });
 				break;
+			case "settings.security":
+				// REST-backed; nothing to pull over the socket.
+				break;
 			case "about":
-				send({ type: "get_config" });
 				send({ type: "get_state" });
+				send({ type: "get_model_library" });
 				refreshStats();
 				break;
 		}
-	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters]);
+	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters, gateFilter, gatePage, loadGates]);
+
+	/**
+	 * The audit page reads on open and on every filter change. Its query is also
+	 * remembered, so judgments that land while it is open refresh the same view.
+	 */
+	useEffect(() => {
+		if (page !== "gates" || !connected) return;
+		loadGates(gateFilter, gatePage);
+	}, [page, connected, gateFilter, gatePage, loadGates]);
+
+	// Leaving the page drops the remembered query, so a judgment arriving while the
+	// operator is elsewhere does not trigger a query nobody is looking at.
+	useEffect(() => {
+		if (page === "gates") return;
+		gateQueryRef.current = null;
+	}, [page]);
 
 	/**
 	 * The hub re-reads on every project change: findings are project-scoped, so
@@ -816,6 +953,7 @@ export function App() {
 	);
 
 	const mode: ZGMode = snapshot?.mode ?? "review";
+	const gatekeeper = snapshot?.gatekeeper ?? null;
 	const streaming = runActive;
 	const pendingApprovals = snapshot?.pendingApprovals ?? [];
 	const needsConfig = snapshot !== null && !snapshot.modelConfigured;
@@ -825,6 +963,16 @@ export function App() {
 	const subagentRunning = subagentRuns.filter((run) => run.status === "running").length;
 	const goal = snapshot?.goal ?? null;
 	/**
+	 * The judge answered nothing since its last failure: commands are being let
+	 * through ungated right now. A failure older than the newest success is
+	 * history, and a banner that never went away would be ignored when it matters.
+	 */
+	const gateDown =
+		gatekeeper !== null &&
+		gatekeeper.lastFailureAt !== null &&
+		(gatekeeper.lastSuccessAt === null || gatekeeper.lastFailureAt > gatekeeper.lastSuccessAt);
+	const showGateBanner = gateDown && dismissedGateFailure !== gatekeeper?.lastFailureAt;
+	/**
 	 * Why the goal button is unavailable, or null when it can start one. The
 	 * reasons mirror the server's own refusals, so the button never opens a dialog
 	 * whose submission is guaranteed to fail.
@@ -833,8 +981,8 @@ export function App() {
 		? "请先创建或选择一个项目"
 		: envReport && !envReport.ok
 			? "Docker 环境不可用，无法启动目标"
-			: mode !== "auto"
-				? "持续目标只在自动模式下可用：请先切到自动模式"
+			: mode === "review"
+				? "持续目标只在自动执行或 AI 审批模式下可用：请先切换模式"
 				: streaming
 					? "Agent 正在运行，等本轮结束或中止后再启动"
 					: snapshot?.compacting
@@ -908,6 +1056,27 @@ export function App() {
 		sessionCount[id] = (sessionCount[id] ?? 0) + 1;
 	}
 
+	if (authState === "checking") {
+		return <div className="app app--boot" />;
+	}
+	if (authState === "setup" || authState === "login") {
+		return (
+			<AuthGate
+				mode={authState}
+				// The setup/login response already set the cookie; read the account
+				// name back so the sider shows it without a reload.
+				onDone={() => {
+					void (async () => {
+						const session = await fetch("/api/auth/session").catch(() => null);
+						const data = (await session?.json().catch(() => ({}))) as { username?: unknown } | undefined;
+						setAuthUser(typeof data?.username === "string" ? data.username : null);
+						setAuthState("ready");
+					})();
+				}}
+			/>
+		);
+	}
+
 	return (
 		<div className="app">
 			<AppSider
@@ -946,6 +1115,10 @@ export function App() {
 				onDeleteSession={(path) => send({ type: "delete_session", path })}
 				onSetSessionStatus={(path, status) => send({ type: "set_session_status", path, status })}
 				onRefresh={refreshPage}
+				authUser={authUser}
+				onLogout={() => {
+					void logout();
+				}}
 				projectSlot={
 					<ProjectPicker
 						projects={projects}
@@ -994,6 +1167,32 @@ export function App() {
 							</span>
 						</div>
 					) : null}
+					{showGateBanner ? (
+						<div className="gate-banner" role="status">
+							<span className="gate-banner-dot" />
+							<span title={gatekeeper?.lastError ?? undefined}>
+								守门模型不可用，已放行 {gatekeeper?.failures ?? 0} 次判定（AI 审批模式下命令未经过拦截直接执行）。
+								{gatekeeper?.lastError ? ` 最近错误：${gatekeeper.lastError}` : ""}
+								请到
+								<button type="button" className="link" onClick={() => setPage("settings.model")}>
+									设置 → 模型
+								</button>
+								检查守门端点，或到
+								<button type="button" className="link" onClick={() => setPage("gates")}>
+									守门审计
+								</button>
+								查看失败记录。
+							</span>
+							<button
+								type="button"
+								className="gate-banner-close"
+								title="本次失败期间不再提示；下一次判定失败会重新出现"
+								onClick={() => setDismissedGateFailure(gatekeeper?.lastFailureAt ?? null)}
+							>
+								×
+							</button>
+						</div>
+					) : null}
 					{/* The gate replaces the chat page only: settings and the project list
 					    must stay reachable, or a first run could never build the image. */}
 					{needsProject && page === "chat" ? (
@@ -1016,6 +1215,8 @@ export function App() {
 							</div>
 							<ChatToolbar
 								mode={mode}
+								sessionOverride={gatekeeper?.sessionOverride ?? null}
+								globalMode={gatekeeper?.globalMode ?? "review"}
 								streaming={streaming}
 								pendingApprovals={pendingApprovals.length}
 								subagentRunning={subagentRunning}
@@ -1029,8 +1230,7 @@ export function App() {
 								onSetSessionStatus={(status) => send({ type: "set_session_status", status })}
 								onToggleFiles={() => setFilesOpen((prev) => !prev)}
 								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
-								onSetMode={(next) => send({ type: "set_mode", mode: next })}
-								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
+								onSetMode={(next) => send({ type: "set_mode", mode: next })}								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
 								onToggleBranch={() => {
 									setBranchOpen((prev) => {
 										const next = !prev;
@@ -1292,26 +1492,51 @@ export function App() {
 							onOpenTaskEvents={(taskId) => send({ type: "engine_task_events", taskId })}
 							onOpenCommanderEvents={(engineId) => send({ type: "engine_commander_events", id: engineId })}
 							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+							judgeAvailable={modelLibrary?.resolved.judge != null}
+						/>
+					) : page === "gates" ? (
+						<GateAuditPage
+							items={gateItems}
+							stats={gateStats}
+							total={gateTotal}
+							page={gatePage}
+							filter={gateFilter}
+							projects={projects}
+							onQuery={(filter, nextPage) => {
+								setGateFilter(filter);
+								setGatePage(nextPage);
+							}}
+							onOpenSession={(path) => {
+								openPage("chat");
+								send({ type: "switch_session", path });
+							}}
+							sessionPathOf={(sessionId) =>
+								sessions.find((session) => session.id === sessionId)?.path ?? null
+							}
 						/>
 					) : page === "settings.model" ? (
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
 									设置
-									<span className="ws-panel__sub">模型端点</span>
+									<span className="ws-panel__sub">模型</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
 								<SettingsPanel
-									config={config}
-									onSave={(next) => send({ type: "save_config", config: next })}
-									onTest={async (candidate) => {
+									library={modelLibrary}
+									onSaveEntry={(entry) => send({ type: "save_model_entry", ...entry })}
+									onRemoveEntry={(id) => send({ type: "remove_model_entry", id })}
+									onDuplicateEntry={(id) => send({ type: "duplicate_model_entry", id })}
+									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
+									onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
+									onTestEntry={async (id) => {
 										const result = await new Promise<ZGTestResult | null>((resolve) => {
-											testResolverRef.current = resolve;
-											connectionRef.current?.send({ type: "test_config", config: candidate });
+											modelTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_model_entry", id });
 											window.setTimeout(() => {
-												if (testResolverRef.current === resolve) {
-													testResolverRef.current = null;
+												if (modelTestResolverRef.current === resolve) {
+													modelTestResolverRef.current = null;
 													resolve(null);
 												}
 											}, 20000);
@@ -1319,6 +1544,38 @@ export function App() {
 										return result;
 									}}
 								/>
+								<GatekeeperPanel
+									gatekeeperConfig={gatekeeperConfig}
+									judgeResolved={modelLibrary?.resolved.judge ?? null}
+									onSave={(settings) => send({ type: "save_gatekeeper_config", config: settings })}
+									onTestJudge={async () => {
+										const result = await new Promise<{ result: ZGTestResult; raw?: string } | null>(
+											(resolve) => {
+												judgeTestResolverRef.current = resolve;
+												connectionRef.current?.send({ type: "test_judge" });
+												window.setTimeout(() => {
+													if (judgeTestResolverRef.current === resolve) {
+														judgeTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 130000);
+											},
+										);
+										return result;
+									}}
+								/>
+							</div>
+						</div>
+					) : page === "settings.security" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">安全</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<SecurityPanel username={authUser} />
 							</div>
 						</div>
 					) : page === "settings.notify" ? (
@@ -1416,7 +1673,7 @@ export function App() {
 					) : (
 						<AboutPage
 							snapshot={snapshot}
-							config={config}
+							main={modelLibrary?.resolved.main ?? null}
 							stats={stats}
 							project={snapshot?.project ?? null}
 							connected={connected}

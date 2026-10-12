@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 
 import type { ZGMode, ZGSessionStatus, ZGThinkingLevel } from "../types.ts";
+import { ZG_MODES, ZG_MODE_LABELS } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
 import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
@@ -36,6 +37,8 @@ const THINKING_LABELS: Record<ZGThinkingLevel, string> = {
 
 export function ChatToolbar({
 	mode,
+	sessionOverride,
+	globalMode,
 	streaming,
 	pendingApprovals,
 	subagentRunning,
@@ -60,6 +63,9 @@ export function ChatToolbar({
 	onRemoveAllowedPrefix,
 }: {
 	mode: ZGMode;
+	/** The active session's own choice; null means it follows the global default. */
+	sessionOverride: ZGMode | null;
+	globalMode: ZGMode;
 	streaming: boolean;
 	pendingApprovals: number;
 	subagentRunning: number;
@@ -74,7 +80,7 @@ export function ChatToolbar({
 	onSetSessionStatus: (status: ZGSessionStatus | null) => void;
 	onToggleFiles: () => void;
 	onToggleSubagents: () => void;
-	onSetMode: (mode: ZGMode) => void;
+	onSetMode: (mode: ZGMode | null) => void;
 	onSetThinkingLevel: (level: ZGThinkingLevel) => void;
 	onToggleBranch: () => void;
 	onCompact: () => void;
@@ -99,18 +105,42 @@ export function ChatToolbar({
 
 	return (
 		<div className="chat-toolbar">
-			<div className="mode-switch" title="审批模式会在每条命令执行前询问；自动模式直接执行">
+			<div
+				className="mode-switch"
+				title={
+					"审批模式：每条命令执行前等人放行；" +
+					"AI 审批：每条命令先交给守门模型判定，拦截时把理由回给 Agent；" +
+					"自动执行：不做任何拦截。切换只影响本会话"
+				}
+			>
+				{ZG_MODES.map((item) => (
+					<button
+						key={item}
+						type="button"
+						className={mode === item ? "on" : ""}
+						onClick={() => onSetMode(item)}
+					>
+						{ZG_MODE_LABELS[item]}
+					</button>
+				))}
+			</div>
+			{sessionOverride === null ? (
+				<span
+					className="mode-scope"
+					title={`本会话跟随全局默认（${ZG_MODE_LABELS[globalMode]}）。点任一模式可为本会话单独设定`}
+				>
+					跟随全局
+				</span>
+			) : (
 				<button
 					type="button"
-					className={mode === "review" ? "on" : ""}
-					onClick={() => onSetMode("review")}
+					className="ghost small"
+					onClick={() => onSetMode(null)}
+					title={`清除本会话的单独设定，重新跟随全局默认（${ZG_MODE_LABELS[globalMode]}）`}
 				>
-					审批模式
+					跟随全局
 				</button>
-				<button type="button" className={mode === "auto" ? "on" : ""} onClick={() => onSetMode("auto")}>
-					自动执行
-				</button>
-			</div>
+			)}
 			<label className="thinking-picker" title="模型的推理强度（仅对本次会话生效）">
 				思考
 				<select

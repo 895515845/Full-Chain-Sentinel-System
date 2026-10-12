@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { modelsJsonPath, readModelConfig, writeModelConfig } from "../src/model-config.ts";
+import {
+	modelsJsonPath,
+	readProviderModelConfig,
+	removeProviderModelConfig,
+	writeProviderModelConfig,
+} from "../src/model-config.ts";
 
 let root = "";
 
@@ -16,10 +21,14 @@ afterEach(() => {
 	root = "";
 });
 
-describe("endpoint model configuration", () => {
+describe("provider model configuration", () => {
 	test("declares image input so attachments are not dropped", () => {
 		const agentDir = freshAgentDir();
-		writeModelConfig(agentDir, { baseUrl: "https://example.test/v1", apiKey: "k", modelId: "vision-model" });
+		writeProviderModelConfig(agentDir, "zg-endpoint", "主端点", {
+			baseUrl: "https://example.test/v1",
+			apiKey: "k",
+			modelId: "vision-model",
+		});
 		const written = JSON.parse(readFileSync(modelsJsonPath(agentDir), "utf-8")) as {
 			providers: Record<string, { models: Array<{ input?: string[] }> }>;
 		};
@@ -48,7 +57,11 @@ describe("endpoint model configuration", () => {
 			}),
 		);
 
-		writeModelConfig(agentDir, { baseUrl: "https://new.test/v1", apiKey: "", modelId: "text-only" });
+		writeProviderModelConfig(agentDir, "zg-endpoint", "主端点", {
+			baseUrl: "https://new.test/v1",
+			apiKey: "",
+			modelId: "text-only",
+		});
 		const written = JSON.parse(readFileSync(modelsJsonPath(agentDir), "utf-8")) as {
 			providers: Record<string, { headers?: Record<string, string>; models: Array<{ input?: string[] }> }>;
 		};
@@ -58,17 +71,40 @@ describe("endpoint model configuration", () => {
 		expect(written.providers.other?.models[0]).toBeDefined();
 	});
 
-	test("round-trips the endpoint the console edits", () => {
+	test("round-trips one provider entry", () => {
 		const agentDir = freshAgentDir();
-		writeModelConfig(agentDir, { baseUrl: "https://example.test/v1", apiKey: "secret", modelId: "m1" });
-		expect(readModelConfig(agentDir)).toEqual({
+		writeProviderModelConfig(agentDir, "zg-model-1", "备用", {
+			baseUrl: "https://example.test/v1",
+			apiKey: "secret",
+			modelId: "m1",
+		});
+		expect(readProviderModelConfig(agentDir, "zg-model-1")).toEqual({
 			baseUrl: "https://example.test/v1",
 			apiKey: "secret",
 			modelId: "m1",
 		});
 	});
 
-	test("returns null when no endpoint is configured", () => {
-		expect(readModelConfig(freshAgentDir())).toBeNull();
+	test("writes a placeholder bearer for an unauthenticated endpoint", () => {
+		const agentDir = freshAgentDir();
+		writeProviderModelConfig(agentDir, "zg-model-2", "本地", {
+			baseUrl: "http://127.0.0.1:8000/v1",
+			apiKey: "",
+			modelId: "local",
+		});
+		expect(readProviderModelConfig(agentDir, "zg-model-2")?.apiKey).toBe("zgagent-no-auth");
+	});
+
+	test("removes one provider and leaves the others alone", () => {
+		const agentDir = freshAgentDir();
+		writeProviderModelConfig(agentDir, "a", "A", { baseUrl: "http://a/v1", apiKey: "", modelId: "a" });
+		writeProviderModelConfig(agentDir, "b", "B", { baseUrl: "http://b/v1", apiKey: "", modelId: "b" });
+		removeProviderModelConfig(agentDir, "a");
+		expect(readProviderModelConfig(agentDir, "a")).toBeNull();
+		expect(readProviderModelConfig(agentDir, "b")?.modelId).toBe("b");
+	});
+
+	test("returns null when the provider is missing", () => {
+		expect(readProviderModelConfig(freshAgentDir(), "zg-endpoint")).toBeNull();
 	});
 });

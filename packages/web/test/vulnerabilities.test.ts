@@ -18,7 +18,7 @@ import {
 	readPermissionsConfig,
 } from "../src/permissions.ts";
 import type { ZGVulnerability } from "../src/protocol.ts";
-import { createVulnerabilityTools } from "../src/vuln-tool.ts";
+import { createVulnerabilityTools, MAX_VULN_TITLE_CHARS, normalizeVulnTitle } from "../src/vuln-tool.ts";
 import {
 	isSeverityMismatch,
 	severityForCvss,
@@ -310,6 +310,54 @@ test("vuln_submit records the finding and reports its label", async () => {
 	expect(high).toHaveLength(1);
 	expect(high[0]?.label).toBe("E2E-PROJECT-0001");
 	expect(changes).toHaveLength(1);
+});
+
+test("a title loses its plan-number prefix and trailing punctuation", () => {
+	// Agents carry their plan number through a run and prefix it to every output;
+	// the hub only wants the flaw.
+	expect(normalizeVulnTitle("【计划编号 PLAN-0109】后台登录处 SQL 注入")).toBe("后台登录处 SQL 注入");
+	expect(normalizeVulnTitle("【T1】【计划编号 3】附件下载服务匿名可达")).toBe("附件下载服务匿名可达");
+	expect(normalizeVulnTitle("  1. 命令注入\n")).toBe("命令注入");
+	expect(normalizeVulnTitle("命令注入。")).toBe("命令注入");
+	// A trailing classification is part of the title and stays.
+	expect(normalizeVulnTitle("登录端点匿名可达（CWE-307）")).toBe("登录端点匿名可达（CWE-307）");
+});
+
+test("vuln_submit normalizes the title it stores", async () => {
+	const store = openStore();
+	const { call } = mountTools(store);
+	const result = await call("vuln_submit", {
+		title: "【计划编号 PLAN-0508】/api/report/export 免验证码登录端点匿名可达。",
+		severity: "medium",
+		cvss: 5.3,
+		target: "https://target/api/report/export",
+		description: "免验证码登录端点匿名可达。",
+		packet: "POST /api/report/export HTTP/1.1",
+	});
+	expect(result.isError).toBeUndefined();
+	expect(store.list("project-a")[0]?.title).toBe("/api/report/export 免验证码登录端点匿名可达");
+	expect(result.content[0]?.text).toContain("标题已规范化");
+});
+
+test("vuln_submit refuses a title that is still a paragraph", async () => {
+	const store = openStore();
+	const { call, changes } = mountTools(store);
+	const long = `【计划编号 PLAN-0109】结论更正：api/report/export 非 SSRF，第一轮 0201 判定为误报（建议撤销）`;
+	expect(long.length).toBeGreaterThan(MAX_VULN_TITLE_CHARS);
+	const result = await call("vuln_submit", {
+		title: long,
+		severity: "info",
+		cvss: 0,
+		target: "https://target/api/report/export",
+		description: "结论更正。",
+		packet: "GET /api/report/export HTTP/1.1",
+	});
+	expect(result.isError).toBe(true);
+	expect(result.content[0]?.text).toContain(`上限 ${MAX_VULN_TITLE_CHARS} 字`);
+	expect(result.content[0]?.text).toContain("写进 description");
+	// Nothing lands, so the agent has to resubmit a real title.
+	expect(store.countByProject("project-a")).toBe(0);
+	expect(changes).toHaveLength(0);
 });
 
 test("vuln_submit rejects an out-of-range CVSS score", async () => {

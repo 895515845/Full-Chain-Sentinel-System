@@ -262,8 +262,12 @@ export function VulnPage({
 										{ZG_VULN_STATUS_LABELS[item.status]}
 									</span>
 								</span>
-								<span className="data-mono">{item.target}</span>
-								<span className="data-name">{item.title}</span>
+								<span className="data-mono" title={item.target}>
+									{item.target}
+								</span>
+								<span className="data-name" title={item.title}>
+									{item.title}
+								</span>
 								<span className="data-mono">{item.source}</span>
 								<span className="data-mono">{formatWhen(item.createdAt)}</span>
 							</div>
@@ -395,8 +399,8 @@ export function VulnDetail({
 			<div className="modal vuln-detail" onClick={(event) => event.stopPropagation()}>
 				<div className="vuln-detail__head">
 					<div>
-						<div className="vuln-detail__title">
-							<span className="data-mono">{vuln.label}</span> {vuln.title}
+						<div className="vuln-detail__title" title={vuln.title}>
+							{vuln.title}
 						</div>
 						<div className="vuln-detail__meta">
 							<span className={severityClass(vuln.severity)}>{ZG_VULN_SEVERITY_LABELS[vuln.severity]}</span>
@@ -417,6 +421,10 @@ export function VulnDetail({
 
 				<div className="vuln-detail__body">
 					<div className="vuln-meta-grid">
+						<div>
+							<span>编号</span>
+							<code>{vuln.label}</code>
+						</div>
 						<div>
 							<span>目标</span>
 							<code>{vuln.target}</code>

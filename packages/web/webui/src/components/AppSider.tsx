@@ -10,7 +10,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
-import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
+import { ZG_MODE_LABELS } from "../types.ts";
+import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
 import { SessionStatusControl, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
@@ -33,6 +34,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
 			{ page: "vulns", label: "漏洞", icon: VulnIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
+			{ page: "gates", label: "守门审计", icon: GateIcon },
 		],
 	},
 	{
@@ -49,6 +51,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.model", label: "模型", icon: ModelIcon },
 	{ page: "settings.notify", label: "通知", icon: NotifyIcon },
 	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
+	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];
 
@@ -85,6 +88,8 @@ export function AppSider({
 	onSetSessionStatus,
 	projectSlot,
 	onRefresh,
+	authUser,
+	onLogout,
 }: {
 	collapsed: boolean;
 	onToggleCollapse: () => void;
@@ -107,6 +112,9 @@ export function AppSider({
 	onSetSessionStatus: (path: string, status: ZGSessionStatus | null) => void;
 	projectSlot: React.ReactNode;
 	onRefresh: () => void;
+	/** The logged-in administrator; null hides the logout button. */
+	authUser: string | null;
+	onLogout: () => void;
 }) {
 	// The session list is the operator's working set, so it starts open; the
 	// settings submenu stays folded until it is needed.
@@ -501,8 +509,18 @@ export function AppSider({
 			<div className="sider-footer">
 				<span className="sider-foot-status">
 					<span className={`dot ${connected ? "ok" : ""}`} />
-					{connected ? (mode === "review" ? "审批模式" : "自动执行") : "已断开"}
+					{connected ? ZG_MODE_LABELS[mode] : "已断开"}
 				</span>
+				{authUser ? (
+					<>
+						<span className="sider-foot-user" title={`已登录：${authUser}`}>
+							{authUser}
+						</span>
+						<button type="button" className="sider-foot-btn" title="退出登录" onClick={onLogout}>
+							<LogoutIcon />
+						</button>
+					</>
+				) : null}
 				<button type="button" className="sider-foot-btn" title="刷新当前页" onClick={onRefresh}>
 					<RefreshIcon />
 				</button>
