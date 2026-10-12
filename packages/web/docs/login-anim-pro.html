@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>登录页左侧动画 · 高阶方案</title>
+<style>
+	:root {
+		--bg: #0b0f14;
+		--panel: #0d1218;
+		--line: #1d2733;
+		--accent: #1668dc;
+	}
+	* { box-sizing: border-box; }
+	body { margin: 0; background: #05070a; color: #e8eaed; font: 13px/1.6 -apple-system, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif; }
+
+	.switcher {
+		position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+		display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+		padding: 10px 16px;
+		background: #0a0d11ee; border-bottom: 1px solid var(--line);
+		backdrop-filter: blur(6px);
+	}
+	.switcher button {
+		padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px;
+		background: transparent; color: #8b98a5; font-size: 12.5px; cursor: pointer; font-family: inherit;
+	}
+	.switcher button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+	.switcher .desc { margin-left: auto; color: #8b98a5; font-size: 12px; max-width: 620px; text-align: right; }
+	.switcher .hint { width: 100%; color: #5c6873; font-size: 11.5px; }
+
+	.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(400px, 520px); height: 100vh; padding-top: 76px; }
+	.visual { position: relative; overflow: hidden; background: var(--bg); }
+	.visual > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+	/* 深度暗角：所有方案共用的电影感收边 */
+	.visual::after {
+		content: ""; position: absolute; inset: 0; pointer-events: none;
+		background: radial-gradient(120% 90% at 42% 46%, transparent 55%, #05070acc 100%);
+	}
+
+	.brand { position: absolute; left: 52px; bottom: 48px; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+	.brand-row { display: flex; align-items: center; gap: 14px; }
+	.brand-badge {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 44px; height: 44px; border-radius: 10px;
+		background: var(--accent); color: #fff; font-size: 17px; font-weight: 700;
+		box-shadow: 0 0 24px #1668dc66;
+	}
+	.brand-name { font-size: 22px; font-weight: 600; color: #fff; }
+	.tagline { color: #8b98a5; font-size: 13px; }
+
+	.panel { display: flex; align-items: center; justify-content: center; background: var(--panel); border-left: 1px solid var(--line); }
+	.form { width: min(340px, 100%); display: flex; flex-direction: column; gap: 14px; }
+	.form h1 { margin: 0; font-size: 21px; color: #fff; }
+	.form .hint { margin: -6px 0 4px; color: #8b98a5; font-size: 12.5px; }
+	.form .field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: #aab4bf; }
+	.form .field input { height: 40px; padding: 0 12px; border: 1px solid #24313f; border-radius: 8px; background: #0f161e; color: var(--text); font-size: 14px; }
+	.form .submit { height: 42px; border: none; border-radius: 8px; background: #f2f3f5; color: #101418; font-size: 14px; font-weight: 600; }
+</style>
+</head>
+<body>
+	<div class="switcher" id="switcher">
+		<button data-v="iso" class="on">S1 等距数据方阵</button>
+		<button data-v="shader">S2 极光地形着色器</button>
+		<button data-v="depth">S3 深空数据云</button>
+		<button data-v="silk">S4 丝绸流线</button>
+		<span class="desc" id="desc"></span>
+		<span class="hint">左侧面板即真实尺寸；鼠标在面板内移动可看视差。所有方案纯原生实现（Canvas 2D / WebGL），无第三方库，品牌文字保持静态可读。</span>
+	</div>
+
+	<div class="stage">
+		<aside class="visual" id="visual">
+			<canvas id="fx"></canvas>
+			<div class="brand">
+				<div class="brand-row">
+					<span class="brand-badge">ZG</span>
+					<span class="brand-name">ZGAgent</span>
+				</div>
+				<div class="tagline">授权渗透测试工作台</div>
+			</div>
+		</aside>
+		<main class="panel">
+			<form class="form" onsubmit="return false">
+				<h1>登录到工作台</h1>
+				<div class="hint">输入你的凭据以继续。</div>
+				<label class="field">用户名<input /></label>
+				<label class="field">密码<input type="password" /></label>
+				<button class="submit">登录</button>
+			</form>
+		</main>
+	</div>
+
+<script>
+const canvas = document.getElementById("fx");
+const ctx = canvas.getContext("2d");
+const visual = document.getElementById("visual");
+const mouse = { x: 0.5, y: 0.5, sx: 0.5, sy: 0.5 };
+visual.addEventListener("mousemove", (event) => {
+	const r = visual.getBoundingClientRect();
+	mouse.x = (event.clientX - r.left) / r.width;
+	mouse.y = (event.clientY - r.top) / r.height;
+});
+visual.addEventListener("mouseleave", () => { mouse.x = 0.5; mouse.y = 0.5; });
+
+let raf = 0;
+let current = "";
+let time = 0;
+
+function sizeCanvas() {
+	const r = visual.getBoundingClientRect();
+	const dpr = Math.min(2, devicePixelRatio || 1);
+	canvas.width = r.width * dpr;
+	canvas.height = r.height * dpr;
+	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	return { w: r.width, h: r.height, dpr };
+}
+
+function ease(target, current, k = 0.04) {
+	return current + (target - current) * k;
+}
+
+/* ==================================================================
+   S1 等距数据方阵 — 参考图的构成：暗色等距瓦片延伸到地平线，
+   高度由噪声驱动并量化成「堆叠方块」，三处红色异常簇脉冲呼吸，
+   波纹周期性从随机中心扫过，相机缓慢平移 + 鼠标视差，远处沉入雾里。
+   ================================================================== */
+function isoFactory() {
+	let { w, h } = sizeCanvas();
+	const TILE_W = 24;
+	const TILE_H = 12;
+	const STEP = 7;
+	// 楼的层高比地形大：地形一层 7px，楼一层 10px，高楼才有摩天楼的体量
+	const TOWER_STEP = 10;
+	const N = 60;
+	const CENTER = (N - 1) / 2;
+	// 高度剖面的作用半径：比可见范围略大，让最外围的楼也是「矮楼」而不是没有楼
+	const R_SPAN = N * 0.62;
+	// 红色异常簇：固定位置，持续脉冲
+	const clusters = [
+		{ i: 14, j: 34, r: 4.5, phase: 0 },
+		{ i: 38, j: 18, r: 4.0, phase: 2.1 },
+		{ i: 28, j: 44, r: 3.4, phase: 4.2 },
+		{ i: 46, j: 33, r: 3.6, phase: 1.1 },
+		{ i: 20, j: 12, r: 3.2, phase: 5.0 },
+	];
+	// 建成高度：目标值 + 当前值（当前值按速度追目标 = 楼「长出来」）
+	const builtNow = new Float32Array(N * N);
+	const builtTarget = new Float32Array(N * N);
+	const growing = [];
+	const TOWER_CAP = 240;
+	let towerCount = 0;
+	// 波纹永远从面板正中（网格中心）起
+	let ripple = { radius: 0, active: true };
+	let nextRipple = 1400;
+	// 本波要盖的楼：波开始时一次定好，波前到达才盖。
+	// 逐帧掷骰子会让同一格被反复判定（波前带宽 1.2 格、每帧推进 0.67 格），
+	// 实测把 72% 的格子都变成了楼，天际线就没了。
+	let pendingWave = [];
+	let camX = 0;
+	let camY = 0;
+	let ox = 0;
+	let oy = 0;
+
+	// 高度剖面：以中心为原点，中心最高，越往外越矮
+	function profileHeight(i, j) {
+		const d = Math.hypot(i - CENTER, j - CENTER);
+		const t = Math.max(0, 1 - d / R_SPAN);
+		return 3 + Math.pow(t, 1.25) * 10.5;
+	}
+	function buildTower(i, j, instant) {
+		const idx = i * N + j;
+		if (builtTarget[idx] > 0 || towerCount >= TOWER_CAP) return;
+		const target = profileHeight(i, j) * (0.82 + Math.random() * 0.36);
+		builtTarget[idx] = target;
+		if (instant) builtNow[idx] = target;
+		else growing.push(idx);
+		towerCount += 1;
+	}
+	// 每波选址：半径按 0.75 次幂分布 → 越靠中心单位面积越密
+	function planWave() {
+		pendingWave = [];
+		if (towerCount >= TOWER_CAP) return;
+		const quota = Math.min(130, TOWER_CAP - towerCount);
+		for (let k = 0; k < quota * 3 && pendingWave.length < quota; k += 1) {
+			// 1.0 次幂：单位面积密度 ∝ 1/r，楼向中心聚成商务区，
+			// 外圈只留少量矮楼，楼与楼之间才看得到暗地形（否则立面糊成一堵墙）
+			const r = Math.pow(Math.random(), 1.1) * R_SPAN;
+			const a = Math.random() * Math.PI * 2;
+			const i = Math.round(CENTER + Math.cos(a) * r);
+			const j = Math.round(CENTER + Math.sin(a) * r);
+			if (i < 1 || j < 1 || i > N - 2 || j > N - 2) continue;
+			if (builtTarget[i * N + j] > 0) continue;
+			pendingWave.push({ i, j, at: Math.hypot(i - CENTER, j - CENTER) });
+		}
+	}
+	// 开局预种中心楼群：核心先立起来，避免开局一片空地
+	for (let i = 0; i < N; i += 1) {
+		for (let j = 0; j < N; j += 1) {
+			if (Math.hypot(i - CENTER, j - CENTER) < 4.5 && Math.random() < 0.5) buildTower(i, j, false);
+		}
+	}
+	planWave();
+	// 绘制顺序：按 i+j 从远到近
+	const order = [];
+	for (let s = 0; s < N * 2; s += 1) {
+		for (let i = Math.max(0, s - N + 1); i <= Math.min(N - 1, s); i += 1) {
+			order.push([i, s - i]);
+		}
+	}
+	const dust = Array.from({ length: 60 }, () => ({
+		x: Math.random() * w,
+		y: Math.random() * h,
+		r: 0.6 + Math.random() * 1.2,
+		v: 0.4 + Math.random() * 1.2,
+		p: Math.random() * Math.PI * 2,
+	}));
+
+	function heightAt(i, j, t) {
+		let v = 0;
+		v += Math.sin(i * 0.42 + t * 0.7) * Math.cos(j * 0.36 - t * 0.5);
+		v += Math.sin((i + j) * 0.22 + t * 0.35) * 0.6;
+		v += Math.sin(i * 0.9 - t * 1.1) * Math.cos(j * 0.8 + t * 0.9) * 0.45;
+		const spikes = Math.max(0.18, v - 0.32) * 3.6;
+		let height = Math.floor(spikes);
+		for (const c of clusters) {
+			const d = Math.hypot(i - c.i, j - c.j);
+			if (d < c.r) {
+				const pulse = 0.55 + 0.45 * Math.sin(t * 1.4 + c.phase);
+				height = Math.max(height, Math.round(2 + (1 - d / c.r) * (3.4 + pulse * 2.6)));
+			}
+		}
+		// 波纹经过时地形短暂抬升
+		if (ripple.active) {
+			const d = Math.abs(Math.hypot(i - CENTER, j - CENTER) - ripple.radius);
+			if (d < 2.2) height += Math.round((1 - d / 2.2) * 3);
+		}
+		height += Math.round(builtNow[i * N + j]);
+		return Math.min(24, height);
+	}
+	function clusterTint(i, j) {
+		for (const c of clusters) {
+			if (Math.hypot(i - c.i, j - c.j) < c.r * 0.85) return true;
+		}
+		return false;
+	}
+
+	return {
+		resize() { ({ w, h } = sizeCanvas()); },
+		step(dt, t) {
+			// 波纹：从中心快速向外扩散，波前盖楼；半径越大楼越矮（剖面决定）
+			if (ripple.active) {
+				ripple.radius += dt * 0.04;
+				// 波前扫到哪栋就盖哪栋
+				for (let k = pendingWave.length - 1; k >= 0; k -= 1) {
+					if (pendingWave[k].at <= ripple.radius) {
+						buildTower(pendingWave[k].i, pendingWave[k].j, false);
+						pendingWave.splice(k, 1);
+					}
+				}
+				if (ripple.radius > R_SPAN + 6) {
+					ripple.active = false;
+					nextRipple = 2600 + Math.random() * 2400;
+				}
+			} else {
+				nextRipple -= dt;
+				if (nextRipple <= 0) {
+					ripple = { radius: 0, active: true };
+					planWave();
+				}
+			}
+			// 楼体快速长高
+			for (let k = growing.length - 1; k >= 0; k -= 1) {
+				const idx = growing[k];
+				const target = builtTarget[idx];
+				builtNow[idx] = Math.min(target, builtNow[idx] + dt * 0.028);
+				if (builtNow[idx] >= target) growing.splice(k, 1);
+			}
+			camX = ease((mouse.x - 0.5) * 60, camX);
+			camY = ease((mouse.y - 0.5) * 30, camY);
+			ox = w * 0.5 + Math.sin(t * 0.05) * 24 - camX;
+			// 网格中心对齐面板中心：中心楼群落在画面正中
+			oy = h * 0.5 - (N * TILE_H) / 2 + Math.cos(t * 0.04) * 10 + camY;
+
+			ctx.clearRect(0, 0, w, h);
+			// 中心冷光，托住最高的一圈楼
+			const gx = ox;
+			const gy = oy + (N * TILE_H) / 2;
+			const glow = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.min(w, h) * 0.5);
+			glow.addColorStop(0, "rgba(44,96,158,0.26)");
+			glow.addColorStop(1, "rgba(44,96,158,0)");
+			ctx.fillStyle = glow;
+			ctx.fillRect(0, 0, w, h);
+
+			const cells = [];
+			for (const [i, j] of order) {
+				const sx = ox + (i - j) * (TILE_W / 2);
+				const sy = oy + (i + j) * (TILE_H / 2);
+				if (sx < -TILE_W || sx > w + TILE_W || sy < -200 || sy > h + TILE_H) continue;
+				const builtH = builtNow[i * N + j];
+				const total = heightAt(i, j, t);
+				cells.push({ i, j, sx, sy, terrainH: total - Math.round(builtH), red: clusterTint(i, j), built: builtH });
+			}
+			cells.sort((a, b) => a.i + a.j - (b.i + b.j));
+			for (const c of cells) {
+				// 深度雾只按纵向（i+j 越小越靠地平线），不能用原来的 maxDist：
+				// 中心格子的 i+j 正好是最大值，会被雾吃掉，中心楼群就没了
+				const fog = 0.5 + 0.5 * Math.min(1, (c.i + c.j) / (N * 2));
+				const px = c.sx;
+				const hw = TILE_W / 2;
+				const hh = TILE_H / 2;
+				const lift = c.terrainH * STEP + c.built * TOWER_STEP;
+				const py = c.sy - lift;
+				const baseY = c.sy;
+				const tall = c.terrainH >= 3;
+				if (c.red) {
+					const pulse = 0.5 + 0.5 * Math.sin(t * 1.4 + (c.i + c.j) * 0.6);
+					ctx.fillStyle = `rgba(180,40,52,${0.5 * fog})`;
+					ctx.strokeStyle = `rgba(255,110,120,${(0.5 + pulse * 0.5) * fog})`;
+				} else if (c.built >= 2.5) {
+					// 顶面只做轮廓，亮度留给立面：楼顶最亮会变成一片「蓝宝石地毯」
+					ctx.fillStyle = `rgba(40,92,144,${0.95 * fog})`;
+					ctx.strokeStyle = `rgba(170,228,255,${(c.built >= 8 ? 0.95 : 0.75) * fog})`;
+				} else if (tall) {
+					ctx.fillStyle = `rgba(40,74,110,${0.28 * fog})`;
+					ctx.strokeStyle = `rgba(110,170,235,${0.18 * fog})`;
+				} else {
+					ctx.fillStyle = `rgba(17,26,38,${0.24 * fog})`;
+					ctx.strokeStyle = `rgba(90,120,150,${0.06 * fog})`;
+				}
+				if (lift > 0) {
+					ctx.beginPath();
+					ctx.moveTo(px - hw, py + hh);
+					ctx.lineTo(px, py + 2 * hh);
+					ctx.lineTo(px, baseY + 2 * hh);
+					ctx.lineTo(px - hw, baseY + hh);
+					ctx.closePath();
+					ctx.fillStyle = c.red
+						? `rgba(120,24,32,${0.6 * fog})`
+						: c.built >= 2.5
+							? `rgba(58,122,186,${1 * fog})`
+							: `rgba(11,19,30,${0.8 * fog})`;
+					ctx.fill();
+					ctx.beginPath();
+					ctx.moveTo(px + hw, py + hh);
+					ctx.lineTo(px, py + 2 * hh);
+					ctx.lineTo(px, baseY + 2 * hh);
+					ctx.lineTo(px + hw, baseY + hh);
+					ctx.closePath();
+					ctx.fillStyle = c.red
+						? `rgba(70,12,18,${0.7 * fog})`
+						: c.built >= 2.5
+							? `rgba(26,66,108,${0.95 * fog})`
+							: `rgba(7,12,20,${0.9 * fog})`;
+					ctx.fill();
+				}
+				ctx.beginPath();
+				ctx.moveTo(px, py);
+				ctx.lineTo(px + hw, py + hh);
+				ctx.lineTo(px, py + 2 * hh);
+				ctx.lineTo(px - hw, py + hh);
+				ctx.closePath();
+				ctx.fill();
+				ctx.stroke();
+				// 竖直棱线：把楼从「一摞方块」变成有体量的建筑
+				if (c.built >= 2.5 && lift > 0) {
+					ctx.strokeStyle = `rgba(190,235,255,${0.5 * fog})`;
+					ctx.beginPath();
+					ctx.moveTo(px, py + 2 * hh);
+					ctx.lineTo(px, baseY + 2 * hh);
+					ctx.stroke();
+				}
+				// 楼的窗灯：一部分楼亮一列暖色小点
+				if (c.built >= 3 && (c.i * 7 + c.j * 13) % 2 === 0) {
+					ctx.fillStyle = `rgba(255,214,140,${0.8 * fog})`;
+					const wins = Math.min(6, Math.floor(c.built * 0.8));
+					for (let k2 = 0; wins > 0 && k2 < wins; k2 += 1) {
+						ctx.fillRect(px - hw * 0.42, py + hh + k2 * STEP * 0.75 + 1, 2, 2);
+					}
+				}
+			}
+			// 漂浮尘埃：填补空域，缓慢上飘
+			for (const d of dust) {
+				d.y -= d.v * dt * 0.03;
+				d.x += Math.sin(t * 0.4 + d.p) * 0.12;
+				if (d.y < -10) { d.y = h + 10; d.x = Math.random() * w; }
+				const tw = 0.25 + 0.35 * Math.sin(t * 1.7 + d.p) ** 2;
+				ctx.fillStyle = `rgba(140,180,225,${tw})`;
+				ctx.beginPath();
+				ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+				ctx.fill();
+			}
+		},
+	};
+}
+
+/* ==================================================================
+   S2 极光地形着色器 — 一块 WebGL 片元着色器：域扭曲分形噪声缓慢
+   流动，蓝-青地形上有一条暗红「裂缝」缓慢迁徙，胶片颗粒 + 暗角。
+   着色器是逐像素的，观感是「液体地形」，和其他方案的逐物体完全不同。
+   ================================================================== */
+function shaderFactory() {
+	const { w, h, dpr } = sizeCanvas();
+	const gl = canvas.getContext("webgl", { antialias: false, alpha: false });
+	if (!gl) return isoFactory(); // 无 WebGL 时退回等距方阵
+	const vs = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
+	const fs = `
+precision highp float;
+uniform vec2 u_res;
+uniform float u_time;
+uniform vec2 u_mouse;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),
+             mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int k=0;k<5;k++){v+=a*noise(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}
+  return v;
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*u_res)/u_res.y;
+  uv+=u_mouse*0.06;
+  float t=u_time*0.045;
+  vec2 q=uv*2.2;
+  vec2 warp=vec2(fbm(q+t*0.9),fbm(q+vec2(5.2,1.3)-t*0.6));
+  float f=fbm(q+2.4*warp+vec2(t*0.4,-t*0.25));
+  vec3 deep=vec3(0.012,0.024,0.045);
+  vec3 blue=vec3(0.05,0.20,0.46);
+  vec3 teal=vec3(0.09,0.46,0.56);
+  vec3 col=mix(deep,blue,smoothstep(0.08,0.78,f));
+  col+=teal*pow(smoothstep(0.46,0.94,f),1.7)*0.75;
+  float seam=smoothstep(0.014,0.0,abs(f-0.585));
+  float seam2=smoothstep(0.012,0.0,abs(f-0.36));
+  col=mix(col,vec3(0.42,0.07,0.10),seam*0.9+seam2*0.5);
+  col+=vec3(0.5,0.62,0.75)*pow(max(0.,1.-length(uv)*1.1),3.)*0.14;
+  float grain=hash(gl_FragCoord.xy+fract(u_time))*0.045;
+  col+=(grain-0.022);
+  float vig=1.-dot(uv,uv)*0.55;
+  gl_FragColor=vec4(col*vig,1.);
+}`;
+	function compile(type, source) {
+		const shader = gl.createShader(type);
+		gl.shaderSource(shader, source);
+		gl.compileShader(shader);
+		return shader;
+	}
+	const program = gl.createProgram();
+	gl.attachShader(program, compile(gl.VERTEX_SHADER, vs));
+	gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fs));
+	gl.linkProgram(program);
+	gl.useProgram(program);
+	const buffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+	const loc = gl.getAttribLocation(program, "p");
+	gl.enableVertexAttribArray(loc);
+	gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+	const uRes = gl.getUniformLocation(program, "u_res");
+	const uTime = gl.getUniformLocation(program, "u_time");
+	const uMouse = gl.getUniformLocation(program, "u_mouse");
+	gl.viewport(0, 0, canvas.width, canvas.height);
+	let mx = 0.5;
+	let my = 0.5;
+	return {
+		resize() {
+			const size = sizeCanvas();
+			gl.viewport(0, 0, canvas.width, canvas.height);
+			gl.uniform2f(uRes, size.w, size.h);
+			w = size.w; h = size.h;
+		},
+		step(_dt, t) {
+			mx = ease(mouse.x, mx);
+			my = ease(1 - mouse.y, my);
+			gl.uniform2f(uRes, w, h);
+			gl.uniform1f(uTime, t);
+			gl.uniform2f(uMouse, mx - 0.5, my - 0.5);
+			gl.drawArrays(gl.TRIANGLES, 0, 3);
+			void dpr;
+		},
+	};
+}
+
+/* ==================================================================
+   S3 深空数据云 — 三千个点在缓慢旋转的三维空间里，透视投影 +
+   距离雾 + 近大远小，少数红色「目标」带脉冲环；鼠标倾斜整个云。
+   ================================================================== */
+function depthFactory() {
+	let { w, h } = sizeCanvas();
+	const N = 5200;
+	const pts = Array.from({ length: N }, () => {
+		const r = 0.35 + Math.random() * 0.65;
+		const theta = Math.random() * Math.PI * 2;
+		const phi = Math.acos(2 * Math.random() - 1);
+		return {
+			x: r * Math.sin(phi) * Math.cos(theta),
+			y: r * Math.sin(phi) * Math.sin(theta) * 0.62,
+			z: r * Math.cos(phi),
+			red: Math.random() < 0.02,
+			phase: Math.random() * Math.PI * 2,
+		};
+	});
+	let yaw = 0;
+	let tilt = 0;
+	return {
+		resize() { ({ w, h } = sizeCanvas()); },
+		step(dt, t) {
+			// 星云底色：两团冷光减少空旷感
+			ctx.fillStyle = "#0b0f14";
+			ctx.fillRect(0, 0, w, h);
+			const g1 = ctx.createRadialGradient(w * 0.3, h * 0.35, 0, w * 0.3, h * 0.35, Math.min(w, h) * 0.7);
+			g1.addColorStop(0, "rgba(22,52,88,0.55)");
+			g1.addColorStop(1, "rgba(22,52,88,0)");
+			ctx.fillStyle = g1;
+			ctx.fillRect(0, 0, w, h);
+			const g2 = ctx.createRadialGradient(w * 0.72, h * 0.6, 0, w * 0.72, h * 0.6, Math.min(w, h) * 0.6);
+			g2.addColorStop(0, "rgba(64,40,80,0.30)");
+			g2.addColorStop(1, "rgba(64,40,80,0)");
+			ctx.fillStyle = g2;
+			ctx.fillRect(0, 0, w, h);
+			yaw += dt * 0.00006;
+			const targetTilt = (mouse.y - 0.5) * 0.5;
+			tilt = ease(targetTilt, tilt);
+			const extraYaw = (mouse.x - 0.5) * 0.4;
+			const cx = w * 0.5;
+			const cy = h * 0.48;
+			const scale = Math.min(w, h) * 1.18;
+			const cosY = Math.cos(yaw + extraYaw);
+			const sinY = Math.sin(yaw + extraYaw);
+			const cosX = Math.cos(tilt);
+			const sinX = Math.sin(tilt);
+			const projected = [];
+			for (const p of pts) {
+				const x1 = p.x * cosY - p.z * sinY;
+				const z1 = p.x * sinY + p.z * cosY;
+				const y1 = p.y * cosX - z1 * sinX;
+				const z2 = p.y * sinX + z1 * cosX;
+				const depth = z2 + 1.9;
+				if (depth <= 0.15) continue;
+				const k = scale / depth;
+				const sx = cx + x1 * k;
+				const sy = cy + y1 * k;
+				if (sx < -8 || sx > w + 8 || sy < -8 || sy > h + 8) continue;
+				const fog = Math.max(0, Math.min(1, 1.95 - depth)) * 0.95;
+				projected.push({ sx, sy, fog, red: p.red, phase: p.phase, size: p.red ? 2.4 : 1.4 });
+			}
+			projected.sort((a, b) => a.fog - b.fog);
+			for (const p of projected) {
+				if (p.red) {
+					const pulse = 0.5 + 0.5 * Math.sin(t * 2 + p.phase);
+					ctx.strokeStyle = `rgba(227,77,89,${(0.25 + pulse * 0.5) * p.fog})`;
+					ctx.beginPath();
+					ctx.arc(p.sx, p.sy, 5 + pulse * 4, 0, Math.PI * 2);
+					ctx.stroke();
+					ctx.fillStyle = `rgba(255,120,130,${p.fog})`;
+				} else {
+					ctx.fillStyle = `rgba(120,175,240,${p.fog * 0.85})`;
+				}
+				ctx.beginPath();
+				ctx.arc(p.sx, p.sy, p.size * (0.6 + p.fog * 0.8), 0, Math.PI * 2);
+				ctx.fill();
+			}
+		},
+	};
+}
+
+/* ==================================================================
+   S4 丝绸流线 — 两千个粒子被 curl 噪声场推着走，拖着渐隐的丝线，
+   形成不断重组的暗色绸缎；少数红色粒子像异常轨迹。
+   ================================================================== */
+function silkFactory() {
+	let { w, h } = sizeCanvas();
+	const N = 3200;
+	const parts = Array.from({ length: N }, () => ({
+		x: Math.random() * w,
+		y: Math.random() * h,
+		px: 0,
+		py: 0,
+		red: Math.random() < 0.02,
+		life: Math.random() * 300,
+	}));
+	for (const p of parts) { p.px = p.x; p.py = p.y; }
+	function flow(x, y, t) {
+		const s = 0.0016;
+		const a = Math.sin(x * s * 1.7 + t * 0.25) + Math.cos(y * s * 1.3 - t * 0.2);
+		const b = Math.sin((x + y) * s + t * 0.18);
+		return { vx: Math.cos(a * 2.4 + b * 1.8), vy: Math.sin(a * 2.1 - b * 2.2) };
+	}
+	return {
+		resize() { ({ w, h } = sizeCanvas()); },
+		step(dt, t) {
+			// 拖影：低透明度覆盖而不是清屏
+			ctx.fillStyle = "rgba(11,15,20,0.055)";
+			ctx.fillRect(0, 0, w, h);
+			const speed = 1.15 + (mouse.x - 0.5) * 1.6;
+			for (const p of parts) {
+				p.px = p.x;
+				p.py = p.y;
+				const f = flow(p.x, p.y, t);
+				p.x += f.vx * speed * dt * 0.14;
+				p.y += f.vy * speed * dt * 0.14;
+				p.life -= dt * 0.06;
+				if (p.life <= 0 || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) {
+					p.x = Math.random() * w;
+					p.y = Math.random() * h;
+					p.px = p.x;
+					p.py = p.y;
+					p.life = 200 + Math.random() * 300;
+					continue;
+				}
+				if (p.red) {
+					ctx.strokeStyle = "rgba(227,77,89,0.5)";
+					ctx.lineWidth = 1.4;
+				} else {
+					ctx.strokeStyle = "rgba(96,156,224,0.21)";
+					ctx.lineWidth = 1;
+				}
+				ctx.beginPath();
+				ctx.moveTo(p.px, p.py);
+				ctx.lineTo(p.x, p.y);
+				ctx.stroke();
+			}
+		},
+	};
+}
+
+const DESCRIPTIONS = {
+	iso: "S1 等距数据方阵 — 复刻参考图构成：噪声驱动的堆叠方块延伸到地平线，三处红色异常簇脉冲，波纹周期扫过，雾化远景 + 鼠标视差。Canvas 2D 伪 3D，CPU 低。",
+	shader: "S2 极光地形着色器 — WebGL 片元着色器逐像素渲染：域扭曲分形噪声缓慢流动，暗红裂缝迁徙，胶片颗粒 + 暗角。观感是「液体地形」，最高级、成本最低（GPU 一遍 pass）。",
+	depth: "S3 深空数据云 — 2600 点三维星云缓旋，透视投影 + 距离雾 + 近大远小，红色目标脉冲环，鼠标倾斜视角。安静、深邃。",
+	silk: "S4 丝绸流线 — 1600 粒子被 curl 噪声场推着走，拖出渐隐丝线，暗色绸缎不断重组；鼠标横移改变流速。生成艺术气质。",
+};
+const FACTORIES = { iso: isoFactory, shader: shaderFactory, depth: depthFactory, silk: silkFactory };
+let active = null;
+
+function start(name) {
+	if (active && active.stop) active.stop();
+	cancelAnimationFrame(raf);
+	current = name;
+	document.querySelectorAll(".switcher button").forEach((b) => b.classList.toggle("on", b.dataset.v === name));
+	document.getElementById("desc").textContent = DESCRIPTIONS[name];
+	active = FACTORIES[name]();
+	let last = performance.now();
+	const loop = (now) => {
+		if (current !== name) return;
+		const dt = Math.min(50, now - last);
+		last = now;
+		time += dt / 1000;
+		active.step(dt, time);
+		raf = requestAnimationFrame(loop);
+	};
+	raf = requestAnimationFrame(loop);
+}
+
+window.addEventListener("resize", () => start(current));
+document.getElementById("switcher").addEventListener("click", (event) => {
+	const button = event.target.closest("button[data-v]");
+	if (button) start(button.dataset.v);
+});
+start("iso");
+</script>
+</body>
+</html>

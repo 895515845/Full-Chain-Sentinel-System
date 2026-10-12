@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模型库 + 角色分配 — UI 稿</title>
+<style>
+	:root {
+		--bg: #fafafa; --card: #fff; --raised: #f8f8f9; --border: #eee; --border-strong: #d9d9d9;
+		--text: #000000d9; --bright: #000000e6; --dim: #606266; --disabled: #bfbfbf;
+		--accent: #0960bd; --accent-hover: #0a6cd5; --accent-dim: #0960bd0d;
+		--danger: #f56c6c; --danger-dim: #fef0f0;
+		--ok: #67c23a; --ok-dim: #f0f9eb;
+		--warn: #e6a23c; --warn-dim: #fdf6ec;
+		--info: #909399; --info-dim: #f4f4f5;
+		--radius: 6px;
+		--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+		--sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+	}
+	* { box-sizing: border-box; }
+	body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; margin: 0; padding: 24px 24px 80px; }
+	h1 { font-size: 18px; margin: 0 0 6px; }
+	h2 { font-size: 15px; margin: 0 0 4px; }
+	code { font-family: var(--mono); font-size: 12px; background: var(--raised); padding: 1px 4px; border-radius: 3px; }
+	.lead { color: var(--dim); font-size: 12.5px; line-height: 1.8; max-width: 1080px; margin: 0 0 6px; }
+	.switch { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 20px; }
+	.switch button { font-family: var(--sans); font-size: 12.5px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--card); color: var(--text); padding: 5px 14px; cursor: pointer; }
+	.switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+	.page-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; max-width: 1180px; overflow: hidden; }
+	.ws-panel__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+	.ws-panel__title { font-size: 14px; color: var(--bright); font-weight: 600; }
+	.ws-panel__sub { font-size: 12px; color: var(--dim); margin-top: 3px; line-height: 1.7; }
+	.ws-panel__actions { display: flex; gap: 8px; flex: none; }
+	.ws-panel__body { padding: 16px; }
+	button { font-family: var(--sans); font-size: 12.5px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--card); color: var(--text); padding: 3px 12px; line-height: 1.7; cursor: pointer; }
+	button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+	button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+	button.tiny { padding: 1px 8px; font-size: 11.5px; }
+	button.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+	button.ghost:hover:not(:disabled) { border-color: var(--border-strong); color: var(--accent); }
+	select, input[type=text], input[type=password] { font-family: var(--sans); font-size: 12.5px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--card); color: var(--text); padding: 3px 8px; height: 28px; }
+	select { min-width: 190px; }
+	input.mono, .mono { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+	.tag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; }
+	.tag-accent { background: var(--accent-dim); color: var(--accent); }
+	.tag-ok { background: var(--ok-dim); color: var(--ok); }
+	.tag-warn { background: var(--warn-dim); color: var(--warn); }
+	.tag-info { background: var(--info-dim); color: var(--info); }
+	.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-right: 5px; vertical-align: 1px; }
+	.dot.warn { background: var(--warn); }
+	.dot.off { background: var(--disabled); }
+	.hint { font-size: 11.5px; color: var(--dim); line-height: 1.7; }
+	.form-field { margin-bottom: 12px; }
+	.form-field > label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+	.form-field input { width: 100%; }
+	.section { margin: 0 0 20px; padding-bottom: 16px; border-bottom: 1px dashed var(--border); }
+	.section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+	.section-title { font-size: 12.5px; font-weight: 600; color: var(--bright); margin: 0 0 8px; }
+	.role-band { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; }
+	.role-band .label { font-size: 12px; color: var(--dim); flex: none; }
+	.role-band .sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; }
+	/* 表格 */
+	.tbl { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+	.tbl-row { display: grid; gap: 12px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12.5px; }
+	.tbl-row:first-child { border-top: none; }
+	.tbl-head { background: var(--raised); color: var(--dim); font-size: 11.5px; }
+	.tbl-row:not(.tbl-head):hover { background: var(--accent-dim); }
+	.cols { grid-template-columns: minmax(140px, 1fr) minmax(180px, 1.4fr) minmax(150px, 1.2fr) 96px minmax(170px, auto); }
+	.name { font-weight: 500; color: var(--bright); }
+	.name .sub { display: block; font-weight: 400; font-size: 11px; color: var(--dim); margin-top: 2px; }
+	.roles-cell { display: flex; gap: 4px; flex-wrap: wrap; }
+	.actions { display: flex; gap: 6px; justify-content: flex-end; }
+	/* 卡片网格 */
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+	.mcard { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--card); }
+	.mcard.used { border-color: #0960bd40; }
+	.mcard__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+	.mcard__name { font-size: 13px; font-weight: 600; color: var(--bright); }
+	.mcard__meta { margin: 8px 0 10px; display: grid; grid-template-columns: 62px 1fr; gap: 3px 8px; font-size: 11.5px; }
+	.mcard__meta dt { color: var(--dim); }
+	.mcard__meta dd { margin: 0; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.chips { display: flex; gap: 5px; flex-wrap: wrap; padding-top: 10px; border-top: 1px dashed var(--border); }
+	.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 1px 9px; border-radius: 11px; border: 1px solid var(--border-strong); color: var(--dim); cursor: pointer; }
+	.chip.on { background: var(--accent-dim); border-color: #0960bd59; color: var(--accent); font-weight: 500; }
+	.chip.on::before { content: "✓"; font-size: 10px; }
+	.chip.fixed { cursor: default; }
+	/* 双栏 */
+	.split { display: grid; grid-template-columns: 300px 1fr; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+	.split__list { border-right: 1px solid var(--border); background: var(--raised); padding: 8px; }
+	.split__item { padding: 8px 10px; border-radius: var(--radius); cursor: pointer; font-size: 12.5px; }
+	.split__item:hover { background: var(--card); }
+	.split__item.on { background: var(--card); box-shadow: inset 2px 0 0 var(--accent); }
+	.split__item .sub { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; font-family: var(--mono); }
+	.split__detail { padding: 14px 16px; }
+	.check-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 5px 0; }
+	.check-item input { margin: 0; }
+	/* 角色中心 */
+	.role-row { display: grid; grid-template-columns: 190px 1fr 230px; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; background: var(--card); }
+	.role-row__name { font-size: 13px; font-weight: 600; color: var(--bright); }
+	.role-row__desc { font-size: 11.5px; color: var(--dim); margin-top: 3px; line-height: 1.6; }
+	.role-row__params { font-size: 11.5px; color: var(--dim); line-height: 1.8; }
+	.role-row__params b { color: var(--text); font-weight: 500; }
+	.mini-tbl { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+	.mini-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(170px, 1.4fr) minmax(130px, 1fr) 90px minmax(150px, auto); gap: 12px; align-items: center; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 12px; }
+	.mini-row:first-child { border-top: none; }
+	.mini-head { background: var(--raised); color: var(--dim); font-size: 11px; }
+	.view { display: none; }
+	body[data-view=a] #v-a, body[data-view=b] #v-b, body[data-view=c] #v-c, body[data-view=d] #v-d { display: block; }
+	.pros { font-size: 12px; color: var(--dim); margin: 10px 0 0; line-height: 1.8; max-width: 1180px; }
+	.pros b { color: var(--text); }
+	.callout { background: var(--warn-dim); border: 1px solid #e6a23c4d; color: #b88230; border-radius: var(--radius); padding: 8px 12px; font-size: 12px; line-height: 1.7; margin: 10px 0 0; max-width: 1180px; }
+</style>
+</head>
+<body data-view="a">
+
+<h1>设置 → 模型：模型库 + 角色分配 — 四套候选</h1>
+<p class="lead">
+	同一个功能：<b>模型库</b>（多条 OpenAI 兼容端点，可增删改、逐条测试）+ <b>角色分配</b>（主模型 / 守门员 / 漏洞评审 / 指挥官，各从库里挑一条）。
+	配色、圆角、字号、表格行高全部取自控制台现有的 <code>style.css</code>（<code>.page-card</code> / <code>.ws-panel</code> / <code>.tag</code> / <code>.mode-switch</code>），选中的方案可以直接落地，不需要新的视觉语言。
+</p>
+<p class="lead">
+	四套用的数据完全相同：MiniMax-M3.1-Flash（主模型）、DeepSeek-V3.1（守门员）、GLM-4.7（漏洞评审）、本地 vLLM（指挥官）、备用中转（未使用）。
+	差别只在<b>操作顺序</b>：A/B 以「模型」为中心，C 是经典主从，D 以「角色」为中心。
+</p>
+<div class="switch">
+	<button data-view="a" class="on">方案 A · 角色条 + 模型表格</button>
+	<button data-view="b">方案 B · 模型卡片（角色挂卡片上）</button>
+	<button data-view="c">方案 C · 左列表 + 右详情</button>
+	<button data-view="d">方案 D · 角色中心</button>
+</div>
+
+<!-- ============================ 方案 A ============================ -->
+<div class="view" id="v-a">
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div>
+				<div class="ws-panel__title">模型</div>
+				<div class="ws-panel__sub">模型库存放所有可用端点；下面的四个角色各自从库里挑一条。改动立即生效，正在运行的会话沿用启动时的端点。</div>
+			</div>
+			<div class="ws-panel__actions">
+				<button class="primary">+ 添加模型</button>
+			</div>
+		</div>
+		<div class="ws-panel__body">
+			<div class="role-band">
+				<span class="label">角色</span>
+				<span class="hint">主模型</span>
+				<select><option>MiniMax-M3.1-Flash</option><option>DeepSeek-V3.1</option><option>GLM-4.7</option></select>
+				<span class="sep"></span>
+				<span class="hint">守门员</span>
+				<select><option>DeepSeek-V3.1</option><option>跟随主模型</option><option>MiniMax-M3.1-Flash</option></select>
+				<span class="sep"></span>
+				<span class="hint">漏洞评审</span>
+				<select><option>GLM-4.7</option><option>跟随主模型</option><option>DeepSeek-V3.1</option></select>
+				<span class="sep"></span>
+				<span class="hint">指挥官</span>
+				<select><option>本地 vLLM</option><option>跟随主模型</option><option>GLM-4.7</option></select>
+			</div>
+
+			<div class="tbl">
+				<div class="tbl-row tbl-head cols">
+					<span>名称</span><span>Base URL</span><span>模型 ID</span><span>状态</span><span style="text-align:right">操作</span>
+				</div>
+				<div class="tbl-row cols">
+					<span class="name">MiniMax-M3.1-Flash<span class="sub">api.minimax.cn</span></span>
+					<span class="mono">https://api.minimax.cn/v1</span>
+					<span class="mono">MiniMax-M3.1-Flash-Preview</span>
+					<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					<span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button></span>
+				</div>
+				<div class="tbl-row cols">
+					<span class="name">DeepSeek-V3.1<span class="sub">api.deepseek.com</span></span>
+					<span class="mono">https://api.deepseek.com/v1</span>
+					<span class="mono">deepseek-chat</span>
+					<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					<span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button></span>
+				</div>
+				<div class="tbl-row cols">
+					<span class="name">GLM-4.7<span class="sub">open.bigmodel.cn</span></span>
+					<span class="mono">https://open.bigmodel.cn/api/paas/v4</span>
+					<span class="mono">glm-4.7</span>
+					<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					<span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button></span>
+				</div>
+				<div class="tbl-row cols">
+					<span class="name">本地 vLLM<span class="sub">无鉴权</span></span>
+					<span class="mono">http://127.0.0.1:8000/v1</span>
+					<span class="mono">qwen3-coder-30b</span>
+					<span><span class="dot warn"></span><span class="tag tag-warn">未测试</span></span>
+					<span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button></span>
+				</div>
+				<div class="tbl-row cols">
+					<span class="name">备用中转<span class="sub">未分配角色</span></span>
+					<span class="mono">https://one-api.internal/v1</span>
+					<span class="mono">gpt-4.1-mini</span>
+					<span><span class="dot off"></span><span class="tag tag-info">未使用</span></span>
+					<span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button></span>
+				</div>
+			</div>
+
+			<div class="section" style="margin-top:18px">
+				<div class="section-title">守门员参数（角色分配之外的运行参数）</div>
+				<div class="role-band" style="margin-bottom:0">
+					<span class="hint">判定超时</span><input type="text" value="15" style="width:64px"> <span class="hint">秒</span>
+					<span class="sep"></span>
+					<span class="hint">并发上限</span><input type="text" value="0" style="width:64px"> <span class="hint">0 = 不限（最多 64）</span>
+					<span class="sep"></span>
+					<span class="hint">当前生效端点：DeepSeek-V3.1（守门员槽位）</span>
+				</div>
+			</div>
+		</div>
+	</div>
+	<p class="pros"><b>优点</b>：模型多时一屏看完，角色分配只占一行；「谁在用」直接体现在角色条上。删除时只需检查角色条里的引用。<b>代价</b>：角色条和表格是两块，改角色和改模型是两处操作。</p>
+</div>
+
+<!-- ============================ 方案 B ============================ -->
+<div class="view" id="v-b">
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div>
+				<div class="ws-panel__title">模型</div>
+				<div class="ws-panel__sub">每个模型一张卡片，点卡片底部的角色胶囊即可把它分配给该角色（再点取消）。同一时刻一个角色只能有一个模型。</div>
+			</div>
+			<div class="ws-panel__actions"><button class="primary">+ 添加模型</button></div>
+		</div>
+		<div class="ws-panel__body">
+			<div class="role-band">
+				<span class="label">当前角色</span>
+				<span class="tag tag-accent">主模型 · MiniMax-M3.1-Flash</span>
+				<span class="tag tag-accent">守门员 · DeepSeek-V3.1</span>
+				<span class="tag tag-accent">漏洞评审 · GLM-4.7</span>
+				<span class="tag tag-accent">指挥官 · 本地 vLLM</span>
+			</div>
+
+			<div class="grid">
+				<div class="mcard used">
+					<div class="mcard__head">
+						<div class="mcard__name">MiniMax-M3.1-Flash</div>
+						<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					</div>
+					<dl class="mcard__meta">
+						<dt>Base URL</dt><dd>https://api.minimax.cn/v1</dd>
+						<dt>模型 ID</dt><dd>MiniMax-M3.1-Flash-Preview</dd>
+						<dt>API Key</dt><dd>sk-****（已配置）</dd>
+					</dl>
+					<div class="chips">
+						<span class="chip on fixed">主模型</span>
+						<span class="chip">守门员</span>
+						<span class="chip">漏洞评审</span>
+						<span class="chip">指挥官</span>
+					</div>
+					<div class="actions" style="justify-content:flex-start;margin-top:10px">
+						<button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button>
+					</div>
+				</div>
+
+				<div class="mcard used">
+					<div class="mcard__head">
+						<div class="mcard__name">DeepSeek-V3.1</div>
+						<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					</div>
+					<dl class="mcard__meta">
+						<dt>Base URL</dt><dd>https://api.deepseek.com/v1</dd>
+						<dt>模型 ID</dt><dd>deepseek-chat</dd>
+						<dt>API Key</dt><dd>sk-****（已配置）</dd>
+					</dl>
+					<div class="chips">
+						<span class="chip">主模型</span>
+						<span class="chip on fixed">守门员</span>
+						<span class="chip">漏洞评审</span>
+						<span class="chip">指挥官</span>
+					</div>
+					<div class="actions" style="justify-content:flex-start;margin-top:10px">
+						<button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button>
+					</div>
+				</div>
+
+				<div class="mcard used">
+					<div class="mcard__head">
+						<div class="mcard__name">GLM-4.7</div>
+						<span><span class="dot"></span><span class="tag tag-ok">可用</span></span>
+					</div>
+					<dl class="mcard__meta">
+						<dt>Base URL</dt><dd>https://open.bigmodel.cn/api/paas/v4</dd>
+						<dt>模型 ID</dt><dd>glm-4.7</dd>
+						<dt>API Key</dt><dd>sk-****（已配置）</dd>
+					</dl>
+					<div class="chips">
+						<span class="chip">主模型</span>
+						<span class="chip">守门员</span>
+						<span class="chip on fixed">漏洞评审</span>
+						<span class="chip">指挥官</span>
+					</div>
+					<div class="actions" style="justify-content:flex-start;margin-top:10px">
+						<button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button>
+					</div>
+				</div>
+
+				<div class="mcard used">
+					<div class="mcard__head">
+						<div class="mcard__name">本地 vLLM</div>
+						<span><span class="dot warn"></span><span class="tag tag-warn">未测试</span></span>
+					</div>
+					<dl class="mcard__meta">
+						<dt>Base URL</dt><dd>http://127.0.0.1:8000/v1</dd>
+						<dt>模型 ID</dt><dd>qwen3-coder-30b</dd>
+						<dt>API Key</dt><dd>—（无鉴权）</dd>
+					</dl>
+					<div class="chips">
+						<span class="chip">主模型</span>
+						<span class="chip">守门员</span>
+						<span class="chip">漏洞评审</span>
+						<span class="chip on fixed">指挥官</span>
+					</div>
+					<div class="actions" style="justify-content:flex-start;margin-top:10px">
+						<button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button>
+					</div>
+				</div>
+
+				<div class="mcard">
+					<div class="mcard__head">
+						<div class="mcard__name">备用中转</div>
+						<span><span class="dot off"></span><span class="tag tag-info">未使用</span></span>
+					</div>
+					<dl class="mcard__meta">
+						<dt>Base URL</dt><dd>https://one-api.internal/v1</dd>
+						<dt>模型 ID</dt><dd>gpt-4.1-mini</dd>
+						<dt>API Key</dt><dd>sk-****（已配置）</dd>
+					</dl>
+					<div class="chips">
+						<span class="chip">主模型</span>
+						<span class="chip">守门员</span>
+						<span class="chip">漏洞评审</span>
+						<span class="chip">指挥官</span>
+					</div>
+					<div class="actions" style="justify-content:flex-start;margin-top:10px">
+						<button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">复制</button><button class="tiny">删除</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="section" style="margin-top:18px">
+				<div class="section-title">守门员参数</div>
+				<div class="role-band" style="margin-bottom:0">
+					<span class="hint">判定超时</span><input type="text" value="15" style="width:64px"> <span class="hint">秒</span>
+					<span class="sep"></span>
+					<span class="hint">并发上限</span><input type="text" value="0" style="width:64px">
+				</div>
+			</div>
+		</div>
+	</div>
+	<p class="pros"><b>优点</b>：一个模型的全部信息（地址、密钥状态、测试状态、承担的角色）在一张卡上，分配动作最短（点胶囊）。<b>代价</b>：模型多了要滚动；卡片底部的胶囊是「点击即生效」，容易误触（可以加确认或改成下拉）。</p>
+</div>
+
+<!-- ============================ 方案 C ============================ -->
+<div class="view" id="v-c">
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div>
+				<div class="ws-panel__title">模型</div>
+				<div class="ws-panel__sub">左侧是模型库，右侧是选中模型的配置与它承担的角色。角色也能在右侧一次性勾选。</div>
+			</div>
+			<div class="ws-panel__actions"><button class="primary">+ 添加模型</button></div>
+		</div>
+		<div class="ws-panel__body">
+			<div class="split">
+				<div class="split__list">
+					<div class="split__item on">MiniMax-M3.1-Flash<span class="sub">MiniMax-M3.1-Flash-Preview</span></div>
+					<div class="split__item">DeepSeek-V3.1<span class="sub">deepseek-chat</span></div>
+					<div class="split__item">GLM-4.7<span class="sub">glm-4.7</span></div>
+					<div class="split__item">本地 vLLM<span class="sub">qwen3-coder-30b</span></div>
+					<div class="split__item">备用中转<span class="sub">gpt-4.1-mini</span></div>
+				</div>
+				<div class="split__detail">
+					<div class="form-field">
+						<label>名称（用于角色下拉里显示）</label>
+						<input type="text" value="MiniMax-M3.1-Flash">
+					</div>
+					<div class="form-field">
+						<label>Base URL</label>
+						<input type="text" class="mono" value="https://api.minimax.cn/v1">
+					</div>
+					<div class="form-field">
+						<label>API Key（无鉴权端点留空）</label>
+						<input type="password" value="sk-xxxxxxxxxxxxxxxx">
+					</div>
+					<div class="form-field">
+						<label>模型 ID</label>
+						<input type="text" class="mono" value="MiniMax-M3.1-Flash-Preview">
+					</div>
+					<div class="section">
+						<div class="section-title">这个模型用于</div>
+						<label class="check-item"><input type="checkbox" checked> 主模型 <span class="hint">（对话主代理；必选其一）</span></label>
+						<label class="check-item"><input type="checkbox"> 守门员 <span class="hint">（AI 审批判定 bash）</span></label>
+						<label class="check-item"><input type="checkbox"> 漏洞评审 <span class="hint">（提交后自动校准等级/CVSS）</span></label>
+						<label class="check-item"><input type="checkbox"> 指挥官 <span class="hint">（工程模式编排）</span></label>
+					</div>
+					<div class="actions" style="justify-content:flex-start;gap:8px">
+						<button>测试连接</button>
+						<button class="primary">保存</button>
+						<button class="ghost">删除此模型</button>
+					</div>
+					<div class="hint" style="margin-top:10px">
+						当前生效：主模型 = MiniMax-M3.1-Flash · 守门员 = DeepSeek-V3.1（未回落到主模型）· 漏洞评审 = GLM-4.7 · 指挥官 = 本地 vLLM
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<p class="pros"><b>优点</b>：和现在的单表单布局最接近，改动最小；模型多时列表可滚动，详情区永远只编辑一条。角色勾选和模型编辑在同一屏。<b>代价</b>：要在两个模型之间「谁当主模型」需要来回点；角色总览不如 A/D 一眼可见。</p>
+</div>
+
+<!-- ============================ 方案 D ============================ -->
+<div class="view" id="v-d">
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div>
+				<div class="ws-panel__title">模型</div>
+				<div class="ws-panel__sub">先决定每个角色用哪条模型，再维护模型库。角色的运行参数（守门超时/并发、漏洞评审开关）跟着角色走。</div>
+			</div>
+			<div class="ws-panel__actions"><button class="primary">+ 添加模型</button></div>
+		</div>
+		<div class="ws-panel__body">
+			<div class="section">
+				<div class="section-title">角色</div>
+				<div class="role-row">
+					<div>
+						<div class="role-row__name">主模型</div>
+						<div class="role-row__desc">对话页的主代理，必填</div>
+					</div>
+					<div><select><option>MiniMax-M3.1-Flash</option><option>DeepSeek-V3.1</option><option>GLM-4.7</option></select></div>
+					<div class="role-row__params">端点：api.minimax.cn<br>模型：MiniMax-M3.1-Flash-Preview</div>
+				</div>
+				<div class="role-row">
+					<div>
+						<div class="role-row__name">守门员</div>
+						<div class="role-row__desc">AI 审批逐条判定 bash</div>
+					</div>
+					<div><select><option>DeepSeek-V3.1</option><option>跟随主模型</option><option>GLM-4.7</option></select></div>
+					<div class="role-row__params">超时 <b>15s</b> · 并发 <b>不限</b> · <button class="tiny ghost">参数</button></div>
+				</div>
+				<div class="role-row">
+					<div>
+						<div class="role-row__name">漏洞评审</div>
+						<div class="role-row__desc">提交后自动校准等级与 CVSS</div>
+					</div>
+					<div><select><option>GLM-4.7</option><option>跟随主模型</option><option>DeepSeek-V3.1</option></select></div>
+					<div class="role-row__params">自动评审 <b>开</b> · <button class="tiny ghost">参数</button></div>
+				</div>
+				<div class="role-row">
+					<div>
+						<div class="role-row__name">指挥官</div>
+						<div class="role-row__desc">工程模式的任务编排</div>
+					</div>
+					<div><select><option>本地 vLLM</option><option>跟随主模型</option><option>GLM-4.7</option></select></div>
+					<div class="role-row__params">权限在 设置 → 权限</div>
+				</div>
+			</div>
+
+			<div class="section">
+				<div class="section-title">模型库 <span class="hint">（共 5 条，2 条未分配角色）</span></div>
+				<div class="mini-tbl">
+					<div class="mini-row mini-head"><span>名称</span><span>Base URL</span><span>模型 ID</span><span>状态</span><span style="text-align:right">操作</span></div>
+					<div class="mini-row"><span class="name">MiniMax-M3.1-Flash</span><span class="mono">https://api.minimax.cn/v1</span><span class="mono">MiniMax-M3.1-Flash-Preview</span><span><span class="dot"></span>可用</span><span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">删除</button></span></div>
+					<div class="mini-row"><span class="name">DeepSeek-V3.1</span><span class="mono">https://api.deepseek.com/v1</span><span class="mono">deepseek-chat</span><span><span class="dot"></span>可用</span><span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">删除</button></span></div>
+					<div class="mini-row"><span class="name">GLM-4.7</span><span class="mono">https://open.bigmodel.cn/api/paas/v4</span><span class="mono">glm-4.7</span><span><span class="dot"></span>可用</span><span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">删除</button></span></div>
+					<div class="mini-row"><span class="name">本地 vLLM</span><span class="mono">http://127.0.0.1:8000/v1</span><span class="mono">qwen3-coder-30b</span><span><span class="dot warn"></span>未测试</span><span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">删除</button></span></div>
+					<div class="mini-row"><span class="name">备用中转</span><span class="mono">https://one-api.internal/v1</span><span class="mono">gpt-4.1-mini</span><span><span class="dot off"></span>未使用</span><span class="actions"><button class="tiny">测试</button><button class="tiny">编辑</button><button class="tiny">删除</button></span></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<p class="pros"><b>优点</b>：操作员的思路是「谁干什么活」，所以角色在前；每个角色的运行参数（守门超时、评审开关）有自然的位置；模型库退居下方，纯维护。<b>代价</b>：角色行 + 模型库两次滚动；「这个模型还被谁用」要在库和角色之间对照。</p>
+	<div class="callout">
+		四套都需要回答的边界情况：删除一条正被角色引用的模型时怎么办？A/B/C/D 都可以做成「禁止删除，提示被哪些角色引用」，或「允许删除并让该角色回落到主模型」。这属于行为选择，与样式无关。
+	</div>
+</div>
+
+<script>
+	const buttons = Array.from(document.querySelectorAll(".switch button"));
+	for (const button of buttons) {
+		button.addEventListener("click", () => {
+			for (const other of buttons) other.classList.toggle("on", other === button);
+			document.body.dataset.view = button.dataset.view;
+		});
+	}
+</script>
+</body>
+</html>

@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会话状态 · 前端方案候选</title>
+<style>
+/* Palette copied from webui/src/style.css so the mockups match the real console. */
+:root {
+	--nav: #001529;
+	--nav-child: #000c17;
+	--nav-border: #ffffff17;
+	--nav-hover: #0d2136;
+	--nav-active: #273352;
+	--nav-text: #ffffffbf;
+	--nav-text-dim: #ffffff73;
+	--bg: #fafafa;
+	--card: #ffffff;
+	--raised: #f8f8f9;
+	--border: #eee;
+	--border-strong: #d9d9d9;
+	--text: #000000d9;
+	--dim: #606266;
+	--accent: #0960bd;
+	--danger: #f56c6c;
+	--ok: #67c23a;
+	--warn: #e6a23c;
+	--radius: 6px;
+	--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	--sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0;
+	padding: 24px;
+	background: #eef0f3;
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: 14px;
+}
+h1 { margin: 0 0 6px; font-size: 20px; }
+.page-head p { margin: 0 0 14px; color: var(--dim); font-size: 13px; line-height: 1.7; max-width: 900px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.tabs button {
+	padding: 6px 14px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--dim);
+	font-family: var(--sans);
+	font-size: 13px;
+	cursor: pointer;
+}
+.tabs button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+.variant { display: none; }
+.variant.on { display: block; }
+
+.frame {
+	display: flex;
+	width: 1060px;
+	height: 420px;
+	border: 1px solid #d5d8dd;
+	border-radius: 8px;
+	overflow: hidden;
+	box-shadow: 0 2px 12px #0000001a;
+	background: var(--bg);
+}
+.spec {
+	width: 1060px;
+	margin: 10px 0 34px;
+	padding: 14px 18px;
+	border: 1px solid #d5d8dd;
+	border-radius: 8px;
+	background: #fff;
+	font-size: 13px;
+	line-height: 1.8;
+}
+.spec b { color: var(--text); }
+.spec .row { display: flex; gap: 10px; }
+.spec .row > div { flex: 1; }
+.spec h4 { margin: 0 0 4px; font-size: 13px; }
+.spec ul { margin: 4px 0 0; padding-left: 18px; color: var(--dim); }
+.spec code { font-family: var(--mono); font-size: 12px; background: var(--raised); padding: 1px 4px; border-radius: 3px; }
+.pro, .con { color: var(--dim); }
+
+/* ---------------- sider ---------------- */
+.sider {
+	flex: 0 0 210px;
+	display: flex;
+	flex-direction: column;
+	background: var(--nav);
+	color: var(--nav-text);
+}
+.sider-brand {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	height: 54px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--nav-border);
+}
+.sider-logo {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 6px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 12px;
+	font-weight: 600;
+}
+.sider-title { font-size: 15px; color: #fff; }
+.menu-group { padding: 10px 16px 4px; font-size: 11px; color: var(--nav-text-dim); }
+.menu-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 34px;
+	padding: 0 16px;
+	font-size: 13px;
+	color: var(--nav-text);
+}
+.menu-item.on { background: var(--nav-active); color: #fff; }
+.menu-item .ic { width: 14px; text-align: center; opacity: .8; }
+
+.menu-sub { background: var(--nav-child); padding: 4px 0; }
+.menu-sub-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	padding: 2px 12px 4px 32px;
+	font-size: 11px;
+	color: var(--nav-text-dim);
+}
+.menu-sub-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	height: 34px;
+	padding: 0 10px 0 32px;
+	font-size: 13px;
+	color: var(--nav-text);
+	overflow: visible;
+}
+.menu-sub-item.active { background: var(--nav-active); color: #fff; }
+.menu-sub-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
+.dot.running { background: var(--ok); opacity: 1; box-shadow: 0 0 0 3px #67c23a33; }
+
+/* ---------------- content ---------------- */
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--card); }
+.chat-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 46px;
+	padding: 0 14px;
+	border-bottom: 1px solid var(--border);
+	background: var(--raised);
+	font-size: 13px;
+}
+.mode-switch { display: flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.mode-switch span { padding: 4px 10px; font-size: 12px; color: var(--dim); }
+.mode-switch span.on { background: var(--accent); color: #fff; }
+.sel { padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 12px; color: var(--dim); }
+.tbtn { padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: #fff; font-size: 12px; color: var(--dim); }
+.sep { width: 1px; height: 18px; background: var(--border-strong); }
+.chat-body { flex: 1; padding: 18px; overflow: hidden; }
+.bubble {
+	max-width: 520px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 13px;
+	line-height: 1.7;
+}
+
+/* ---------------- picker ---------------- */
+.picker {
+	position: absolute;
+	top: 30px;
+	left: 26px;
+	z-index: 5;
+	width: 168px;
+	padding: 5px 0;
+	border: 1px solid #1d2b3d;
+	border-radius: 8px;
+	background: #0d1b2a;
+	box-shadow: 0 8px 24px #00000066;
+}
+.picker-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 30px;
+	padding: 0 10px;
+	font-size: 13px;
+	color: var(--nav-text);
+}
+.picker-row.on { background: #ffffff14; color: #fff; }
+.picker-row .tick { margin-left: auto; color: var(--accent); font-size: 12px; }
+.picker-row .key {
+	margin-left: auto;
+	padding: 0 4px;
+	border: 1px solid #ffffff26;
+	border-radius: 3px;
+	font-size: 10px;
+	color: var(--nav-text-dim);
+}
+.picker-sep { height: 1px; margin: 4px 0; background: #ffffff17; }
+
+/* ---------------- variant A: chip ---------------- */
+.a-chip {
+	flex: none;
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: var(--c-tint);
+	color: var(--c);
+	font-size: 11px;
+	line-height: 16px;
+}
+.a-chip.none { background: #ffffff14; color: var(--nav-text-dim); }
+.a-trigger { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: var(--c-tint); color: var(--c); border: 1px solid transparent; font-size: 12px; }
+
+/* ---------------- variant B: accent bar + plain text ---------------- */
+.b-item { box-shadow: inset 3px 0 0 var(--c, transparent); }
+.b-item.active { background: var(--nav-active); }
+.b-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--c, #ffffff40); }
+.b-item.running .b-dot { box-shadow: 0 0 0 3px #67c23a33; background: var(--ok); }
+.b-more { flex: none; color: var(--nav-text-dim); font-size: 14px; line-height: 1; }
+.b-trigger { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: none; background: transparent; color: var(--dim); font-size: 12px; }
+.b-trigger .b-dot { width: 8px; height: 8px; }
+.funnel { display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 4px; background: #ffffff14; font-size: 11px; }
+.filter-pop {
+	position: absolute;
+	top: 20px;
+	right: 8px;
+	z-index: 5;
+	width: 152px;
+	padding: 8px 10px;
+	border: 1px solid #1d2b3d;
+	border-radius: 8px;
+	background: #0d1b2a;
+	box-shadow: 0 8px 24px #00000066;
+	font-size: 12px;
+	line-height: 2;
+	color: var(--nav-text);
+}
+
+/* ---------------- variant C: tinted row + solid pill ---------------- */
+.c-item { background: var(--c-tint); }
+.c-item.active { background: var(--c-tint-strong); }
+.c-item:hover { background: var(--c-tint-strong); }
+.c-pill {
+	flex: none;
+	padding: 2px 9px;
+	border-radius: 999px;
+	background: var(--c);
+	color: #fff;
+	font-size: 11px;
+	line-height: 16px;
+}
+.c-pill.none { background: #ffffff1f; color: var(--nav-text); }
+.c-trigger { display: flex; align-items: center; gap: 6px; padding: 3px 10px; border: none; border-radius: 999px; background: var(--c); color: #fff; font-size: 12px; }
+.c-trigger.none { background: #e9edf2; color: var(--dim); }
+
+/* ---------------- variant D: grouped ---------------- */
+.d-group { display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px 32px; font-size: 11px; color: var(--nav-text-dim); }
+.d-count { margin-left: auto; padding: 0 5px; border-radius: 999px; background: #ffffff14; font-size: 10px; }
+.d-item { padding-left: 32px; }
+.d-dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.d-item.muted { opacity: .55; }
+.d-trigger { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: var(--c-tint); color: var(--c); font-size: 12px; }
+
+/* ---------------- segmented filter ---------------- */
+.seg { display: flex; border: 1px solid var(--border-strong); border-radius: 5px; overflow: hidden; }
+.seg span { padding: 1px 7px; font-size: 10px; color: var(--dim); }
+.seg span.on { background: var(--accent); color: #fff; }
+
+/* ---------------- shared settings panel ---------------- */
+.shared { width: 1060px; margin-top: 8px; padding: 18px; border: 1px solid #d5d8dd; border-radius: 8px; background: #fff; }
+.shared h2 { margin: 0 0 4px; font-size: 16px; }
+.shared p.hint { margin: 0 0 16px; color: var(--dim); font-size: 13px; line-height: 1.7; }
+.field { margin-bottom: 14px; max-width: 520px; }
+.field label { display: block; margin-bottom: 5px; font-size: 13px; color: var(--dim); }
+.field input, .field select {
+	width: 100%;
+	padding: 6px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	font-family: var(--sans);
+	font-size: 13px;
+	color: var(--text);
+}
+.field .sub { margin-top: 5px; font-size: 12px; color: var(--dim); }
+.inline { display: flex; align-items: center; gap: 8px; }
+.inline input { width: 120px; }
+.quick { display: flex; gap: 6px; }
+.quick span { padding: 3px 9px; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 12px; color: var(--dim); }
+.quick span.on { border-color: var(--accent); background: #0960bd0d; color: var(--accent); }
+.ding {
+	max-width: 520px;
+	margin-top: 8px;
+	padding: 12px 14px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--raised);
+	font-size: 13px;
+	line-height: 1.8;
+}
+.ding .t { font-weight: 600; }
+.ding .m { color: var(--dim); }
+.ding .cut { color: var(--warn); }
+</style>
+</head>
+<body>
+<header class="page-head">
+	<h1>会话状态 + 通知字数 — 前端方案候选</h1>
+	<p>
+		同一个功能（会话状态徽标、行内切换、列表过滤、会话顶部工具条）的四套视觉方案，配色与尺寸取自控制台现有的
+		<code>style.css</code>，所以选中的方案可以直接落地。状态集合固定为 无 / 待跟进 / 进行中 / 已完成 / 已忽略；
+		会话列表仍按时间排序，只加徽标与过滤。
+	</p>
+	<nav class="tabs" id="tabs">
+		<button data-view="a" class="on">方案 A · 色块徽标</button>
+		<button data-view="b">方案 B · 左侧色条</button>
+		<button data-view="c">方案 C · 整行染色 + 胶囊</button>
+		<button data-view="d">方案 D · 按状态分组</button>
+		<button data-view="all">并排对比</button>
+	</nav>
+</header>
+
+<main id="views"></main>
+
+<section class="shared">
+	<h2>通知设置里的新字段（四个方案共用）</h2>
+	<p class="hint">
+		在现有 webhook / 签名密钥 / 关键词下面加一行「通知正文字数上限」。默认 2000，0 表示不截断；
+		正文超过钉钉单条 20000 字节时按字节硬截断并注明，避免机器人返回 <code>460101 body 大小不合法</code>。
+	</p>
+	<div class="field">
+		<label>通知正文字数上限</label>
+		<div class="inline">
+			<input value="2000" inputmode="numeric">
+			<span style="font-size:12px;color:var(--dim)">字（0 = 不截断）</span>
+		</div>
+		<div class="quick">
+			<span>500</span><span class="on">2000</span><span>5000</span><span>不截断</span>
+		</div>
+		<div class="sub">作用于「任务报告 · 最后回复」「持续目标 · 结论」「漏洞通知 · 请求包」三处。</div>
+	</div>
+	<div class="ding">
+		<div class="t">ZGAgent 任务完成</div>
+		<div class="m">- 状态：完成</div>
+		<div class="m">- 会话：声环境质量联网监测平台 <b style="color:#e6a23c">（待跟进）</b></div>
+		<div class="m">- 耗时：4m12s</div>
+		<div class="m" style="margin-top:6px"><b>最后回复</b></div>
+		<div>已确认 8080 端口上的 Spring Boot 管理端点未授权可访问，heapdump 可直接下载…</div>
+		<div class="cut">…（已截断，全文 3412 字）</div>
+	</div>
+</section>
+
+<script>
+const STATUS = {
+	todo:    { label: "待跟进", color: "#e6a23c", tint: "#e6a23c2e", tintStrong: "#e6a23c40" },
+	active:  { label: "进行中", color: "#409eff", tint: "#409eff2e", tintStrong: "#409eff40" },
+	done:    { label: "已完成", color: "#52c41a", tint: "#52c41a26", tintStrong: "#52c41a38" },
+	ignored: { label: "已忽略", color: "#7a8699", tint: "#7a869926", tintStrong: "#7a869938" },
+};
+const NONE = { label: "无状态", color: "#ffffff40", tint: "#ffffff14", tintStrong: "#ffffff1f" };
+
+const SESSIONS = [
+	{ name: "声环境质量联网监测平台", status: "todo", running: true, active: true },
+	{ name: "某三甲医院 HIS 系统", status: "active" },
+	{ name: "校园一卡通平台", status: "done" },
+	{ name: "电子政务外网资产梳理", status: "ignored" },
+	{ name: "银行 App 接口测试", status: null },
+	{ name: "物流 SaaS 后台渗透", status: "todo" },
+];
+
+const PICKER = `
+	<div class="picker">
+		<div class="picker-row"><span class="dot" style="opacity:.5"></span>无状态<span class="key">0</span></div>
+		${["todo", "active", "done", "ignored"].map((key, index) => `
+			<div class="picker-row ${key === "todo" ? "on" : ""}">
+				<span class="dot" style="background:${STATUS[key].color};opacity:1"></span>${STATUS[key].label}
+				${key === "todo" ? `<span class="tick">✓</span>` : `<span class="key">${index + 1}</span>`}
+			</div>`).join("")}
+		<div class="picker-sep"></div>
+		<div class="picker-row" style="font-size:11px;color:var(--nav-text-dim)">选中行按 0-4 快速切换</div>
+	</div>`;
+
+function styleVars(status) {
+	const value = status ? STATUS[status] : NONE;
+	return `--c:${value.color};--c-tint:${value.tint};--c-tint-strong:${value.tintStrong}`;
+}
+
+function siderHead(filter) {
+	return `
+		<div class="menu-sub-head">
+			<span>6 个会话</span>
+			${filter}
+		</div>`;
+}
+
+const FILTER_SEG = `
+	<span class="seg"><span class="on">全部</span><span>未完成</span></span>`;
+
+const FILTER_FUNNEL = `
+	<span style="position:relative">
+		<span class="funnel">筛选 2</span>
+		<div class="filter-pop">
+			<div>☑ 显示「已完成」</div>
+			<div>☐ 显示「已忽略」</div>
+			<div style="border-top:1px solid #ffffff17;margin-top:4px;padding-top:4px">仅看「待跟进」</div>
+		</div>
+	</span>`;
+
+function content(toolbar) {
+	return `
+	<div class="content">
+		<div class="chat-toolbar">
+			<span class="mode-switch"><span class="on">审批模式</span><span>自动执行</span></span>
+			<span class="sel">思考 · 中</span>
+			<span class="sep"></span>
+			<span class="tbtn">分支</span>
+			<span class="tbtn">压缩</span>
+			<span class="tbtn">目标</span>
+			<span style="flex:1"></span>
+			${toolbar}
+		</div>
+		<div class="chat-body">
+			<div class="bubble">
+				声环境质量联网监测平台的下一步：确认 heapdump 里是否有数据库口令，然后回到 8080 端口做横向。<br>
+				这条会话我还在跟，状态标成「待跟进」。
+			</div>
+		</div>
+	</div>`;
+}
+
+/* ---------- 方案 A ---------- */
+function variantA() {
+	const rows = SESSIONS.map((session, index) => {
+		const value = session.status ? STATUS[session.status] : NONE;
+		return `
+		<div class="menu-sub-item ${session.active ? "active" : ""}" style="${styleVars(session.status)}">
+			<span class="dot ${session.running ? "running" : ""}"></span>
+			<span class="menu-sub-name">${session.name}</span>
+			<span class="a-chip ${session.status ? "" : "none"}">${value.label}</span>
+			${index === 0 ? PICKER : ""}
+		</div>`;
+	}).join("");
+	return `
+	<div class="frame">
+		<div class="sider">
+			<div class="sider-brand"><div class="sider-logo">ZG</div><span class="sider-title">ZGAgent</span></div>
+			<div class="menu-group">工作台</div>
+			<div class="menu-item"><span class="ic">▤</span>会话</div>
+			<div class="menu-sub">${siderHead(FILTER_SEG)}${rows}</div>
+			<div class="menu-group">其他</div>
+			<div class="menu-item"><span class="ic">◈</span>漏洞中枢</div>
+		</div>
+		${content(`<span class="a-trigger" style="${styleVars("todo")}"><span class="dot" style="background:${STATUS.todo.color};opacity:1"></span>待跟进 ▾</span>`)}
+	</div>
+	<div class="spec">
+		<div class="row">
+			<div>
+				<h4>视觉</h4>
+				<ul>
+					<li>行高、左侧缩进、圆点都保持现状，只在名称右侧加一个 11px 的小色块标签</li>
+					<li>运行中的绿点与状态色互不干扰（运行是圆点，状态是标签）</li>
+					<li>点击标签弹出深色选择面板，带快捷键提示</li>
+				</ul>
+			</div>
+			<div>
+				<h4>优点</h4>
+				<ul class="pro">
+					<li>改动最小，视觉最接近现在的列表</li>
+					<li>状态文字常显，扫一眼就知道哪个要跟</li>
+					<li>标签宽度固定 3 字，名称不会被挤动</li>
+				</ul>
+			</div>
+			<div>
+				<h4>代价</h4>
+				<ul class="con">
+					<li>6 个会话还行，20 个会话时右侧标签略密</li>
+					<li>「无状态」也要占一个灰标签位</li>
+				</ul>
+			</div>
+		</div>
+	</div>`;
+}
+
+/* ---------- 方案 B ---------- */
+function variantB() {
+	const rows = SESSIONS.map((session) => `
+		<div class="menu-sub-item b-item ${session.active ? "active" : ""} ${session.running ? "running" : ""}" style="${styleVars(session.status)}">
+			<span class="b-dot"></span>
+			<span class="menu-sub-name">${session.name}</span>
+			<span class="b-more">⋯</span>
+		</div>`).join("");
+	return `
+	<div class="frame">
+		<div class="sider">
+			<div class="sider-brand"><div class="sider-logo">ZG</div><span class="sider-title">ZGAgent</span></div>
+			<div class="menu-group">工作台</div>
+			<div class="menu-item"><span class="ic">▤</span>会话</div>
+			<div class="menu-sub">${siderHead(FILTER_FUNNEL)}${rows}</div>
+			<div class="menu-group">其他</div>
+			<div class="menu-item"><span class="ic">◈</span>漏洞中枢</div>
+		</div>
+		${content(`<span class="b-trigger" style="${styleVars("todo")}"><span class="b-dot"></span>待跟进 ▾</span>`)}
+	</div>
+	<div class="spec">
+		<div class="row">
+			<div>
+				<h4>视觉</h4>
+				<ul>
+					<li>整行左侧 3px 竖色条 + 名称前 7px 状态圆点，没有任何文字标签</li>
+					<li>运行中的会话圆点带光晕；无状态的会话没有竖条</li>
+					<li>悬停才出现 <code>⋯</code>，点开是选择面板；过滤收进漏斗按钮</li>
+				</ul>
+			</div>
+			<div>
+				<h4>优点</h4>
+				<ul class="pro">
+					<li>最安静，20+ 会话也不吵</li>
+					<li>竖色条在滚动时形成一条颜色带，异常会话一眼可见</li>
+					<li>不挤压名称宽度</li>
+				</ul>
+			</div>
+			<div>
+				<h4>代价</h4>
+				<ul class="con">
+					<li>状态要靠颜色记，新用户第一次不知道橙色是什么</li>
+					<li>过滤入口藏在漏斗里，比 A 多一次点击</li>
+				</ul>
+			</div>
+		</div>
+	</div>`;
+}
+
+/* ---------- 方案 C ---------- */
+function variantC() {
+	const rows = SESSIONS.map((session, index) => {
+		const value = session.status ? STATUS[session.status] : NONE;
+		return `
+		<div class="menu-sub-item c-item ${session.active ? "active" : ""}" style="${styleVars(session.status)}">
+			<span class="dot ${session.running ? "running" : ""}"></span>
+			<span class="menu-sub-name">${session.name}</span>
+			<span class="c-pill ${session.status ? "" : "none"}">${value.label}</span>
+			${index === 0 ? PICKER : ""}
+		</div>`;
+	}).join("");
+	return `
+	<div class="frame">
+		<div class="sider">
+			<div class="sider-brand"><div class="sider-logo">ZG</div><span class="sider-title">ZGAgent</span></div>
+			<div class="menu-group">工作台</div>
+			<div class="menu-item"><span class="ic">▤</span>会话</div>
+			<div class="menu-sub">${siderHead(FILTER_SEG)}${rows}</div>
+			<div class="menu-group">其他</div>
+			<div class="menu-item"><span class="ic">◈</span>漏洞中枢</div>
+		</div>
+		${content(`<span class="c-trigger" style="${styleVars("todo")}"><span class="dot" style="background:#fff;opacity:.85"></span>待跟进 ▾</span>`)}
+	</div>
+	<div class="spec">
+		<div class="row">
+			<div>
+				<h4>视觉</h4>
+				<ul>
+					<li>整行铺一层该状态色的半透明底色，右侧实心胶囊标签</li>
+					<li>当前会话（active）底色加深一档</li>
+					<li>顶部工具条用同样的实心胶囊，和列表颜色一一对应</li>
+				</ul>
+			</div>
+			<div>
+				<h4>优点</h4>
+				<ul class="pro">
+					<li>扫视最快：不用读文字就能定位「待跟进」的会话</li>
+					<li>10 个任务混在一起时，整行染色比小标签醒目得多</li>
+					<li>和顶部工具条形成呼应，状态感最强</li>
+				</ul>
+			</div>
+			<div>
+				<h4>代价</h4>
+				<ul class="con">
+					<li>深色导航上大面积染色，密集时有点花</li>
+					<li>与「当前选中行」的高亮会打架，需要额外调色</li>
+				</ul>
+			</div>
+		</div>
+	</div>`;
+}
+
+/* ---------- 方案 D ---------- */
+function variantD() {
+	const group = (title, color, keys, muted) => {
+		const items = SESSIONS.filter((session) => keys.includes(session.status));
+		if (items.length === 0) return "";
+		return `
+			<div class="d-group"><span class="d-dot" style="background:${color}"></span>${title}
+				<span class="d-count">${items.length}</span></div>
+			${items.map((session) => `
+				<div class="menu-sub-item d-item ${session.active ? "active" : ""} ${muted ? "muted" : ""}" style="${styleVars(session.status)}">
+					<span class="dot ${session.running ? "running" : ""}"></span>
+					<span class="menu-sub-name">${session.name}</span>
+					<span class="b-more">⋯</span>
+				</div>`).join("")}`;
+	};
+	return `
+	<div class="frame">
+		<div class="sider">
+			<div class="sider-brand"><div class="sider-logo">ZG</div><span class="sider-title">ZGAgent</span></div>
+			<div class="menu-group">工作台</div>
+			<div class="menu-item"><span class="ic">▤</span>会话</div>
+			<div class="menu-sub">
+				${siderHead(`<span class="funnel">隐藏已忽略</span>`)}
+				${group("待跟进", STATUS.todo.color, ["todo"])}
+				${group("进行中", STATUS.active.color, ["active"])}
+				${group("无状态", "#ffffff40", [null])}
+				${group("已完成", STATUS.done.color, ["done"], true)}
+				${group("已忽略", STATUS.ignored.color, ["ignored"], true)}
+			</div>
+			<div class="menu-group">其他</div>
+			<div class="menu-item"><span class="ic">◈</span>漏洞中枢</div>
+		</div>
+		${content(`<span class="d-trigger" style="${styleVars("todo")}"><span class="dot" style="background:${STATUS.todo.color};opacity:1"></span>待跟进 ▾</span>`)}
+	</div>
+	<div class="spec">
+		<div class="row">
+			<div>
+				<h4>视觉</h4>
+				<ul>
+					<li>列表按状态分区，每区一个标题行带计数；「已完成 / 已忽略」整区降低透明度</li>
+					<li>行内只保留一个小色点，名称前无标签</li>
+					<li>区标题可折叠，「隐藏已忽略」一键收起</li>
+				</ul>
+			</div>
+			<div>
+				<h4>优点</h4>
+				<ul class="pro">
+					<li>最贴近你说的用法：先看待跟进，其余不用管</li>
+					<li>「哪个还需要我引导」变成列表最上面的一区</li>
+					<li>已完成/已忽略自动沉底并弱化，不用手动改标题</li>
+				</ul>
+			</div>
+			<div>
+				<h4>代价</h4>
+				<ul class="con">
+					<li>不再严格按时间排序，找「刚刚那个会话」要多看一眼</li>
+					<li>分区标题占纵向空间，侧边栏折叠后不可用</li>
+				</ul>
+			</div>
+		</div>
+	</div>`;
+}
+
+const VARIANTS = { a: variantA, b: variantB, c: variantC, d: variantD };
+const views = document.getElementById("views");
+for (const key of Object.keys(VARIANTS)) {
+	const section = document.createElement("section");
+	section.className = "variant";
+	section.id = `view-${key}`;
+	section.innerHTML = VARIANTS[key]();
+	views.appendChild(section);
+}
+const all = document.createElement("section");
+all.className = "variant";
+all.id = "view-all";
+all.innerHTML = ["a", "b", "c", "d"].map((key) => VARIANTS[key]()).join("");
+views.appendChild(all);
+
+function show(view) {
+	for (const section of views.children) section.classList.toggle("on", section.id === `view-${view}`);
+	for (const button of document.querySelectorAll("#tabs button")) button.classList.toggle("on", button.dataset.view === view);
+}
+document.getElementById("tabs").addEventListener("click", (event) => {
+	const button = event.target.closest("button");
+	if (!button) return;
+	location.hash = button.dataset.view;
+	show(button.dataset.view);
+});
+show(location.hash.slice(1) || "a");
+</script>
+</body>
+</html>

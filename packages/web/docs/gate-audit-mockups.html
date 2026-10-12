@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>守门审计页面改版预览</title>
+<style>
+	:root {
+		--bg: #fafafa;
+		--card: #ffffff;
+		--raised: #f8f8f9;
+		--border: #e5e6eb;
+		--border-strong: #c9cdd4;
+		--text: #1d2129;
+		--text-bright: #0b0d0f;
+		--dim: #606266;
+		--accent: #0960bd;
+		--accent-dim: #e6f4ff;
+		--ok: #23a15c;
+		--ok-dim: #e8f7ef;
+		--danger: #cb2634;
+		--danger-dim: #fdecec;
+		--warn: #b88230;
+		--warn-dim: #fdf6ec;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+		--sans: -apple-system, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--text);
+		font: 13px/1.6 var(--sans);
+		padding: 24px 28px 80px;
+	}
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	.lead { color: var(--dim); margin: 0 0 28px; }
+	.variant { margin: 0 0 72px; }
+	.variant > header { margin-bottom: 12px; border-left: 3px solid var(--accent); padding-left: 10px; }
+	.variant > header h2 { margin: 0; font-size: 15px; }
+	.variant > header p { margin: 4px 0 0; color: var(--dim); max-width: 900px; }
+	.variant > header .fix { color: var(--ok); }
+	.card {
+		background: var(--card);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 16px 18px;
+		box-shadow: 0 1px 2px rgba(16,24,40,.04);
+	}
+	.chip {
+		display: inline-block;
+		padding: 0 6px;
+		border-radius: 3px;
+		font-size: 11px;
+		line-height: 18px;
+		white-space: nowrap;
+	}
+	.chip.allow { background: var(--ok-dim); color: var(--ok); }
+	.chip.block { background: var(--danger-dim); color: var(--danger); }
+	.chip.failed { background: var(--warn-dim); color: var(--warn); }
+	.chip.model { background: var(--raised); color: var(--dim); border: 1px solid var(--border); }
+	.mono { font-family: var(--mono); }
+	.dim { color: var(--dim); }
+	.link { color: var(--accent); text-decoration: none; cursor: pointer; }
+	.badge-count { display: inline-block; min-width: 16px; text-align: center; }
+
+	/* ============ 方案 A：紧凑流水 ============ */
+	.a-summary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px 14px;
+		padding: 7px 12px;
+		background: var(--raised);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		margin-bottom: 10px;
+		font-size: 12px;
+		color: var(--dim);
+	}
+	.a-summary b { color: var(--text-bright); font-weight: 600; }
+	.a-summary .sep { color: var(--border-strong); }
+	.a-summary .bad b { color: var(--danger); }
+	table.flow { width: 100%; border-collapse: collapse; border: 1px solid var(--border); font-size: 12px; table-layout: fixed; }
+	table.flow th {
+		text-align: left; font-weight: 500; color: var(--dim);
+		background: var(--raised); padding: 6px 10px; border-bottom: 1px solid var(--border);
+		position: sticky; top: 0;
+	}
+	table.flow td { padding: 5px 10px; border-top: 1px solid var(--border); vertical-align: middle; }
+	table.flow tr:hover td { background: var(--accent-dim); }
+	table.flow tr.block td { background: var(--danger-dim); }
+	table.flow tr.failed td { background: var(--warn-dim); }
+	.flow .c-time { width: 118px; color: var(--dim); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+	.flow .c-verdict { width: 56px; }
+	.flow .c-source { width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.flow .c-cmd { }
+	.flow .c-cmd code {
+		display: block; font-family: var(--mono); font-size: 11.5px; color: var(--text-bright);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.flow .c-model { width: 150px; }
+	.flow .c-model .m { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11px; }
+	.flow .c-model .mf { display: block; font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.flow .c-latency { width: 58px; text-align: right; color: var(--dim); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+
+	/* ============ 方案 B：左统计栏 ============ */
+	.b-layout { display: grid; grid-template-columns: 168px 1fr; gap: 12px; align-items: start; }
+	.b-stats { display: grid; gap: 6px; }
+	.b-stat { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; }
+	.b-stat .n { font-size: 15px; font-weight: 600; color: var(--text-bright); }
+	.b-stat .l { font-size: 11px; color: var(--dim); }
+	.b-stat.bad .n { color: var(--danger); }
+
+	/* ============ 方案 C：日志流 ============ */
+	.c-stream { display: grid; gap: 6px; }
+	.c-group { color: var(--dim); font-size: 11px; margin: 8px 0 2px; display: flex; align-items: center; gap: 8px; }
+	.c-group::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+	.c-entry { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; background: var(--card); }
+	.c-entry:hover { border-color: var(--border-strong); }
+	.c-entry.block { border-color: #f56c6c66; background: #fffafa; }
+	.c-entry.failed { border-color: #e6a23c55; }
+	.c-entry .top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+	.c-entry .top .t { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+	.c-entry .top .src { font-size: 11.5px; color: var(--dim); }
+	.c-entry .top .sp { flex: 1; }
+	.c-entry .top .meta { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+	.c-entry code.cmd { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--text-bright); white-space: pre-wrap; word-break: break-all; }
+
+	/* ============ 方案 D：主从 ============ */
+	.d-layout { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(360px, 1fr); gap: 12px; align-items: start; }
+	.d-list { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+	.d-item { display: grid; grid-template-columns: 16px 108px 1fr; gap: 8px; align-items: baseline; padding: 7px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+	.d-item:first-child { border-top: 0; }
+	.d-item:hover { background: var(--accent-dim); }
+	.d-item.sel { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
+	.d-item .dot { width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+	.dot.allow { background: var(--ok); }
+	.dot.block { background: var(--danger); }
+	.dot.failed { background: var(--warn); }
+	.d-item .t { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+	.d-item .cmd { font-family: var(--mono); font-size: 11.5px; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.d-detail { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; background: var(--card); }
+	.d-detail h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+	.d-detail .kv { display: grid; grid-template-columns: 72px 1fr; gap: 3px 10px; font-size: 12px; margin-bottom: 10px; }
+	.d-detail .kv .k { color: var(--dim); }
+	.d-detail pre {
+		margin: 0; padding: 10px 12px; background: #16181d; color: #c9d1d9;
+		border-radius: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+		white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto;
+	}
+	.d-detail .why { margin-top: 10px; padding: 8px 10px; background: var(--danger-dim); color: var(--danger); border-radius: 6px; font-size: 12px; }
+
+	.nav { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+	.nav a { margin-right: 16px; color: var(--accent); text-decoration: none; font-size: 12.5px; }
+</style>
+</head>
+<body>
+	<h1>守门审计页面改版预览</h1>
+	<p class="lead">数据全部来自当前页面的真实记录，另补一条「拦截」和一条「请求失败」以展示状态。四个方案都包含模型列修复：模型名省略号 + 悬停完整名，并优先显示「模型来源」条目名。点左侧导航跳转。</p>
+	<div class="nav">
+		<a href="#a">方案 A 紧凑流水</a>
+		<a href="#b">方案 B 左统计栏</a>
+		<a href="#c">方案 C 日志流</a>
+		<a href="#d">方案 D 主从式</a>
+	</div>
+
+	<!-- ================= 方案 A ================= -->
+	<section class="variant" id="a">
+		<header>
+			<h2>方案 A · 紧凑流水（单行制）</h2>
+			<p>8 张统计卡压成一行汇总条；表格改成单行制：命令一行省略（悬停看全量、点击展开详情），理由列并入展开区（反正几乎全是「-」），来源压成一列。行高从 55-80px 降到 28px，一屏能看 20+ 条。<span class="fix">改动最小，信息不丢。</span></p>
+		</header>
+		<div class="card">
+			<div class="a-summary">
+				<span>拦截 <b class="badge-count">0</b></span><span class="sep">·</span>
+				<span>放行 <b>6</b></span><span class="sep">·</span>
+				<span class="bad">失败 <b>0</b></span><span class="sep">·</span>
+				<span>拦截率 <b>0.0%</b></span><span class="sep">·</span>
+				<span>平均耗时 <b>1.6 s</b></span><span class="sep">·</span>
+				<span>24 小时 <b>6</b></span><span class="sep">·</span>
+				<span>tokens <b>9,699</b></span><span class="sep">·</span>
+				<span>最近成功 <b>10/12 13:57</b></span>
+			</div>
+			<table class="flow">
+				<thead>
+					<tr><th class="c-time">时间</th><th class="c-verdict">判定</th><th class="c-cmd">命令</th><th class="c-source">来源</th><th class="c-model">模型</th><th class="c-latency">耗时</th></tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="c-time">10/12 13:57:27</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code title="echo &quot;=== python 渗透库 ===&quot;; python3 -c &quot;import nmap, scapy…&quot;">echo "=== python 渗透库 ==="; python3 -c "import nmap, scapy…</code></td>
+						<td class="c-source" title="Test · 主代理">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m" title="MiniMax-M3.1-Flash-Preview">MiniMax-M3.1-Flash-P…</span><span class="mf" title="主端点">主端点</span></td>
+						<td class="c-latency">850 ms</td>
+					</tr>
+					<tr>
+						<td class="c-time">10/12 13:57:27</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code>echo "=== 版本 ==="; nmap --version 2&gt;/dev/null | head -1; sqlmap --version…</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">746 ms</td>
+					</tr>
+					<tr class="block">
+						<td class="c-time">10/12 13:57:22</td><td class="c-verdict"><span class="chip block">拦截</span></td>
+						<td class="c-cmd"><code title="mysql -h 10.10.10.5 -u root -e &quot;DROP TABLE orders&quot;">mysql -h 10.10.10.5 -u root -e "DROP TABLE orders"</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">1.2 s</td>
+					</tr>
+					<tr>
+						<td class="c-time">10/12 13:57:19</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code>echo "=== PATH ==="; echo $PATH | tr ':' '\n'; cat /etc/os-release…</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">2.1 s</td>
+					</tr>
+					<tr>
+						<td class="c-time">10/12 13:57:19</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code>for t in nmap nuclei sqlmap httpx ffuf nikto dirsearch gobuster wfuzz…</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">2.8 s</td>
+					</tr>
+					<tr class="failed">
+						<td class="c-time">10/12 13:57:14</td><td class="c-verdict"><span class="chip failed">失败</span></td>
+						<td class="c-cmd"><code>nikto -h http://10.10.10.5 -o /work/nikto.txt</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">5.0 s</td>
+					</tr>
+					<tr>
+						<td class="c-time">10/12 13:57:09</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code>echo "=== OS ==="; uname -a; echo $SHELL; bash --version | head -1</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">1.3 s</td>
+					</tr>
+					<tr>
+						<td class="c-time">10/12 13:57:09</td><td class="c-verdict"><span class="chip allow">放行</span></td>
+						<td class="c-cmd"><code>for i in 1 2 3; do whoami; done</code></td>
+						<td class="c-source">Test · 主代理 <a class="link">会话</a></td>
+						<td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td>
+						<td class="c-latency">1.6 s</td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="dim" style="font-size:11.5px; margin: 8px 0 0;">点击行展开：完整命令、工作目录、tokens、模型来源、拦截理由 / 失败原因（现在的展开行为保留，只是理由也从表格列挪进去）。</p>
+		</div>
+	</section>
+
+	<!-- ================= 方案 B ================= -->
+	<section class="variant" id="b">
+		<header>
+			<h2>方案 B · 左统计栏 + 右流水</h2>
+			<p>统计竖排在左侧一列（168px），右侧整个宽度给流水表。宽屏下统计不横铺、流水更宽；统计项可以比横排更多而不挤。<span class="fix">适合你这种 2K/带鱼屏。</span></p>
+		</header>
+		<div class="card">
+			<div class="b-layout">
+				<aside class="b-stats">
+					<div class="b-stat"><span class="n">0</span><span class="l">拦截</span></div>
+					<div class="b-stat"><span class="n">6</span><span class="l">放行</span></div>
+					<div class="b-stat bad"><span class="n">0</span><span class="l">请求失败（已放行）</span></div>
+					<div class="b-stat"><span class="n">0.0%</span><span class="l">拦截率</span></div>
+					<div class="b-stat"><span class="n">1.6 s</span><span class="l">平均耗时</span></div>
+					<div class="b-stat"><span class="n">6</span><span class="l">最近 24 小时</span></div>
+					<div class="b-stat"><span class="n">9,699</span><span class="l">判定消耗 tokens</span></div>
+					<div class="b-stat"><span class="n">13:57</span><span class="l">最近一次成功</span></div>
+				</aside>
+				<table class="flow">
+					<thead>
+						<tr><th class="c-time">时间</th><th class="c-verdict">判定</th><th class="c-cmd">命令</th><th class="c-source">来源</th><th class="c-model">模型</th><th class="c-latency">耗时</th></tr>
+					</thead>
+					<tbody>
+						<tr><td class="c-time">13:57:27</td><td class="c-verdict"><span class="chip allow">放行</span></td><td class="c-cmd"><code>echo "=== python 渗透库 ==="; python3 -c "import nmap…</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">850 ms</td></tr>
+						<tr><td class="c-time">13:57:27</td><td class="c-verdict"><span class="chip allow">放行</span></td><td class="c-cmd"><code>echo "=== 版本 ==="; nmap --version; sqlmap --version; ffuf -V</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">746 ms</td></tr>
+						<tr class="block"><td class="c-time">13:57:22</td><td class="c-verdict"><span class="chip block">拦截</span></td><td class="c-cmd"><code>mysql -h 10.10.10.5 -u root -e "DROP TABLE orders"</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">1.2 s</td></tr>
+						<tr><td class="c-time">13:57:19</td><td class="c-verdict"><span class="chip allow">放行</span></td><td class="c-cmd"><code>echo "=== PATH ==="; echo $PATH | tr ':' '\n'; cat /etc/os-release</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">2.1 s</td></tr>
+						<tr><td class="c-time">13:57:19</td><td class="c-verdict"><span class="chip allow">放行</span></td><td class="c-cmd"><code>for t in nmap nuclei sqlmap httpx ffuf nikto dirsearch gobuster…</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">2.8 s</td></tr>
+						<tr class="failed"><td class="c-time">13:57:14</td><td class="c-verdict"><span class="chip failed">失败</span></td><td class="c-cmd"><code>nikto -h http://10.10.10.5 -o /work/nikto.txt</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">5.0 s</td></tr>
+						<tr><td class="c-time">13:57:09</td><td class="c-verdict"><span class="chip allow">放行</span></td><td class="c-cmd"><code>echo "=== OS ==="; uname -a; echo $SHELL; bash --version</code></td><td class="c-source">主代理 <a class="link">会话</a></td><td class="c-model"><span class="m">MiniMax-M3.1-Flash-P…</span><span class="mf">主端点</span></td><td class="c-latency">1.3 s</td></tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</section>
+
+	<!-- ================= 方案 C ================= -->
+	<section class="variant" id="c">
+		<header>
+			<h2>方案 C · 日志流（放弃表格）</h2>
+			<p>按时间分组的卡片流，每条 = 徽章 + 时间 + 来源 + 命令全文（自动折行，最多约 3 行）+ 右侧 meta（模型 · 耗时）。拦截/失败的卡片整卡着色。没有表格列宽问题，命令再长也不截断成「…」。<span class="fix">可读性最好，但一屏条数少于 A/B。</span></p>
+		</header>
+		<div class="card">
+			<div class="a-summary">
+				<span>拦截 <b class="badge-count">0</b></span><span class="sep">·</span>
+				<span>放行 <b>6</b></span><span class="sep">·</span>
+				<span>失败 <b>0</b></span><span class="sep">·</span>
+				<span>拦截率 <b>0.0%</b></span><span class="sep">·</span>
+				<span>平均耗时 <b>1.6 s</b></span><span class="sep">·</span>
+				<span>tokens <b>9,699</b></span><span class="sep">·</span>
+				<span>最近成功 <b>10/12 13:57</b></span>
+			</div>
+			<div class="c-stream">
+				<div class="c-group">10/12 13:57 · 6 条判定</div>
+				<div class="c-entry">
+					<div class="top">
+						<span class="chip allow">放行</span><span class="t">13:57:27</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta" title="MiniMax-M3.1-Flash-Preview（主端点）">MiniMax-M3.1-Flash-P… · 850 ms</span>
+					</div>
+					<code class="cmd">echo "=== python 渗透库 ==="; python3 -c "import nmap, scapy, impacket; print('ok')"</code>
+				</div>
+				<div class="c-entry">
+					<div class="top">
+						<span class="chip allow">放行</span><span class="t">13:57:27</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta">MiniMax-M3.1-Flash-P… · 746 ms</span>
+					</div>
+					<code class="cmd">echo "=== 版本 ==="; nmap --version 2&gt;/dev/null | head -1; sqlmap --version 2&gt;/dev/null | head -1; ffuf -V 2&gt;/dev/null | head -1</code>
+				</div>
+				<div class="c-entry block">
+					<div class="top">
+						<span class="chip block">拦截</span><span class="t">13:57:22</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta">MiniMax-M3.1-Flash-P… · 1.2 s</span>
+					</div>
+					<code class="cmd">mysql -h 10.10.10.5 -u root -e "DROP TABLE orders"</code>
+					<div class="why" style="margin-top:6px;">拦截理由：清空业务数据表，命中 BLOCK 清单第 4 条</div>
+				</div>
+				<div class="c-entry">
+					<div class="top">
+						<span class="chip allow">放行</span><span class="t">13:57:19</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta">MiniMax-M3.1-Flash-P… · 2.1 s</span>
+					</div>
+					<code class="cmd">echo "=== PATH ==="; echo $PATH | tr ':' '\n'; echo; echo "=== OS release ==="; cat /etc/os-release 2&gt;/dev/null | head -5</code>
+				</div>
+				<div class="c-entry failed">
+					<div class="top">
+						<span class="chip failed">失败</span><span class="t">13:57:14</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta">MiniMax-M3.1-Flash-P… · 5.0 s</span>
+					</div>
+					<code class="cmd">nikto -h http://10.10.10.5 -o /work/nikto.txt</code>
+					<div style="margin-top:6px; color: var(--warn); font-size: 12px;">判定失败（已放行）：守门判定超时（5000ms）</div>
+				</div>
+				<div class="c-entry">
+					<div class="top">
+						<span class="chip allow">放行</span><span class="t">13:57:09</span><span class="src">Test · 主代理 <a class="link">会话</a></span>
+						<span class="sp"></span>
+						<span class="meta">MiniMax-M3.1-Flash-P… · 1.3 s</span>
+					</div>
+					<code class="cmd">echo "=== OS ==="; uname -a; echo; echo "=== Shell ==="; echo $SHELL; bash --version | head -1</code>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- ================= 方案 D ================= -->
+	<section class="variant" id="d">
+		<header>
+			<h2>方案 D · 主从式（左列表右详情）</h2>
+			<p>左侧只留「点 + 判定 + 时间 + 命令首行」的最密列表，右侧固定详情面板显示选中这条的完整命令、工作目录、tokens、模型与理由。审查单条时不用展开收起。<span class="fix">逐条排查时最顺手；窄窗口下详情会被挤。</span></p>
+		</header>
+		<div class="card">
+			<div class="d-layout">
+				<div class="d-list">
+					<div class="d-item sel"><span class="dot allow"></span><span class="t">13:57:27</span><span class="cmd">echo "=== python 渗透库 ==="; python3 -c "import…</span></div>
+					<div class="d-item"><span class="dot allow"></span><span class="t">13:57:27</span><span class="cmd">echo "=== 版本 ==="; nmap --version 2&gt;/dev/null…</span></div>
+					<div class="d-item"><span class="dot block"></span><span class="t">13:57:22</span><span class="cmd">mysql -h 10.10.10.5 -u root -e "DROP TABLE orders"</span></div>
+					<div class="d-item"><span class="dot allow"></span><span class="t">13:57:19</span><span class="cmd">echo "=== PATH ==="; echo $PATH | tr ':' '\n'…</span></div>
+					<div class="d-item"><span class="dot allow"></span><span class="t">13:57:19</span><span class="cmd">for t in nmap nuclei sqlmap httpx ffuf nikto…</span></div>
+					<div class="d-item"><span class="dot failed"></span><span class="t">13:57:14</span><span class="cmd">nikto -h http://10.10.10.5 -o /work/nikto.txt</span></div>
+					<div class="d-item"><span class="dot allow"></span><span class="t">13:57:09</span><span class="cmd">echo "=== OS ==="; uname -a; echo $SHELL…</span></div>
+					<div class="d-item"><span class="dot allow"></span><span class="t">13:57:09</span><span class="cmd">for i in 1 2 3; do whoami; done</span></div>
+				</div>
+				<div class="d-detail">
+					<h3><span class="chip allow">放行</span> 10/12 13:57:27</h3>
+					<div class="kv">
+						<span class="k">来源</span><span>Test · 主代理 <a class="link">打开会话</a></span>
+						<span class="k">工作目录</span><span class="mono">/work</span>
+						<span class="k">模型</span><span class="mono" title="MiniMax-M3.1-Flash-Preview">MiniMax-M3.1-Flash-P…（主端点）</span>
+						<span class="k">耗时 / tokens</span><span class="mono">850 ms · 1,617</span>
+						<span class="k">理由</span><span class="dim">—（放行无理由）</span>
+					</div>
+					<pre>echo "=== python 渗透库 ==="; python3 -c "import nmap, scapy, impacket; print('ok')"</pre>
+				</div>
+			</div>
+		</div>
+	</section>
+</body>
+</html>
