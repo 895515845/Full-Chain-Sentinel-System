@@ -5000,6 +5000,10 @@ button.link {
 .board {
 	flex: 1;
 	min-height: 0;
+	/* The implicit row must be bounded, not auto: an auto row grows to its
+	   content, overflows the bounded grid, and neither column ever scrolls —
+	   the content just runs off the clipped page. */
+	grid-template-rows: minmax(0, 1fr);
 }
 
 .board-col {
