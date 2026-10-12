@@ -5060,6 +5060,12 @@ button.link {
 	margin: 0;
 	border: none;
 	border-radius: 0;
+	/* A flex child of the column body shrinks to the body's height and its
+	   own overflow:hidden then swallows every row — measured: a 3715px table
+	   clipped to 237px with no scrollbar anywhere. flex:none keeps the table
+	   at content height so the body actually scrolls. */
+	flex: none;
+	overflow: visible;
 }
 
 .tasks-table .data-row {
