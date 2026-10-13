@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { MAX_ZIP_TOTAL_BYTES } from "./poc-zip.ts";
 import type { PocStore } from "./pocs.ts";
 import type { ZGPocImportOutcome, ZGPocSource, ZGPocSourceSave, ZGPocSyncRecord } from "./protocol.ts";
 
@@ -24,8 +25,8 @@ import type { ZGPocImportOutcome, ZGPocSource, ZGPocSourceSave, ZGPocSyncRecord 
 const FETCH_TIMEOUT_MS = 60_000;
 /** Attempts per sync: the initial try plus one retry on a network error. */
 const FETCH_ATTEMPTS = 2;
-/** Largest archive a sync accepts (matches the zip reader's cap). */
-const MAX_ZIP_BYTES = 256 * 1024 * 1024;
+/** Largest archive a sync accepts, from the zip reader so the two cannot drift. */
+const MAX_ZIP_MB = Math.round(MAX_ZIP_TOTAL_BYTES / 1024 / 1024);
 /** Sync outcomes kept per source. */
 const HISTORY_LIMIT = 5;
 /** Bounds of the automatic interval; 0 means manual-only. */
@@ -108,7 +109,7 @@ async function download(url: string, headerName: string, headerValue: string): P
 		const response = await fetch(url, { headers, redirect: "follow", signal: controller.signal });
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const declared = Number(response.headers.get("content-length") ?? 0);
-		if (declared > MAX_ZIP_BYTES) throw new Error("文件超过 256MB 上限");
+		if (declared > MAX_ZIP_TOTAL_BYTES) throw new Error(`文件超过 ${MAX_ZIP_MB}MB 上限`);
 		const chunks: Uint8Array[] = [];
 		let total = 0;
 		const reader = response.body?.getReader();
@@ -117,7 +118,7 @@ async function download(url: string, headerName: string, headerValue: string): P
 			const { done, value } = await reader.read();
 			if (done) break;
 			total += value.byteLength;
-			if (total > MAX_ZIP_BYTES) throw new Error("文件超过 256MB 上限");
+			if (total > MAX_ZIP_TOTAL_BYTES) throw new Error(`文件超过 ${MAX_ZIP_MB}MB 上限`);
 			chunks.push(value);
 		}
 		return Buffer.concat(chunks);

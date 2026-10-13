@@ -15,7 +15,7 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readZip } from "./poc-zip.ts";
+import { openZip } from "./poc-zip.ts";
 import type { ZGPoc, ZGPocFilters, ZGPocImportOutcome, ZGPocSeverity, ZGPocStats, ZGPocSummary } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
@@ -23,6 +23,14 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 const MAX_TEMPLATE_BYTES = 512 * 1024;
 /** Templates listed in one poc_search answer. */
 const LIST_CAP = 100;
+/**
+ * Templates stored per commit. A whole-archive import is one transaction per
+ * chunk: not one per template (every statement autocommitted, ~0.6ms each) and
+ * not one for the whole archive (whose rollback journal grows to the size of
+ * the data being written, and which would discard a long import over one
+ * unexpected error).
+ */
+const IMPORT_COMMIT_CHUNK = 5_000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pocs (
@@ -36,7 +44,19 @@ CREATE TABLE IF NOT EXISTS pocs (
   imported_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pocs_severity ON pocs(severity);
+-- The listed order is newest first, so both listing indexes carry imported_at
+-- (and the id tiebreak). Without them every page of the library sorts the whole
+-- table, template bodies included, to return 100 rows.
+CREATE INDEX IF NOT EXISTS idx_pocs_imported ON pocs(imported_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_pocs_severity_imported ON pocs(severity, imported_at DESC, id);
 `;
+
+/**
+ * The columns a list row needs. `content` is deliberately absent: a 100-row page
+ * would otherwise read up to 50MB of template text out of the database only to
+ * drop it in `toSummary`.
+ */
+const SUMMARY_COLUMNS = "id, name, severity, tags, refs, source_file, imported_at";
 
 const SEVERITIES: readonly ZGPocSeverity[] = ["critical", "high", "medium", "low", "info"];
 
@@ -60,7 +80,10 @@ interface PocRow {
 	imported_at: string;
 }
 
-function toSummary(row: PocRow): ZGPocSummary {
+/** A row as `list()` reads it: everything but the template body. */
+type PocSummaryRow = Omit<PocRow, "content">;
+
+function toSummary(row: PocSummaryRow): ZGPocSummary {
 	return {
 		id: row.id,
 		name: row.name,
@@ -174,38 +197,12 @@ export class PocStore {
 	}
 
 	/**
-	 * Import templates. Zip archives are unpacked first, then every yaml is
-	 * parsed and upserted by template id. One bad file never fails the batch;
+	 * Import templates. Zip archives are unpacked entry by entry, and every yaml
+	 * is parsed and upserted by template id. One bad file never fails the batch;
 	 * it lands in `skipped` with a reason.
 	 */
 	import(files: ImportFile[], now = new Date()): ZGPocImportOutcome {
-		const candidates: { name: string; content: string }[] = [];
 		const skipped: { name: string; reason: string }[] = [];
-		for (const file of files) {
-			const safeName = safeEntryName(file.name);
-			if (!safeName) {
-				skipped.push({ name: file.name, reason: "非法文件名" });
-				continue;
-			}
-			if (safeName.endsWith(".zip")) {
-				let entries: { name: string; data: Buffer }[] = [];
-				try {
-					entries = readZip(file.bytes).entries;
-				} catch (error) {
-					skipped.push({ name: safeName, reason: error instanceof Error ? error.message : "解压失败" });
-					continue;
-				}
-				for (const entry of entries) {
-					const name = safeEntryName(entry.name);
-					if (!name) continue;
-					if (isYamlName(name)) candidates.push({ name, content: entry.data.toString("utf8") });
-				}
-				continue;
-			}
-			if (isYamlName(safeName)) candidates.push({ name: safeName, content: file.bytes.toString("utf8") });
-			else skipped.push({ name: safeName, reason: "只支持 .yaml / .yml / .zip" });
-		}
-
 		let imported = 0;
 		let replaced = 0;
 		const seen = new Set<string>();
@@ -214,33 +211,95 @@ export class PocStore {
 			"INSERT INTO pocs (id, name, severity, tags, refs, content, source_file, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
 				"ON CONFLICT(id) DO UPDATE SET name=excluded.name, severity=excluded.severity, tags=excluded.tags, refs=excluded.refs, content=excluded.content, source_file=excluded.source_file, imported_at=excluded.imported_at",
 		);
-		for (const file of candidates) {
-			if (file.content.length > MAX_TEMPLATE_BYTES) {
-				skipped.push({ name: file.name, reason: "模板过大" });
-				continue;
+		const existing = this.db.prepare("SELECT 1 AS ok FROM pocs WHERE id = ?");
+		let pending = 0;
+		this.db.exec("BEGIN");
+		try {
+			for (const file of this.candidates(files, skipped)) {
+				if (pending >= IMPORT_COMMIT_CHUNK) {
+					this.db.exec("COMMIT");
+					this.db.exec("BEGIN");
+					pending = 0;
+				}
+				if (file.content.length > MAX_TEMPLATE_BYTES) {
+					skipped.push({ name: file.name, reason: "模板过大" });
+					continue;
+				}
+				const parsed = parseNucleiTemplate(file.content);
+				if (!parsed) {
+					skipped.push({ name: file.name, reason: "缺少有效的模板 id" });
+					continue;
+				}
+				if (seen.has(parsed.id)) continue; // same id twice in one batch: first wins
+				seen.add(parsed.id);
+				if (existing.get(parsed.id)) replaced++;
+				else imported++;
+				upsert.run(
+					parsed.id,
+					parsed.name,
+					parsed.severity,
+					parsed.tags.join(","),
+					parsed.references.join("\n"),
+					file.content,
+					file.name,
+					stamp,
+				);
+				pending++;
 			}
-			const parsed = parseNucleiTemplate(file.content);
-			if (!parsed) {
-				skipped.push({ name: file.name, reason: "缺少有效的模板 id" });
-				continue;
+			this.db.exec("COMMIT");
+		} catch (error) {
+			try {
+				this.db.exec("ROLLBACK");
+			} catch {
+				// A failed COMMIT may already have rolled the chunk back; the
+				// import error is what the caller needs to see.
 			}
-			if (seen.has(parsed.id)) continue; // same id twice in one batch: first wins
-			seen.add(parsed.id);
-			const exists = this.db.prepare("SELECT 1 FROM pocs WHERE id = ?").get(parsed.id);
-			if (exists) replaced++;
-			else imported++;
-			upsert.run(
-				parsed.id,
-				parsed.name,
-				parsed.severity,
-				parsed.tags.join(","),
-				parsed.references.join("\n"),
-				file.content,
-				file.name,
-				stamp,
-			);
+			throw error;
 		}
 		return { imported, replaced, skipped };
+	}
+
+	/**
+	 * The templates a batch holds, in upload order: `.yaml` files as they are, and
+	 * zip entries pulled one at a time so a 300k-template archive is never fully
+	 * materialized in memory.
+	 */
+	private *candidates(
+		files: ImportFile[],
+		skipped: { name: string; reason: string }[],
+	): Generator<{
+		name: string;
+		content: string;
+	}> {
+		for (const file of files) {
+			const safeName = safeEntryName(file.name);
+			if (!safeName) {
+				skipped.push({ name: file.name, reason: "非法文件名" });
+				continue;
+			}
+			if (safeName.endsWith(".zip")) {
+				let stream: ReturnType<typeof openZip>;
+				try {
+					stream = openZip(file.bytes);
+				} catch (error) {
+					skipped.push({ name: safeName, reason: error instanceof Error ? error.message : "解压失败" });
+					continue;
+				}
+				for (const entry of stream.entries) {
+					const name = safeEntryName(entry.name);
+					if (!name) continue;
+					if (isYamlName(name)) yield { name, content: entry.data.toString("utf8") };
+				}
+				// Entries the reader could not use, named after the archive so a
+				// batch of several archives stays readable.
+				for (const skip of stream.skipped) {
+					skipped.push({ name: `${safeName}: ${skip.name}`, reason: skip.reason });
+				}
+				continue;
+			}
+			if (isYamlName(safeName)) yield { name: safeName, content: file.bytes.toString("utf8") };
+			else skipped.push({ name: safeName, reason: "只支持 .yaml / .yml / .zip" });
+		}
 	}
 
 	list(filters: ZGPocFilters = {}): ZGPocSummary[] {
@@ -261,8 +320,8 @@ export class PocStore {
 		}
 		const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
 		const rows = this.db
-			.prepare(`SELECT * FROM pocs${where} ORDER BY imported_at DESC, id LIMIT ${LIST_CAP + 1}`)
-			.all(...params) as unknown as PocRow[];
+			.prepare(`SELECT ${SUMMARY_COLUMNS} FROM pocs${where} ORDER BY imported_at DESC, id LIMIT ${LIST_CAP + 1}`)
+			.all(...params) as unknown as PocSummaryRow[];
 		return rows.slice(0, LIST_CAP).map(toSummary);
 	}
 

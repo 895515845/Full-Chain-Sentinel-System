@@ -32,6 +32,15 @@ const SEVERITY_LABELS: Record<ZGPocSeverity, string> = {
 	info: "信息",
 };
 
+/**
+ * Appended to every `poc_read`, outside the clip so a truncated template still
+ * carries it. A template's `path` is the author's guess at one common
+ * deployment: the failure this prevents is the model firing that path as
+ * written, getting a 404, and reporting the target as unaffected.
+ */
+const TEMPLATE_PATH_NOTE =
+	"（提醒：模板里的 path / URL 前缀是作者按常见部署写的，未必等于目标上的真实路径。先按侦察结果确认真实前缀，再把匹配逻辑搬过去；照抄路径跑一次的命中或未命中，都不能单独作为结论。）";
+
 const searchSchema = Type.Object({
 	search: Type.Optional(
 		Type.String({ description: "Case-insensitive substring matched against template id, name, tags and CVE ids" }),
@@ -76,11 +85,13 @@ export function createPocTools(options: PocToolOptions): ToolDefinition[] {
 		name: "poc_search",
 		label: "Search POC library",
 		description:
-			"Search the operator's read-only Nuclei POC library by keyword, tag or severity, and get back template ids with metadata. The library is reference material: the templates are not executable from here. To actually test a target, write your own yaml into the working directory and run nuclei on it via bash.",
+			"Search the operator's read-only Nuclei POC library by keyword, tag or severity, and get back template ids with metadata. The library is generic fingerprint knowledge: templates name a product or CVE and carry one common deployment's paths, not the target's. They are reference material, not executable from here. To actually test a target, write your own yaml into the working directory and run nuclei on it via bash.",
 		promptSnippet: "Search the read-only Nuclei POC library for templates matching a keyword, tag or severity",
 		promptGuidelines: [
 			"Search the POC library (poc_search) before writing a template from scratch; an imported one is a starting point",
 			"Templates from the library are read-only reference: to use one, write the yaml yourself into the working directory and run nuclei on your own file via bash",
+			"Use the library for generic fingerprinting of a product or CVE, not as a ready-made attack on the current target: a template's path and URL prefix are one common deployment, so confirm the real prefix from recon and adapt the request instead of firing the path as written",
+			"A template that misses on its hardcoded path is not evidence that the target is unaffected: the match logic is what it is worth, the path is a guess",
 		],
 		parameters: searchSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<SearchDetails>> {
@@ -132,7 +143,10 @@ export function createPocTools(options: PocToolOptions): ToolDefinition[] {
 			}
 			return {
 				content: [
-					{ type: "text", text: clip(`模板 ${poc.id}（${SEVERITY_LABELS[poc.severity]}）：\n\n${poc.content}`) },
+					{
+						type: "text",
+						text: `${clip(`模板 ${poc.id}（${SEVERITY_LABELS[poc.severity]}）：\n\n${poc.content}`)}\n\n${TEMPLATE_PATH_NOTE}`,
+					},
 				],
 				details: { ok: true, id: poc.id },
 			};
