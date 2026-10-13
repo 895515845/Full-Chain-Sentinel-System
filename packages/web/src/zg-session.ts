@@ -309,6 +309,12 @@ export class ZGAgentRuntime {
 	private modelRuntimeDirty = false;
 	/** The run in flight for the viewed session, used to report it when it settles. */
 	private notifyStatus: ZGNotifyStatus = { at: null, ok: true };
+	/**
+	 * Vulnerability records already pushed to the notification channel. Per
+	 * process: a restart may re-push a record the reviewer settles afterwards,
+	 * which is one stray push, not the flood the gate exists for.
+	 */
+	private readonly notifiedVulns = new Set<string>();
 
 	constructor(options: {
 		cwd: string;
@@ -800,6 +806,12 @@ export class ZGAgentRuntime {
 	private notifyHighSeverity(vuln: ZGVulnerability): void {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim()) return;
+		// One push per record. A high finding is pushed the moment it is
+		// submitted; the reviewer's calibration pushes again only when it raised
+		// a record the submission did not already push, instead of confirming
+		// every submitted high with a second, identical notification.
+		if (this.notifiedVulns.has(vuln.id)) return;
+		this.notifiedVulns.add(vuln.id);
 		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName, config.summaryLimit);
 		void sendDingTalk(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
@@ -1317,6 +1329,10 @@ export class ZGAgentRuntime {
 		const run = managed.run;
 		managed.run = undefined;
 		if (!run) return;
+		// A stutter abort is the loop-guard doing its job, not a run that ended:
+		// the guard starts the next attempt right away, and one "运行已中止" push
+		// per repetition would flood the channel long before anything finishes.
+		if (aborted && isStutterAbort(managed)) return;
 		const config = readNotifyConfig(this.agentDir);
 		if (!shouldNotifyRun(run.notify, config.enabled)) return;
 		if (!config.webhook.trim()) return;
