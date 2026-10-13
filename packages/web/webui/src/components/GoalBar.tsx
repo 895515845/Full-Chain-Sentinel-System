@@ -24,6 +24,8 @@ function statusLabel(goal: ZGGoalView): string {
 			return "已暂停 · 空转熔断";
 		case "interrupted":
 			return "已暂停 · 会话重建";
+		case "loop-guard":
+			return "已暂停 · 输出重复";
 		default:
 			return "已暂停";
 	}

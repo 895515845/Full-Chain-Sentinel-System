@@ -31,6 +31,7 @@ import {
 	recordBlocker,
 	recordRoundProgress,
 	recordSubmission,
+	refundRound,
 	resumeGoal,
 	startRound,
 } from "../src/goal.ts";
@@ -260,4 +261,25 @@ test("the injected contract carries the objective, the criteria, and the data bo
 	expect(continuation).toContain("已完成：\n  - 扫完端口");
 	expect(continuation).toContain("待办：\n  - 看 web");
 	expect(continuation).toContain("不要重述已经完成的部分");
+});
+
+test("refundRound gives a consumed continuation back, never below zero", () => {
+	let goal = startRound(newGoal(2), "continue", 1000);
+	expect(goal.roundsUsed).toBe(1);
+	goal = refundRound(goal, 2000);
+	expect(goal.roundsUsed).toBe(0);
+	// The round itself stays on the record: it happened, the budget just does not
+	// pay for it.
+	expect(goal.rounds).toHaveLength(1);
+	// The initial round costs nothing, so refunding it cannot go negative.
+	goal = refundRound(goal, 3000);
+	expect(goal.roundsUsed).toBe(0);
+});
+
+test("a refunded round no longer counts against the limit", () => {
+	let goal = startRound(newGoal(1), "continue", 1000);
+	goal = refundRound(closeRound(goal, 2000), 2500);
+	const decision = advanceGoal(goal, 3000);
+	expect(decision.action).toBe("continue");
+	expect(decision.goal.status).toBe("active");
 });

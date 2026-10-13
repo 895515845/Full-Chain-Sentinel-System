@@ -61,6 +61,7 @@ import {
 	recordBlocker,
 	recordRoundProgress,
 	recordSubmission,
+	refundRound,
 	resumeGoal,
 	startRound,
 } from "./goal.ts";
@@ -181,6 +182,12 @@ interface ManagedGoal {
 	roundToolCalls: number;
 	/** Findings submitted to the hub since the goal started. */
 	submitted: number;
+	/**
+	 * Consecutive rounds the loop-guard ended with a stutter abort. The guard is
+	 * already nudging the model, so the goal stands down only after several in a
+	 * row; any other settle clears the count.
+	 */
+	stutterStreak: number;
 }
 
 interface ManagedSession {
@@ -813,6 +820,7 @@ export class ZGAgentRuntime {
 			goal,
 			roundUsageStart: usageOf(managed.session.getSessionStats()),
 			roundToolCalls: 0,
+			stutterStreak: 0,
 			submitted: goal.submitted,
 		};
 		if (goal.status === "active") {
@@ -900,41 +908,83 @@ export class ZGAgentRuntime {
 		const managedGoal = managed.goal;
 		if (!managedGoal) return;
 		const at = Date.now();
-		const usage = diffUsage(usageOf(managed.session.getSessionStats()), managedGoal.roundUsageStart);
-		const round = managedGoal.goal.rounds[managedGoal.goal.rounds.length - 1];
-		// A round that called goal_progress already wrote its own summary; the prose
-		// fallback is for rounds that never did.
-		const summary =
-			round?.summaryFromTool === true ? undefined : extractRoundSummary(lastAssistantText(managed.session.messages));
-		const status = managedGoal.goal.status;
-		const outcome: ZGGoalRoundOutcome = aborted
-			? "aborted"
-			: status === "completed"
-				? "completed"
-				: status === "blocked"
-					? "blocked"
-					: status === "paused"
-						? "paused"
-						: lastAssistantStopReason(managed.session.messages) === "error"
-							? "error"
-							: "continued";
-		let goal = finishRound(managedGoal.goal, {
-			at,
-			toolCalls: managedGoal.roundToolCalls,
-			usage,
-			...(summary ? { summary } : {}),
-			outcome,
-		});
-		// An abort is an intervention: the goal waits for the operator rather than
-		// counting a half-finished round as progress.
-		if (aborted && goal.status === "active") {
-			goal = pauseGoal(goal, "manual", "运行被中止，目标已暂停", at);
+		let goal = managedGoal.goal;
+		const last = goal.rounds[goal.rounds.length - 1];
+		const roundOpen = last !== undefined && last.endedAt === undefined;
+
+		// A stutter abort is the loop-guard at work, not the operator pulling the
+		// plug: the guard trimmed the degenerate output and is nudging the model to
+		// try something else, so the attempt costs no round and the goal keeps
+		// running. The guard's own nudge starts the next run, which is why no
+		// continuation is injected here — that would fork the round. Several trips
+		// in a row mean the model cannot shake the repetition: stand down for the
+		// operator instead of letting the guard and the goal take turns burning
+		// the budget.
+		if (aborted && isStutterAbort(managed)) {
+			managedGoal.stutterStreak += 1;
+			if (goal.status === "active" && roundOpen) {
+				const usage = diffUsage(usageOf(managed.session.getSessionStats()), managedGoal.roundUsageStart);
+				goal = refundRound(
+					finishRound(goal, { at, toolCalls: managedGoal.roundToolCalls, usage, outcome: "aborted" }),
+					at,
+				);
+				managedGoal.roundToolCalls = 0;
+				managedGoal.roundUsageStart = usageOf(managed.session.getSessionStats());
+				managedGoal.goal = goal;
+				this.persistGoal(managed, goal);
+			}
+			if (goal.status === "active" && managedGoal.stutterStreak >= STUTTER_PAUSE_LIMIT) {
+				goal = pauseGoal(goal, "loop-guard", `连续 ${managedGoal.stutterStreak} 次输出重复中止`, at);
+				managedGoal.goal = goal;
+				this.persistGoal(managed, goal);
+				this.notifyGoal(managed, managedGoal);
+			}
+			this.hooks.onStateChange();
+			return;
 		}
-		managedGoal.goal = goal;
-		managedGoal.roundToolCalls = 0;
-		if (goal.status !== "active") {
+		managedGoal.stutterStreak = 0;
+
+		// A settled run closes the round in flight — unless there is none, which is
+		// the loop-guard's nudge run finishing after the round it belonged to was
+		// already closed and refunded.
+		if (roundOpen) {
+			const usage = diffUsage(usageOf(managed.session.getSessionStats()), managedGoal.roundUsageStart);
+			// A round that called goal_progress already wrote its own summary; the
+			// prose fallback is for rounds that never did.
+			const summary =
+				last?.summaryFromTool === true
+					? undefined
+					: extractRoundSummary(lastAssistantText(managed.session.messages));
+			const status = goal.status;
+			const outcome: ZGGoalRoundOutcome = aborted
+				? "aborted"
+				: status === "completed"
+					? "completed"
+					: status === "blocked"
+						? "blocked"
+						: status === "paused"
+							? "paused"
+							: lastAssistantStopReason(managed.session.messages) === "error"
+								? "error"
+								: "continued";
+			goal = finishRound(managedGoal.goal, {
+				at,
+				toolCalls: managedGoal.roundToolCalls,
+				usage,
+				...(summary ? { summary } : {}),
+				outcome,
+			});
+			managedGoal.roundToolCalls = 0;
+			// An abort is an intervention: the goal waits for the operator rather
+			// than counting a half-finished round as progress.
+			if (aborted && goal.status === "active") {
+				goal = pauseGoal(goal, "manual", "运行被中止，目标已暂停", at);
+			}
+			managedGoal.goal = goal;
 			this.persistGoal(managed, goal);
-			this.notifyGoal(managed, managedGoal);
+		}
+		if (goal.status !== "active") {
+			if (roundOpen) this.notifyGoal(managed, managedGoal);
 			return;
 		}
 		const decision = advanceGoal(goal, at);
@@ -1085,6 +1135,7 @@ export class ZGAgentRuntime {
 			goal: startRound(goal, "initial", at),
 			roundUsageStart: baseline,
 			roundToolCalls: 0,
+			stutterStreak: 0,
 			submitted: 0,
 		};
 		active.goal = managedGoal;
@@ -1140,6 +1191,7 @@ export class ZGAgentRuntime {
 		managedGoal.goal = next;
 		managedGoal.roundUsageStart = usageOf(active.session.getSessionStats());
 		managedGoal.roundToolCalls = 0;
+		managedGoal.stutterStreak = 0;
 		this.persistGoal(active, next);
 		this.startContinuation(active, buildGoalContract(next, "continue"));
 		this.hooks.onStateChange();
@@ -2059,6 +2111,24 @@ function usageOf(stats: SessionStats | undefined): ZGGoalUsage {
 		total: stats.tokens.total,
 		cost: typeof stats.cost === "number" ? stats.cost : null,
 	};
+}
+
+/**
+ * The loop-guard trims a stuttering output at the cut and leaves this marker in
+ * the assistant message, which is how an abort by the guard is told apart from
+ * one by the operator: both end the run the same way.
+ */
+const LOOP_GUARD_STUTTER_MARKER = "[输出因重复被中止，尾部已截断]";
+/**
+ * Consecutive stutter aborts after which the goal stands down anyway. The
+ * loop-guard stops nudging at three, so past that the model is repeating no
+ * matter what the nudges say and only the operator can break the loop.
+ */
+const STUTTER_PAUSE_LIMIT = 3;
+
+/** Whether the run that just settled was cut by the loop-guard's stutter guard. */
+function isStutterAbort(managed: ManagedSession): boolean {
+	return lastAssistantText(managed.session.messages)?.includes(LOOP_GUARD_STUTTER_MARKER) === true;
 }
 
 /** Closing prose of the last assistant message, for the round summary fallback. */

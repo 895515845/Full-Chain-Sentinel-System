@@ -342,6 +342,14 @@ export function resumeGoal(goal: ZGGoal, extraRounds: number, at: number): ZGGoa
 }
 
 /**
+ * Give one round back. The loop-guard aborted the attempt before it produced
+ * anything (stuttering output), so the operator's budget must not pay for it.
+ */
+export function refundRound(goal: ZGGoal, at: number): ZGGoal {
+	return { ...goal, roundsUsed: Math.max(0, goal.roundsUsed - 1), updatedAt: at };
+}
+
+/**
  * Decide what follows a settled round. The budget is checked before the fuse, so
  * a goal that ran out of rounds reports the limit rather than a fuse it also hit.
  */
@@ -377,6 +385,8 @@ export function goalPauseLabel(reason: ZGGoalPauseReason | undefined): string {
 			return "空转熔断";
 		case "interrupted":
 			return "会话重建";
+		case "loop-guard":
+			return "输出重复";
 		default:
 			return "手动暂停";
 	}

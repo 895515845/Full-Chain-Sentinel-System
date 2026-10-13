@@ -160,6 +160,7 @@ const VULN_SCENARIOS = [
 const GOAL_COMPLETE_PROMPT = "zg-goal-complete 对 10.10.10.5 完成侦察";
 const GOAL_LIMIT_PROMPT = "zg-goal-limit 完成全端口扫描";
 const GOAL_NOPROGRESS_PROMPT = "zg-goal-noprogress 写出完整报告";
+const GOAL_STUTTER_PROMPT = "zg-goal-stutter 观察目标主机";
 /** Text of the goal_progress tool result, used to recognize the second turn. */
 const GOAL_PROGRESS_MARKER = "目标进度已更新";
 /** Text of the goal_complete tool result, used to recognize the third turn. */
@@ -243,6 +244,9 @@ let presetSubagentBody = "";
 function goalStep(body: string): ScriptStep | undefined {
 	if (body.includes(GOAL_LIMIT_PROMPT)) return { text: "GOAL_LIMIT_ROUND" };
 	if (body.includes(GOAL_NOPROGRESS_PROMPT)) return { text: "GOAL_IDLE_ROUND" };
+	// The same degenerate output on every run, nudges included: the loop-guard
+	// aborts each one, and the goal must not pay for those rounds.
+	if (body.includes(GOAL_STUTTER_PROMPT)) return { text: `${GOAL_STUTTER_PROMPT}\n`.repeat(12) };
 	if (!body.includes(GOAL_COMPLETE_PROMPT)) return undefined;
 	if (body.includes(GOAL_COMPLETED_MARKER)) return { text: "GOAL_COMPLETE_DONE" };
 	if (body.includes(GOAL_PROGRESS_MARKER)) {
@@ -2070,6 +2074,30 @@ test("three rounds without a tool call trip the no-progress fuse", async () => {
 	const cleared = await snapshotWhere((snapshot) => snapshot.goal === null);
 	expect(goalRows(cleared)).toHaveLength(3);
 });
+
+test("a loop-guard stutter abort costs no round and only pauses after repeated trips", async () => {
+	await freshGoalSession();
+
+	send({ type: "start_goal", objective: GOAL_STUTTER_PROMPT, roundLimit: 5 });
+	const paused = await snapshotWhere((snapshot) => snapshot.goal?.status === "paused");
+	// Every run of this scenario stutters, nudges included, so the trips come one
+	// after another and the goal stands down on the third.
+	expect(paused.goal?.pauseReason).toBe("loop-guard");
+	expect(paused.goal?.pauseNote).toContain("3 次");
+	// The stuttered attempt was refunded: the operator's budget is untouched.
+	expect(paused.goal?.roundsUsed).toBe(0);
+	expect(paused.goal?.rounds).toHaveLength(1);
+	expect(paused.goal?.rounds[0].outcome).toBe("aborted");
+	// The guard's notices are in the transcript where the operator can see them.
+	// Two are certain by the third trip; the third nudge may land after the pause.
+	const notices = paused.messages.filter((message) =>
+		JSON.stringify((message as { content?: unknown }).content).includes("【输出重复】"),
+	);
+	expect(notices.length).toBeGreaterThanOrEqual(2);
+	// The guard's last (exhausted) run may still be in flight; let it settle so the
+	// next test takes a quiet fake endpoint.
+	await snapshotWhere((snapshot) => !snapshot.streaming);
+}, 120000);
 
 test("a goal cannot start in review mode, and leaving auto mode pauses it", async () => {
 	await freshGoalSession();

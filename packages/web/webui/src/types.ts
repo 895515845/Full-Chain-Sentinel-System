@@ -494,7 +494,7 @@ export interface ZGStatsView {
 
 /** Lifecycle of the persistent goal of the viewed session. */
 export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
-export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted";
+export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted" | "loop-guard";
 export type ZGGoalRoundOutcome = "continued" | "completed" | "blocked" | "paused" | "aborted" | "error";
 
 export interface ZGGoalUsage {

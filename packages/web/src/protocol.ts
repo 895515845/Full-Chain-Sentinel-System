@@ -27,7 +27,7 @@ export const ZG_MODES: readonly ZGMode[] = ["review", "ai", "auto"];
 export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
 
 /** Why an active goal stopped. Manual covers the operator's pause and abort. */
-export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted";
+export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted" | "loop-guard";
 
 /** The initial run, or one automatic continuation. */
 export type ZGGoalRoundKind = "initial" | "continue";
