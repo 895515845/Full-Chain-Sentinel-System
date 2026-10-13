@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>对话上方目标状态框 · 改版方案对比</title>
+<style>
+	:root {
+		--bg:#f0f2f5; --panel:#fff; --line:#0000000f; --line-strong:#0000001a;
+		--text:#000000d9; --dim:#00000057; --accent:#0960bd; --accent-dim:#0960bd0d;
+		--warn:#e6a23c; --ok:#67c23a; --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+	}
+	* { box-sizing:border-box; margin:0; padding:0; }
+	body { background:var(--bg); color:var(--text); font:13px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; padding:24px 28px 60px; }
+	.wrap { max-width:1120px; margin:0 auto; }
+	h1 { font-size:18px; margin-bottom:6px; }
+	.lead { color:var(--dim); font-size:13px; line-height:1.8; margin-bottom:16px; }
+	.lead b { color:var(--text); }
+	.problem { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:8px; padding:12px 14px; margin-bottom:18px; font-size:12.5px; line-height:1.85; color:var(--dim); }
+	.problem b { color:var(--text); }
+	.problem code { font-family:var(--mono); font-size:11.5px; color:#a86a12; }
+	.cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:22px; }
+	.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 14px; display:flex; flex-direction:column; gap:6px; }
+	.card a { font-size:13.5px; font-weight:600; color:var(--accent); text-decoration:none; }
+	.card a:hover { text-decoration:underline; }
+	.card p { font-size:12.5px; color:var(--dim); line-height:1.7; }
+	.card.rec { border-color:#0960bd44; box-shadow:0 0 0 2px var(--accent-dim); }
+	.card .badge { align-self:flex-start; font-size:11px; line-height:18px; padding:0 6px; border-radius:3px; background:var(--accent-dim); color:var(--accent); }
+	table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:12.5px; }
+	th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+	th { background:#fbfcfd; color:var(--dim); font-size:11.5px; font-weight:550; white-space:nowrap; }
+	tr:last-child td { border-bottom:none; }
+	td a { color:var(--accent); text-decoration:none; }
+	td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+	.rec-box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-top:18px; font-size:12.5px; line-height:1.85; color:var(--dim); }
+	.rec-box h2 { font-size:13.5px; color:var(--text); margin-bottom:6px; }
+	.rec-box b { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+	<h1>对话上方的目标状态框 · 改版方案</h1>
+	<p class="lead">
+		共同前提：<b>默认态尽量矮</b>（目标在跑 2 小时也不该妨碍读对话），<b>详情放在自带滚动的地方</b>
+		（长内容既不裁切、也不把对话挤没），<b>状态色从整块渐变底收回到 3px 竖条与状态点</b>。
+		每个页面里的对话区都可以真实滚动，往下滚可以看到目标状态是否还在原位。
+	</p>
+
+	<div class="problem">
+		<b>为什么现在会「下滑看不了」：</b>这块是 <code>flex: none</code> 排在对话滚动区之外、又没有高度上限；
+		一旦验收标准多条 + 执行记录展开，它比对话区还高，对话区被压到接近 0；
+		而它超出卡片的部分被外层 <code>overflow: hidden</code> 裁掉，自身既不滚动也不随页面滚——
+		所以往下滚也看不到被裁掉的轮次记录。五个方案都从「详情移出主流程 + 自带滚动」入手解决。
+	</div>
+
+	<div class="cards">
+		<div class="card"><a href="goal-status-mockup-current.html">现状（对照）</a><p>无高度上限，执行记录一展开就把对话区挤没，溢出部分被裁且滚不动。</p></div><div class="card rec"><a href="goal-status-mockup-a.html">A 吸顶单行条 + 右侧抽屉</a><p>38px 一行放全部关键指标，详情与执行记录进自带滚动的抽屉。</p><span class="badge">推荐</span></div><div class="card"><a href="goal-status-mockup-b.html">B 极简细条 + 悬停浮卡</a><p>26px 细线 + 悬停浮卡，操作收进 ⋯ 菜单。</p></div><div class="card"><a href="goal-status-mockup-c.html">C 工具栏徽标 + 浮层</a><p>对话区上方零占用，目标压成工具栏徽标，点开浮层看全部。</p></div><div class="card"><a href="goal-status-mockup-d.html">D 吸顶台头 + 分段预算</a><p>控制台台账风格：状态竖条 + 预算格 + 原因行，详情限高内滚。</p></div><div class="card"><a href="goal-status-mockup-e.html">E 合成胶囊 + 居中模态</a><p>保留圆角卡，压成一行；详情进居中模态（轮次表格）。</p></div>
+	</div>
+
+	<table><tr><th>方案</th><th>默认形态</th><th>默认高度</th><th>详情去哪</th><th>滚动时是否可见</th><th>取舍</th></tr><tr><td><a href="goal-status-mockup-current.html">现状</a></td><td>卡片平铺，全部信息默认可见</td><td class="num">无上限，溢出被裁</td><td>卡内展开，滚不动</td><td>对话区被挤到 0，内容看不到</td><td>作为对照</td></tr><tr><td><a href="goal-status-mockup-a.html">A 吸顶单行条 + 抽屉</a></td><td>一行 38px：状态 · 目标 · 轮次/耗时/Token/中枢 · 三个按钮</td><td class="num">38px</td><td>右侧抽屉（自带滚动）</td><td>对话区独立滚动，条固定不动</td><td><b style="color:var(--accent)">推荐</b>：信息一眼看全，长内容不再裁切</td></tr><tr><td><a href="goal-status-mockup-b.html">B 极简细条 + 悬停浮卡</a></td><td>26px：状态 · 轮次 · 耗时 · Token · ⋯</td><td class="num">26px</td><td>悬停浮卡 / ⋯ 菜单 / 抽屉</td><td>同上</td><td>最省空间，但关键信息要悬停才看得到</td></tr><tr><td><a href="goal-status-mockup-c.html">C 工具栏徽标 + 浮层</a></td><td>对话区上方零占用，徽标放工具栏右侧</td><td class="num">0（在工具栏内）</td><td>浮层面板（自带滚动）</td><td>工具栏本来就固定</td><td>长目标最友好，但目标容易被忽略</td></tr><tr><td><a href="goal-status-mockup-d.html">D 吸顶台头 + 分段预算</a></td><td>无圆角台头：状态 · 目标 · 预算格 · 耗时 · Token + 原因行</td><td class="num">约 60px</td><td>就地展开，限高（示例 260px）内部滚动</td><td>对话区独立滚动，台头固定</td><td>与 POC 库台账同族；展开仍占对话高度</td></tr><tr><td><a href="goal-status-mockup-e.html">E 合成胶囊 + 居中模态</a></td><td>保留圆角卡位置，压成一行胶囊</td><td class="num">约 46px</td><td>居中模态 + 轮次表</td><td>对话区独立滚动，胶囊固定</td><td>改动最小；模态遮挡对话</td></tr></table>
+
+	<div class="rec-box">
+		<h2>我的建议</h2>
+		<b>A 优先</b>：默认一行 38px 把「状态 / 目标 / 轮次 / 耗时 / Token / 中枢」全放在视野里，扫一眼就够；
+		详情与执行记录进右侧抽屉并自带滚动，彻底解决裁切。<br />
+		<b>D 次选</b>：如果你更想要与 POC 库台账一致的“控制台”味道（无圆角、预算格、原因单独一行），选 D；
+		它把执行记录留在原地、只是给执行记录加了高度上限与内部滚动，改动比 A 更靠近现状。<br />
+		<b>C 适合长目标党</b>：只想让对话区完全干净、把目标当作工具栏的一个状态灯，选 C。<br />
+		<b>B / E 是省空间与最小改动的两个极端</b>：B 让关键信息依赖悬停，E 用模态查看详情（都会多一层交互）。
+	</div>
+</div>
+</body>
+</html>

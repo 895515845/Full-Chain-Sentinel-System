@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>目标状态框 · 方案 C</title>
+<style>
+
+	:root {
+		--bg: #f0f2f5;
+		--panel: #ffffff;
+		--line: #0000000f;
+		--line-strong: #0000001a;
+		--text: #000000d9;
+		--text-bright: #000000e6;
+		--dim: #00000057;
+		--accent: #0960bd;
+		--accent-dim: #0960bd0d;
+		--warn: #e6a23c;
+		--warn-dim: #e6a23c14;
+		--ok: #67c23a;
+		--danger: #f56c6c;
+		--raised: #f8f8f9;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg); color: var(--text);
+		font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		padding: 20px 24px 60px;
+	}
+	.note { max-width: 1080px; margin: 0 auto 14px; color: var(--dim); font-size: 12.5px; line-height: 1.7; }
+	.note b { color: var(--accent); }
+	.note .tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px;
+		background: var(--accent-dim); color: var(--accent); margin-right: 6px; }
+
+	.frame { max-width: 1080px; margin: 0 auto; }
+	.card {
+		position: relative; display: flex; flex-direction: column; height: 520px; overflow: hidden;
+		background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+		box-shadow: 0 1px 3px #0000000d;
+	}
+	.card-head {
+		flex: none; display: flex; align-items: center; gap: 8px;
+		padding: 12px 16px 10px; border-bottom: 1px solid var(--line);
+	}
+	.card-head h1 { font-size: 14px; font-weight: 600; }
+	.card-head .sub { font-size: 12px; color: var(--dim); }
+	.card-head .right { margin-left: auto; font-size: 11.5px; color: var(--dim); }
+
+	.toolbar {
+		flex: none; display: flex; align-items: center; gap: 6px;
+		padding: 8px 16px; border-bottom: 1px solid var(--line); background: #fcfcfd;
+	}
+	.tbtn {
+		height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px;
+		background: var(--panel); color: var(--text); font-size: 12px; cursor: pointer;
+	}
+	.tbtn:hover { border-color: #0003; }
+	.tbtn.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+	.tbtn.ghost:hover { background: var(--accent-dim); color: var(--accent); }
+	.toolbar .spacer { margin-left: auto; }
+
+	.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 8px; }
+	.scroll::-webkit-scrollbar { width: 10px; }
+	.scroll::-webkit-scrollbar-thumb { background: #0000001f; border-radius: 6px; }
+	.msg + .msg { margin-top: 12px; }
+	.msg.user { display: flex; gap: 8px; }
+	.msg.user .mark { color: var(--accent); font-family: var(--mono); flex: none; }
+	.msg.user .body { color: var(--text-bright); }
+	.tool { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+	.tool-head {
+		display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+		background: var(--raised); font-size: 12px; color: var(--dim);
+	}
+	.tool-head .name { color: var(--text); font-family: var(--mono); }
+	.tool-head .ok { margin-left: auto; color: var(--ok); }
+	.tool pre {
+		margin: 0; padding: 10px 12px; background: #0d1117; color: #c9d1d9;
+		font: 11.5px/1.7 var(--mono); overflow-x: auto;
+	}
+	.composer {
+		flex: none; margin: 10px 16px 14px; padding: 10px 12px; border: 1px solid var(--line-strong);
+		border-radius: 8px; color: var(--dim); font-size: 12.5px; background: var(--panel);
+	}
+
+	.why { max-width: 1080px; margin: 18px auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.why section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+	.why h3 { font-size: 12.5px; margin-bottom: 6px; }
+	.why h3.good { color: var(--ok); }
+	.why h3.bad { color: var(--danger); }
+	.why ul { padding-left: 18px; color: var(--dim); font-size: 12.5px; line-height: 1.75; }
+	.why code { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+
+	.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; display: inline-block; }
+	.dot.warn { background: var(--warn); }
+	.dot.ok { background: var(--ok); }
+	.dot.danger { background: var(--danger); }
+	.dot.accent { background: var(--accent); }
+	.num { font-variant-numeric: tabular-nums; }
+
+
+	/* ---- 方案 C：目标状态收进工具栏徽标 ---- */
+	.goalbadge {
+		display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+		border: 1px solid #e6a23c66; border-radius: 6px; background: var(--warn-dim);
+		color: #a86a12; font-size: 12px; cursor: pointer;
+	}
+	.goalbadge:hover { border-color: var(--warn); }
+	.goalbadge .num { font-weight: 550; }
+	.goalbadge .caret { color: #00000033; font-size: 10px; }
+
+	.panel {
+		position: absolute; top: 88px; right: 16px; z-index: 30; width: 400px;
+		background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+		box-shadow: 0 12px 32px #00000024; display: none; flex-direction: column; max-height: 400px;
+	}
+	.panel.open { display: flex; }
+	.panel-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+	.panel-head h2 { font-size: 13px; font-weight: 600; }
+	.panel-head .state { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: 12px; }
+	.panel-head .close { margin-left: auto; }
+	.panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 13px 16px; font-size: 12.5px; }
+	.kv { display: grid; grid-template-columns: 76px 1fr; gap: 3px 10px; font-size: 12px; }
+	.kv dt { color: var(--dim); }
+	.kv dd { color: var(--text-bright); font-variant-numeric: tabular-nums; }
+	.panel-body h3 { font-size: 11.5px; color: var(--dim); font-weight: 550; margin: 13px 0 6px; }
+	.round { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-top: 8px; }
+	.round-head { display: flex; gap: 8px; padding: 6px 9px; background: var(--raised); font-size: 12px; }
+	.round-head .meta { margin-left: auto; color: var(--dim); font-size: 11.5px; }
+	.round pre { margin: 0; padding: 8px 9px; font: 11.5px/1.7 var(--mono); white-space: pre-wrap; }
+	.panel-foot { flex: none; display: flex; gap: 6px; padding: 10px 13px; border-top: 1px solid var(--line); }
+
+</style>
+</head>
+<body>
+	<p class="note"><span class="tag">方案 C</span><b>工具栏徽标 + 浮层面板</b> —— 对话区上方一块都不占：目标压成工具栏右侧一个橙色徽标（状态 + 轮次），点开浮层看全部指标与执行记录。</p>
+	<div class="frame">
+		<div class="card">
+			<div class="card-head">
+				<h1>对话</h1>
+				<span class="sub">10.0.0.0/24 侦察 · 已暂停</span>
+				<span class="right">对话区可独立滚动：往下滚，目标状态不会走</span>
+			</div>
+			<div class="toolbar">
+				<button class="tbtn">审批模式</button>
+				<button class="tbtn">思考 off</button>
+				<button class="tbtn">分支</button>
+				<button class="tbtn">文件</button>
+				<span class="spacer"></span>
+				
+				<button class="goalbadge" onclick="togglePanel()">
+					<span class="dot warn"></span>
+					目标已暂停 · 轮数上限
+					<span class="num">1/3</span>
+					<span class="caret">▾</span>
+				</button>
+
+			</div>
+			<div class="goal-slot" style="display:none"></div>
+			<div class="scroll"><div class="msg user"><span class="mark">&gt;</span><div class="body">对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级</div></div>
+<div class="msg">开始持久目标：先确认存活主机与开放端口，再逐个指纹识别，最后按可利用性排序输出。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sn 10.0.0.0/24</span><span class="ok">完成 12.4s</span></div><pre>Nmap scan report for 10.0.0.5
+Host is up (0.0012s latency).
+Nmap scan report for 10.0.0.11
+Host is up (0.0008s latency).</pre></div>
+<div class="msg">第 1 批结果整理中：开放服务 3 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.5</span><span class="ok">完成 8.0s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.30</pre></div>
+<div class="msg">第 2 批结果整理中：开放服务 4 个，其中 2 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.6</span><span class="ok">完成 9.7s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.31</pre></div>
+<div class="msg">第 3 批结果整理中：开放服务 5 个，其中 3 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.7</span><span class="ok">完成 10.4s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.32</pre></div>
+<div class="msg">第 4 批结果整理中：开放服务 6 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.8</span><span class="ok">完成 11.1s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.33</pre></div>
+<div class="msg">第 5 批结果整理中：开放服务 7 个，其中 2 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.9</span><span class="ok">完成 12.8s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.34</pre></div>
+<div class="msg">第 6 批结果整理中：开放服务 8 个，其中 3 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.10</span><span class="ok">完成 13.5s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.35</pre></div>
+<div class="msg">第 7 批结果整理中：开放服务 9 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.11</span><span class="ok">完成 14.2s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.36</pre></div></div>
+			<div class="composer">输入指令，Enter 发送…</div>
+			
+			<div class="panel" id="panel">
+				<div class="panel-head">
+					<h2>持续目标</h2>
+					<span class="state"><span class="dot warn"></span>已暂停 · 轮数上限</span>
+					<span class="close"><button class="tbtn" onclick="togglePanel()">关闭</button></span>
+				</div>
+				<div class="panel-body">
+					<div style="color:var(--text-bright)">对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级</div>
+					<dl class="kv" style="margin-top:10px">
+						<dt>暂停说明</dt><dd>已达自动续跑上限（3 轮）</dd>
+						<dt>轮次</dt><dd>1 / 3（初始运行不计入）</dd>
+						<dt>耗时</dt><dd>2h11m</dd>
+						<dt>Token</dt><dd>48.2k</dd>
+						<dt>子代理</dt><dd>2 次 · 6 轮</dd>
+						<dt>中枢</dt><dd>3 条</dd>
+						<dt>模式</dt><dd>自动模式 · 全放行</dd>
+						<dt>目标 ID</dt><dd style="font-family:var(--mono)">a41f9c2e7b1d</dd>
+					</dl>
+					<h3>验收标准</h3>
+					<div style="color:var(--dim)">1. 存活主机清单完整　2. 每个开放端口有版本与结论　3. 可利用入口按优先级排序</div>
+					<h3>执行记录 · 3 轮</h3>
+					<div class="round">
+						<div class="round-head"><span>第 0 轮 · 初始运行 · 已完成</span><span class="meta">41m20s · 18 次调用</span></div>
+						<pre>确认 6 台存活主机，扫描出 23 个开放端口。</pre>
+					</div>
+					<div class="round">
+						<div class="round-head"><span>第 1 轮 · 自动续跑 · 被中止</span><span class="meta">1h29m · 31 次调用</span></div>
+						<pre>完成 4 台主机的版本比对，剩余 1 台指纹识别超时。</pre>
+					</div>
+				</div>
+				<div class="panel-foot">
+					<button class="tbtn">继续 +3 轮</button>
+					<button class="tbtn ghost">清除目标</button>
+				</div>
+			</div>
+
+		</div>
+	</div>
+	<div class="why"><section><h3 class="good">好在哪</h3><ul><li>对话区上方零占用：目标状态变成工具栏右侧一个徽标，工具栏本来就固定不滚</li><li>徽标自带 <code>1/3</code> 轮次与状态色，暂停/阻塞时颜色可辨；点开抽屉看详情</li><li>对长目标最友好：目标跑 2 小时也不影响读对话的可用高度</li><li>工具栏已有一排按钮，徽标用同一种 <code>.tbtn</code> 尺寸，视觉上不新增体系</li></ul></section><section><h3 class="bad">代价</h3><ul><li>目标不再“占一块位置”，容易被忽略，需要状态色足够醒目（暂停=橙、阻塞=红）</li><li>工具栏在窄窗口会折行，徽标要能跟着折下去而不是被挤没</li></ul></section></div>
+	
+	<script>
+		function togglePanel() { document.getElementById('panel').classList.toggle('open'); }
+		document.addEventListener('mousedown', (event) => {
+			const panel = document.getElementById('panel');
+			if (panel.classList.contains('open') && !event.target.closest('.panel') && !event.target.closest('.goalbadge')) {
+				panel.classList.remove('open');
+			}
+		});
+	</script>
+
+</body>
+</html>

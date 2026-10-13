@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置页改版预览：POC 订阅 / 钉钉推送内容</title>
+<link rel="stylesheet" href="../webui/src/style.css">
+<style>
+	body { background: var(--bg); margin: 0; padding: 24px; font-family: var(--sans); }
+	.preview-grid { display: flex; flex-direction: column; gap: 24px; max-width: 1180px; margin: 0 auto; }
+	.preview-note { font-size: 12.5px; color: var(--dim); line-height: 1.7; }
+	.preview-note b { color: var(--text-bright); }
+	.page-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+</style>
+</head>
+<body>
+<div class="preview-grid">
+	<p class="preview-note">
+		用真实组件与真实 <b>style.css</b> 渲染的静态预览。<b>POC 订阅</b>：表单改成纵向字段（两列短字段 + 整行 URL），
+		列表改用与「模型 / 预设」相同的 <b>data-table</b>；<b>钉钉通知</b>：勾选项改为「复选框 + 固定名称列 + 说明列」，
+		勾中的行高亮，并加了全选/全部不选。
+	</p>
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div class="ws-panel__title">设置<span class="ws-panel__sub">POC 订阅 · 3 个源</span></div>
+		</div>
+		<div class="ws-panel__body"><div class="settings settings--wide"><p class="settings-hint">订阅远程 zip 模板包：手动「立即同步」，或按间隔自动拉取。同步只新增与覆盖（按模板 id 去重），从不删除本地模板；下载限 256MB、单次 60 秒超时、网络错误自动重试一次，每个源保留最近 5 次同步记录。</p><div class="form-field"><label>添加订阅源</label><div class="source-fields"><label>名称<input placeholder="内网模板包" spellCheck="false" value=""/></label><label>同步间隔<select><option value="0">仅手动</option><option value="1">每 1 小时</option><option value="6">每 6 小时</option><option value="24" selected="">每 24 小时</option><option value="168">每 7 天</option></select></label><label class="source-fields__wide">zip 直链 URL<input placeholder="https://example.com/nuclei-templates.zip" spellCheck="false" value=""/></label><label>认证头名称（可选）<input placeholder="Authorization" spellCheck="false" value=""/></label><label>认证头的值（可选）<input type="password" placeholder="Bearer …" spellCheck="false" value=""/></label></div><label class="check-row"><input type="checkbox" checked=""/>启用（停用后不再自动同步，仍可手动「立即同步」）</label><div class="source-form-ops"><button type="button" class="primary">添加订阅源</button></div></div><div class="settings-block__head"><h3 class="settings-section">订阅源 <span class="hint">（3 个）</span></h3><button type="button">刷新</button></div><div class="model-table-wrap"><div class="data-table source-table"><div class="data-row data-head"><span>名称</span><span>zip 直链</span><span>同步</span><span>最近结果</span><span class="data-actions-col">操作</span></div><div class="data-row"><span class="data-name">内网模板包<span class="tag tag-done" title="已启用">正常</span></span><span class="data-mono" title="https://git.internal.example.com/packs/nuclei-templates-2025.10.zip">https://git.internal.example.com/packs/nuclei-templates-2025.10.zip</span><span class="source-schedule">每 24 小时<span class="hint">2025-10-12 14:03:11</span></span><span class="source-result " title="成功 · 新增 128 · 覆盖 3 · 跳过 2 · 4.2s">成功 · 新增 128 · 覆盖 3 · 跳过 2 · 4.2s</span><span class="data-actions"><button type="button" disabled="">同步中…</button><button type="button">历史</button><button type="button">编辑</button><button type="button">删除</button></span></div><div class="data-row"><span class="data-name">官方 release<span class="tag tag-failed" title="已启用">失败</span></span><span class="data-mono" title="https://github.com/projectdiscovery/nuclei-templates/releases/latest/download/nuclei-templates.zip">https://github.com/projectdiscovery/nuclei-templates/releases/latest/download/nuclei-templates.zip</span><span class="source-schedule">仅手动<span class="hint">2025-10-11 09:00:00</span></span><span class="source-result err-text" title="失败 · 新增 0 · 覆盖 0 · 跳过 0 · 60.0s · HTTP 404">失败 · 新增 0 · 覆盖 0 · 跳过 0 · 60.0s · HTTP 404</span><span class="data-actions"><button type="button">立即同步</button><button type="button">历史</button><button type="button">编辑</button><button type="button">删除</button></span></div><div class="data-row"><span class="data-name">备用源（未同步过）<span class="tag tag-aborted" title="已停用，不会自动同步">未同步 · 已停用</span></span><span class="data-mono" title="http://10.0.0.9/poc/pack.zip">http://10.0.0.9/poc/pack.zip</span><span class="source-schedule">每 7 天<span class="hint">从未同步</span></span><span class="source-result " title="暂无同步记录">暂无同步记录</span><span class="data-actions"><button type="button">立即同步</button><button type="button">历史</button><button type="button">编辑</button><button type="button">删除</button></span></div></div></div></div></div>
+	</div>
+	<div class="page-card">
+		<div class="ws-panel__head">
+			<div class="ws-panel__title">设置<span class="ws-panel__sub">钉钉通知</span></div>
+		</div>
+		<div class="ws-panel__body"><div class="settings"><p class="settings-hint">任务完成后向钉钉群机器人推送一条 markdown 消息。在钉钉群「群设置 → 智能群助手 → 添加机器人 → 自定义」里拿到 webhook 地址；机器人若开启「加签」，把密钥填进签名密钥；若用「自定义关键词」，把关键词填进关键词字段（会拼在正文最前面）。</p><label class="check-row"><input type="checkbox" checked=""/>启用钉钉通知（关闭后仍可在输入框旁单条强制发送）</label><label>Webhook 地址<input placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" spellCheck="false" value="https://oapi.dingtalk.com/robot/send?access_token=…"/></label><label>签名密钥（可选，对应机器人「加签」）<input placeholder="SEC…" type="password" spellCheck="false" value=""/></label><label>自定义关键词（可选，对应机器人「自定义关键词」）<input placeholder="ZGAgent" spellCheck="false" value="ZGAgent"/></label><div class="form-field"><label>推送内容（勾选的要推，不勾的不推）</label><div class="check-group kinds-grid"><div class="kinds-head"><span>已勾选 4 / 5 项</span><span class="kinds-head-ops"><button type="button">全选</button><button type="button">全部不选</button></span></div><label class="check-item on"><input type="checkbox" checked=""/><span class="cname">运行报告</span><span class="ctext">每次运行结束（含失败/中止）的汇总报告</span></label><label class="check-item on"><input type="checkbox" checked=""/><span class="cname">高危漏洞</span><span class="ctext">提交或被审查抬级为 high/critical 的漏洞</span></label><label class="check-item "><input type="checkbox"/><span class="cname">持续目标结束</span><span class="ctext">目标完成、阻塞、暂停或轮数用完</span></label><label class="check-item on"><input type="checkbox" checked=""/><span class="cname">工程完成</span><span class="ctext">工程总报告提交时</span></label><label class="check-item on"><input type="checkbox" checked=""/><span class="cname">POC 订阅失败</span><span class="ctext">订阅源同步失败时（成功不推送）</span></label></div><span class="field-sub">输入框旁单条强制发送的运行报告不受「运行报告」勾选影响：那是当场点名的，不走这里。</span></div><label>通知正文字数上限<input inputMode="numeric" placeholder="2000" spellCheck="false" value="2000"/><span class="field-sub">留空或填 0 = 不截断。作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」；正文超过钉钉单条 20000 字节时仍会被硬截断并注明。</span></label><div class="test-result ok"><div>最近一次通知：2026/10/13 15:51:01 发送成功</div></div><div style="display:flex;gap:8px"><button type="button">发送测试消息</button><button type="button" class="primary">保存</button></div></div></div>
+	</div>
+</div>
+</body>
+</html>

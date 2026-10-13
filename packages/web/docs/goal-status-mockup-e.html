@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>目标状态框 · 方案 E</title>
+<style>
+
+	:root {
+		--bg: #f0f2f5;
+		--panel: #ffffff;
+		--line: #0000000f;
+		--line-strong: #0000001a;
+		--text: #000000d9;
+		--text-bright: #000000e6;
+		--dim: #00000057;
+		--accent: #0960bd;
+		--accent-dim: #0960bd0d;
+		--warn: #e6a23c;
+		--warn-dim: #e6a23c14;
+		--ok: #67c23a;
+		--danger: #f56c6c;
+		--raised: #f8f8f9;
+		--mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg); color: var(--text);
+		font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		padding: 20px 24px 60px;
+	}
+	.note { max-width: 1080px; margin: 0 auto 14px; color: var(--dim); font-size: 12.5px; line-height: 1.7; }
+	.note b { color: var(--accent); }
+	.note .tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px;
+		background: var(--accent-dim); color: var(--accent); margin-right: 6px; }
+
+	.frame { max-width: 1080px; margin: 0 auto; }
+	.card {
+		position: relative; display: flex; flex-direction: column; height: 520px; overflow: hidden;
+		background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+		box-shadow: 0 1px 3px #0000000d;
+	}
+	.card-head {
+		flex: none; display: flex; align-items: center; gap: 8px;
+		padding: 12px 16px 10px; border-bottom: 1px solid var(--line);
+	}
+	.card-head h1 { font-size: 14px; font-weight: 600; }
+	.card-head .sub { font-size: 12px; color: var(--dim); }
+	.card-head .right { margin-left: auto; font-size: 11.5px; color: var(--dim); }
+
+	.toolbar {
+		flex: none; display: flex; align-items: center; gap: 6px;
+		padding: 8px 16px; border-bottom: 1px solid var(--line); background: #fcfcfd;
+	}
+	.tbtn {
+		height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px;
+		background: var(--panel); color: var(--text); font-size: 12px; cursor: pointer;
+	}
+	.tbtn:hover { border-color: #0003; }
+	.tbtn.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+	.tbtn.ghost:hover { background: var(--accent-dim); color: var(--accent); }
+	.toolbar .spacer { margin-left: auto; }
+
+	.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 8px; }
+	.scroll::-webkit-scrollbar { width: 10px; }
+	.scroll::-webkit-scrollbar-thumb { background: #0000001f; border-radius: 6px; }
+	.msg + .msg { margin-top: 12px; }
+	.msg.user { display: flex; gap: 8px; }
+	.msg.user .mark { color: var(--accent); font-family: var(--mono); flex: none; }
+	.msg.user .body { color: var(--text-bright); }
+	.tool { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+	.tool-head {
+		display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+		background: var(--raised); font-size: 12px; color: var(--dim);
+	}
+	.tool-head .name { color: var(--text); font-family: var(--mono); }
+	.tool-head .ok { margin-left: auto; color: var(--ok); }
+	.tool pre {
+		margin: 0; padding: 10px 12px; background: #0d1117; color: #c9d1d9;
+		font: 11.5px/1.7 var(--mono); overflow-x: auto;
+	}
+	.composer {
+		flex: none; margin: 10px 16px 14px; padding: 10px 12px; border: 1px solid var(--line-strong);
+		border-radius: 8px; color: var(--dim); font-size: 12.5px; background: var(--panel);
+	}
+
+	.why { max-width: 1080px; margin: 18px auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.why section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+	.why h3 { font-size: 12.5px; margin-bottom: 6px; }
+	.why h3.good { color: var(--ok); }
+	.why h3.bad { color: var(--danger); }
+	.why ul { padding-left: 18px; color: var(--dim); font-size: 12.5px; line-height: 1.75; }
+	.why code { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+
+	.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; display: inline-block; }
+	.dot.warn { background: var(--warn); }
+	.dot.ok { background: var(--ok); }
+	.dot.danger { background: var(--danger); }
+	.dot.accent { background: var(--accent); }
+	.num { font-variant-numeric: tabular-nums; }
+
+
+	/* ---- 方案 E：默认一行胶囊（保留圆角卡），详情进居中模态 ---- */
+	.goalcap {
+		flex: none; display: flex; align-items: center; gap: 10px;
+		margin: 10px 16px 0; padding: 7px 10px 7px 12px;
+		border: 1px solid #e6a23c33; border-radius: 8px;
+		background: linear-gradient(180deg, #e6a23c12, #e6a23c05);
+	}
+	.goalcap .state { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 550; color: #a86a12; flex: none; }
+	.goalcap .line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--text); }
+	.goalcap .stats { margin-left: auto; display: flex; gap: 10px; flex: none; font-size: 11.5px; color: var(--dim); }
+	.goalcap .stats b { color: var(--text-bright); font-weight: 550; }
+	.goalcap .ops { display: flex; gap: 6px; flex: none; }
+
+	.mask {
+		position: absolute; inset: 0; z-index: 40; background: #00000033;
+		display: none; align-items: center; justify-content: center;
+	}
+	.mask.open { display: flex; }
+	.modal {
+		width: 660px; max-width: calc(100% - 40px); max-height: calc(100% - 60px);
+		background: var(--panel); border-radius: 12px; box-shadow: 0 20px 60px #00000033;
+		display: flex; flex-direction: column; overflow: hidden;
+	}
+	.modal-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+	.modal-head h2 { font-size: 14px; font-weight: 600; }
+	.modal-head .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #a86a12; }
+	.modal-head .close { margin-left: auto; }
+	.modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px; }
+	.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 14px; margin-bottom: 14px; }
+	.metric { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+	.metric .k { font-size: 11px; color: var(--dim); }
+	.metric .v { font-size: 14px; font-variant-numeric: tabular-nums; }
+	.modal-body h3 { font-size: 12px; color: var(--dim); font-weight: 550; margin: 14px 0 7px; }
+	table.rounds { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+	table.rounds th, table.rounds td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+	table.rounds th { color: var(--dim); font-weight: 550; font-size: 11.5px; background: var(--raised); }
+	table.rounds td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+	.modal-foot { flex: none; display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+
+</style>
+</head>
+<body>
+	<p class="note"><span class="tag">方案 E</span><b>合成胶囊 + 居中模态详情</b> —— 保留现在的位置与圆角卡，但常态压成一行胶囊（状态、目标、轮次/耗时/Token、详情/继续/清除）；详情用居中模态 + 轮次表，模态内部滚动。</p>
+	<div class="frame">
+		<div class="card">
+			<div class="card-head">
+				<h1>对话</h1>
+				<span class="sub">10.0.0.0/24 侦察 · 已暂停</span>
+				<span class="right">对话区可独立滚动：往下滚，目标状态不会走</span>
+			</div>
+			<div class="toolbar">
+				<button class="tbtn">审批模式</button>
+				<button class="tbtn">思考 off</button>
+				<button class="tbtn">分支</button>
+				<button class="tbtn">文件</button>
+				<span class="spacer"></span>
+				
+			</div>
+			
+			<div class="goalcap">
+				<span class="state"><span class="dot warn"></span>已暂停 · 轮数上限</span>
+				<span class="line" title="对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级">
+					对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级
+				</span>
+				<span class="stats">
+					<span>轮次 <b>1/3</b></span>
+					<span><b>2h11m</b></span>
+					<span>Token <b>48.2k</b></span>
+				</span>
+				<span class="ops">
+					<button class="tbtn" onclick="toggleModal(true)">详情</button>
+					<button class="tbtn">继续 +3 轮</button>
+					<button class="tbtn ghost">清除</button>
+				</span>
+			</div>
+
+			<div class="scroll"><div class="msg user"><span class="mark">&gt;</span><div class="body">对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级</div></div>
+<div class="msg">开始持久目标：先确认存活主机与开放端口，再逐个指纹识别，最后按可利用性排序输出。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sn 10.0.0.0/24</span><span class="ok">完成 12.4s</span></div><pre>Nmap scan report for 10.0.0.5
+Host is up (0.0012s latency).
+Nmap scan report for 10.0.0.11
+Host is up (0.0008s latency).</pre></div>
+<div class="msg">第 1 批结果整理中：开放服务 3 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.5</span><span class="ok">完成 8.0s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.30</pre></div>
+<div class="msg">第 2 批结果整理中：开放服务 4 个，其中 2 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.6</span><span class="ok">完成 9.7s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.31</pre></div>
+<div class="msg">第 3 批结果整理中：开放服务 5 个，其中 3 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.7</span><span class="ok">完成 10.4s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.32</pre></div>
+<div class="msg">第 4 批结果整理中：开放服务 6 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.8</span><span class="ok">完成 11.1s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.33</pre></div>
+<div class="msg">第 5 批结果整理中：开放服务 7 个，其中 2 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.9</span><span class="ok">完成 12.8s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.34</pre></div>
+<div class="msg">第 6 批结果整理中：开放服务 8 个，其中 3 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.10</span><span class="ok">完成 13.5s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.35</pre></div>
+<div class="msg">第 7 批结果整理中：开放服务 9 个，其中 1 个带已知版本信息，正在比对可利用性。</div><div class="tool"><div class="tool-head"><span class="name">bash</span><span>nmap -sV -p- 10.0.0.11</span><span class="ok">完成 14.2s</span></div><pre>PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 8.2p1
+80/tcp   open  http     nginx 1.18.0
+3306/tcp open  mysql    MySQL 5.7.36</pre></div></div>
+			<div class="composer">输入指令，Enter 发送…</div>
+			
+			<div class="mask" id="mask">
+				<div class="modal">
+					<div class="modal-head">
+						<h2>持续目标</h2>
+						<span class="state"><span class="dot warn"></span>已暂停 · 轮数上限</span>
+						<span class="close"><button class="tbtn" onclick="toggleModal(false)">关闭</button></span>
+					</div>
+					<div class="modal-body">
+						<div style="color:var(--text-bright)">对 10.0.0.0/24 做全端口侦察，整理可利用入口并给出优先级</div>
+						<div class="metrics">
+							<div class="metric"><div class="k">轮次</div><div class="v">1 / 3</div></div>
+							<div class="metric"><div class="k">耗时</div><div class="v">2h11m</div></div>
+							<div class="metric"><div class="k">Token</div><div class="v">48.2k</div></div>
+							<div class="metric"><div class="k">中枢记录</div><div class="v">3 条</div></div>
+						</div>
+						<h3>暂停说明</h3>
+						<div style="color:var(--warn)">已达自动续跑上限（3 轮）</div>
+						<h3>验收标准</h3>
+						<div style="color:var(--dim)">1. 存活主机清单完整　2. 每个开放端口有版本与结论　3. 可利用入口按优先级排序</div>
+						<h3>轮次流水 · 3 轮</h3>
+						<table class="rounds">
+							<thead><tr><th>轮次</th><th class="num">耗时</th><th class="num">工具调用</th><th class="num">Token</th><th>结论</th></tr></thead>
+							<tbody>
+								<tr><td>第 0 轮 · 初始运行</td><td class="num">41m20s</td><td class="num">18</td><td class="num">12.4k</td><td>确认 6 台存活主机，23 个开放端口，5 个带版本信息</td></tr>
+								<tr><td>第 1 轮 · 自动续跑</td><td class="num">1h29m</td><td class="num">31</td><td class="num">28.9k</td><td>完成 4 台主机版本比对，1 台指纹识别超时</td></tr>
+								<tr><td>第 2 轮 · 自动续跑</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>预算用尽，未开始</td></tr>
+							</tbody>
+						</table>
+						<h3>其他</h3>
+						<div style="color:var(--dim)">子代理 2 次 · 6 轮　模式：自动模式 · 全放行　目标 ID：<span style="font-family:var(--mono)">a41f9c2e7b1d</span></div>
+					</div>
+					<div class="modal-foot">
+						<button class="tbtn">继续 +3 轮</button>
+						<button class="tbtn ghost">清除目标</button>
+					</div>
+				</div>
+			</div>
+
+		</div>
+	</div>
+	<div class="why"><section><h3 class="good">好在哪</h3><ul><li>改动最小：位置、圆角卡片都保留，只是把默认态压成一行胶囊，右端一个「详情」</li><li>详情用居中模态 + 表格呈现轮次流水（轮次 / 类型 / 耗时 / 工具调用 / 结论），信息密度最高</li><li>模态自带滚动与关闭按钮，长内容不会裁切；<code>Esc</code> 可关</li><li>指标行只在模态里出现，默认态只有状态、原因、轮次、耗时</li></ul></section><section><h3 class="bad">代价</h3><ul><li>模态遮挡对话，看轮次时看不到对话内容</li><li>和「执行记录」现有的折叠交互重复，等于两套查看方式</li></ul></section></div>
+	
+	<script>
+		function toggleModal(open) { document.getElementById('mask').classList.toggle('open', open); }
+		document.addEventListener('keydown', (event) => { if (event.key === 'Escape') toggleModal(false); });
+		document.getElementById('mask').addEventListener('mousedown', (event) => {
+			if (event.target.id === 'mask') toggleModal(false);
+		});
+	</script>
+
+</body>
+</html>
