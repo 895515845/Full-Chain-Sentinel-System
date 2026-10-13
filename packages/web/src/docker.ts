@@ -18,7 +18,6 @@ import type { ZGSources } from "./protocol.ts";
 import { buildArgs } from "./sources.ts";
 
 export const ZG_IMAGE = "zgagent:latest";
-export const CONTAINER_PREFIX = "zgagent-";
 
 /** Run the docker CLI, capturing output. Used by the container layer and the environment check. */
 export function runDocker(
@@ -255,8 +254,19 @@ export async function removeContainer(containerName: string): Promise<void> {
 	await runDocker(["rm", "-f", containerName], { timeoutMs: 60000 });
 }
 
+/**
+ * Container name prefix. `ZG_CONTAINER_PREFIX` relocates it, so a second
+ * instance — a test run beside a live console — never lists, stops, or removes
+ * the other instance's containers. Read at call time, like `ZG_PROJECTS_DIR`, so
+ * a per-test environment change takes effect without reloading the module.
+ */
+export function containerPrefix(): string {
+	const prefix = process.env.ZG_CONTAINER_PREFIX;
+	return prefix && prefix.length > 0 ? prefix : "zgagent-";
+}
+
 export function containerNameFor(projectId: string): string {
-	return `${CONTAINER_PREFIX}${projectId.slice(0, 12)}`;
+	return `${containerPrefix()}${projectId.slice(0, 12)}`;
 }
 
 /**
