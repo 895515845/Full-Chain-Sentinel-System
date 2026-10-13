@@ -15,7 +15,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import type { ZGSessionStatus } from "../types.ts";
-import { SESSION_STATUSES, SESSION_STATUS_LABELS, SessionStatusControl, SessionStatusChip } from "./SessionStatusControl.tsx";
+import {
+	SESSION_STATUSES,
+	SESSION_STATUS_LABELS,
+	SessionStatusControl,
+	SessionStatusChip,
+	SessionStatusRail,
+} from "./SessionStatusControl.tsx";
 
 test("every status renders its label and its own color class", () => {
 	for (const status of SESSION_STATUSES) {
@@ -48,4 +54,36 @@ test("the picker stays closed until it is opened, and offers every status when i
 	// The chip itself is the trigger in a list row.
 	expect(closed).toContain("session-status-chip done");
 	expect(closed).toContain("已完成");
+});
+
+test("a session row draws a rail for every set status, including the two terminal ones", () => {
+	// Marking a session 已完成 used to change nothing visible in the list: the
+	// rail was drawn for 待跟进/进行中 only, so the mark looked unsaved.
+	for (const status of SESSION_STATUSES) {
+		const html = renderToStaticMarkup(createElement(SessionStatusRail, { status }));
+		expect(html).toContain(`status-rail rail-${status}`);
+		expect(html).toContain(`人工标记：${SESSION_STATUS_LABELS[status]}`);
+	}
+});
+
+test("only the terminal statuses spell themselves out in the row", () => {
+	// A rail color cannot tell 已完成 from 已忽略, so those two carry the label;
+	// 待跟进/进行中 stay label-free to keep the list compact.
+	const done = renderToStaticMarkup(createElement(SessionStatusRail, { status: "done" }));
+	expect(done).toContain("session-row-status row-done");
+	expect(done).toContain("已完成");
+
+	const ignored = renderToStaticMarkup(createElement(SessionStatusRail, { status: "ignored" }));
+	expect(ignored).toContain("session-row-status row-ignored");
+	expect(ignored).toContain("已忽略");
+
+	const todo = renderToStaticMarkup(createElement(SessionStatusRail, { status: "todo" }));
+	expect(todo).not.toContain("session-row-status");
+	// The rail's tooltip names the status; no text node spells it out.
+	expect(todo).not.toContain(">待跟进<");
+});
+
+test("an unset status adds nothing to the row", () => {
+	expect(renderToStaticMarkup(createElement(SessionStatusRail, {}))).toBe("");
+	expect(renderToStaticMarkup(createElement(SessionStatusRail, { status: null }))).toBe("");
 });

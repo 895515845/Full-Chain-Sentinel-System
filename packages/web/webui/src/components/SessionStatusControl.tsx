@@ -54,6 +54,27 @@ export function SessionStatusChip({ status }: { status?: ZGSessionStatus }) {
 }
 
 /**
+ * How a session row carries its manual status: a 2px rail at the row's left edge
+ * whose color matches the status, plus the label for the two terminal statuses.
+ *
+ * The rail covers every set status — it used to be drawn for 待跟进/进行中 only, so
+ * marking a session 已完成/已忽略 changed nothing visible in the list and looked
+ * like the mark had not been saved. A color alone cannot tell 已完成 from 已忽略,
+ * so those two also carry the label; 待跟进/进行中 stay label-free because the
+ * rail is the attention cue there and the list stays compact.
+ */
+export function SessionStatusRail({ status }: { status?: ZGSessionStatus | null }) {
+	if (!status) return null;
+	const terminal = status === "done" || status === "ignored";
+	return (
+		<>
+			<span className={`status-rail rail-${status}`} title={`人工标记：${SESSION_STATUS_LABELS[status]}`} />
+			{terminal ? <span className={`session-row-status row-${status}`}>{SESSION_STATUS_LABELS[status]}</span> : null}
+		</>
+	);
+}
+
+/**
  * A chip (session list) or button (toolbar) that opens the status picker.
  * `onPick(null)` clears the status.
  */

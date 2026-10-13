@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { ZG_MODE_LABELS } from "../types.ts";
 import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, PocIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
-import { SessionStatusControl, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
+import { SessionStatusControl, SessionStatusRail, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
@@ -201,8 +201,12 @@ export function AppSider({
 	 * The hover card renders through a portal to document.body with fixed
 	 * coordinates: the sidebar and its menu both clip overflow, so an absolutely
 	 * positioned card inside a row would never be visible.
+	 *
+	 * Only the path is kept, never the session object: the card shows the
+	 * operator's status, and a snapshot would keep rendering the status the row
+	 * had when the pointer arrived — picking 已完成 left the card on 未设置.
 	 */
-	const [hoverCard, setHoverCard] = useState<{ session: SessionInfoView; top: number; left: number } | null>(null);
+	const [hoverCard, setHoverCard] = useState<{ path: string; top: number; left: number } | null>(null);
 	const hideTimer = useRef<number | null>(null);
 	/**
 	 * The card's status picker is a fixed panel below the card: while it is open
@@ -220,7 +224,7 @@ export function AppSider({
 		const rect = row.getBoundingClientRect();
 		const left = Math.min(rect.right + 8, window.innerWidth - 268);
 		const top = Math.max(8, Math.min(rect.top - 6, window.innerHeight - 250));
-		setHoverCard({ session, top, left });
+		setHoverCard({ path: session.path, top, left });
 	};
 	const scheduleHide = () => {
 		cancelHide();
@@ -238,6 +242,9 @@ export function AppSider({
 		}
 		return undefined;
 	};
+
+	/** The row behind an open hover card, re-read every render so labels stay live. */
+	const cardSession = hoverCard ? sessions.find((session) => session.path === hoverCard.path) : undefined;
 
 	const setStatus = (next: "all" | "open") => {
 		localStorage.setItem("zg-session-filter", next);
@@ -292,8 +299,6 @@ export function AppSider({
 			: runningSessions.includes(session.id)
 				? "sdot sd-run"
 				: "sdot sd-idle";
-		const railClass =
-			session.status === "todo" ? "status-rail rail-todo" : session.status === "active" ? "status-rail rail-active" : "";
 		return (
 			<div
 				key={session.path}
@@ -307,7 +312,6 @@ export function AppSider({
 				onMouseEnter={(event) => showCard(session, event.currentTarget)}
 				onMouseLeave={scheduleHide}
 			>
-				{railClass ? <span className={railClass} title={session.status === "todo" ? "人工标记：待跟进" : "人工标记：进行中"} /> : null}
 				<span
 					className={dotClass}
 					title={
@@ -319,6 +323,7 @@ export function AppSider({
 					}
 				/>
 				<span className="menu-sub-name">{label}</span>
+				<SessionStatusRail status={session.status} />
 			</div>
 		);
 	};
@@ -542,9 +547,9 @@ export function AppSider({
 					<RefreshIcon />
 				</button>
 			</div>
-			{hoverCard ? (
+			{hoverCard && cardSession ? (
 				<SessionHoverCard
-					data={hoverCard}
+					data={{ session: cardSession, top: hoverCard.top, left: hoverCard.left }}
 					engines={engines}
 					onRename={(session) => {
 						setHoverCard(null);

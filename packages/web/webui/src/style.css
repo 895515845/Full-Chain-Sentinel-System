@@ -6153,6 +6153,22 @@ button.link {
 
 .status-rail.rail-todo { background: var(--warn); }
 .status-rail.rail-active { background: var(--blue); }
+.status-rail.rail-done { background: #52c41a; }
+.status-rail.rail-ignored { background: #8c98a8; }
+
+/* Terminal statuses also carry their label: a 2px rail cannot tell 已完成 from
+   已忽略, and both used to be drawn with no rail at all. */
+.session-row-status {
+	flex: none;
+	color: #8c98a8;
+	font-size: 10.5px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.session-row-status.row-done {
+	color: #6fce4a;
+}
 
 .sdot {
 	flex: none;
