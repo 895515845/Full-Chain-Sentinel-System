@@ -943,7 +943,7 @@ export class EngineManager {
 
 	private notifyEngineDone(engine: ZGEngine): void {
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim()) return;
+		if (!config.enabled || !config.webhook.trim() || !config.kinds.engines) return;
 		const done = engine.tasks.filter((task) => task.status === "done").length;
 		const failed = engine.tasks.filter((task) => ["failed", "blocked", "aborted"].includes(task.status)).length;
 		const markdown = [

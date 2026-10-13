@@ -195,6 +195,8 @@ export interface ZGNotifyConfig {
 	webhook: string;
 	secret: string;
 	keyword: string;
+	/** Which notifications to push once the master switch is on; all default on. */
+	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean };
 	/** Characters of notification body to keep per section; 0 keeps all of it. */
 	summaryLimit: number;
 }

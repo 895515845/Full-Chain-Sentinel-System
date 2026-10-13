@@ -204,6 +204,13 @@ export interface ZGNotifyConfig {
 	/** Optional custom keyword, prepended to the body for keyword-secured robots. */
 	keyword: string;
 	/**
+	 * Which notifications to push once the master switch is on. All default to
+	 * on, which is what a config written before the checkboxes existed does; a
+	 * run forced from the composer still pushes with run reports off, because an
+	 * explicit ask beats a general filter.
+	 */
+	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean };
+	/**
 	 * How many characters of notification body to keep, counted per section (a run's
 	 * closing summary, a goal's conclusion, a finding's raw packet). 0 keeps all of
 	 * it. DingTalk rejects a request body over 20000 bytes, which is enforced

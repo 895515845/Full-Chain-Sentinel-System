@@ -23,8 +23,20 @@ const DEFAULT_CONFIG: ZGNotifyConfig = {
 	webhook: "",
 	secret: "",
 	keyword: "",
+	kinds: { runs: true, vulns: true, goals: true, engines: true },
 	summaryLimit: DEFAULT_SUMMARY_LIMIT,
 };
+
+/** Every kind on unless the file says otherwise, so an old config keeps pushing. */
+function coerceKinds(value: unknown): ZGNotifyConfig["kinds"] {
+	const kinds = (value ?? {}) as Partial<ZGNotifyConfig["kinds"]>;
+	return {
+		runs: kinds.runs !== false,
+		vulns: kinds.vulns !== false,
+		goals: kinds.goals !== false,
+		engines: kinds.engines !== false,
+	};
+}
 
 /** A limit is a character count: 0 means "keep everything", anything else is positive. */
 function coerceSummaryLimit(value: unknown): number {
@@ -53,6 +65,7 @@ export function readNotifyConfig(agentDir: string): ZGNotifyConfig {
 			webhook: coerce(dingtalk.webhook),
 			secret: coerce(dingtalk.secret),
 			keyword: coerce(dingtalk.keyword),
+			kinds: coerceKinds(dingtalk.kinds),
 			summaryLimit: coerceSummaryLimit(dingtalk.summaryLimit),
 		};
 	} catch {
@@ -69,6 +82,7 @@ export function writeNotifyConfig(agentDir: string, config: ZGNotifyConfig): voi
 			webhook: config.webhook.trim(),
 			secret: config.secret.trim(),
 			keyword: config.keyword.trim(),
+			kinds: coerceKinds(config.kinds),
 			summaryLimit: coerceSummaryLimit(config.summaryLimit),
 		},
 	};

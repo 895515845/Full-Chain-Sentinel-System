@@ -159,6 +159,7 @@ export function App() {
 		webhook: "",
 		secret: "",
 		keyword: "",
+		kinds: { runs: true, vulns: true, goals: true, engines: true },
 		summaryLimit: 2000,
 	});
 	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });

@@ -805,7 +805,7 @@ export class ZGAgentRuntime {
 	 */
 	private notifyHighSeverity(vuln: ZGVulnerability): void {
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim()) return;
+		if (!config.enabled || !config.webhook.trim() || !config.kinds.vulns) return;
 		// One push per record. A high finding is pushed the moment it is
 		// submitted; the reviewer's calibration pushes again only when it raised
 		// a record the submission did not already push, instead of confirming
@@ -1023,7 +1023,7 @@ export class ZGAgentRuntime {
 		const goal = managedGoal.goal;
 		if (goal.status === "active") return;
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim()) return;
+		if (!config.enabled || !config.webhook.trim() || !config.kinds.goals) return;
 		const lastRound = goal.rounds[goal.rounds.length - 1];
 		const report = buildGoalNotification(
 			{
@@ -1335,6 +1335,9 @@ export class ZGAgentRuntime {
 		if (aborted && isStutterAbort(managed)) return;
 		const config = readNotifyConfig(this.agentDir);
 		if (!shouldNotifyRun(run.notify, config.enabled)) return;
+		// The kind filter narrows the automatic reports; a run the operator forced
+		// from the composer is an explicit ask and pushes regardless.
+		if (run.notify !== true && !config.kinds.runs) return;
 		if (!config.webhook.trim()) return;
 
 		const last = [...managed.session.messages]

@@ -28,7 +28,14 @@ import {
 } from "../src/notify-config.ts";
 import type { ZGNotifyConfig } from "../src/protocol.ts";
 
-const CONFIG: ZGNotifyConfig = { enabled: true, webhook: "", secret: "", keyword: "", summaryLimit: 2000 };
+const CONFIG: ZGNotifyConfig = {
+	enabled: true,
+	webhook: "",
+	secret: "",
+	keyword: "",
+	kinds: { runs: true, vulns: true, goals: true, engines: true },
+	summaryLimit: 2000,
+};
 
 /** Requests the fake robot received, in order. */
 interface Received {
@@ -234,6 +241,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: "",
 			secret: "",
 			keyword: "",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
 			summaryLimit: DEFAULT_SUMMARY_LIMIT,
 		});
 		writeNotifyConfig(dir, {
@@ -241,6 +249,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: " https://x/y ",
 			secret: " SEC ",
 			keyword: " KW ",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
 			summaryLimit: 5000,
 		});
 		expect(readNotifyConfig(dir)).toEqual({
@@ -248,6 +257,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: "https://x/y",
 			secret: "SEC",
 			keyword: "KW",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
 			summaryLimit: 5000,
 		});
 		chmodSync(notificationsJsonPath(dir), 0o600);
@@ -266,6 +276,7 @@ test("a stored limit is normalized: missing reads as the default, negative as 0"
 			webhook: "https://x/y",
 			secret: "",
 			keyword: "",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
 			summaryLimit: -5,
 		});
 		expect(readNotifyConfig(dir).summaryLimit).toBe(0);
@@ -277,6 +288,23 @@ test("a stored limit is normalized: missing reads as the default, negative as 0"
 		delete legacy.dingtalk.summaryLimit;
 		writeFileSync(notificationsJsonPath(dir), JSON.stringify(legacy));
 		expect(readNotifyConfig(dir).summaryLimit).toBe(DEFAULT_SUMMARY_LIMIT);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("kinds default to all on and a cleared kind survives the round trip", () => {
+	const dir = mkdtempSync(join(tmpdir(), "zg-notify-kinds-"));
+	try {
+		// A file from before the checkboxes existed pushes everything, as it did.
+		writeFileSync(
+			notificationsJsonPath(dir),
+			JSON.stringify({ dingtalk: { enabled: true, webhook: "https://x/y" } }),
+		);
+		expect(readNotifyConfig(dir).kinds).toEqual({ runs: true, vulns: true, goals: true, engines: true });
+
+		writeNotifyConfig(dir, { ...CONFIG, kinds: { runs: false, vulns: false, goals: true, engines: true } });
+		expect(readNotifyConfig(dir).kinds).toEqual({ runs: false, vulns: false, goals: true, engines: true });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

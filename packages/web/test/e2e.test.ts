@@ -1620,7 +1620,14 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent", summaryLimit: 2000 },
+		config: {
+			enabled: true,
+			webhook: dingtalkUrl,
+			secret: "SECe2e",
+			keyword: "ZGAgent",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			summaryLimit: 2000,
+		},
 	});
 	const saved = await waitFor((message) => message.type === "notify_config");
 	expect((saved as { config: { enabled: boolean; keyword: string } }).config).toMatchObject({
@@ -1684,7 +1691,14 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "", summaryLimit: 2000 },
+		config: {
+			enabled: false,
+			webhook: dingtalkUrl,
+			secret: "",
+			keyword: "",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			summaryLimit: 2000,
+		},
 	});
 	await waitFor((message) => message.type === "notify_config" && !message.config.enabled);
 	send({ type: "prompt", text: "force a notification", notify: true });
@@ -1756,7 +1770,14 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: true, webhook: dingtalkUrl, secret: "SECe2e", keyword: "ZGAgent", summaryLimit: 2000 },
+		config: {
+			enabled: true,
+			webhook: dingtalkUrl,
+			secret: "SECe2e",
+			keyword: "ZGAgent",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			summaryLimit: 2000,
+		},
 	});
 	await waitFor((message) => message.type === "notify_config" && message.config.enabled);
 	dingtalk.length = 0;
@@ -1778,7 +1799,14 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 	drainIncoming();
 	send({
 		type: "save_notify_config",
-		config: { enabled: false, webhook: dingtalkUrl, secret: "", keyword: "", summaryLimit: 2000 },
+		config: {
+			enabled: false,
+			webhook: dingtalkUrl,
+			secret: "",
+			keyword: "",
+			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			summaryLimit: 2000,
+		},
 	});
 	await waitFor((message) => message.type === "notify_config" && !message.config.enabled);
 });

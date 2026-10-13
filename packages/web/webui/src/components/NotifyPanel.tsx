@@ -22,6 +22,7 @@ export function NotifyPanel({
 	const [webhook, setWebhook] = useState(config.webhook);
 	const [secret, setSecret] = useState(config.secret);
 	const [keyword, setKeyword] = useState(config.keyword);
+	const [kinds, setKinds] = useState(config.kinds);
 	const [summaryLimit, setSummaryLimit] = useState(String(config.summaryLimit));
 	const [testing, setTesting] = useState(false);
 	const [result, setResult] = useState<ZGTestResult | null>(null);
@@ -32,9 +33,10 @@ export function NotifyPanel({
 			webhook: webhook.trim(),
 			secret: secret.trim(),
 			keyword: keyword.trim(),
+			kinds,
 			summaryLimit: Math.max(0, Math.floor(Number(summaryLimit) || 0)),
 		}),
-		[enabled, webhook, secret, keyword, summaryLimit],
+		[enabled, webhook, secret, keyword, kinds, summaryLimit],
 	);
 	const canSend = draft.webhook.length > 0;
 
@@ -86,6 +88,32 @@ export function NotifyPanel({
 					spellCheck={false}
 				/>
 			</label>
+			<div className="form-field">
+				<label>推送内容（勾选的要推，不勾的不推）</label>
+				<div className="check-group">
+					{(
+						[
+							["runs", "运行报告", "每次运行结束（含失败/中止）的汇总报告"],
+							["vulns", "高危漏洞", "提交或被审查抬级为 high/critical 的漏洞"],
+							["goals", "持续目标结束", "目标完成、阻塞、暂停或轮数用完"],
+							["engines", "工程完成", "工程总报告提交时"],
+						] as const
+					).map(([key, name, note]) => (
+						<label key={key} className="check-item">
+							<input
+								type="checkbox"
+								checked={kinds[key]}
+								onChange={(event) => setKinds((prev) => ({ ...prev, [key]: event.target.checked }))}
+							/>
+							<span className="cname">{name}</span>
+							<span className="ctext">{note}</span>
+						</label>
+					))}
+				</div>
+				<span className="field-sub">
+					输入框旁单条强制发送的运行报告不受「运行报告」勾选影响：那是当场点名的，不走这里。
+				</span>
+			</div>
 			<label>
 				通知正文字数上限
 				<input
