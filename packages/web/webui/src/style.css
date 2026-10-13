@@ -4031,143 +4031,255 @@ svg.lucide {
 }
 
 /* ============================================================
-   Persistent goal bar: state, budget, cost, and the round
-   timeline of the objective the agent keeps working on.
+   Persistent goal: a one-line strip at the top of the chat and a
+   right-hand drawer for everything long. The strip is deliberately
+   capped at one row — an unbounded inline block squeezed the
+   transcript to nothing and clipped its own tail.
    ============================================================ */
 
-.goal-bar {
+.goal-strip {
+	/* Stays put while the transcript scrolls: it sits outside the scroll
+	   container and must never grow past one row. */
 	flex: none;
-	margin: 0 var(--gutter);
-	padding: 8px 12px 9px;
-	border: 1px solid var(--accent-dim);
-	border-radius: var(--radius);
-	background: linear-gradient(180deg, #0960bd0a, #0960bd03);
-}
-
-.goal-bar--completed {
-	border-color: var(--ok-dim);
-	background: linear-gradient(180deg, #67c23a12, #67c23a05);
-}
-
-.goal-bar--paused,
-.goal-bar--blocked {
-	border-color: #e6a23c33;
-	background: linear-gradient(180deg, #e6a23c12, #e6a23c05);
-}
-
-.goal-bar__head {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	min-width: 0;
+	gap: 10px;
+	/* Exactly one row: everything long lives in the drawer, and an unbounded
+	   inline block used to squeeze the transcript to nothing. */
+	height: 38px;
+	margin: 0 var(--gutter);
+	padding: 0 6px 0 12px;
+	border: 1px solid var(--border);
+	border-left: 3px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
 }
 
-.goal-chip {
+.goal-strip--active {
+	border-left-color: var(--accent);
+}
+
+.goal-strip--completed {
+	border-left-color: var(--ok);
+}
+
+.goal-strip--paused {
+	border-left-color: var(--warn);
+}
+
+.goal-strip--blocked {
+	border-left-color: var(--danger);
+}
+
+.goal-strip__state {
 	flex: none;
-	padding: 1px 7px;
-	border-radius: 9px;
-	background: var(--accent);
-	color: #fff;
-	font-size: 11.5px;
-	line-height: 18px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--accent);
+	font-size: 12.5px;
+	font-weight: 550;
+	white-space: nowrap;
 }
 
-.goal-bar--completed .goal-chip {
-	background: var(--ok);
+.goal-strip__state::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentcolor;
 }
 
-.goal-bar--paused .goal-chip,
-.goal-bar--blocked .goal-chip {
-	background: var(--warn);
+.goal-strip--completed .goal-strip__state {
+	color: var(--ok);
 }
 
-.goal-objective {
+.goal-strip--paused .goal-strip__state {
+	color: var(--warn);
+}
+
+.goal-strip--blocked .goal-strip__state {
+	color: var(--danger);
+}
+
+.goal-strip__objective {
 	min-width: 0;
 	overflow: hidden;
-	color: var(--text-bright);
+	color: var(--text);
 	font-size: 12.5px;
 	line-height: 18px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.goal-bar__spacer {
-	flex: 1;
-}
-
-.goal-bar__meta {
+.goal-strip__stats {
+	margin-left: auto;
 	display: flex;
-	flex-wrap: wrap;
 	align-items: center;
-	gap: 4px 12px;
-	margin-top: 5px;
-	font-size: 11.5px;
+	gap: 12px;
+	flex: none;
 	color: var(--dim);
+	font-size: 11.5px;
+	white-space: nowrap;
 }
 
-.goal-mode {
+.goal-strip__stats b {
+	color: var(--text-bright);
+	font-weight: 550;
+}
+
+.goal-strip__flag {
 	padding: 0 6px;
-	border: 1px solid #e6a23c4d;
 	border-radius: 3px;
-	color: var(--warn);
+	background: var(--accent-dim);
+	color: var(--accent);
 }
 
-.goal-id {
-	color: var(--disabled);
-	font-family: var(--mono);
+.goal-strip__ops {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
-.goal-criteria,
-.goal-note {
-	margin-top: 5px;
-	font-size: 11.5px;
-	line-height: 1.6;
-	color: var(--dim);
+/* Real actions, so bordered rather than the dim chip style — compact enough to
+   keep the strip one row. */
+.goal-strip__ops button {
+	padding: 3px 10px;
+	font-size: 12px;
 }
 
-.goal-note {
-	color: var(--warn);
+/* A narrow window keeps the row intact by dropping the secondary counters:
+   round budget and elapsed time stay, the rest is one click away in the drawer. */
+@media (max-width: 1080px) {
+	.goal-strip__stat--secondary {
+		display: none;
+	}
 }
 
-.goal-timeline {
-	margin-top: 6px;
-	font-size: 11.5px;
+/* ---------- Goal detail drawer ---------- */
+
+.goal-drawer__scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	background: #0000000f;
 }
 
-.goal-timeline > summary {
-	cursor: pointer;
-	color: var(--dim);
-}
-
-.goal-timeline__last {
-	color: var(--disabled);
-}
-
-.goal-timeline__body {
-	margin-top: 6px;
-	padding-left: 10px;
-	border-left: 1px solid var(--border);
-}
-
-.goal-progress {
+.goal-drawer {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 61;
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	margin-bottom: 8px;
+	width: min(420px, 100vw);
+	border-left: 1px solid var(--border-strong);
+	background: var(--card);
+	box-shadow: -8px 0 24px #00000014;
 }
 
-.goal-progress__label {
+.goal-drawer__head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--border);
+}
+
+.goal-drawer__title {
+	color: var(--text-bright);
+	font-size: 13px;
 	font-weight: 600;
+}
+
+.goal-drawer__close {
+	margin-left: auto;
+}
+
+/* The drawer scrolls on its own: the round trail can grow without limit and
+   must never push the chat out of view or get clipped. */
+.goal-drawer__body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 12px 14px 16px;
+	color: var(--text);
+	font-size: 12.5px;
+	line-height: 1.65;
+}
+
+.goal-drawer__objective {
+	color: var(--text-bright);
+	line-height: 1.7;
+}
+
+.goal-drawer__note {
+	margin-top: 8px;
+	color: var(--warn);
+	line-height: 1.7;
+}
+
+.goal-kv {
+	display: grid;
+	grid-template-columns: 68px minmax(0, 1fr);
+	gap: 3px 10px;
+	margin-top: 10px;
+	font-size: 12px;
+}
+
+.goal-kv dt {
 	color: var(--dim);
 }
 
-.goal-progress ul,
-.goal-completion ul {
+.goal-kv dd {
+	margin: 0;
+	color: var(--text-bright);
+	font-variant-numeric: tabular-nums;
+}
+
+.goal-kv__mono {
+	font-family: var(--mono);
+	font-size: 11.5px;
+}
+
+.goal-drawer__group {
+	margin-top: 8px;
+}
+
+.goal-drawer__label {
+	margin-top: 14px;
+	color: var(--dim);
+	font-size: 11.5px;
+	font-weight: 550;
+}
+
+.goal-drawer__group .goal-drawer__label {
+	margin-top: 8px;
+}
+
+.goal-drawer__group ul,
+.goal-drawer__group ol {
 	margin: 2px 0 0;
 	padding-left: 18px;
 	color: var(--text);
 }
 
+.goal-drawer__foot {
+	flex: none;
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	padding: 10px 14px;
+	border-top: 1px solid var(--border);
+}
+
+.goal-drawer__foot button {
+	padding: 3px 10px;
+	font-size: 12px;
+}
 .goal-round {
 	padding: 4px 0;
 	border-top: 1px dashed var(--border);
