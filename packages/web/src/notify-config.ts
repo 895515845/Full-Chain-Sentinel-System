@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: ZGNotifyConfig = {
 	webhook: "",
 	secret: "",
 	keyword: "",
-	kinds: { runs: true, vulns: true, goals: true, engines: true },
+	kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 	summaryLimit: DEFAULT_SUMMARY_LIMIT,
 };
 
@@ -35,6 +35,7 @@ function coerceKinds(value: unknown): ZGNotifyConfig["kinds"] {
 		vulns: kinds.vulns !== false,
 		goals: kinds.goals !== false,
 		engines: kinds.engines !== false,
+		pocs: kinds.pocs !== false,
 	};
 }
 

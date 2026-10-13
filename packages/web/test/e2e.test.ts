@@ -1625,7 +1625,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 			webhook: dingtalkUrl,
 			secret: "SECe2e",
 			keyword: "ZGAgent",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
 	});
@@ -1696,7 +1696,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 			webhook: dingtalkUrl,
 			secret: "",
 			keyword: "",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
 	});
@@ -1775,7 +1775,7 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 			webhook: dingtalkUrl,
 			secret: "SECe2e",
 			keyword: "ZGAgent",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
 	});
@@ -1804,7 +1804,7 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 			webhook: dingtalkUrl,
 			secret: "",
 			keyword: "",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
 	});

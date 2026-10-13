@@ -19,6 +19,7 @@ export type ZGPageId =
 	| "chat"
 	| "projects"
 	| "vulns"
+	| "pocs"
 	| "engine"
 	| "gates"
 	| "settings.model"
@@ -27,6 +28,7 @@ export type ZGPageId =
 	| "settings.environment"
 	| "settings.security"
 	| "settings.presets"
+	| "settings.pocs"
 	| "about";
 
 
@@ -149,7 +151,8 @@ export type ZGPermissionKey =
 	| "mcp"
 	| "spawn_agent"
 	| "vuln_submit"
-	| "vuln_read";
+	| "vuln_read"
+	| "poc_read";
 
 /** The switches of one agent; a missing entry means "not allowed". */
 export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
@@ -196,7 +199,7 @@ export interface ZGNotifyConfig {
 	secret: string;
 	keyword: string;
 	/** Which notifications to push once the master switch is on; all default on. */
-	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean };
+	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean; pocs: boolean };
 	/** Characters of notification body to keep per section; 0 keeps all of it. */
 	summaryLimit: number;
 }
@@ -420,6 +423,82 @@ export interface ZGVulnStats {
 	total: number;
 	bySeverity: Record<ZGVulnSeverity, number>;
 	byStatus: Record<ZGVulnStatus, number>;
+}
+
+// --- POC 库（Nuclei 模板中心；对 agent 只读） ---
+
+export type ZGPocSeverity = ZGVulnSeverity;
+
+export interface ZGPoc {
+	id: string;
+	name: string;
+	severity: ZGPocSeverity;
+	tags: string[];
+	references: string[];
+	content: string;
+	sourceFile: string;
+	importedAt: string;
+}
+
+export type ZGPocSummary = Omit<ZGPoc, "content">;
+
+export interface ZGPocFilters {
+	search?: string;
+	severity?: ZGPocSeverity;
+	tag?: string;
+}
+
+export interface ZGPocStats {
+	total: number;
+	bySeverity: Record<ZGPocSeverity, number>;
+}
+
+export interface ZGPocImportFile {
+	name: string;
+	data: string;
+}
+
+export interface ZGPocImportOutcome {
+	imported: number;
+	replaced: number;
+	skipped: { name: string; reason: string }[];
+}
+
+// --- POC 订阅（远程 zip 源；只增不减） ---
+
+export interface ZGPocSource {
+	id: string;
+	name: string;
+	url: string;
+	headerName?: string;
+	headerSet: boolean;
+	intervalHours: number;
+	enabled: boolean;
+	lastSyncAt: string | null;
+	lastResult: ZGPocSyncRecord | null;
+	/** Recent sync outcomes, newest first (bounded server-side). */
+	history: ZGPocSyncRecord[];
+}
+
+export interface ZGPocSyncRecord {
+	at: string;
+	ok: boolean;
+	trigger: "manual" | "auto";
+	durationMs: number;
+	imported: number;
+	replaced: number;
+	skipped: number;
+	error?: string;
+}
+
+export interface ZGPocSourceSave {
+	id?: string;
+	name: string;
+	url: string;
+	headerName?: string;
+	headerValue?: string;
+	intervalHours: number;
+	enabled: boolean;
 }
 
 export interface ZGStateSnapshot {
@@ -680,6 +759,14 @@ export type ZGClientMessage =
 	| { type: "delete_vuln"; id: string }
 	| { type: "export_vulns"; filters?: ZGVulnFilters }
 	| { type: "retry_vuln_review"; id: string }
+	| { type: "list_pocs"; filters?: ZGPocFilters }
+	| { type: "get_poc"; id: string }
+	| { type: "import_pocs"; files: ZGPocImportFile[] }
+	| { type: "delete_poc"; id: string }
+	| { type: "list_poc_sources" }
+	| { type: "save_poc_source"; source: ZGPocSourceSave }
+	| { type: "delete_poc_source"; id: string }
+	| { type: "sync_poc_source"; id: string }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -766,6 +853,12 @@ export type ZGServerMessage =
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
+	| { type: "pocs"; items: ZGPocSummary[]; stats: ZGPocStats }
+	| { type: "poc"; poc: ZGPoc }
+	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "pocs_imported"; outcome: ZGPocImportOutcome }
+	| { type: "poc_sources"; sources: ZGPocSource[] }
+	| { type: "poc_source_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

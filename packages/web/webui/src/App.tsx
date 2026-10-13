@@ -26,6 +26,8 @@ import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
+import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
+import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
 import type {
@@ -61,6 +63,14 @@ import type {
 	ZGToolInfo,
 	ZGVulnFilters,
 	ZGVulnStats,
+	ZGPoc,
+	ZGPocFilters,
+	ZGPocImportFile,
+	ZGPocImportOutcome,
+	ZGPocSource,
+	ZGPocSourceSave,
+	ZGPocStats,
+	ZGPocSummary,
 	ZGVulnSummary,
 	ZGVulnUpdate,
 	ZGVulnerability,
@@ -159,7 +169,7 @@ export function App() {
 		webhook: "",
 		secret: "",
 		keyword: "",
-		kinds: { runs: true, vulns: true, goals: true, engines: true },
+		kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 		summaryLimit: 2000,
 	});
 	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });
@@ -244,6 +254,17 @@ export function App() {
 	const [vulnFilters, setVulnFilters] = useState<ZGVulnFilters>({});
 	/** The record the detail overlay shows, and the evidence file it is previewing. */
 	const [vulnDetail, setVulnDetail] = useState<ZGVulnerability | null>(null);
+	const [pocItems, setPocItems] = useState<ZGPocSummary[]>([]);
+	const [pocStats, setPocStats] = useState<ZGPocStats>({
+		total: 0,
+		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+	});
+	const [pocFilters, setPocFilters] = useState<ZGPocFilters>({});
+	const [pocDetail, setPocDetail] = useState<ZGPoc | null>(null);
+	const [pocImporting, setPocImporting] = useState(false);
+	const [lastPocImport, setLastPocImport] = useState<ZGPocImportOutcome | null>(null);
+	const [pocSources, setPocSources] = useState<ZGPocSource[]>([]);
+	const [pocSyncing, setPocSyncing] = useState<string | null>(null);
 	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
 	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
 	const [engines, setEngines] = useState<ZGEngine[]>([]);
@@ -632,6 +653,29 @@ export function App() {
 					URL.revokeObjectURL(url);
 					break;
 				}
+				case "pocs":
+					setPocItems(message.items);
+					setPocStats(message.stats);
+					break;
+				case "poc":
+					setPocDetail(message.poc);
+					break;
+				case "poc_result":
+					if (!message.ok && message.error) pushError(message.error);
+					if (message.ok && message.action === "删除") setPocDetail(null);
+					break;
+				case "poc_sources":
+					setPocSources(message.sources);
+					setPocSyncing(null);
+					break;
+				case "poc_source_result":
+					if (!message.ok && message.error) pushError(message.error);
+					if (message.action === "同步" && message.ok && message.id) setPocSyncing(null);
+					break;
+				case "pocs_imported":
+					setPocImporting(false);
+					setLastPocImport(message.outcome);
+					break;
 				case "error":
 					// A protocol error naming a message this server does not know means
 					// the page is newer than the process serving it: the browser keeps the
@@ -926,6 +970,9 @@ export function App() {
 			case "vulns":
 				send({ type: "list_vulns", filters: vulnFilters });
 				break;
+			case "pocs":
+				send({ type: "list_pocs", filters: pocFilters });
+				break;
 			case "settings.model":
 				send({ type: "get_model_library" });
 				send({ type: "get_gatekeeper_config" });
@@ -943,6 +990,9 @@ export function App() {
 			case "settings.environment":
 				send({ type: "get_environment" });
 				break;
+			case "settings.pocs":
+				send({ type: "list_poc_sources" });
+				break;
 			case "settings.presets":
 				send({ type: "list_presets" });
 				break;
@@ -955,7 +1005,7 @@ export function App() {
 				refreshStats();
 				break;
 		}
-	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters, gateFilter, gatePage, loadGates]);
+	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters, pocFilters, gateFilter, gatePage, loadGates]);
 
 	/**
 	 * The audit page reads on open and on every filter change. Its query is also
@@ -993,6 +1043,41 @@ export function App() {
 			send({ type: "list_vulns", filters });
 		},
 		[send],
+	);
+
+	/** Re-read the library under the current filter. */
+	const loadPocs = useCallback(
+		(filters: ZGPocFilters) => {
+			setPocFilters(filters);
+			send({ type: "list_pocs", filters });
+		},
+		[send],
+	);
+
+	/** One template in full, in the detail overlay. */
+	const openPoc = useCallback(
+		(id: string) => {
+			send({ type: "get_poc", id });
+		},
+		[send],
+	);
+
+	/** Read the picked files as base64 and hand them to the server. */
+	const importPocs = useCallback(
+		async (files: File[]) => {
+			setPocImporting(true);
+			setLastPocImport(null);
+			try {
+				const payload: ZGPocImportFile[] = await Promise.all(
+					files.map(async (file) => ({ name: file.name, data: await readFileBase64(file) })),
+				);
+				send({ type: "import_pocs", files: payload });
+			} catch (error) {
+				setPocImporting(false);
+				pushError(`读取文件失败：${error instanceof Error ? error.message : String(error)}`);
+			}
+		},
+		[send, pushError],
 	);
 
 	/** Open one finding in full; the reply replaces whatever the overlay showed. */
@@ -1441,7 +1526,11 @@ export function App() {
 									})}
 									{snapshot?.goal &&
 									  snapshot.goal.status !== "active" &&
-									  !chattedAfterGoalEnd(snapshotRef.current?.messages ?? [], snapshot.goal) ? (
+									  !chattedAfterGoalEnd(snapshotRef.current?.messages ?? [], {
+											// Paused goals written before endedAt existed fall
+											// back to updatedAt, which pause() always set.
+											endedAt: snapshot.goal.endedAt ?? snapshot.goal.updatedAt,
+										}) ? (
 										<div className={`goal-end-badge ${snapshot.goal.status}`}>
 											<span className="chip">
 												<b>
@@ -1454,7 +1543,7 @@ export function App() {
 												<span className="t">
 													共 {snapshot.goal.rounds.length} 次迭代 · 总耗时{" "}
 													{formatGoalTotalMs(
-														(snapshot.goal.endedAt ?? Date.now()) - snapshot.goal.startedAt,
+														(snapshot.goal.endedAt ?? snapshot.goal.updatedAt) - snapshot.goal.startedAt,
 													)}
 												</span>
 											</span>
@@ -1554,6 +1643,19 @@ export function App() {
 							onOpen={openVuln}
 							onExport={(filters) => send({ type: "export_vulns", filters })}
 							onRetryReview={(id) => send({ type: "retry_vuln_review", id })}
+						/>
+					) : page === "pocs" ? (
+						<PocPage
+							items={pocItems}
+							stats={pocStats}
+							filters={pocFilters}
+							detail={pocDetail}
+							importing={pocImporting}
+							outcome={lastPocImport}
+							onFiltersChange={loadPocs}
+							onOpen={openPoc}
+							onImport={(files) => void importPocs(files)}
+							onDelete={(id) => send({ type: "delete_poc", id })}
 						/>
 					) : page === "engine" ? (
 						<EnginePage
@@ -1743,6 +1845,28 @@ export function App() {
 										send({ type: "build_image" });
 									}}
 									onAbortBuild={() => send({ type: "abort_image_build" })}
+								/>
+							</div>
+						</div>
+					) : page === "settings.pocs" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">POC 订阅{pocSources.length > 0 ? ` · ${pocSources.length} 个源` : ""}</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<PocSourcesPanel
+									sources={pocSources}
+									syncing={pocSyncing}
+									onSave={(source: ZGPocSourceSave) => send({ type: "save_poc_source", source })}
+									onDelete={(id) => send({ type: "delete_poc_source", id })}
+									onSync={(id) => {
+										setPocSyncing(id);
+										send({ type: "sync_poc_source", id });
+									}}
+									onRefresh={() => send({ type: "list_poc_sources" })}
 								/>
 							</div>
 						</div>

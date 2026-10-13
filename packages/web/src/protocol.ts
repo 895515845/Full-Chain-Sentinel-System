@@ -209,7 +209,7 @@ export interface ZGNotifyConfig {
 	 * run forced from the composer still pushes with run reports off, because an
 	 * explicit ask beats a general filter.
 	 */
-	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean };
+	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean; pocs: boolean };
 	/**
 	 * How many characters of notification body to keep, counted per section (a run's
 	 * closing summary, a goal's conclusion, a finding's raw packet). 0 keeps all of
@@ -570,6 +570,118 @@ export interface ZGVulnStats {
 }
 
 // ---------------------------------------------------------------------------
+// POC 库（Nuclei 模板中心）
+// ---------------------------------------------------------------------------
+
+/** Severity buckets mirror the hub's; nuclei uses the same five. */
+export type ZGPocSeverity = ZGVulnSeverity;
+
+/**
+ * One imported Nuclei template. The library is read-only for the agent: the
+ * yaml never enters the project container, and the only agent-facing tools
+ * (poc_search / poc_read) hand back text. Firing a template means writing your
+ * own yaml into the working directory and running nuclei on it via bash.
+ */
+export interface ZGPoc {
+	/** The template's own `info.id`, which imports dedupe on. */
+	id: string;
+	name: string;
+	severity: ZGPocSeverity;
+	tags: string[];
+	/** CVE ids extracted at import time. */
+	references: string[];
+	/** Full template yaml, verbatim. */
+	content: string;
+	/** File the template was imported from. */
+	sourceFile: string;
+	importedAt: string;
+}
+
+/** A template without its yaml, for lists. */
+export type ZGPocSummary = Omit<ZGPoc, "content">;
+
+/** List filters; every field is optional and they combine with AND. */
+export interface ZGPocFilters {
+	/** Case-insensitive substring match on id, name, tags and CVE ids. */
+	search?: string;
+	severity?: ZGPocSeverity;
+	/** Exact tag match, e.g. "cve". */
+	tag?: string;
+}
+
+export interface ZGPocStats {
+	total: number;
+	bySeverity: Record<ZGPocSeverity, number>;
+}
+
+/** One file of an import batch, base64-encoded. */
+export interface ZGPocImportFile {
+	/** File name as uploaded; .yaml/.yml are read as text, .zip is unpacked. */
+	name: string;
+	data: string;
+}
+
+// ---------------------------------------------------------------------------
+// POC 订阅（远程 zip 源）
+// ---------------------------------------------------------------------------
+
+/**
+ * One subscription source: a zip URL the operator subscribes to. Sync only
+ * upserts (by template id) and never deletes — the library grows, and removing
+ * a template stays a manual decision.
+ */
+export interface ZGPocSource {
+	id: string;
+	name: string;
+	url: string;
+	/** Optional single auth header (e.g. Authorization). Present = one is set; the value itself never leaves the server. */
+	headerName?: string;
+	/** True when the stored source carries a header value. */
+	headerSet: boolean;
+	/** Hours between automatic syncs; 0 = manual only. */
+	intervalHours: number;
+	enabled: boolean;
+	lastSyncAt: string | null;
+	/** Newest outcome, mirrored at the top of `history`. */
+	lastResult: ZGPocSyncRecord | null;
+	/** Recent sync outcomes, newest first (bounded server-side). */
+	history: ZGPocSyncRecord[];
+}
+
+/** Save payload: `id` absent creates a source; an empty header value keeps the stored one. */
+export interface ZGPocSourceSave {
+	id?: string;
+	name: string;
+	url: string;
+	headerName?: string;
+	headerValue?: string;
+	intervalHours: number;
+	enabled: boolean;
+}
+
+/** One sync outcome kept on the source. */
+export interface ZGPocSyncRecord {
+	at: string;
+	ok: boolean;
+	/** "manual" = operator clicked; "auto" = the interval timer fired. */
+	trigger: "manual" | "auto";
+	durationMs: number;
+	imported: number;
+	replaced: number;
+	skipped: number;
+	error?: string;
+}
+
+/** What one import batch produced. */
+export interface ZGPocImportOutcome {
+	/** Newly inserted templates. */
+	imported: number;
+	/** Templates whose id already existed and were overwritten. */
+	replaced: number;
+	skipped: { name: string; reason: string }[];
+}
+
+// ---------------------------------------------------------------------------
 // Engineering mode (工程模式)
 // ---------------------------------------------------------------------------
 
@@ -820,6 +932,15 @@ export type ZGClientMessage =
 	| { type: "delete_vuln"; id: string }
 	| { type: "export_vulns"; filters?: ZGVulnFilters }
 	| { type: "retry_vuln_review"; id: string }
+	| { type: "list_pocs"; filters?: ZGPocFilters }
+	| { type: "get_poc"; id: string }
+	| { type: "import_pocs"; files: ZGPocImportFile[] }
+	| { type: "delete_poc"; id: string }
+	| { type: "list_poc_sources" }
+	/** Create or update a source; an empty `headerValue` keeps the stored one. */
+	| { type: "save_poc_source"; source: ZGPocSourceSave }
+	| { type: "delete_poc_source"; id: string }
+	| { type: "sync_poc_source"; id: string }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
@@ -912,6 +1033,12 @@ export type ZGServerMessage =
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
+	| { type: "pocs"; items: ZGPocSummary[]; stats: ZGPocStats }
+	| { type: "poc"; poc: ZGPoc }
+	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "pocs_imported"; outcome: ZGPocImportOutcome }
+	| { type: "poc_sources"; sources: ZGPocSource[] }
+	| { type: "poc_source_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "environment"; report: ZGEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }

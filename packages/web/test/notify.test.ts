@@ -33,7 +33,7 @@ const CONFIG: ZGNotifyConfig = {
 	webhook: "",
 	secret: "",
 	keyword: "",
-	kinds: { runs: true, vulns: true, goals: true, engines: true },
+	kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 	summaryLimit: 2000,
 };
 
@@ -241,7 +241,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: "",
 			secret: "",
 			keyword: "",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: DEFAULT_SUMMARY_LIMIT,
 		});
 		writeNotifyConfig(dir, {
@@ -249,7 +249,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: " https://x/y ",
 			secret: " SEC ",
 			keyword: " KW ",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 5000,
 		});
 		expect(readNotifyConfig(dir)).toEqual({
@@ -257,7 +257,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			webhook: "https://x/y",
 			secret: "SEC",
 			keyword: "KW",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 5000,
 		});
 		chmodSync(notificationsJsonPath(dir), 0o600);
@@ -276,7 +276,7 @@ test("a stored limit is normalized: missing reads as the default, negative as 0"
 			webhook: "https://x/y",
 			secret: "",
 			keyword: "",
-			kinds: { runs: true, vulns: true, goals: true, engines: true },
+			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: -5,
 		});
 		expect(readNotifyConfig(dir).summaryLimit).toBe(0);
@@ -301,10 +301,19 @@ test("kinds default to all on and a cleared kind survives the round trip", () =>
 			notificationsJsonPath(dir),
 			JSON.stringify({ dingtalk: { enabled: true, webhook: "https://x/y" } }),
 		);
-		expect(readNotifyConfig(dir).kinds).toEqual({ runs: true, vulns: true, goals: true, engines: true });
+		expect(readNotifyConfig(dir).kinds).toEqual({ runs: true, vulns: true, goals: true, engines: true, pocs: true });
 
-		writeNotifyConfig(dir, { ...CONFIG, kinds: { runs: false, vulns: false, goals: true, engines: true } });
-		expect(readNotifyConfig(dir).kinds).toEqual({ runs: false, vulns: false, goals: true, engines: true });
+		writeNotifyConfig(dir, {
+			...CONFIG,
+			kinds: { runs: false, vulns: false, goals: true, engines: true, pocs: true },
+		});
+		expect(readNotifyConfig(dir).kinds).toEqual({
+			runs: false,
+			vulns: false,
+			goals: true,
+			engines: true,
+			pocs: true,
+		});
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

@@ -185,10 +185,15 @@ test("completion and submission are recorded on the goal", () => {
 test("resuming adds rounds, clears the fuse, and reports the pause reason", () => {
 	const paused = pauseGoal(newGoal(3), "limit", "已达自动续跑上限（3 轮）", 1000);
 	expect(goalStatusLabel(paused)).toBe("已暂停（轮数上限）");
+	// The transcript's terminal badge needs a fixed end time: without it the badge
+	// never learns that later conversation moved past the paused goal.
+	expect(paused.endedAt).toBe(1000);
 	const resumed = resumeGoal(paused, 3, 2000);
 	expect(resumed.status).toBe("active");
 	expect(resumed.roundLimit).toBe(6);
 	expect(resumed.pauseReason).toBeUndefined();
+	// Back to active, so the badge must not consider the goal ended.
+	expect(resumed.endedAt).toBeUndefined();
 	const idle = closeRound(startRound(newGoal(9), "initial", 1000), 1100, 0);
 	expect(idle.noProgressStreak).toBe(1);
 	const afterFuse = resumeGoal(pauseGoal(idle, "no-progress", "空转", 1150), 3, 1200);

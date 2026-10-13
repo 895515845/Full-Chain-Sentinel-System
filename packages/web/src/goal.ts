@@ -324,14 +324,19 @@ export function pauseGoal(goal: ZGGoal, reason: ZGGoalPauseReason, note: string 
 		status: "paused",
 		pauseReason: reason,
 		...(note ? { pauseNote: note } : {}),
+		// A paused goal is the end of a stretch: the transcript's terminal badge
+		// needs a fixed end time, both to stop its duration from ticking and to
+		// know when later conversation has moved past it.
+		endedAt: at,
 		updatedAt: at,
 	};
 }
 
 /** Resume a paused goal with more rounds. The no-progress fuse starts over. */
 export function resumeGoal(goal: ZGGoal, extraRounds: number, at: number): ZGGoal {
+	const { endedAt: _endedAt, ...rest } = goal;
 	return {
-		...goal,
+		...rest,
 		status: "active",
 		roundLimit: clampRoundLimit(goal.roundLimit + Math.max(1, Math.round(extraRounds))),
 		noProgressStreak: 0,

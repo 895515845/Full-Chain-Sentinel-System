@@ -27,7 +27,8 @@ export type ZGPermissionKey =
 	| "mcp"
 	| "spawn_agent"
 	| "vuln_submit"
-	| "vuln_read";
+	| "vuln_read"
+	| "poc_read";
 
 export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
 	"read",
@@ -40,6 +41,7 @@ export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
 	"spawn_agent",
 	"vuln_submit",
 	"vuln_read",
+	"poc_read",
 ];
 
 /** Keys a sub-agent can hold at all: delegation never recurses. */
@@ -99,6 +101,7 @@ export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
 	spawn_agent: "spawn_agent 派生子代理",
 	vuln_submit: "vuln_submit 提交漏洞",
 	vuln_read: "vuln_list / vuln_get 查询漏洞",
+	poc_read: "poc_search / poc_read 检索 POC 库",
 };
 
 export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
@@ -112,6 +115,7 @@ export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
 	spawn_agent: "把独立子任务委派给隔离子代理并行执行",
 	vuln_submit: "把已验证的漏洞提交到当前项目的漏洞中枢（原始数据包、CVSS 评分一并提交）",
 	vuln_read: "查询当前项目已记录的漏洞，避免重复提交并在总结中引用编号",
+	poc_read: "检索操作员导入的 Nuclei POC 库（只读参考；要执行需自己写 yaml 并用 bash 跑 nuclei）",
 };
 
 function fullSet(): ZGPermissionSet {
@@ -126,6 +130,7 @@ function fullSet(): ZGPermissionSet {
 		spawn_agent: true,
 		vuln_submit: true,
 		vuln_read: true,
+		poc_read: true,
 	};
 }
 
@@ -141,6 +146,7 @@ function emptySet(): ZGPermissionSet {
 		spawn_agent: false,
 		vuln_submit: false,
 		vuln_read: false,
+		poc_read: false,
 	};
 }
 
@@ -158,6 +164,7 @@ function reconSet(): ZGPermissionSet {
 		mcp: true,
 		spawn_agent: true,
 		vuln_read: true,
+		poc_read: true,
 	};
 }
 
@@ -256,6 +263,7 @@ export function excludeToolsFor(set: ZGPermissionSet): string[] {
 	// The hub's switches are not 1:1 with tool names: reading covers two tools.
 	if (!set.vuln_submit) excluded.push("vuln_submit");
 	if (!set.vuln_read) excluded.push("vuln_list", "vuln_get");
+	if (!set.poc_read) excluded.push("poc_search", "poc_read");
 	if (!set.mcp) excluded.push("mcp__*", ...MCP_RESOURCE_TOOLS);
 	return excluded;
 }

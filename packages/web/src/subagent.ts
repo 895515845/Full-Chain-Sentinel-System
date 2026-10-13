@@ -57,6 +57,11 @@ export interface SubagentToolOptions {
 	 * per call, because the run id only exists once the run has been registered.
 	 */
 	createVulnTools: (getSource: () => string) => ToolDefinition[];
+	/**
+	 * Extra read-only tools the sub-agent may mount in addition to the hub
+	 * tools (e.g. the POC library), already reduced to its own permissions.
+	 */
+	extraTools?: ToolDefinition[];
 	/** Session the spawn_agent call belongs to; scopes the run list. */
 	getParentSessionId: () => string | undefined;
 	/** Project the run belongs to, for the retained record. */
@@ -136,7 +141,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				resourceLoader,
 				sessionManager: SessionManager.inMemory(options.cwd),
 				baseToolsOverride,
-				customTools: vulnTools,
+				customTools: [...vulnTools, ...(options.extraTools ?? [])],
 				excludeTools: excludeToolsFor(permissions),
 			});
 			const session = created.session;

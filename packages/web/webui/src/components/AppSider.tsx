@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { ZG_MODE_LABELS } from "../types.ts";
-import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
+import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, PocIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
 import { SessionStatusControl, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
@@ -33,6 +33,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "chat", label: "对话", icon: ChatIcon },
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
 			{ page: "vulns", label: "漏洞", icon: VulnIcon },
+			{ page: "pocs", label: "POC 库", icon: PocIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
 			{ page: "gates", label: "守门审计", icon: GateIcon },
 		],
@@ -52,6 +53,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.notify", label: "通知", icon: NotifyIcon },
 	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
 	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },
+	{ page: "settings.pocs", label: "POC 订阅", icon: PocIcon },
 	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];
@@ -202,6 +204,11 @@ export function AppSider({
 	 */
 	const [hoverCard, setHoverCard] = useState<{ session: SessionInfoView; top: number; left: number } | null>(null);
 	const hideTimer = useRef<number | null>(null);
+	/**
+	 * The card's status picker is a fixed panel below the card: while it is open
+	 * the pointer legitimately leaves the card box, so the card must not hide.
+	 */
+	const statusPickerOpen = useRef(false);
 	const cancelHide = () => {
 		if (hideTimer.current !== null) {
 			window.clearTimeout(hideTimer.current);
@@ -217,6 +224,7 @@ export function AppSider({
 	};
 	const scheduleHide = () => {
 		cancelHide();
+		if (statusPickerOpen.current) return;
 		hideTimer.current = window.setTimeout(() => setHoverCard(null), 150);
 	};
 	useEffect(() => cancelHide, []);
@@ -545,7 +553,13 @@ export function AppSider({
 					onSetStatus={onSetSessionStatus}
 					onDelete={onDeleteSession}
 					onEnter={cancelHide}
-					onLeave={() => setHoverCard(null)}
+					onLeave={() => {
+						if (statusPickerOpen.current) return;
+						setHoverCard(null);
+					}}
+					onPickerOpenChange={(open) => {
+						statusPickerOpen.current = open;
+					}}
 				/>
 			) : null}
 		</aside>
@@ -564,6 +578,7 @@ function SessionHoverCard({
 	onDelete,
 	onEnter,
 	onLeave,
+	onPickerOpenChange,
 }: {
 	data: { session: SessionInfoView; top: number; left: number };
 	engines: ZGEngine[];
@@ -572,6 +587,8 @@ function SessionHoverCard({
 	onDelete(path: string): void;
 	onEnter(): void;
 	onLeave(): void;
+	/** The status picker opened or closed; the card stays up while it is open. */
+	onPickerOpenChange(open: boolean): void;
 }) {
 	const { session, top, left } = data;
 	const label = session.name ?? session.firstMessage.slice(0, 40);
@@ -624,7 +641,11 @@ function SessionHoverCard({
 				<SessionStatusControl
 					variant="chip"
 					status={session.status}
-					onPick={(next) => onSetStatus(session.path, next)}
+					onOpenChange={onPickerOpenChange}
+					onPick={(next) => {
+						onPickerOpenChange(false);
+						onSetStatus(session.path, next);
+					}}
 				/>
 				<button
 					type="button"

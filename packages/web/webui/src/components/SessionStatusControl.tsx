@@ -35,6 +35,14 @@ export const SESSION_STATUS_COLORS: Record<ZGSessionStatus, string> = {
 };
 
 const PICKER_WIDTH = 168;
+/**
+ * Panel height for placement: five 30px rows, 2x5px padding, 2px border. The
+ * picker is `position: fixed`, so without this the last rows of a session near
+ * the window bottom (已完成 / 已忽略) fall outside the viewport and cannot be
+ * clicked at all.
+ */
+const PICKER_HEIGHT = 5 * 30 + 10 + 2;
+const VIEWPORT_MARGIN = 8;
 
 function chipClass(status: ZGSessionStatus | null | undefined): string {
 	return `session-status-chip ${status ?? "none"}`;
@@ -53,14 +61,26 @@ export function SessionStatusControl({
 	status,
 	variant,
 	onPick,
+	onOpenChange,
 }: {
 	status?: ZGSessionStatus | null;
 	variant: "chip" | "toolbar";
 	onPick: (status: ZGSessionStatus | null) => void;
+	/**
+	 * Whether the picker is open. A host that hides itself when the pointer
+	 * leaves (the session list's hover card) uses this to stay alive while the
+	 * panel is up; without it the card unmounts on the way to the panel and the
+	 * statuses cannot be clicked at all.
+	 */
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const root = useRef<HTMLSpanElement>(null);
 	const trigger = useRef<HTMLButtonElement>(null);
+
+	useEffect(() => {
+		onOpenChange?.(anchor !== null);
+	}, [anchor, onOpenChange]);
 
 	useEffect(() => {
 		if (!anchor) return;
@@ -86,7 +106,14 @@ export function SessionStatusControl({
 			variant === "toolbar"
 				? Math.max(8, Math.min(rect.right - PICKER_WIDTH, window.innerWidth - PICKER_WIDTH - 8))
 				: Math.max(8, Math.min(rect.left - 26, window.innerWidth - PICKER_WIDTH - 8));
-		setAnchor({ top: rect.bottom + 5, left });
+		// Below the trigger when it fits, above it otherwise, so every row of the
+		// picker stays inside the viewport.
+		const below = rect.bottom + 5;
+		const top =
+			below + PICKER_HEIGHT <= window.innerHeight - VIEWPORT_MARGIN
+				? below
+				: Math.max(VIEWPORT_MARGIN, rect.top - 5 - PICKER_HEIGHT);
+		setAnchor({ top, left });
 	};
 
 	const pick = (next: ZGSessionStatus | null) => {

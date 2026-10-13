@@ -220,6 +220,8 @@ export async function startZGServer(
 			// Every judgment is broadcast: a console with the audit page open appends
 			// the new row live instead of waiting for a refresh.
 			onGateDecision: (decision) => broadcast({ type: "gate_decision", decision }),
+			onPocChange: () => broadcastPocs(),
+			onPocSourceChange: () => broadcast({ type: "poc_sources", sources: runtime.listPocSources() }),
 		},
 	});
 
@@ -342,6 +344,12 @@ export async function startZGServer(
 	function broadcastVulns(): void {
 		const view = runtime.listVulns();
 		broadcast({ type: "vulns", items: view.items, stats: view.stats });
+	}
+
+	/** The POC library, pushed when the operator imports or deletes templates. */
+	function broadcastPocs(): void {
+		const view = runtime.listPocs();
+		broadcast({ type: "pocs", items: view.items, stats: view.stats });
 	}
 
 	/** Project list with each project's finding and gate-record counts, for the delete warning. */
@@ -1071,6 +1079,90 @@ export async function startZGServer(
 				case "export_vulns": {
 					const report = runtime.exportVulns(message.filters);
 					sendTo(socket, { type: "vulns_export", filename: report.filename, markdown: report.markdown });
+					return;
+				}
+				case "list_pocs": {
+					const view = runtime.listPocs(message.filters);
+					sendTo(socket, { type: "pocs", items: view.items, stats: view.stats });
+					return;
+				}
+				case "get_poc": {
+					const poc = runtime.getPoc(message.id);
+					if (!poc) {
+						sendError(socket, `POC 库中没有 id 为 ${message.id} 的模板`);
+						return;
+					}
+					sendTo(socket, { type: "poc", poc });
+					return;
+				}
+				case "import_pocs": {
+					if (message.files.length === 0) {
+						sendError(socket, "没有可导入的文件");
+						return;
+					}
+					if (message.files.length > 2000) {
+						sendError(socket, "一次最多导入 2000 个文件，请分批上传");
+						return;
+					}
+					try {
+						const outcome = runtime.importPocs(message.files);
+						sendTo(socket, { type: "pocs_imported", outcome });
+						broadcastPocs();
+					} catch (error) {
+						sendError(socket, `导入失败：${error instanceof Error ? error.message : String(error)}`);
+					}
+					return;
+				}
+				case "list_poc_sources": {
+					sendTo(socket, { type: "poc_sources", sources: runtime.listPocSources() });
+					return;
+				}
+				case "save_poc_source": {
+					const result = runtime.savePocSource(message.source);
+					if ("error" in result) {
+						sendTo(socket, { type: "poc_source_result", action: "保存", ok: false, error: result.error });
+						return;
+					}
+					sendTo(socket, { type: "poc_source_result", action: "保存", id: result.source.id, ok: true });
+					sendTo(socket, { type: "poc_sources", sources: runtime.listPocSources() });
+					return;
+				}
+				case "delete_poc_source": {
+					const ok = runtime.deletePocSource(message.id);
+					sendTo(socket, {
+						type: "poc_source_result",
+						action: "删除",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该订阅源不存在" }),
+					});
+					return;
+				}
+				case "sync_poc_source": {
+					const result = await runtime.syncPocSource(message.id);
+					if ("error" in result) {
+						sendTo(socket, {
+							type: "poc_source_result",
+							action: "同步",
+							id: message.id,
+							ok: false,
+							error: result.error,
+						});
+						return;
+					}
+					sendTo(socket, { type: "poc_source_result", action: "同步", id: message.id, ok: true });
+					// The sync itself already broadcast the refreshed list.
+					return;
+				}
+				case "delete_poc": {
+					const ok = runtime.deletePoc(message.id);
+					sendTo(socket, {
+						type: "poc_result",
+						action: "删除",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该模板不存在" }),
+					});
 					return;
 				}
 				case "get_subagent": {

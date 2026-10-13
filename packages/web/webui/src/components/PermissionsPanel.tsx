@@ -32,6 +32,12 @@ const SWITCHES: { key: ZGPermissionKey; label: string; hint: string; subagent: b
 	{ key: "tool_search", label: "tool_search", hint: "检索并加载尚未声明的工具，禁用的搜不到", subagent: true },
 	{ key: "mcp", label: "MCP", hint: "连接 mcp.json 中的 MCP 服务器并使用其工具", subagent: true },
 	{ key: "spawn_agent", label: "spawn_agent", hint: "派生子代理并行执行；子代理永远不能再派生", subagent: false },
+	{
+		key: "poc_read",
+		label: "poc_search / poc_read",
+		hint: "检索 POC 库（只读参考：模板不进容器，要执行需自己写 yaml 后用 bash 跑 nuclei）",
+		subagent: true,
+	},
 ];
 
 const SUBAGENT_SWITCHES = SWITCHES.filter((item) => item.subagent);

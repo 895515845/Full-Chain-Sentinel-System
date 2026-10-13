@@ -7228,3 +7228,492 @@ button.link {
 .ok-text {
 	color: var(--ok);
 }
+
+/* ==========================================================================
+   POC 库（console ledger, mockup C3）：整页一张面板卡，台账表 + 行内展开
+   ========================================================================== */
+
+.poc-sheet {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+/* 顶栏：面包屑 + 标题 + 副标题 + 导入 */
+.poc-bar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 18px;
+	border-bottom: 1px solid var(--border);
+	background: rgba(0, 0, 0, 0.015);
+	flex-wrap: wrap;
+}
+.poc-crumb {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--dim);
+	font-size: 12px;
+}
+.poc-crumb .cur {
+	color: var(--accent);
+}
+.poc-bar h1 {
+	font-size: 15px;
+	font-weight: 600;
+}
+.poc-sub {
+	font-size: 12px;
+	color: var(--dim);
+}
+.poc-bar-ops {
+	margin-left: auto;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+/* 工具条：搜索 + 等级 + 标签 + 命中计数 */
+.poc-toolbar {
+	display: flex;
+	gap: 8px;
+	padding: 10px 18px;
+	border-bottom: 1px solid var(--border);
+	align-items: center;
+	flex-wrap: wrap;
+}
+.poc-search {
+	flex: 1;
+	max-width: 420px;
+	min-width: 200px;
+	height: 30px;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	padding: 0 11px;
+	font-size: 12.5px;
+	outline: none;
+	background: var(--card);
+	color: var(--text);
+}
+.poc-search:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px rgba(9, 96, 189, 0.08);
+}
+.poc-select {
+	height: 30px;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--card);
+	font-size: 12px;
+	color: var(--dim);
+	padding: 0 8px;
+	outline: none;
+	cursor: pointer;
+}
+.poc-tag {
+	width: 140px;
+	cursor: text;
+	color: var(--text);
+}
+.poc-hits {
+	margin-left: auto;
+	font-size: 12px;
+	color: var(--dim);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.poc-import-note {
+	padding: 8px 18px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12.5px;
+	color: var(--dim);
+	background: rgba(9, 96, 189, 0.04);
+}
+
+/* 台账表 */
+.poc-tablewrap {
+	overflow: auto;
+	max-height: calc(100vh - 300px);
+}
+.poc-table {
+	width: 100%;
+	border-collapse: collapse;
+}
+.poc-table thead th {
+	position: sticky;
+	top: 0;
+	background: rgba(0, 0, 0, 0.015);
+	z-index: 1;
+	text-align: left;
+	font-size: 11px;
+	font-weight: 550;
+	color: var(--dim);
+	padding: 8px 14px;
+	border-bottom: 1px solid var(--border);
+	white-space: nowrap;
+}
+.poc-table thead th.poc-sortable {
+	cursor: pointer;
+	user-select: none;
+}
+.poc-table thead th.poc-sortable:hover {
+	color: var(--accent);
+}
+.poc-caret-col {
+	width: 24px;
+}
+.poc-table td {
+	padding: 9px 14px;
+	border-bottom: 1px solid var(--border);
+	vertical-align: middle;
+	font-size: 12.5px;
+}
+.poc-row {
+	cursor: pointer;
+	transition: background 0.1s;
+}
+.poc-row.zebra {
+	background: rgba(0, 0, 0, 0.014);
+}
+.poc-row:hover {
+	background: rgba(9, 96, 189, 0.05);
+}
+.poc-row.open {
+	background: rgba(9, 96, 189, 0.05);
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+.poc-caret {
+	color: rgba(0, 0, 0, 0.18);
+	font-size: 9px;
+	width: 16px;
+}
+.poc-row.open .poc-caret {
+	color: var(--accent);
+}
+.poc-id {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--accent);
+}
+.poc-name {
+	max-width: 360px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* 等级：左侧 3px 色条 + 文字 */
+.poc-sev {
+	font-size: 11px;
+	padding: 2px 8px 2px 9px;
+	border-left-width: 3px;
+	border-left-style: solid;
+	font-weight: 550;
+	letter-spacing: 0.02em;
+}
+.poc-sev-critical {
+	color: #cf1322;
+	border-left-color: #cf1322;
+}
+.poc-sev-high {
+	color: #d4380d;
+	border-left-color: #d4380d;
+}
+.poc-sev-medium {
+	color: #d46b08;
+	border-left-color: #d46b08;
+}
+.poc-sev-low {
+	color: #0958d9;
+	border-left-color: #0958d9;
+}
+.poc-sev-info {
+	color: #389e0d;
+	border-left-color: #389e0d;
+}
+
+.poc-tags {
+	display: flex;
+	gap: 4px;
+	flex-wrap: wrap;
+}
+.poc-tags span {
+	font-family: var(--mono);
+	font-size: 10.5px;
+	color: var(--dim);
+	background: rgba(0, 0, 0, 0.03);
+	border: 1px solid var(--border);
+	padding: 0 6px;
+	border-radius: 999px;
+}
+.poc-cve {
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--text);
+}
+.poc-when {
+	font-size: 11.5px;
+	color: var(--dim);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.poc-op {
+	text-align: right;
+	white-space: nowrap;
+}
+.poc-op button,
+.poc-term-op {
+	border: none;
+	background: none;
+	cursor: pointer;
+	font-size: 12px;
+	padding: 3px 8px;
+	border-radius: 4px;
+	color: transparent;
+	font-family: inherit;
+}
+.poc-row:hover .poc-op button,
+.poc-row.open .poc-op button {
+	color: var(--dim);
+}
+.poc-op button:hover {
+	color: #cf1322;
+	background: rgba(207, 19, 34, 0.06);
+}
+.poc-empty td {
+	color: var(--dim);
+	padding: 28px 18px;
+	text-align: center;
+}
+
+/* 行内展开：白表里的暗色终端块 */
+.poc-detail td {
+	padding: 4px 14px 12px 40px;
+	border-bottom: 1px solid var(--border);
+	background: var(--card);
+}
+.poc-term {
+	border-radius: 8px;
+	overflow: hidden;
+	border: 1px solid #21262d;
+}
+.poc-term-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: #161b22;
+	padding: 6px 12px;
+	border-bottom: 1px solid #21262d;
+}
+.poc-traffic {
+	display: flex;
+	gap: 5px;
+	flex-shrink: 0;
+}
+.poc-traffic i {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	display: block;
+}
+.poc-traffic i:nth-child(1) {
+	background: #ff5f57;
+}
+.poc-traffic i:nth-child(2) {
+	background: #febc2e;
+}
+.poc-traffic i:nth-child(3) {
+	background: #28c840;
+}
+.poc-term-file {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: #8b949e;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.poc-term-ops {
+	margin-left: auto;
+	display: flex;
+	gap: 6px;
+	flex-shrink: 0;
+}
+.poc-term-op {
+	background: #21262d;
+	color: #c9d1d9;
+	font-size: 11px;
+	padding: 2px 10px;
+	border-radius: 5px;
+}
+.poc-term-op:hover {
+	background: #30363d;
+	color: #c9d1d9;
+}
+.poc-term-op.danger:hover {
+	background: rgba(218, 54, 51, 0.15);
+	color: #f85149;
+}
+.poc-term-body {
+	margin: 0;
+	padding: 12px 14px;
+	background: #0d1117;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.7;
+	color: #c9d1d9;
+	max-height: 260px;
+	overflow: auto;
+	white-space: pre;
+}
+
+/* 页脚：规则提示 + 等级计数 */
+.poc-foot {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 10px 18px;
+	border-top: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--dim);
+	background: rgba(0, 0, 0, 0.015);
+	flex-wrap: wrap;
+}
+.poc-foot-sev {
+	margin-left: auto;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+
+/* ---------- POC 订阅（设置 → POC 订阅） ---------- */
+
+/* Two labeled fields per row; the URL spans both so a long link stays readable. */
+.source-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	gap: 0 16px;
+	max-width: 720px;
+}
+
+.source-fields__wide {
+	grid-column: 1 / -1;
+}
+
+.source-form-ops {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.source-table {
+	min-width: 940px;
+}
+
+.source-table .data-row {
+	grid-template-columns:
+		minmax(150px, 1fr) minmax(240px, 1.8fr) minmax(110px, 0.8fr)
+		minmax(230px, 1.6fr) auto;
+	column-gap: 14px;
+}
+
+.source-schedule {
+	display: flex;
+	flex-direction: column;
+	font-size: 12.5px;
+}
+
+.source-result {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12.5px;
+	color: var(--dim);
+	font-variant-numeric: tabular-nums;
+}
+
+.source-history {
+	grid-column: 1 / -1;
+	margin-top: 6px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.8;
+	font-variant-numeric: tabular-nums;
+}
+
+.source-history__title {
+	color: var(--text-bright);
+	font-weight: 500;
+	margin-bottom: 2px;
+}
+
+/* ---------- 通知推送内容（勾选项） ---------- */
+
+.kinds-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--raised);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.kinds-head-ops {
+	margin-left: auto;
+	display: flex;
+	gap: 6px;
+}
+
+.kinds-head-ops button {
+	padding: 2px 8px;
+	font-size: 12px;
+}
+
+/* Checkbox, a fixed name column, then the note: the notes line up instead of
+   drifting with the length of each name. */
+.kinds-grid .check-item {
+	display: grid;
+	grid-template-columns: 16px minmax(96px, 112px) minmax(0, 1fr);
+	gap: 10px;
+	align-items: start;
+}
+
+.kinds-grid .check-item input {
+	margin-top: 3px;
+}
+
+.kinds-grid .check-item .cname {
+	font-weight: 500;
+}
+
+.kinds-grid .check-item .ctext {
+	font-size: 12px;
+	color: var(--dim);
+	line-height: 1.6;
+}
+
+.kinds-grid .check-item.on {
+	background: var(--accent-dim);
+}
+
+.kinds-grid .check-item.on .cname {
+	color: var(--accent);
+}
+
+.err-text {
+	color: var(--danger);
+}

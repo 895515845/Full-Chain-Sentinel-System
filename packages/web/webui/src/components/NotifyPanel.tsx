@@ -6,6 +6,20 @@ function formatWhen(at: number | null): string {
 	return new Date(at).toLocaleString("zh-CN", { hour12: false });
 }
 
+/** The notification kinds, in the order the checkboxes list them. */
+const KINDS = [
+	["runs", "运行报告", "每次运行结束（含失败/中止）的汇总报告"],
+	["vulns", "高危漏洞", "提交或被审查抬级为 high/critical 的漏洞"],
+	["goals", "持续目标结束", "目标完成、阻塞、暂停或轮数用完"],
+	["engines", "工程完成", "工程总报告提交时"],
+	["pocs", "POC 订阅失败", "订阅源同步失败时（成功不推送）"],
+] as const;
+
+/** Every kind at the same value, for the 全选 / 全部不选 buttons. */
+function selectAll(value: boolean): ZGNotifyConfig["kinds"] {
+	return { runs: value, vulns: value, goals: value, engines: value, pocs: value };
+}
+
 /** The "notifications" section of the settings page: DingTalk group robot. */
 export function NotifyPanel({
 	config,
@@ -90,16 +104,28 @@ export function NotifyPanel({
 			</label>
 			<div className="form-field">
 				<label>推送内容（勾选的要推，不勾的不推）</label>
-				<div className="check-group">
-					{(
-						[
-							["runs", "运行报告", "每次运行结束（含失败/中止）的汇总报告"],
-							["vulns", "高危漏洞", "提交或被审查抬级为 high/critical 的漏洞"],
-							["goals", "持续目标结束", "目标完成、阻塞、暂停或轮数用完"],
-							["engines", "工程完成", "工程总报告提交时"],
-						] as const
-					).map(([key, name, note]) => (
-						<label key={key} className="check-item">
+				<div className="check-group kinds-grid">
+					<div className="kinds-head">
+						<span>
+							已勾选 {KINDS.filter(([key]) => kinds[key]).length} / {KINDS.length} 项
+						</span>
+						<span className="kinds-head-ops">
+							<button
+								type="button"
+								onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(true) }))}
+							>
+								全选
+							</button>
+							<button
+								type="button"
+								onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(false) }))}
+							>
+								全部不选
+							</button>
+						</span>
+					</div>
+					{KINDS.map(([key, name, note]) => (
+						<label key={key} className={`check-item ${kinds[key] ? "on" : ""}`}>
 							<input
 								type="checkbox"
 								checked={kinds[key]}

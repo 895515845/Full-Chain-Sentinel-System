@@ -37,6 +37,7 @@ import {
 	Settings,
 	Shield,
 	ShieldCheck,
+	FileCode,
 	SlidersHorizontal,
 	Target,
 	Trash,
@@ -198,6 +199,11 @@ export function DeleteIcon(props: IconProps) {
 /** Sider menu: the vulnerability hub. */
 export function VulnIcon(props: IconProps) {
 	return <Bug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: the POC library. */
+export function PocIcon(props: IconProps) {
+	return <FileCode size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Sider menu: console security settings. */

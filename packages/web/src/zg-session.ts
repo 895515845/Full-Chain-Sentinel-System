@@ -100,6 +100,9 @@ import {
 	type ZGPermissionSet,
 	type ZGPermissionsConfig,
 } from "./permissions.ts";
+import { PocSubscriptions } from "./poc-subscriptions.ts";
+import { createPocTools } from "./poc-tool.ts";
+import { PocStore, pocsDbPath } from "./pocs.ts";
 import { findPreset, readPresetText } from "./presets.ts";
 import type {
 	ZGFileEntry,
@@ -120,6 +123,15 @@ import type {
 	ZGModelRoleName,
 	ZGNotifyConfig,
 	ZGNotifyStatus,
+	ZGPoc,
+	ZGPocFilters,
+	ZGPocImportFile,
+	ZGPocImportOutcome,
+	ZGPocSource,
+	ZGPocSourceSave,
+	ZGPocStats,
+	ZGPocSummary,
+	ZGPocSyncRecord,
 	ZGSessionPresetView,
 	ZGStateSnapshot,
 	ZGSubagentEvent,
@@ -167,6 +179,10 @@ export interface ZGRuntimeHooks {
 	onVulnSubmitted(id: string): void;
 	/** One gatekeeper judgment settled; consoles with the audit page open refresh it. */
 	onGateDecision(decision: ZGGateDecision): void;
+	/** The POC library changed (import or delete); consoles refresh the POC page. */
+	onPocChange(): void;
+	/** A subscription source changed (save/delete/sync); consoles refresh the settings page. */
+	onPocSourceChange(): void;
 }
 
 /**
@@ -299,6 +315,8 @@ export class ZGAgentRuntime {
 	private readonly subagentStore: SubagentStore;
 	private readonly subagents: SubagentRegistry;
 	private readonly vulnerabilities: VulnerabilityStore;
+	private readonly pocs: PocStore;
+	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
 
@@ -335,6 +353,12 @@ export class ZGAgentRuntime {
 		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
 		this.subagentStore = new SubagentStore(subagentDbPath(this.agentDir));
 		this.vulnerabilities = new VulnerabilityStore(vulnerabilityDbPath(this.agentDir));
+		this.pocs = new PocStore(pocsDbPath(this.agentDir));
+		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
+			onChange: () => this.hooks.onPocSourceChange(),
+			onSyncFailure: (source, record) => this.notifyPocSyncFailure(source, record),
+		});
+		this.subscriptions.start();
 		this.subagents = new SubagentRegistry(this.subagentStore, {
 			onEvent: (runId, event) => this.hooks.onSubagentEvent(runId, event),
 			onRunChange: () => this.hooks.onStateChange(),
@@ -563,6 +587,9 @@ export class ZGAgentRuntime {
 				// agent or one of its sub-agents submitted it.
 				onSubmit: task ? task.onFinding : () => this.noteGoalFinding(managed),
 			}),
+			// The POC library is read-only reference; the switch controls both of
+			// its tools, and sub-agents inherit it through the subset rule.
+			...(permissions.poc_read ? createPocTools({ store: this.pocs }) : []),
 			...(permissions.spawn_agent
 				? [
 						createSubagentTool({
@@ -600,6 +627,7 @@ export class ZGAgentRuntime {
 									getSource,
 									onSubmit: () => this.noteGoalFinding(managed),
 								}),
+							extraTools: subagentPermissions.poc_read ? createPocTools({ store: this.pocs }) : [],
 						}),
 					]
 				: []),
@@ -2085,6 +2113,74 @@ export class ZGAgentRuntime {
 		});
 	}
 
+	// --- POC 订阅（远程 zip 源；设置页管理，库只增不减） ---
+
+	listPocSources(): ZGPocSource[] {
+		return this.subscriptions.list();
+	}
+
+	savePocSource(input: ZGPocSourceSave): { source: ZGPocSource } | { error: string } {
+		return this.subscriptions.save(input);
+	}
+
+	deletePocSource(id: string): boolean {
+		return this.subscriptions.delete(id);
+	}
+
+	async syncPocSource(id: string): Promise<{ source: ZGPocSource } | { error: string }> {
+		return this.subscriptions.sync(id, "manual");
+	}
+
+	/** A failed sync pushes DingTalk once per attempt, gated by the pocs kind. */
+	private notifyPocSyncFailure(source: ZGPocSource, record: ZGPocSyncRecord): void {
+		const config = readNotifyConfig(this.agentDir);
+		if (!config.enabled || !config.webhook.trim() || !config.kinds.pocs) return;
+		const title = `POC 订阅同步失败：${source.name}`;
+		const markdown = [
+			`### ${title}`,
+			"",
+			`- 来源：${source.name}（${source.url}）`,
+			`- 时间：${record.at.slice(0, 19).replace("T", " ")}`,
+			`- 耗时：${(record.durationMs / 1000).toFixed(1)}s`,
+			`- 原因：${record.error ?? "未知错误"}`,
+			"",
+			"请在 设置 → POC 订阅 检查该源，或点「立即同步」重试。",
+		].join("\n");
+		void sendDingTalk(config, title, markdown).then((result) => {
+			this.notifyStatus = { ...result, subject: title };
+			this.hooks.onNotifyStatus(this.notifyStatus);
+		});
+	}
+
+	// --- POC 库（只读模板中心；导入与删除是操作员动作，不经过 agent） ---
+
+	/** The library is global, not per project: templates are reference material. */
+	listPocs(filters: ZGPocFilters = {}): { items: ZGPocSummary[]; stats: ZGPocStats } {
+		return { items: this.pocs.list(filters), stats: this.pocs.stats() };
+	}
+
+	getPoc(id: string): ZGPoc | undefined {
+		return this.pocs.get(id);
+	}
+
+	/**
+	 * Import templates from base64-encoded files. This is the one write path and
+	 * it belongs to the operator; there is no agent tool that can reach it.
+	 */
+	importPocs(files: ZGPocImportFile[]): ZGPocImportOutcome {
+		const outcome = this.pocs.import(
+			files.map((file) => ({ name: file.name, bytes: Buffer.from(file.data, "base64") })),
+		);
+		this.hooks.onPocChange();
+		return outcome;
+	}
+
+	deletePoc(id: string): boolean {
+		const deleted = this.pocs.delete(id);
+		if (deleted) this.hooks.onPocChange();
+		return deleted;
+	}
+
 	/** How many findings a project holds, so its deletion can state what it takes with it. */
 	countProjectVulns(projectId: string): number {
 		return this.vulnerabilities.countByProject(projectId);
@@ -2107,6 +2203,8 @@ export class ZGAgentRuntime {
 		this.activeKey = undefined;
 		this.subagentStore.close();
 		this.vulnerabilities.close();
+		this.pocs.close();
+		this.subscriptions.stop();
 		this.gateStore.close();
 	}
 }
