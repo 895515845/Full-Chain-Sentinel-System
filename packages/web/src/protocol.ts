@@ -616,6 +616,13 @@ export interface ZGEngineTask {
 	/** Acceptance criteria the commander attached; the worker's goal enforces them. */
 	criteria: string[];
 	roundLimit: number;
+	/**
+	 * Which preset agent this task runs as, fixed at dispatch. `presetName` is
+	 * copied in rather than resolved from the preset library, so the board still
+	 * shows what a finished task ran as after the preset is deleted or renamed.
+	 */
+	presetId: string | null;
+	presetName: string | null;
 	/** pi session id of the worker, once it exists. */
 	sessionId: string | null;
 	startedAt: number | null;
@@ -637,6 +644,19 @@ export interface ZGEngine {
 	pauseNote: string | null;
 	targets: ZGEngineTarget[];
 	doctrines: string[];
+	/**
+	 * Preset agents the commander may dispatch with. Empty means no restriction:
+	 * the brief lists every enabled preset. A non-empty list narrows the choice,
+	 * and `dispatch_task` refuses a preset outside it.
+	 */
+	presetIds: string[];
+	/**
+	 * Whether a task may run without a preset, as the default agent. True is how
+	 * every engine behaved before this switch existed, and it stays the default.
+	 * False makes `dispatch_task` refuse a dispatch that names no preset, so every
+	 * worker runs under an identity the operator allowed.
+	 */
+	presetOptional: boolean;
 	limits: ZGEngineLimits;
 	/** How this engine's worker commands are gated; see ZGEngineGateMode. */
 	gateMode: ZGEngineGateMode;
@@ -681,6 +701,8 @@ export interface ZGStateSnapshot {
 	goal: ZGGoalView | null;
 	/** Operator status of the active session, as a label the agent never sees. */
 	sessionStatus: ZGSessionStatus | null;
+	/** The preset agent the active session was created with; null means the default agent. */
+	preset: ZGSessionPresetView | null;
 	/** Which mode applies and how the gatekeeper model is doing. */
 	gatekeeper: ZGGatekeeperView;
 	/**
@@ -734,7 +756,9 @@ export type ZGClientMessage =
 	| { type: "decide_all"; approved: boolean }
 	| { type: "allow_prefix"; prefix: string }
 	| { type: "remove_allowed_prefix"; prefix: string }
-	| { type: "new_session" }
+	| { type: "new_session"; presetId?: string }
+	/** Re-brief the viewed session; `presetId: null` drops back to the default agent. */
+	| { type: "set_session_preset"; presetId: string | null }
 	| { type: "switch_session"; path: string }
 	| { type: "rename_session"; path: string; name: string }
 	| { type: "set_session_status"; path?: string; status: ZGSessionStatus | null }
@@ -798,6 +822,18 @@ export type ZGClientMessage =
 	| { type: "engine_create"; input: ZGEngineCreateInput }
 	/** Change an engine's command gate; refused while a task is in flight. */
 	| { type: "engine_set_gate_mode"; id: string; gateMode: ZGEngineGateMode }
+	/**
+	 * Replace this engine's preset whitelist. An empty list means "no restriction":
+	 * the commander may use any enabled preset, which is what every engine created
+	 * before presets existed does.
+	 */
+	| { type: "engine_set_presets"; id: string; presetIds: string[] }
+	/**
+	 * Whether the commander may leave a task without a preset, running it as the
+	 * default agent. False means every dispatch must name one of the allowed
+	 * presets, and a dispatch that names none is refused with the list of choices.
+	 */
+	| { type: "engine_set_preset_optional"; id: string; optional: boolean }
 	| { type: "engine_pause"; id: string }
 	| { type: "engine_resume"; id: string }
 	| { type: "engine_abort"; id: string }
@@ -812,6 +848,21 @@ export type ZGClientMessage =
 	| { type: "list_doctrines" }
 	| { type: "save_doctrine"; input: { id?: string; name: string; text: string } }
 	| { type: "delete_doctrine"; id: string }
+	| { type: "list_presets" }
+	/**
+	 * Create or update a preset agent. `id` is present only when updating: the id
+	 * is generated from the name, so the client never invents one.
+	 */
+	| {
+			type: "save_preset";
+			input: { id?: string; name: string; description?: string; tags?: string[]; text: string; enabled?: boolean };
+	  }
+	| { type: "delete_preset"; id: string }
+	| { type: "set_preset_enabled"; id: string; enabled: boolean }
+	/** Export the selected presets, or all of them when `ids` is omitted. */
+	| { type: "export_presets"; ids?: string[] }
+	/** Import an export file's text; existing presets are never overwritten. */
+	| { type: "import_presets"; content: string }
 	| { type: "get_commander_config" }
 	| { type: "save_commander_config"; config: ZGModelConfig | null }
 	| { type: "get_gatekeeper_config" }
@@ -868,6 +919,17 @@ export type ZGServerMessage =
 	| { type: "doctrines"; doctrines: ZGDoctrineView[] }
 	| { type: "doctrine_saved"; doctrine: ZGDoctrineView; error?: string }
 	| { type: "doctrine_deleted"; id: string; ok: boolean; error?: string }
+	| { type: "presets"; presets: ZGPresetView[] }
+	| { type: "preset_saved"; preset: ZGPresetView | null; error?: string }
+	| { type: "preset_deleted"; id: string; ok: boolean; error?: string }
+	/** The export file's text; the browser turns it into a download. */
+	| { type: "presets_export"; filename: string; content: string }
+	| {
+			type: "presets_imported";
+			imported: ZGPresetView[];
+			skipped: Array<{ name: string; reason: string }>;
+			error?: string;
+	  }
 	| { type: "commander_config"; config: ZGModelConfig | null }
 	| { type: "gatekeeper_config"; config: ZGGatekeeperConfig }
 	/** One sample judgment, so the operator can see the prompt and endpoint work. */
@@ -932,12 +994,54 @@ export interface ZGDoctrineView {
 	builtin: boolean;
 }
 
+/**
+ * One preset agent: a named block of extra system-prompt context.
+ *
+ * Metadata only. The prompt body lives in `presets/<id>.md` and is loaded on
+ * demand, so the session list can be read without pulling every preset's text
+ * into memory.
+ */
+export interface ZGPreset {
+	id: string;
+	name: string;
+	description: string;
+	tags: string[];
+	enabled: boolean;
+	createdAt: number;
+	updatedAt: number;
+}
+
+/** A preset as the settings screen needs it: metadata plus the loaded body. */
+export interface ZGPresetView extends ZGPreset {
+	text: string;
+	/** The body file is gone; the entry is unusable until the operator rewrites it. */
+	textMissing: boolean;
+	/** Rough token cost of `text`, so a huge preset is visible before it is used. */
+	tokens: number;
+}
+
+/**
+ * The preset agent a session was created with, as the console shows it. `null`
+ * on the snapshot means the session runs the plain default agent.
+ */
+export interface ZGSessionPresetView {
+	id: string;
+	/** The current name; falls back to the id when the preset was deleted. */
+	name: string;
+	/** The preset is gone or its body file is missing: the session runs the default agent. */
+	missing: boolean;
+}
+
 /** Operator input when creating an engineering run. */
 export interface ZGEngineCreateInput {
 	name: string;
 	/** One target per line, `target [note]`; blank lines dropped. */
 	targets: string;
 	doctrines: string[];
+	/** Preset agents the commander may use; empty or omitted means no restriction. */
+	presetIds?: string[];
+	/** Whether a task may run without a preset; omitted means it may. */
+	presetOptional?: boolean;
 	limits: ZGEngineLimits;
 	/** Defaults to `auto` when omitted, which is what engines predating it used. */
 	gateMode?: ZGEngineGateMode;

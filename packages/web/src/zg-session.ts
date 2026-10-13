@@ -18,6 +18,7 @@ import {
 	createBashTool,
 	createCodemodeExtension,
 	createEditTool,
+	createLoopGuardExtension,
 	createMcpExtension,
 	createReadTool,
 	createToolSearchExtension,
@@ -98,6 +99,7 @@ import {
 	type ZGPermissionSet,
 	type ZGPermissionsConfig,
 } from "./permissions.ts";
+import { findPreset, readPresetText } from "./presets.ts";
 import type {
 	ZGFileEntry,
 	ZGFilePreview,
@@ -117,6 +119,7 @@ import type {
 	ZGModelRoleName,
 	ZGNotifyConfig,
 	ZGNotifyStatus,
+	ZGSessionPresetView,
 	ZGStateSnapshot,
 	ZGSubagentEvent,
 	ZGSubagentRun,
@@ -129,6 +132,7 @@ import type {
 	ZGVulnUpdate,
 } from "./protocol.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
+import { readSessionPreset, SESSION_PRESET_CUSTOM_TYPE } from "./session-preset.ts";
 import {
 	readSessionStatus,
 	SESSION_STATUS_CUSTOM_TYPE,
@@ -205,6 +209,19 @@ interface ManagedSession {
 	 */
 	modeOverride: ZGMode | null;
 	/**
+	 * The preset agent this session was created with, read from the branch. null
+	 * means the plain default agent. The body is not cached: it is read from disk
+	 * on every (re)build, so editing a preset affects sessions created after the
+	 * edit while the record of which preset a session used stays exact.
+	 */
+	presetId: string | null;
+	/**
+	 * The preset is named on the branch but its body cannot be read any more. The
+	 * session runs as the default agent and the console says so, rather than
+	 * showing a preset badge for context that was never loaded.
+	 */
+	presetMissing: boolean;
+	/**
 	 * When this session's compaction started. The SDK blocks prompts for as long
 	 * as its compaction controller lives, and a slow model can hold that for
 	 * minutes, so the console tracks it to show the wait and to offer a cancel.
@@ -225,6 +242,13 @@ export interface TaskSessionOptions {
 	project: { id: string; name: string; container: string; cwd: string };
 	/** Extra system-prompt text: the worker's engineering identity note. */
 	appendPrompt: string;
+	/**
+	 * The preset agent this task was dispatched with; null means the default agent.
+	 * It is written into the task's own session file, so the session loads that
+	 * context on every rebuild and a resumed task keeps it without the engine
+	 * having to pass it again.
+	 */
+	presetId: string | null;
 	taskTitle: string;
 	/**
 	 * The engine's gate for this task's commands. A worker never waits for a
@@ -400,6 +424,9 @@ export class ZGAgentRuntime {
 		if (permissions.codemode) extensionFactories.push(createCodemodeExtension());
 		if (permissions.tool_search) extensionFactories.push(createToolSearchExtension());
 		if (permissions.mcp) extensionFactories.push(createMcpExtension());
+		// Loop hygiene is not permission-gated: it only aborts degenerate output
+		// and injects reminders, so it belongs in every session.
+		extensionFactories.push(createLoopGuardExtension());
 		const resourceLoader = new DefaultResourceLoader({
 			cwd,
 			agentDir: this.agentDir,
@@ -427,6 +454,12 @@ export class ZGAgentRuntime {
 		await this.ensureModelRuntime();
 
 		const model = this.resolveModel();
+		// The preset is read back off the branch, so a reopened conversation loads the
+		// context it is currently under and a switch applies to the next build. The
+		// text itself is resolved here, on every (re)build, which is what makes an
+		// edited preset apply to the next build while this one keeps its own.
+		const presetId = readSessionPreset(manager.getBranch());
+		const presetText = presetId ? readPresetText(this.agentDir, presetId) : null;
 		const managed: ManagedSession = {
 			key: "",
 			session: undefined as unknown as ManagedSession["session"],
@@ -434,6 +467,8 @@ export class ZGAgentRuntime {
 			unsubscribe: () => {},
 			// A reopened conversation keeps the mode it was left in.
 			modeOverride: readSessionMode(manager.getBranch()),
+			presetId,
+			presetMissing: presetId !== null && presetText === null,
 		};
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
@@ -457,12 +492,21 @@ export class ZGAgentRuntime {
 			},
 		);
 
-		const permissions = readPermissionsConfig(this.agentDir).main;
-		const subagentPermissions = effectiveSubagent(readPermissionsConfig(this.agentDir));
+		const permissionsConfig = readPermissionsConfig(this.agentDir);
+		const permissions = permissionsConfig.main;
+		const subagentPermissions = effectiveSubagent(permissionsConfig);
+		// The preset text follows the identity text: a worker first learns that it
+		// is a worker, then what it is working as. A session without a preset passes
+		// nothing, which is exactly what every session did before presets existed.
+		const appendSystemPrompt = task
+			? [task.appendPrompt, ...(presetText ? [presetText] : [])]
+			: presetText
+				? [presetText]
+				: undefined;
 		const { resourceLoader, settingsManager } = await this.createSessionContext(
 			manager.getCwd(),
 			permissions,
-			task ? [task.appendPrompt] : undefined,
+			appendSystemPrompt,
 		);
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
@@ -511,6 +555,7 @@ export class ZGAgentRuntime {
 						createSubagentTool({
 							cwd: manager.getCwd(),
 							agentDir: this.agentDir,
+							maxTurns: permissionsConfig.subagentMaxTurns,
 							getModel: () => this.resolveModel(),
 							getModelRuntime: () => this.modelRuntime,
 							registry: this.subagents,
@@ -526,7 +571,13 @@ export class ZGAgentRuntime {
 									{ ...gateContext, label: () => "子代理" },
 								),
 							createSessionContext: (appendSystemPrompt) =>
-								this.createSessionContext(manager.getCwd(), subagentPermissions, appendSystemPrompt),
+								this.createSessionContext(
+									manager.getCwd(),
+									subagentPermissions,
+									// A sub-agent inherits the parent session's preset, so it works
+									// under the same briefing — after its own sub-agent identity text.
+									presetText ? [...appendSystemPrompt, presetText] : appendSystemPrompt,
+								),
 							// A sub-agent reports under the parent session and project.
 							createVulnTools: (getSource) =>
 								this.createVulnTools({
@@ -609,15 +660,22 @@ export class ZGAgentRuntime {
 	): Promise<{ session: ManagedSession["session"]; manager: SessionManager; unsubscribe: () => void }> {
 		const sessionDir = getDefaultSessionDir(options.project.cwd, this.agentDir);
 		// A paused task reopens its own session file, so its goal and transcript
-		// come back exactly as they were; a fresh task starts a new one.
-		const manager =
-			options.taskSessionId && options.paused
-				? SessionManager.open(
-						resolveFsPath(`${sessionDir}/${options.taskSessionId}.jsonl`),
-						sessionDir || undefined,
-						options.project.cwd,
-					)
-				: SessionManager.create(options.project.cwd, sessionDir || undefined);
+		// come back exactly as they were; a fresh task starts a new one. The file is
+		// named `<timestamp>_<sessionId>.jsonl`, so the id is resolved, not pasted.
+		const resumedFile =
+			options.paused && options.taskSessionId
+				? SessionManager.findById(options.project.cwd, options.taskSessionId, sessionDir)
+				: undefined;
+		const manager = resumedFile
+			? SessionManager.open(resumedFile, sessionDir || undefined, options.project.cwd)
+			: SessionManager.create(options.project.cwd, sessionDir || undefined);
+		// A fresh task records the preset it was dispatched with in its own file, so
+		// the choice travels with the conversation: reopening it in the console shows
+		// the preset badge, and a task resumed after a restart picks it up from the
+		// branch. A reopened file already has the entry and must not get a second one.
+		if (!resumedFile && options.presetId) {
+			manager.appendCustomEntry(SESSION_PRESET_CUSTOM_TYPE, { id: options.presetId, at: Date.now() });
+		}
 		const key = await this.createSessionInto(manager, options);
 		const managed = this.sessions.get(key);
 		if (!managed) throw new Error("任务会话创建失败");
@@ -1478,9 +1536,57 @@ export class ZGAgentRuntime {
 		this.approvals.removeAllowedPrefix(prefix);
 	}
 
-	async newSession(): Promise<void> {
+	/**
+	 * Start a new conversation. `presetId` loads a preset agent's context into it;
+	 * omitting it starts the plain default agent, which is what every session did
+	 * before presets existed. The choice is written to the session file before the
+	 * session is built, so `createSessionInto` reads it back off the branch and the
+	 * text lands in the very first system prompt.
+	 */
+	async newSession(presetId?: string): Promise<void> {
 		const manager = SessionManager.create(this.cwd, this.sessionDir || undefined);
+		if (presetId) {
+			// Only an enabled preset is a choice. The picker offers nothing else, but a
+			// browser left open across a change can still ask for a disabled or deleted
+			// one, and silently starting the default agent would look like it worked.
+			const preset = findPreset(this.agentDir, presetId);
+			if (!preset) throw new Error("该预设不存在");
+			if (!preset.enabled) throw new Error("该预设已停用");
+			manager.appendCustomEntry(SESSION_PRESET_CUSTOM_TYPE, { id: presetId, at: Date.now() });
+		}
 		this.activeKey = await this.createSessionInto(manager);
+		this.hooks.onStateChange();
+	}
+
+	/**
+	 * Re-brief the viewed conversation: append a new `zg-preset` entry and rebuild
+	 * the session, so every later turn runs under the new text. Earlier turns keep
+	 * the briefing that produced them — a transcript is a record, not a draft — and
+	 * the appended entry is what makes the choice survive a restart. `null` drops
+	 * back to the default agent.
+	 *
+	 * Refused while the session is running: the rebuild disposes the live session,
+	 * which would abandon the run in flight.
+	 */
+	async setSessionPreset(presetId: string | null): Promise<void> {
+		const active = this.active;
+		if (!active) throw new Error("还没有会话，无法设置预设");
+		if (active.taskSession) throw new Error("工程任务的会话跟随它的任务，不能单独换预设");
+		if (active.session.isStreaming) throw new Error("会话正在运行，请先中止再更换预设");
+		if (presetId !== null) {
+			const preset = findPreset(this.agentDir, presetId);
+			if (!preset) throw new Error("该预设不存在");
+			if (!preset.enabled) throw new Error("该预设已停用");
+		}
+		// Re-picking the same preset is allowed on purpose: editing a preset's body
+		// and re-picking it is the only way to apply the edit to an existing session.
+		active.manager.appendCustomEntry(SESSION_PRESET_CUSTOM_TYPE, presetId ? { id: presetId, at: Date.now() } : null);
+		// Only the viewed session is rebuilt: every other conversation keeps its own
+		// preset, and task sessions belong to their engine.
+		active.unsubscribe();
+		active.session.dispose();
+		this.sessions.delete(active.key);
+		this.activeKey = await this.createSessionInto(active.manager);
 		this.hooks.onStateChange();
 	}
 
@@ -1729,6 +1835,22 @@ export class ZGAgentRuntime {
 		this.hooks.onStateChange();
 	}
 
+	/**
+	 * The preset the viewed session was created with. The name is resolved now
+	 * rather than stored, so a renamed preset shows its current name; a preset
+	 * that is gone falls back to its id and is flagged as missing, because the
+	 * session is then running on the default agent and the badge must not claim
+	 * otherwise.
+	 */
+	private presetView(active: ManagedSession | undefined): ZGSessionPresetView | null {
+		if (!active?.presetId) return null;
+		return {
+			id: active.presetId,
+			name: findPreset(this.agentDir, active.presetId)?.name ?? active.presetId,
+			missing: active.presetMissing,
+		};
+	}
+
 	snapshot(): ZGStateSnapshot {
 		const resolvedMain = resolveLibraryRole(this.agentDir, "main");
 		const active = this.active;
@@ -1779,6 +1901,7 @@ export class ZGAgentRuntime {
 			// The active session's operator status, read from the branch: a status set
 			// in the list must show up here without a second file read.
 			sessionStatus: active ? readSessionStatus(active.manager.getBranch()) : null,
+			preset: this.presetView(active),
 			gatekeeper,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,

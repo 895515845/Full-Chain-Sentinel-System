@@ -18,6 +18,7 @@ import type {
 	ZGEngineTask,
 	ZGEngineTaskStatus,
 	ZGModelConfig,
+	ZGPresetView,
 	ZGSubagentEvent,
 } from "../types.ts";
 
@@ -75,6 +76,8 @@ function formatClock(at: number): string {
 export interface EnginePageProps {
 	engines: ZGEngine[];
 	doctrines: ZGDoctrineView[];
+	/** Enabled presets the commander may dispatch with, for the whitelist controls. */
+	presets: ZGPresetView[];
 	commanderConfig: ZGModelConfig | null;
 	onSend: (message: unknown) => void;
 	onError: (message: string) => void;
@@ -113,6 +116,7 @@ export function EnginePage(props: EnginePageProps) {
 			<div className="page-card">
 				<CreateEngineForm
 					doctrines={props.doctrines}
+					presets={props.presets}
 					hasProject={props.hasProject}
 					judgeAvailable={props.judgeAvailable}
 					onCancel={() => setView("list")}
@@ -212,6 +216,14 @@ export function EnginePage(props: EnginePageProps) {
 						engine={board}
 						judgeAvailable={props.judgeAvailable}
 						onSetGateMode={(gateMode) => send({ type: "engine_set_gate_mode", id: board.id, gateMode })}
+					/>
+					<EnginePresetWhitelist
+						engine={board}
+						presets={props.presets}
+						onChange={(presetIds) => send({ type: "engine_set_presets", id: board.id, presetIds })}
+						onChangeOptional={(optional) =>
+							send({ type: "engine_set_preset_optional", id: board.id, optional })
+						}
 					/>
 					{(board.status === "running" || board.status === "paused") && (
 						<SteerBox engineId={board.id} running={board.status === "running"} onSend={send} />
@@ -414,6 +426,84 @@ function EngineStats({
 	);
 }
 
+/**
+ * The engine's preset whitelist, and whether a task may go without one. Unlike the
+ * gate mode both stay editable while the engine runs, because they only narrow what
+ * the commander may pick for the tasks it has not dispatched yet.
+ */
+function EnginePresetWhitelist({
+	engine,
+	presets,
+	onChange,
+	onChangeOptional,
+}: {
+	engine: ZGEngine;
+	presets: ZGPresetView[];
+	onChange(presetIds: string[]): void;
+	onChangeOptional(optional: boolean): void;
+}) {
+	const enabled = presets.filter((preset) => preset.enabled);
+	const selected = engine.presetIds;
+	const allowed = selected.length === 0 ? enabled.length : selected.filter((id) => enabled.some((p) => p.id === id)).length;
+	// A required preset with nothing to pick from cannot dispatch at all: the
+	// commander would be refused on every attempt.
+	const stuck = !engine.presetOptional && allowed === 0;
+	return (
+		<div className="engine-presets">
+			<div className="engine-presets__head">
+				<span className="engine-presets__title">预设 Agent 白名单</span>
+				<span className={selected.length === 0 ? "engine-presets__state is-open" : "engine-presets__state"}>
+					{selected.length === 0 ? "未限制：指挥官可使用全部已启用的预设" : `已限制为 ${selected.length} 个预设`}
+				</span>
+			</div>
+			<p className="form-hint">
+				勾选指挥官可以使用的预设；未勾选任何一项 = 不限制（指挥官可用全部已启用的预设）。
+				运行中也能修改，只影响之后派发的任务；已停用或已删除的预设不会出现在上面，也不会再被派发。
+			</p>
+			<div className="engine-presets__list">
+				{enabled.length === 0 ? (
+					<span className="engine-presets__empty">还没有启用的预设 Agent，可到 设置 → 预设 Agent 创建。</span>
+				) : (
+					enabled.map((preset) => (
+						<label className="engine-preset-item" key={preset.id} title={preset.description || undefined}>
+							<input
+								type="checkbox"
+								checked={selected.includes(preset.id)}
+								onChange={(event) =>
+									onChange(
+										event.target.checked
+											? [...selected, preset.id]
+											: selected.filter((id) => id !== preset.id),
+									)
+								}
+							/>
+							<span className="engine-preset-name">{preset.name}</span>
+							<span className="engine-preset-tokens">粗估 {preset.tokens} tokens</span>
+						</label>
+					))
+				)}
+			</div>
+			<label className="engine-preset-optional">
+				<input
+					type="checkbox"
+					checked={engine.presetOptional}
+					onChange={(event) => onChangeOptional(event.target.checked)}
+				/>
+				<span>
+					允许任务不指定预设（没有合适预设时，指挥官可以省略 preset，让任务用默认 Agent 执行）
+				</span>
+			</label>
+			<p className={`form-hint${stuck ? " is-warn" : ""}`}>
+				{engine.presetOptional
+					? "关掉它，指挥官就必须为每个任务指定一个预设；没有合适的时候也不能退回默认 Agent，派发会被拒绝。"
+					: stuck
+						? "已要求每个任务都必须指定预设，但当前没有可用预设：指挥官无法派发任何任务，请勾选上面的预设，或重新允许使用默认 Agent。"
+						: `已要求每个任务都必须指定预设（当前可选 ${allowed} 个）；省略 preset 的派发会被拒绝，不会产生任务。`}
+			</p>
+		</div>
+	);
+}
+
 function SteerBox({ engineId, running, onSend }: { engineId: string; running: boolean; onSend: (message: unknown) => void }) {
 	const [steerText, setSteerText] = useState("");
 	const [appendText, setAppendText] = useState("");
@@ -496,7 +586,15 @@ function TaskBoard(props: {
 								<span>
 									<span className={`tag ${TASK_STATUS_CLASS[task.status]}`}>{TASK_STATUS_LABELS[task.status]}</span>
 								</span>
-								<span className="data-name">{task.title}</span>
+								<span className="data-name">
+									<span className="task-name-text">{task.title}</span>
+									<span
+										className={`tag tag-preset ${task.presetName ? "" : "is-default"}`}
+										title={task.presetName ? `预设 Agent：${task.presetName}` : "默认 Agent：未指定预设"}
+									>
+										{task.presetName ?? "默认"}
+									</span>
+								</span>
 								<span className="data-mono">{task.target ?? "—"}</span>
 								<span>第 {task.attempt} 次</span>
 								<span className="data-mono">{formatUsage(task.usage?.total)}</span>
@@ -642,6 +740,7 @@ function TaskModal(props: {
 						</div>
 						<div className="vuln-detail__meta">
 							<span>目标：{task.target ?? "—"}</span>
+							<span>预设 Agent：{task.presetName ?? "默认 Agent"}</span>
 							<span>第 {task.attempt} 次派发</span>
 							<span>轮数上限 {task.roundLimit}</span>
 							<span>工作目录 /work/tasks/{task.workspace}</span>
@@ -719,6 +818,7 @@ function TaskModal(props: {
 
 function CreateEngineForm(props: {
 	doctrines: ZGDoctrineView[];
+	presets: ZGPresetView[];
 	hasProject: boolean;
 	/** Whether a judge endpoint resolves; `ai` is only offered when it does. */
 	judgeAvailable: boolean;
@@ -727,6 +827,8 @@ function CreateEngineForm(props: {
 		name: string;
 		targets: string;
 		doctrines: string[];
+		presetIds: string[];
+		presetOptional: boolean;
 		limits: ZGEngineLimits;
 		gateMode: ZGEngineGateMode;
 	}): void;
@@ -734,6 +836,10 @@ function CreateEngineForm(props: {
 	const [name, setName] = useState("");
 	const [targets, setTargets] = useState("");
 	const [selected, setSelected] = useState<string[]>(props.doctrines.length === 1 ? [props.doctrines[0].id] : []);
+	/** Preset whitelist; empty means "no restriction" and is the default. */
+	const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
+	/** A task may run without a preset; allowing it is the default. */
+	const [presetOptional, setPresetOptional] = useState(true);
 	const [concurrency, setConcurrency] = useState(3);
 	const [roundLimit, setRoundLimit] = useState(5);
 	const [maxRetries, setMaxRetries] = useState(1);
@@ -763,6 +869,8 @@ function CreateEngineForm(props: {
 								name: name.trim(),
 								targets,
 								doctrines: selected,
+								presetIds: selectedPresets,
+								presetOptional,
 								limits: {
 									concurrency,
 									roundLimit,
@@ -815,6 +923,55 @@ function CreateEngineForm(props: {
 								</label>
 							))}
 						</div>
+					</div>
+					<div className="form-field">
+						<label>
+							预设 Agent 白名单{" "}
+							<span className="hint">未勾选任何一项 = 不限制（指挥官可用全部已启用的预设）</span>
+						</label>
+						<div className="check-group">
+							{props.presets.filter((preset) => preset.enabled).length === 0 ? (
+								<span className="engine-presets__empty">
+									还没有启用的预设 Agent：保持全不勾选即为不限制，指挥官用默认 Agent 派发任务；
+									也可以先到 设置 → 预设 Agent 创建。
+								</span>
+							) : (
+								props.presets
+									.filter((preset) => preset.enabled)
+									.map((preset) => (
+										<label key={preset.id} className="check-item">
+											<input
+												type="checkbox"
+												checked={selectedPresets.includes(preset.id)}
+												onChange={(event) =>
+													setSelectedPresets((prev) =>
+														event.target.checked
+															? [...prev, preset.id]
+															: prev.filter((id) => id !== preset.id),
+													)
+												}
+											/>
+											<span className="cname">{preset.name}</span>
+											<span className="ctext">
+												{preset.description ? `${preset.description} · ` : ""}粗估 {preset.tokens} tokens
+											</span>
+										</label>
+									))
+							)}
+						</div>
+						<label className="engine-preset-optional">
+							<input
+								type="checkbox"
+								checked={presetOptional}
+								onChange={(event) => setPresetOptional(event.target.checked)}
+							/>
+							<span>允许任务不指定预设（没有合适预设时，指挥官可以省略 preset，让任务用默认 Agent 执行）</span>
+						</label>
+						<p className="form-hint">
+							{presetOptional
+								? "关掉它，指挥官就必须为每个任务指定一个预设；没有合适的时候也不能退回默认 Agent，派发会被拒绝。创建后可在工程详情页修改。"
+								: "已要求每个任务都必须指定预设：省略 preset 的派发会被拒绝，不会产生任务；创建后可在工程详情页修改。"}
+						</p>
 					</div>
 					<div className="form-field">
 						<label>上限设置</label>

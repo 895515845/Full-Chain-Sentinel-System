@@ -34,6 +34,16 @@ import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
 import { readCommanderModelConfig, readProviderModelConfig, writeCommanderModelConfig } from "./model-config.ts";
 import {
+	deletePreset,
+	exportFileName,
+	exportPresets,
+	importPresets,
+	presetView,
+	presetViews,
+	savePreset,
+	setPresetEnabled,
+} from "./presets.ts";
+import {
 	addProject,
 	ensureProjectReady,
 	listProjects,
@@ -654,7 +664,15 @@ export async function startZGServer(
 					runtime.removeAllowedPrefix(message.prefix);
 					return;
 				case "new_session":
-					await runtime.newSession();
+					// An unknown or disabled preset id throws, which the handler reports to
+					// the browser; the session is not created at all rather than silently
+					// falling back to the default agent.
+					await runtime.newSession(message.presetId?.trim() || undefined);
+					return;
+				case "set_session_preset":
+					// Throws on an unknown/disabled preset or a running session; the
+					// handler reports it and the conversation keeps its old briefing.
+					await runtime.setSessionPreset(message.presetId);
 					return;
 				case "switch_session":
 					await runtime.switchSession(message.path);
@@ -1127,6 +1145,24 @@ export async function startZGServer(
 					broadcastEngines();
 					return;
 				}
+				case "engine_set_presets": {
+					if (!engines) {
+						sendError(socket, "未配置配置目录，无法使用工程模式");
+						return;
+					}
+					engines.setPresets(message.id, message.presetIds);
+					broadcastEngines();
+					return;
+				}
+				case "engine_set_preset_optional": {
+					if (!engines) {
+						sendError(socket, "未配置配置目录，无法使用工程模式");
+						return;
+					}
+					engines.setPresetOptional(message.id, message.optional);
+					broadcastEngines();
+					return;
+				}
 				case "engine_pause":
 					if (engines) await engines.pauseEngine(message.id);
 					return;
@@ -1231,6 +1267,87 @@ export async function startZGServer(
 						type: "doctrine_deleted",
 						id: message.id,
 						ok: result.ok,
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "list_presets":
+					sendTo(socket, { type: "presets", presets: agentDir ? presetViews(agentDir) : [] });
+					return;
+				case "save_preset": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法保存预设 Agent");
+						return;
+					}
+					const result = savePreset(agentDir, message.input);
+					sendTo(socket, {
+						type: "preset_saved",
+						preset: result.preset ? presetView(agentDir, result.preset.id) : null,
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "delete_preset": {
+					if (!agentDir) return;
+					const result = deletePreset(agentDir, message.id);
+					sendTo(socket, {
+						type: "preset_deleted",
+						id: message.id,
+						ok: result.ok,
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "set_preset_enabled": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法修改预设 Agent");
+						return;
+					}
+					const result = setPresetEnabled(agentDir, message.id, message.enabled);
+					sendTo(socket, {
+						type: "preset_saved",
+						preset: result.preset ? presetView(agentDir, result.preset.id) : null,
+						...(result.error ? { error: result.error } : {}),
+					});
+					return;
+				}
+				case "export_presets": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法导出预设 Agent");
+						return;
+					}
+					// The file is built here and handed over as text: the browser turns it
+					// into a download, so no server route has to serve operator data.
+					const exported = exportPresets(agentDir, message.ids);
+					sendTo(socket, {
+						type: "presets_export",
+						filename: exportFileName(new Date()),
+						content: `${JSON.stringify(exported, null, "\t")}\n`,
+					});
+					return;
+				}
+				case "import_presets": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法导入预设 Agent");
+						return;
+					}
+					let parsed: unknown;
+					try {
+						parsed = JSON.parse(message.content) as unknown;
+					} catch {
+						sendError(socket, "导入失败：文件内容不是合法的 JSON");
+						return;
+					}
+					const result = importPresets(agentDir, parsed);
+					sendTo(socket, {
+						type: "presets_imported",
+						imported: result.imported.map((preset) => ({
+							...preset,
+							text: presetView(agentDir, preset.id)?.text ?? "",
+							textMissing: false,
+							tokens: presetView(agentDir, preset.id)?.tokens ?? 0,
+						})),
+						skipped: result.skipped,
 						...(result.error ? { error: result.error } : {}),
 					});
 					return;

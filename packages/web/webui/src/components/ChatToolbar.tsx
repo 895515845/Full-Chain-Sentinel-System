@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { ZGMode, ZGSessionStatus, ZGThinkingLevel } from "../types.ts";
+import type { ZGMode, ZGSessionPresetView, ZGSessionStatus, ZGThinkingLevel } from "../types.ts";
 import { ZG_MODES, ZG_MODE_LABELS } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
 import { SessionStatusControl } from "./SessionStatusControl.tsx";
@@ -49,6 +49,7 @@ export function ChatToolbar({
 	subagentsOpen,
 	allowedPrefixes,
 	sessionStatus,
+	preset,
 	onSetSessionStatus,
 	onToggleFiles,
 	onToggleSubagents,
@@ -77,6 +78,8 @@ export function ChatToolbar({
 	allowedPrefixes: string[];
 	/** The active session's operator status, shown as a chip at the right end. */
 	sessionStatus: ZGSessionStatus | null;
+	/** The preset agent the active session was created with; null means the default agent. */
+	preset: ZGSessionPresetView | null;
 	onSetSessionStatus: (status: ZGSessionStatus | null) => void;
 	onToggleFiles: () => void;
 	onToggleSubagents: () => void;
@@ -155,6 +158,19 @@ export function ChatToolbar({
 					))}
 				</select>
 			</label>
+			{preset ? (
+				<span
+					className={`toolbar-preset ${preset.missing ? "toolbar-preset--missing" : ""}`}
+					title={
+						preset.missing
+							? `预设「${preset.name}」已被删除或正文缺失，本会话现按默认 Agent 运行；可在输入框上方的「预设 Agent」里换一个，或换回默认 Agent`
+							: `预设 Agent：${preset.name}（在输入框上方的「预设 Agent」里可随时更换，只影响之后的回合）`
+					}
+				>
+					预设：{preset.name}
+					{preset.missing ? " · 已失效，按默认 Agent 运行" : ""}
+				</span>
+			) : null}
 			<span className="ws-toolbar__sep" />
 			<button
 				type="button"

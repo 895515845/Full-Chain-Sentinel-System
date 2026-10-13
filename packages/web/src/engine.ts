@@ -38,6 +38,7 @@ import { resolveLibraryRole } from "./model-library.ts";
 import { sendDingTalk } from "./notify.ts";
 import { readNotifyConfig } from "./notify-config.ts";
 import { readPermissionsConfig } from "./permissions.ts";
+import { findPreset, listEnabledPresets, listPresets, presetBriefLines } from "./presets.ts";
 import { listProjects } from "./projects.ts";
 import type {
 	ZGEngine,
@@ -45,6 +46,7 @@ import type {
 	ZGEngineEvent,
 	ZGEngineGateMode,
 	ZGGoalUsage,
+	ZGPreset,
 	ZGProjectInfo,
 } from "./protocol.ts";
 import {
@@ -136,6 +138,12 @@ export class EngineManager {
 	private readonly live = new Map<string, EngineLive>();
 	private modelRuntime: ModelRuntime | undefined;
 	private modelRuntimePromise: Promise<ModelRuntime> | undefined;
+	/**
+	 * Set by `dispose()`. A session broadcast that was already in flight resumes
+	 * after the store is closed, and reading it then throws out of a promise
+	 * nobody is left to catch. Those late reads answer empty instead.
+	 */
+	private disposed = false;
 
 	constructor(agentDir: string, hooks: EngineHooks, acquireTaskSession: RuntimeAcquireTaskSession) {
 		this.agentDir = agentDir;
@@ -156,10 +164,12 @@ export class EngineManager {
 	}
 
 	listEngines(projectId?: string): ZGEngine[] {
+		if (this.disposed) return [];
 		return this.store.listEngines(projectId).map((engine) => this.withLiveCounters(engine));
 	}
 
 	getEngine(id: string): ZGEngine | undefined {
+		if (this.disposed) return undefined;
 		const engine = this.store.getEngine(id);
 		return engine ? this.withLiveCounters(engine) : undefined;
 	}
@@ -179,6 +189,7 @@ export class EngineManager {
 	 */
 	taskSessionIndex(): Map<string, { engineId: string; engineName: string; taskStatus: string }> {
 		const index = new Map<string, { engineId: string; engineName: string; taskStatus: string }>();
+		if (this.disposed) return index;
 		for (const engine of this.store.listEngines()) {
 			for (const task of engine.tasks) {
 				if (task.sessionId) {
@@ -196,6 +207,16 @@ export class EngineManager {
 	/** Doctrine list for the create form. */
 	doctrines(): ZGDoctrine[] {
 		return listDoctrines(this.agentDir);
+	}
+
+	/**
+	 * Presets the commander of this engine may actually dispatch with: its
+	 * whitelist when it has one, every enabled preset otherwise. Disabled presets
+	 * are never offered, because a dispatch naming one is refused — the list and
+	 * the refusal have to agree or the commander would keep retrying a lost cause.
+	 */
+	private commanderPresets(engine: ZGEngine): ZGPreset[] {
+		return allowedPresets(this.agentDir, engine);
 	}
 
 	/**
@@ -224,6 +245,8 @@ export class EngineManager {
 			name,
 			targets,
 			doctrines: doctrines.map((doctrine) => doctrine.id),
+			presetIds: this.normalizePresetIds(input.presetIds),
+			presetOptional: input.presetOptional,
 			limits,
 			gateMode,
 		});
@@ -308,6 +331,44 @@ export class EngineManager {
 		return resolveJudgeEndpoint(this.agentDir).config !== null;
 	}
 
+	/**
+	 * Keep only ids that name an existing preset, dropping duplicates. A whitelist
+	 * entry that no longer resolves would silently restrict nothing while looking
+	 * like a restriction, and the operator cannot see the stale id in the picker
+	 * they chose it from.
+	 */
+	private normalizePresetIds(ids: readonly string[] | undefined): string[] {
+		return normalizePresetIds(this.agentDir, ids);
+	}
+
+	/**
+	 * Replace this engine's preset whitelist. An empty list clears the restriction.
+	 *
+	 * Unlike the gate mode this is allowed mid-run: a task captures its preset when
+	 * it is created and its session file carries the choice, so narrowing the list
+	 * affects the next dispatch and leaves running tasks exactly as they were.
+	 */
+	setPresets(id: string, presetIds: string[]): void {
+		const entry = this.live.get(id);
+		if (!entry) throw new Error("工程不存在");
+		this.store.setEnginePresets(id, this.normalizePresetIds(presetIds));
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+	}
+
+	/**
+	 * Whether this engine's tasks may run without a preset. Like the whitelist this
+	 * is allowed mid-run: it applies to the next dispatch, and a task already
+	 * created keeps the preset it captured.
+	 */
+	setPresetOptional(id: string, optional: boolean): void {
+		const entry = this.live.get(id);
+		if (!entry) throw new Error("工程不存在");
+		this.store.setEnginePresetOptional(id, optional);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+	}
+
 	/** Add targets mid-run; the commander learns about them through its next prompt. */
 	addTargets(id: string, targetsText: string): void {
 		const entry = this.live.get(id);
@@ -375,7 +436,12 @@ export class EngineManager {
 		if (!engine) throw new Error("任务所属工程不存在");
 		const project = this.projectOf(engine);
 		const sessionDir = getDefaultSessionDir(project.cwd, this.agentDir);
-		return resolvePath(`${sessionDir}/${task.sessionId}.jsonl`);
+		// Task rows keep the session id, but a session file is named
+		// `<timestamp>_<sessionId>.jsonl`: the id alone is not a path, so resolve it
+		// exactly the way the session list does.
+		const file = SessionManager.findById(project.cwd, task.sessionId, sessionDir);
+		if (!file) throw new Error("该任务的会话文件不存在（可能已被删除）");
+		return resolvePath(file);
 	}
 
 	/** Project deletion cascades: abort and delete its engines with their tasks. */
@@ -395,6 +461,7 @@ export class EngineManager {
 			entry.commander?.dispose();
 		}
 		this.live.clear();
+		this.disposed = true;
 		this.store.close();
 	}
 
@@ -402,8 +469,18 @@ export class EngineManager {
 
 	private commanderPort(entry: EngineLive): CommanderPort {
 		return {
+			presetOptional: entry.engine.presetOptional,
 			dispatch: (input) => {
 				if (entry.engine.status !== "running") return { error: "工程已暂停或结束，不能派发任务" };
+				// The preset is validated here rather than left to the session. A task
+				// dispatched with an unusable preset would otherwise run as the default
+				// agent while the board showed the name the commander asked for, and the
+				// commander would never learn its choice was ignored. Refusing with the
+				// available list lets the next round correct itself, which is how an
+				// unknown task id is already handled.
+				const choice = resolveDispatchPreset(this.agentDir, entry.engine, input.presetId);
+				if (choice.error) return { error: choice.error };
+				const preset = choice.preset;
 				const target = input.target;
 				const priorForTarget = target ? entry.engine.tasks.filter((task) => task.target === target) : [];
 				const retry = retryDecision(priorForTarget, entry.engine.limits.maxRetries, target ?? "");
@@ -418,6 +495,10 @@ export class EngineManager {
 					roundLimit,
 					attempt: retry.attempt,
 					criteria: input.criteria,
+					presetId: preset?.id ?? null,
+					// Copied in, not resolved on read: the board must still say what a
+					// finished task ran as after the preset is renamed or deleted.
+					presetName: preset?.name ?? null,
 				});
 				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 				this.hooks.onChange(entry.engine);
@@ -522,7 +603,13 @@ export class EngineManager {
 		const model = await this.resolveCommanderModel();
 		if (!model) throw new Error("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点");
 		const commanderPermissions = readPermissionsConfig(this.agentDir).commander;
-		const brief = buildCommanderBrief(entry.engine, this.doctrines(), kind, commanderPermissions);
+		const brief = buildCommanderBrief(
+			entry.engine,
+			this.doctrines(),
+			this.commanderPresets(entry.engine),
+			kind,
+			commanderPermissions,
+		);
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: project.cwd,
 			agentDir: this.agentDir,
@@ -680,6 +767,9 @@ export class EngineManager {
 			this.acquireTaskSession({
 				taskTitle: task.title,
 				appendPrompt: WORKER_APPEND_PROMPT,
+				// The task's own preset, fixed at dispatch. A task resumed after a
+				// restart reopens its session file, which already carries the choice.
+				presetId: task.presetId,
 				project: { id: project.id, name: project.name, container: project.container ?? "", cwd: project.cwd },
 				// Read from the engine per task, so a mode changed while the engine was
 				// paused applies to the tasks started after it resumes.
@@ -901,10 +991,101 @@ function workspaceSlug(title: string, attempt: number): string {
 	return `${slug}-a${attempt}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-/** The commander's system prompt: role, targets, doctrines, and the rules. */
-function buildCommanderBrief(
+/**
+ * Presets an engine's commander may dispatch with: the whitelist when it has one,
+ * every enabled preset otherwise. An empty whitelist means "no restriction", not
+ * "none available" — that is how every engine created before presets existed
+ * behaves, and reading it as an empty choice would silently disable the feature
+ * for them.
+ */
+export function allowedPresets(agentDir: string, engine: Pick<ZGEngine, "presetIds">): ZGPreset[] {
+	const enabled = listEnabledPresets(agentDir);
+	if (engine.presetIds.length === 0) return enabled;
+	const allowed = new Set(engine.presetIds);
+	return enabled.filter((preset) => allowed.has(preset.id));
+}
+
+/**
+ * The choices spelled out, for a refusal the commander can act on next round. With
+ * nothing available the hint has to say what to do instead, and that depends on
+ * whether the engine still accepts a task with no preset at all.
+ */
+export function presetChoiceHint(agentDir: string, engine: Pick<ZGEngine, "presetIds" | "presetOptional">): string {
+	const presets = allowedPresets(agentDir, engine);
+	if (presets.length === 0) {
+		return engine.presetOptional
+			? "本工程未启用任何预设 Agent，请省略 preset 参数，使用默认 Agent。"
+			: "本工程要求每个任务都指定预设 Agent，但当前没有可用预设：请让操作员启用或授权预设，不要派发无预设的任务。";
+	}
+	return `可用预设：${presets.map((preset) => `${preset.id}（${preset.name}）`).join("、")}`;
+}
+
+/**
+ * Keep only ids that name an existing preset, dropping duplicates. A whitelist
+ * entry that no longer resolves would silently restrict nothing while looking
+ * like a restriction, and the operator cannot see the stale id in the picker
+ * they chose it from.
+ *
+ * A preset that merely exists but is disabled is kept on purpose. Dropping it
+ * would empty the whitelist, and an empty whitelist means "no restriction" — the
+ * opposite of what the operator asked for. Kept as it is, the whitelist still
+ * narrows the choice to nothing while the preset is off, and re-enabling it
+ * restores the same restriction. Whether a preset may run is decided per
+ * dispatch, in `resolveDispatchPreset`.
+ */
+export function normalizePresetIds(agentDir: string, ids: readonly string[] | undefined): string[] {
+	if (!ids || ids.length === 0) return [];
+	const known = new Set(listPresets(agentDir).map((preset) => preset.id));
+	return [...new Set(ids)].filter((id) => known.has(id));
+}
+
+/**
+ * Resolve the preset a dispatch asked for. A refusal is returned, never thrown:
+ * the id is model input, and a hallucinated or stale one is normal traffic — the
+ * same rule `abortTask` follows. The refusal names what is available so the next
+ * round corrects itself, and it is returned before any task row is created, so a
+ * refused dispatch leaves no trace on the board.
+ */
+export function resolveDispatchPreset(
+	agentDir: string,
+	engine: Pick<ZGEngine, "presetIds" | "presetOptional">,
+	presetId: string | null,
+): { preset: ZGPreset | null; error?: string } {
+	if (!presetId) {
+		// Omitting the preset is the commander's way of saying "no identity fits".
+		// An engine that requires one turns that into a refusal the commander can
+		// correct on the next round, before any task row exists.
+		if (!engine.presetOptional) {
+			return {
+				preset: null,
+				error: `本工程要求每个任务都指定预设 Agent，本次派发没有指定。${presetChoiceHint(agentDir, engine)}`,
+			};
+		}
+		return { preset: null };
+	}
+	const preset = findPreset(agentDir, presetId);
+	if (!preset) return { preset: null, error: `预设「${presetId}」不存在。${presetChoiceHint(agentDir, engine)}` };
+	if (!preset.enabled) {
+		return { preset: null, error: `预设「${preset.name}」已停用。${presetChoiceHint(agentDir, engine)}` };
+	}
+	if (engine.presetIds.length > 0 && !engine.presetIds.includes(preset.id)) {
+		return {
+			preset: null,
+			error: `预设「${preset.name}」不在本工程的预设白名单内。${presetChoiceHint(agentDir, engine)}`,
+		};
+	}
+	return { preset };
+}
+
+/**
+ * The commander's system prompt: role, targets, doctrines, presets, and the rules.
+ * Exported for tests: what the commander is told about presets is the whole point
+ * of the switch, and the wording differs per engine.
+ */
+export function buildCommanderBrief(
 	engine: ZGEngine,
 	doctrines: ZGDoctrine[],
+	presets: readonly ZGPreset[],
 	kind: "initial" | "resume",
 	permissions: { bash: boolean; read: boolean },
 ): string {
@@ -915,6 +1096,14 @@ function buildCommanderBrief(
 	const targetText = engine.targets
 		.map((target, index) => `${index + 1}. ${target.target}${target.note ? `（备注：${target.note}）` : ""}`)
 		.join("\n");
+	// The list is capped and each description shortened (presetBriefLines), because
+	// it enters the commander's context on every round: a large preset library must
+	// not push the board and the target list out of it.
+	const presetText =
+		presetBriefLines(presets).join("\n") ||
+		(engine.presetOptional
+			? "（本工程没有可用预设，所有任务都使用默认 Agent，省略 preset 参数）"
+			: "（本工程没有可用预设，但本工程要求每个任务都必须指定预设：不要派发无预设的任务，先让操作员启用或授权预设）");
 	return [
 		"你是 ZGAgent 工程模式的主指挥官。你只负责分配与调度，绝不亲自执行任何侦察、命令或利用——你没有任何执行工具，也不要尝试扮演执行者。",
 		"",
@@ -926,6 +1115,11 @@ function buildCommanderBrief(
 		"指挥思路（操作员选定，必须遵循）：",
 		doctrineText,
 		"",
+		`可用预设 Agent（派发任务时用 dispatch_task 的 preset 参数指定，让该任务以对应身份执行；清单之外或已停用的 id 会被拒绝${
+			engine.presetOptional ? "" : "；本工程要求每个任务都必须指定，省略会被拒绝"
+		}）：`,
+		presetText,
+		"",
 		"工程参数：",
 		`- 并发上限：${engine.limits.concurrency} 个任务同时运行`,
 		`- 单任务自动续跑轮数上限：${engine.limits.roundLimit} 轮`,
@@ -935,6 +1129,9 @@ function buildCommanderBrief(
 		"",
 		"工作方式：",
 		"- 用 dispatch_task 派发任务。每个任务的目标必须自包含：执行 Agent 看不到你的对话，也不能提问。写清目标、范围、方法提示、产出要求与验收标准。",
+		engine.presetOptional
+			? "- 派发前先看「可用预设 Agent」：任务与某个预设的描述、标签吻合，就用 preset 指定它执行；没有合适的就省略 preset，用默认 Agent。不要为了用预设而硬套，也不要每次都用同一个。"
+			: "- 派发前先看「可用预设 Agent」：本工程要求每个任务都必须指定一个预设，省略 preset 会被拒绝；没有完全吻合的就选描述与标签最接近的那个，不要乱选，也不要每次都用同一个。",
 		"- 任务结束后你会收到结果摘要；结合 list_tasks 掌握全局，再决定下一步。",
 		"- 可以把已验证的情报（凭据、指纹、有效打法）通过 steer_task 注入运行中的任务；只传已验证的事实，不传猜测。",
 		"- 失败的任务换思路重派（dispatch_task 带 target 会累计尝试次数）；无价值的任务用 abort_task 中止，不要浪费轮次。",

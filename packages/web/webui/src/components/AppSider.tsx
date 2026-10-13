@@ -51,6 +51,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.model", label: "模型", icon: ModelIcon },
 	{ page: "settings.notify", label: "通知", icon: NotifyIcon },
 	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
+	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },
 	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];
@@ -81,6 +82,7 @@ export function AppSider({
 	pendingApprovals,
 	/** Findings still waiting for review, shown as the hub's badge. */
 	pendingVulns,
+	/** The preset library, for the 新建会话 picker; disabled entries are not offered. */
 	onNewSession,
 	onSwitchSession,
 	onRenameSession,
@@ -105,6 +107,7 @@ export function AppSider({
 	runningSessions: string[];
 	pendingApprovals: number;
 	pendingVulns: number;
+	/** `presetId` omitted creates a default-agent session. */
 	onNewSession: () => void;
 	onSwitchSession: (path: string) => void;
 	onRenameSession: (path: string, name: string) => void;
@@ -122,6 +125,10 @@ export function AppSider({
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [editingName, setEditingName] = useState("");
+	/**
+	 * The 新建会话 preset picker. The sider clips overflow, so the menu is
+	 * portaled to document.body with fixed coordinates like the hover card.
+	 */
 	/**
 	 * Two independent filter dimensions over the flat session list:
 	 * - status: "未完成" hides 已完成/已忽略 sessions;
@@ -318,9 +325,11 @@ export function AppSider({
 							? `${visibleSessions.length} / ${sessions.length} 个会话`
 							: `${sessions.length} 个会话`}
 				</span>
-				<button type="button" className="menu-sub-add" title="新建会话" onClick={onNewSession}>
-					＋
-				</button>
+				<span className="menu-sub-head-ops">
+					<button type="button" className="menu-sub-add" title="新建会话" onClick={() => onNewSession()}>
+						＋
+					</button>
+				</span>
 			</div>
 			<div className="menu-sub-filters" title="未完成隐藏「已完成/已忽略」；对话/工程按会话来源筛选，可与未完成组合">
 				<button

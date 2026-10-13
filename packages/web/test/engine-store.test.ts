@@ -211,6 +211,133 @@ test("a database written before gate_mode existed is migrated to auto", () => {
 	migrated.close();
 });
 
+test("preset ids and a task's preset round-trip", () => {
+	const engine = store.createEngine({
+		projectId: "p5",
+		projectName: "P5",
+		name: "预设场景",
+		targets: [{ target: "t" }],
+		doctrines: ["standard"],
+		presetIds: ["web-recon"],
+		limits,
+		gateMode: "auto",
+	});
+	expect(store.getEngine(engine.id)?.presetIds).toEqual(["web-recon"]);
+	const task = store.createTask({
+		engineId: engine.id,
+		title: "带预设的任务",
+		objective: "o",
+		target: "t",
+		workspace: "w",
+		roundLimit: 3,
+		attempt: 1,
+		presetId: "web-recon",
+		presetName: "Web 侦察",
+	});
+	const loaded = store.getTask(task.id);
+	expect(loaded?.presetId).toBe("web-recon");
+	// The name is copied in, not resolved: the board must still say what the task
+	// ran as after the preset is renamed or deleted.
+	expect(loaded?.presetName).toBe("Web 侦察");
+
+	// An empty list clears the restriction rather than meaning "none available".
+	store.setEnginePresets(engine.id, []);
+	expect(store.getEngine(engine.id)?.presetIds).toEqual([]);
+
+	// Presets are optional unless the operator says otherwise.
+	expect(store.getEngine(engine.id)?.presetOptional).toBe(true);
+	store.setEnginePresetOptional(engine.id, false);
+	expect(store.getEngine(engine.id)?.presetOptional).toBe(false);
+	store.setEnginePresetOptional(engine.id, true);
+	expect(store.getEngine(engine.id)?.presetOptional).toBe(true);
+
+	// A task without a preset is the default agent, and stays that way.
+	const plain = store.createTask({
+		engineId: engine.id,
+		title: "默认任务",
+		objective: "o",
+		target: "t2",
+		workspace: "w2",
+		roundLimit: 3,
+		attempt: 1,
+	});
+	expect(store.getTask(plain.id)?.presetId).toBeNull();
+	expect(store.getTask(plain.id)?.presetName).toBeNull();
+});
+
+test("a database written before preset columns existed is migrated to no restriction", () => {
+	const legacyPath = join(dir, "legacy-presets.db");
+	const legacy = openSqliteDatabase(legacyPath);
+	// The pre-change schema: no preset_ids on engines, no preset columns on tasks.
+	legacy.exec(`CREATE TABLE engines (
+		id TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		project_name TEXT NOT NULL,
+		name TEXT NOT NULL,
+		status TEXT NOT NULL,
+		pause_note TEXT,
+		targets TEXT NOT NULL,
+		doctrines TEXT NOT NULL,
+		limits TEXT NOT NULL,
+		gate_mode TEXT NOT NULL DEFAULT 'auto',
+		created_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		report TEXT
+	)`);
+	legacy.exec(`CREATE TABLE engine_tasks (
+		id TEXT PRIMARY KEY,
+		engine_id TEXT NOT NULL,
+		title TEXT NOT NULL,
+		objective TEXT NOT NULL,
+		target TEXT,
+		workspace TEXT NOT NULL,
+		status TEXT NOT NULL,
+		attempt INTEGER NOT NULL DEFAULT 1,
+		criteria TEXT NOT NULL DEFAULT '[]',
+		round_limit INTEGER NOT NULL,
+		session_id TEXT,
+		started_at INTEGER,
+		ended_at INTEGER,
+		summary TEXT,
+		error TEXT,
+		usage TEXT,
+		vulns INTEGER NOT NULL DEFAULT 0,
+		seq INTEGER NOT NULL DEFAULT 0
+	)`);
+	legacy
+		.prepare(
+			"INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run(
+			"engine-old",
+			"p1",
+			"旧项目",
+			"旧工程",
+			"paused",
+			'[{"target":"t"}]',
+			'["standard"]',
+			JSON.stringify(limits),
+			1,
+		);
+	legacy
+		.prepare(
+			"INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run("task-old", "engine-old", "旧任务", "o", "t", "w", "done", 1, "[]", 3, 0);
+	legacy.close();
+
+	const migrated = new EngineStore(legacyPath);
+	// No restriction is how it ran, and no preset is the default agent it used.
+	expect(migrated.getEngine("engine-old")?.presetIds).toEqual([]);
+	expect(migrated.getTask("task-old")?.presetId).toBeNull();
+	expect(migrated.getTask("task-old")?.presetName).toBeNull();
+	// Presets stayed optional for it too, so its dispatches are unchanged.
+	expect(migrated.getEngine("engine-old")?.presetOptional).toBe(true);
+	migrated.setEnginePresets("engine-old", ["web-recon"]);
+	expect(migrated.getEngine("engine-old")?.presetIds).toEqual(["web-recon"]);
+	migrated.close();
+});
+
 test("parseTargetLines splits target and note, drops blanks", () => {
 	const parsed = parseTargetLines(
 		["10.0.0.1 这台是 Web 服务器", "", "http://x.example.com,只测登录", "10.0.0.2"].join("\n"),

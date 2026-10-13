@@ -13,6 +13,7 @@ import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
 import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
+import { PresetPanel, type PresetImportNotice } from "./components/PresetPanel.tsx";
 import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { ProjectsPage } from "./components/ProjectsPage.tsx";
@@ -50,6 +51,7 @@ import type {
 	ZGPermissionPreset,
 	ZGPermissionsConfig,
 	ZGPermissionSet,
+	ZGPresetView,
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGStatsView,
@@ -245,6 +247,10 @@ export function App() {
 	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
 	const [engines, setEngines] = useState<ZGEngine[]>([]);
 	const [doctrines, setDoctrines] = useState<ZGDoctrineView[]>([]);
+	/** Preset agents: null until the first list arrives, which the settings page shows. */
+	const [presets, setPresets] = useState<ZGPresetView[] | null>(null);
+	/** The last 导入 reply, kept until the next one replaces it. */
+	const [presetImport, setPresetImport] = useState<PresetImportNotice | null>(null);
 	const [commanderConfig, setCommanderConfig] = useState<ZGModelConfig | null>(null);
 	const [commanderEvents, setCommanderEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
 	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
@@ -265,6 +271,8 @@ export function App() {
 	const [dismissedGateFailure, setDismissedGateFailure] = useState<number | null>(null);
 	const connectionRef = useRef<ZGConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
+	/** Whether the transcript should chase the bottom; turned off by scrolling up. */
+	const transcriptFollowRef = useRef(true);
 	const modelTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
 	const notifyTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
 	const judgeTestResolverRef = useRef<((result: { result: ZGTestResult; raw?: string } | null) => void) | null>(null);
@@ -485,6 +493,45 @@ export function App() {
 					if (!message.ok) pushError(`思路删除失败：${message.error ?? "未知错误"}`);
 					else send({ type: "list_doctrines" });
 					break;
+				case "presets":
+					setPresets(message.presets);
+					break;
+				case "preset_saved": {
+					// The reply carries only the changed entry, and a save and a
+					// toggle can both arrive here, so the list is re-read as a whole.
+					if (message.error) {
+						pushError(`预设保存失败：${message.error}`);
+						return;
+					}
+					send({ type: "list_presets" });
+					break;
+				}
+				case "preset_deleted":
+					if (!message.ok) pushError(`预设删除失败：${message.error ?? "未知错误"}`);
+					else send({ type: "list_presets" });
+					break;
+				case "presets_export": {
+					// Same technique as the vulnerability export: the payload is text,
+					// so the browser builds the download instead of a server route.
+					const url = URL.createObjectURL(new Blob([message.content], { type: "application/json;charset=utf-8" }));
+					const anchor = document.createElement("a");
+					anchor.href = url;
+					anchor.download = message.filename;
+					document.body.appendChild(anchor);
+					anchor.click();
+					anchor.remove();
+					URL.revokeObjectURL(url);
+					break;
+				}
+				case "presets_imported": {
+					if (message.error) pushError(`预设导入失败：${message.error}`);
+					setPresetImport({
+						imported: message.imported.length,
+						skipped: message.skipped,
+					});
+					if (message.imported.length > 0) send({ type: "list_presets" });
+					break;
+				}
 				case "commander_config":
 					setCommanderConfig(message.config);
 					break;
@@ -756,6 +803,7 @@ export function App() {
 					"get_state",
 					"get_gatekeeper_config",
 					"get_model_library",
+					"list_presets",
 				] as const) {
 					connection.send({ type: request });
 				}
@@ -820,7 +868,17 @@ export function App() {
 		setLiveTools([]);
 		setOptimisticUserMessages([]);
 		setQueuedMessages([]);
+		// A fresh transcript starts pinned to the bottom; scrolling up unpins.
+		transcriptFollowRef.current = true;
 	}, [snapshot?.activeSessionId, snapshot?.project?.id]);
+
+	// Keep the transcript pinned to the bottom while new messages, live text or
+	// tool cards stream in — unless the operator scrolled up to read, in which
+	// case the follow flag stays off until they return near the bottom.
+	useEffect(() => {
+		const el = transcriptRef.current;
+		if (el && transcriptFollowRef.current) el.scrollTop = el.scrollHeight;
+	});
 
 	// A different project means a different container: drop anything cached from
 	// the previous one and re-read the work directory when the files page is up.
@@ -883,6 +941,9 @@ export function App() {
 				break;
 			case "settings.environment":
 				send({ type: "get_environment" });
+				break;
+			case "settings.presets":
+				send({ type: "list_presets" });
 				break;
 			case "settings.security":
 				// REST-backed; nothing to pull over the socket.
@@ -1227,6 +1288,7 @@ export function App() {
 								subagentsOpen={subagentsOpen}
 								allowedPrefixes={snapshot?.allowedPrefixes ?? []}
 								sessionStatus={snapshot?.sessionStatus ?? null}
+								preset={snapshot?.preset ?? null}
 								onSetSessionStatus={(status) => send({ type: "set_session_status", status })}
 								onToggleFiles={() => setFilesOpen((prev) => !prev)}
 								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
@@ -1256,7 +1318,16 @@ export function App() {
 								/>
 							) : null}
 							<div className="ws-panel__body">
-								<div className="transcript" ref={transcriptRef}>
+								<div
+								className="transcript"
+								ref={transcriptRef}
+								onScroll={() => {
+									const el = transcriptRef.current;
+									if (el) {
+										transcriptFollowRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+									}
+								}}
+							>
 									{visibleMessages.length === 0 && !liveText && !streaming ? (
 										<div className="ws-empty">
 											<span>等待第一条指令</span>
@@ -1427,6 +1498,9 @@ export function App() {
 									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
 									goalDisabledReason={goalDisabledReason}
 									onOpenGoal={() => setGoalOpen(true)}
+									presets={presets ?? []}
+									preset={snapshot?.preset ?? null}
+									onSetPreset={(presetId) => send({ type: "set_session_preset", presetId })}
 									onSend={(text, behavior, images) => {
 										const userCount = (snapshotRef.current?.messages ?? []).filter(
 											(entry) => (entry as { role?: string }).role === "user",
@@ -1484,6 +1558,7 @@ export function App() {
 						<EnginePage
 							engines={snapshot?.project ? engines.filter((engine) => engine.projectId === snapshot.project?.id) : engines}
 							doctrines={doctrines}
+							presets={presets ?? []}
 							commanderConfig={commanderConfig}
 							onSend={(message) => send(message as ZGClientMessage)}
 							onError={pushError}
@@ -1667,6 +1742,29 @@ export function App() {
 										send({ type: "build_image" });
 									}}
 									onAbortBuild={() => send({ type: "abort_image_build" })}
+								/>
+							</div>
+						</div>
+					) : page === "settings.presets" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										预设 Agent
+										{presets ? ` · ${presets.filter((preset) => preset.enabled).length} / ${presets.length} 已启用` : " · 读取中"}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<PresetPanel
+									presets={presets}
+									importNotice={presetImport}
+									onSave={(input) => send({ type: "save_preset", input })}
+									onDelete={(id) => send({ type: "delete_preset", id })}
+									onSetEnabled={(id, enabled) => send({ type: "set_preset_enabled", id, enabled })}
+									onExport={() => send({ type: "export_presets" })}
+									onImport={(content) => send({ type: "import_presets", content })}
 								/>
 							</div>
 						</div>

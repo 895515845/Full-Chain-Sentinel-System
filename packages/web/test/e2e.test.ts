@@ -20,12 +20,14 @@ import { readStoredModelLibrary, setLibraryRole } from "../src/model-library.ts"
 import type { ZGPermissionsConfig } from "../src/permissions.ts";
 import type {
 	ZGClientMessage,
+	ZGEngine,
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGGateFilter,
 	ZGGatePage,
 	ZGMode,
 	ZGModelLibraryView,
+	ZGPresetView,
 	ZGServerMessage,
 	ZGStateSnapshot,
 	ZGSubagentEvent,
@@ -162,6 +164,76 @@ const GOAL_NOPROGRESS_PROMPT = "zg-goal-noprogress 写出完整报告";
 const GOAL_PROGRESS_MARKER = "目标进度已更新";
 /** Text of the goal_complete tool result, used to recognize the third turn. */
 const GOAL_COMPLETED_MARKER = "目标已完成：";
+
+/**
+ * Preset-agent scenarios. Both halves of the feature are driven here: a console
+ * session that was created with a preset, and an engine whose commander picks a
+ * preset for one task and has an out-of-whitelist pick refused for the next.
+ *
+ * The body markers are distinctive on purpose: the session-side assertion reads
+ * them out of the addendum section of the system prompt AND out of the request
+ * body the fake endpoint received, so "the text reached the model" is proven at
+ * the wire, not merely by the console's own snapshot.
+ */
+const PRESET_NAME = "Web 侦察 e2e";
+const PRESET_DESCRIPTION = "先指纹后目录后参数";
+const PRESET_TAGS = ["web", "外网"];
+const PRESET_BODY_MARKER = "PRESET_ADDENDUM_MARKER_ALPHA";
+const PRESET_EDITED_MARKER = "PRESET_ADDENDUM_MARKER_BETA";
+const PRESET_SESSION_PROMPT = "preset session turn";
+const PRESET_SESSION_DONE = "PRESET_SESSION_DONE";
+const PRESET_SESSION_SECOND_PROMPT = "preset session second turn";
+const PRESET_SESSION_SECOND_DONE = "PRESET_SESSION_SECOND_DONE";
+
+/**
+ * Switching a live session's preset from the composer. Three turns of one
+ * conversation: the first under preset A, the second after switching to B, the
+ * third after switching back to the default agent. Each turn's request body is
+ * what proves which briefing was in force.
+ */
+const PRESET_SWITCH_NAME_A = "切换前 e2e";
+const PRESET_SWITCH_NAME_B = "切换后 e2e";
+const PRESET_SWITCH_MARKER_A = "PRESET_SWITCH_MARKER_DELTA";
+const PRESET_SWITCH_MARKER_B = "PRESET_SWITCH_MARKER_EPSILON";
+const PRESET_SWITCH_PROMPT = "preset switch turn";
+const PRESET_SWITCH_DONE = "PRESET_SWITCH_DONE";
+const PRESET_SWITCH_SECOND_PROMPT = "preset switch second turn";
+const PRESET_SWITCH_SECOND_DONE = "PRESET_SWITCH_SECOND_DONE";
+const PRESET_SWITCH_THIRD_PROMPT = "preset switch third turn";
+const PRESET_SWITCH_THIRD_DONE = "PRESET_SWITCH_THIRD_DONE";
+
+/**
+ * The sub-agent half of the preset feature. The parent session delegates one
+ * task, and the child's own request body is what proves the inheritance: a
+ * sub-agent is a separate session, so nothing about the parent's prompt travels
+ * with it unless the code puts it there.
+ */
+const PRESET_SUBAGENT_NAME = "子代理继承 e2e";
+const PRESET_SUBAGENT_MARKER = "PRESET_SUBAGENT_MARKER_GAMMA";
+const PRESET_SUBAGENT_PROMPT = "preset subagent turn";
+const PRESET_SUBAGENT_TASK = "recon the preset target";
+const PRESET_SUBAGENT_CHILD_DONE = "PRESET_SUBAGENT_CHILD_DONE";
+const PRESET_SUBAGENT_PARENT_DONE = "PRESET_SUBAGENT_PARENT_DONE";
+
+/** Marker only the commander's own system prompt carries, used to tell it apart. */
+const COMMANDER_BRIEF_MARKER = "ZGAgent 工程模式的主指挥官";
+const ENGINE_PRESET_NAME = "AD 枚举 e2e";
+const ENGINE_PRESET_DESCRIPTION = "域内账户枚举";
+const ENGINE_PRESET_MARKER = "ENGINE_PRESET_ADDENDUM_MARKER";
+/** Id the commander asks for but may not use; it must never reach the board. */
+const ENGINE_BAD_PRESET_ID = "preset-not-in-whitelist";
+/** Objectives double as routing markers, since a tool call echoes its arguments back. */
+const ENGINE_OBJECTIVE_MARKER = "MARKER_ENGINE_TASK_ONE";
+const ENGINE_BAD_OBJECTIVE_MARKER = "MARKER_ENGINE_BAD_PRESET";
+const ENGINE_WORKER_SUMMARY = "ENGINE_TASK_ONE_DONE";
+const ENGINE_REPORT_MARKER = "ENGINE_PRESET_REPORT";
+
+/** The engine preset's generated id, filled in by the test before the engine runs. */
+let enginePresetId = "";
+/** Commander system prompts as the fake endpoint saw them, for the brief assertion. */
+const commanderBodies: string[] = [];
+/** The delegating sub-agent's request body, so the test can read its system prompt. */
+let presetSubagentBody = "";
 
 /**
  * One turn of a goal scenario. The complete scenario reports progress, then
@@ -560,6 +632,91 @@ function startFakeEndpoint(): Promise<void> {
 				newestPrompt === TOOLS_PROBE_PROMPT ? { text: TOOLS_PROBE_DONE } : undefined;
 			const compactFillStep: ScriptStep | undefined =
 				newestPrompt === COMPACT_FILL_PROMPT ? { text: `${COMPACT_FILL_DONE}\n${COMPACT_FILL_TEXT}` } : undefined;
+			// Preset session turns, answered out of band like the other routed prompts.
+			const presetSessionStep: ScriptStep | undefined =
+				newestPrompt === PRESET_SESSION_PROMPT
+					? { text: PRESET_SESSION_DONE }
+					: newestPrompt === PRESET_SESSION_SECOND_PROMPT
+						? { text: PRESET_SESSION_SECOND_DONE }
+						: undefined;
+			// Preset switching: one conversation, three turns, each routed by its text.
+			const presetSwitchStep: ScriptStep | undefined =
+				newestPrompt === PRESET_SWITCH_PROMPT
+					? { text: PRESET_SWITCH_DONE }
+					: newestPrompt === PRESET_SWITCH_SECOND_PROMPT
+						? { text: PRESET_SWITCH_SECOND_DONE }
+						: newestPrompt === PRESET_SWITCH_THIRD_PROMPT
+							? { text: PRESET_SWITCH_THIRD_DONE }
+							: undefined;
+			// The parent delegates once, then finishes; the child answers with prose so
+			// no approval gate is involved. Both turns are routed by the task text,
+			// which a tool call echoes back, so the scenario does not depend on how many
+			// turns the earlier tests used.
+			const presetSubagentStep: ScriptStep | undefined =
+				body.includes(PRESET_SUBAGENT_TASK) || body.includes(PRESET_SUBAGENT_CHILD_DONE)
+					? fromSubagent
+						? { text: PRESET_SUBAGENT_CHILD_DONE }
+						: { text: PRESET_SUBAGENT_PARENT_DONE }
+					: newestPrompt === PRESET_SUBAGENT_PROMPT
+						? { spawnAgent: { task: PRESET_SUBAGENT_TASK } }
+						: undefined;
+			if (fromSubagent && body.includes(PRESET_SUBAGENT_TASK)) presetSubagentBody = body;
+			// An engineering run is two sessions on this same endpoint: the commander,
+			// recognized by the role line in its brief, and the worker, recognized by
+			// the objective it was handed. The commander dispatches once with the
+			// whitelisted preset, once with an id it may not use, then finishes.
+			const fromCommander = body.includes(COMMANDER_BRIEF_MARKER);
+			if (fromCommander) commanderBodies.push(body);
+			const commanderStep: ScriptStep | undefined = fromCommander
+				? !body.includes(ENGINE_OBJECTIVE_MARKER)
+					? {
+							toolCall: {
+								name: "dispatch_task",
+								args: {
+									title: "域内账户枚举",
+									objective: `枚举域内账户。${ENGINE_OBJECTIVE_MARKER}`,
+									target: "10.0.0.7",
+									preset: enginePresetId,
+								},
+							},
+						}
+					: // While the task runs the commander has nothing better to do than
+						// wait for its result. A prose turn is safe here: the engine only
+						// nudges an idle commander when the board has nothing outstanding.
+						!body.includes(ENGINE_WORKER_SUMMARY)
+						? { text: "等这次枚举的结果。" }
+						: !body.includes(ENGINE_BAD_OBJECTIVE_MARKER)
+							? {
+									toolCall: {
+										name: "dispatch_task",
+										args: {
+											title: "越权预设",
+											objective: `换一个预设再试。${ENGINE_BAD_OBJECTIVE_MARKER}`,
+											target: "10.0.0.8",
+											preset: ENGINE_BAD_PRESET_ID,
+										},
+									},
+								}
+							: !body.includes(ENGINE_REPORT_MARKER)
+								? { toolCall: { name: "engine_done", args: { report: `# 报告\n${ENGINE_REPORT_MARKER}` } } }
+								: // The report is in: stop calling tools so the run ends instead of
+									// asking for engine_done forever.
+									{ text: "报告已提交，等待操作员复核。" }
+				: undefined;
+			const workerStep: ScriptStep | undefined =
+				!fromCommander && body.includes(ENGINE_OBJECTIVE_MARKER) && !body.includes(ENGINE_WORKER_SUMMARY)
+					? {
+							toolCall: {
+								name: "goal_complete",
+								args: {
+									summary: ENGINE_WORKER_SUMMARY,
+									evidence: ["netexec --users 列出了 3 个域账户"],
+									findings: { submitted: 0, note: "只做枚举，没有可提交的发现" },
+									criteria: [{ criterion: "枚举出域内账户", met: true, evidence: "netexec 输出" }],
+								},
+							},
+						}
+					: undefined;
 			const goal = goalStep(body);
 			if (goal && !fromSubagent) goalTools = toolNamesOf(body);
 			const gate = gateStep(newestPrompt, body);
@@ -573,19 +730,29 @@ function startFakeEndpoint(): Promise<void> {
 							? probeStep
 							: compactFillStep
 								? compactFillStep
-								: goal
-									? goal
-									: gate
-										? gate
-										: inSecondScenario
-											? fromSubagent
-												? body.includes(SECOND_SCENARIO_OUTPUT)
-													? { text: "SECOND_SUBAGENT_DONE" }
-													: { toolCallCommand: SECOND_SCENARIO_COMMAND }
-												: body.includes("SECOND_SUBAGENT_DONE")
-													? { text: "SECOND_PARENT_SUMMARY" }
-													: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
-											: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
+								: presetSessionStep
+									? presetSessionStep
+									: presetSwitchStep
+										? presetSwitchStep
+										: presetSubagentStep
+											? presetSubagentStep
+											: commanderStep
+												? commanderStep
+												: workerStep
+													? workerStep
+													: goal
+														? goal
+														: gate
+															? gate
+															: inSecondScenario
+																? fromSubagent
+																	? body.includes(SECOND_SCENARIO_OUTPUT)
+																		? { text: "SECOND_SUBAGENT_DONE" }
+																		: { toolCallCommand: SECOND_SCENARIO_COMMAND }
+																	: body.includes("SECOND_SUBAGENT_DONE")
+																		? { text: "SECOND_PARENT_SUMMARY" }
+																		: { spawnAgent: { task: SECOND_SCENARIO_TASK } }
+																: (SCRIPT[requestCount] ?? SCRIPT[SCRIPT.length - 1]);
 			if (
 				!isImageTurn &&
 				!inSecondScenario &&
@@ -593,12 +760,16 @@ function startFakeEndpoint(): Promise<void> {
 				!vulnStep &&
 				!probeStep &&
 				!compactFillStep &&
+				!presetSessionStep &&
+				!presetSubagentStep &&
+				!commanderStep &&
+				!workerStep &&
 				!goal &&
 				!gate
 			) {
 				requestCount += 1;
 			}
-			const id = `chatcmpl-${isImageTurn ? "image" : staticStep ? "static" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : goal ? "goal" : gate ? "gate" : inSecondScenario ? "second" : requestCount}`;
+			const id = `chatcmpl-${isImageTurn ? "image" : staticStep ? "static" : vulnStep ? "vuln" : probeStep ? "probe" : compactFillStep ? "fill" : presetSessionStep ? "preset" : presetSubagentStep ? "preset-subagent" : commanderStep ? "commander" : workerStep ? "worker" : goal ? "goal" : gate ? "gate" : inSecondScenario ? "second" : requestCount}`;
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			response.end(
 				step.toolCall
@@ -1617,6 +1788,7 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 		main: { ...config.main, vuln_submit: false },
 		subagent: { ...config.subagent },
 		commander: { ...config.commander },
+		subagentMaxTurns: config.subagentMaxTurns,
 	};
 
 	drainIncoming();
@@ -1652,7 +1824,12 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 	drainIncoming();
 	send({
 		type: "save_permissions",
-		config: { main: { ...config.main }, subagent: { ...config.subagent }, commander: { ...config.commander } },
+		config: {
+			main: { ...config.main },
+			subagent: { ...config.subagent },
+			commander: { ...config.commander },
+			subagentMaxTurns: config.subagentMaxTurns,
+		},
 	});
 	await waitFor((message) => message.type === "permissions" && message.config.main.vuln_submit);
 });
@@ -2329,3 +2506,449 @@ test("switching to AI 审批 is refused while no judge endpoint resolves", async
 	const refusedGlobal = await waitForFirst((message) => message.type === "error");
 	expect((refusedGlobal as { message: string }).message).toContain("未配置守门模型");
 });
+
+// --- 预设 Agent -----------------------------------------------------------
+//
+// The preset feature has two halves and both are driven end to end here: a
+// console session created with a preset, and an engineering run whose commander
+// picks a preset for a task and has an out-of-whitelist pick refused. The point
+// of the first half is the wire assertion: the marker is read out of the request
+// body the fake endpoint received, so the text provably reached the model
+// instead of only reaching the console's own snapshot.
+
+/** Current permissions, echoed back: the path that rebuilds every live session. */
+async function rebuildSessions(): Promise<void> {
+	drainIncoming();
+	send({ type: "get_permissions" });
+	const current = await waitForFirst((message) => message.type === "permissions");
+	const config = (current as { config: ZGPermissionsConfig }).config;
+	drainIncoming();
+	send({ type: "save_permissions", config });
+	await waitForFirst((message) => message.type === "permissions");
+}
+
+/**
+ * The addendum section of the session's system prompt, as the model receives it.
+ *
+ * A session writes the prompt once and then appends a patch system message whenever a
+ * section changes, so the current value is the sections of every system message merged
+ * in order — the same replay `getCurrentSystemMessage` performs for the request.
+ */
+function addendumOf(snapshot: ZGStateSnapshot): string {
+	const merged: Record<string, string | null> = {};
+	for (const message of snapshot.messages) {
+		if ((message as { role?: string }).role !== "system") continue;
+		for (const [name, value] of Object.entries(
+			(message as { sections?: Record<string, string | null> }).sections ?? {},
+		)) {
+			if (value === null) delete merged[name];
+			else merged[name] = value;
+		}
+	}
+	return merged.addendum ?? "";
+}
+
+test("a preset is stored, injected into a new session, and re-read on every rebuild", async () => {
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			name: PRESET_NAME,
+			description: PRESET_DESCRIPTION,
+			tags: PRESET_TAGS,
+			text: `你是 Web 侦察专家：先指纹，再目录，最后参数。\n${PRESET_BODY_MARKER}`,
+		},
+	});
+	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as {
+		preset: ZGPresetView | null;
+		error?: string;
+	};
+	expect(saved.error).toBeUndefined();
+	const presetId = saved.preset?.id ?? "";
+	expect(presetId).not.toBe("");
+	expect(saved.preset?.name).toBe(PRESET_NAME);
+	expect(saved.preset?.description).toBe(PRESET_DESCRIPTION);
+	expect(saved.preset?.tags).toEqual(PRESET_TAGS);
+	expect(saved.preset?.enabled).toBe(true);
+	expect(saved.preset?.tokens).toBeGreaterThan(0);
+
+	// The settings screen reads the list, body included.
+	drainIncoming();
+	send({ type: "list_presets" });
+	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: ZGPresetView[] };
+	const view = listed.presets.find((item) => item.id === presetId);
+	expect(view?.text).toContain(PRESET_BODY_MARKER);
+	expect(view?.textMissing).toBe(false);
+
+	// A session created with it runs as that preset, and the choice is recorded.
+	drainIncoming();
+	send({ type: "new_session", presetId });
+	const opened = await snapshotWhereFirst((snapshot) => !snapshot.streaming && snapshot.preset?.id === presetId);
+	const sessionId = opened.activeSessionId;
+	expect(sessionId).not.toBeNull();
+	expect(opened.preset?.name).toBe(PRESET_NAME);
+	expect(opened.preset?.missing).toBe(false);
+
+	// One turn, so pi writes the system prompt. The preset text must be in the
+	// console's view of it AND in the request the model actually received.
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SESSION_PROMPT });
+	const settled = await snapshotWhereFirst(
+		(snapshot) =>
+			!snapshot.streaming &&
+			snapshot.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes(PRESET_SESSION_DONE),
+					),
+			),
+	);
+	expect(addendumOf(settled)).toContain(PRESET_BODY_MARKER);
+	expect(lastRequestBody).toContain(PRESET_BODY_MARKER);
+
+	// Rebuilding every live session is the path a console restart takes: the choice
+	// is a session entry, so the conversation comes back as the same preset.
+	await rebuildSessions();
+	const rebuilt = await snapshotWhereFirst(
+		(snapshot) => snapshot.activeSessionId === sessionId && snapshot.preset?.id === presetId,
+	);
+	expect(rebuilt.preset?.name).toBe(PRESET_NAME);
+	expect(addendumOf(rebuilt)).toContain(PRESET_BODY_MARKER);
+
+	// Editing the body changes what the next build injects: the text is read from
+	// disk per build, never copied into the session file. If pi merely replayed the
+	// stored prompt, the old marker would survive this and the new one would not.
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			id: presetId,
+			name: PRESET_NAME,
+			description: PRESET_DESCRIPTION,
+			tags: PRESET_TAGS,
+			text: `你是 Web 侦察专家：先指纹，再目录，最后参数。\n${PRESET_EDITED_MARKER}`,
+		},
+	});
+	await waitForFirst((message) => message.type === "preset_saved");
+	await rebuildSessions();
+	await snapshotWhereFirst((snapshot) => snapshot.activeSessionId === sessionId && snapshot.preset?.id === presetId);
+
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SESSION_SECOND_PROMPT });
+	const second = await snapshotWhereFirst(
+		(snapshot) =>
+			!snapshot.streaming &&
+			snapshot.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes(PRESET_SESSION_SECOND_DONE),
+					),
+			),
+	);
+	// The wire is the truth here. A section that changes after the first turn is
+	// projected onto the request as a patch rather than written back into the
+	// conversation's first system message, so the console's snapshot still replays
+	// the text the session was built with while the model gets the current one.
+	// Asserting on the request body is therefore the only honest check for the edit.
+	expect(second.activeSessionId).toBe(sessionId);
+	expect(lastRequestBody).toContain(PRESET_EDITED_MARKER);
+	expect(lastRequestBody).not.toContain(PRESET_BODY_MARKER);
+}, 90000);
+
+test("deleting a preset returns its sessions to the default agent and says so", async () => {
+	drainIncoming();
+	send({ type: "list_presets" });
+	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: ZGPresetView[] };
+	const presetId = listed.presets.find((item) => item.name === PRESET_NAME)?.id ?? "";
+	expect(presetId).not.toBe("");
+
+	drainIncoming();
+	send({ type: "delete_preset", id: presetId });
+	const deleted = (await waitForFirst((message) => message.type === "preset_deleted")) as { ok: boolean };
+	expect(deleted.ok).toBe(true);
+
+	// The session keeps the record of which preset it used, and the console marks it
+	// as missing rather than pretending the context is still loaded.
+	await rebuildSessions();
+	const rebuilt = await snapshotWhereFirst((snapshot) => snapshot.preset?.id === presetId);
+	expect(rebuilt.preset?.missing).toBe(true);
+	expect(rebuilt.preset?.name).toBe(presetId);
+
+	// Naming it in a new session is refused outright; silently starting the default
+	// agent would look like the preset had been applied.
+	drainIncoming();
+	send({ type: "new_session", presetId });
+	const refused = (await waitForFirst((message) => message.type === "error")) as { message: string };
+	expect(refused.message).toContain("预设");
+}, 90000);
+
+test("switching a live session's preset re-briefs the turns that follow", async () => {
+	// The composer's 预设 Agent switch. Three turns of one conversation: under A,
+	// then after switching to B, then after switching back to the default agent.
+	// Only the request body can prove which briefing was in force, because a
+	// section changed after the first turn reaches the model as a patch.
+	const answeredBy = (done: string) => (snapshot: ZGStateSnapshot) =>
+		!snapshot.streaming &&
+		snapshot.messages.some(
+			(message) =>
+				(message as { role?: string }).role === "assistant" &&
+				((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+					block.text?.includes(done),
+				),
+		);
+
+	// Two presets of its own, so the scenario does not depend on what the tests
+	// around it created, edited or deleted.
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			name: PRESET_SWITCH_NAME_A,
+			description: "切换前的身份",
+			tags: ["切换"],
+			text: `你是切换前的身份。\n${PRESET_SWITCH_MARKER_A}`,
+		},
+	});
+	const savedA = (await waitForFirst((message) => message.type === "preset_saved")) as {
+		preset: ZGPresetView | null;
+	};
+	const presetA = savedA.preset?.id ?? "";
+	expect(presetA).not.toBe("");
+
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			name: PRESET_SWITCH_NAME_B,
+			description: "切换后的身份",
+			tags: ["切换"],
+			text: `你是切换后的身份。\n${PRESET_SWITCH_MARKER_B}`,
+		},
+	});
+	const savedB = (await waitForFirst((message) => message.type === "preset_saved")) as {
+		preset: ZGPresetView | null;
+	};
+	const presetB = savedB.preset?.id ?? "";
+	expect(presetB).not.toBe("");
+	expect(presetB).not.toBe(presetA);
+
+	// A conversation that starts under A, with one turn to pin A's briefing.
+	drainIncoming();
+	send({ type: "new_session", presetId: presetA });
+	const opened = await snapshotWhereFirst((snapshot) => !snapshot.streaming && snapshot.preset?.id === presetA);
+	const sessionId = opened.activeSessionId;
+	expect(sessionId).not.toBeNull();
+
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SWITCH_PROMPT });
+	await snapshotWhereFirst(answeredBy(PRESET_SWITCH_DONE));
+	expect(lastRequestBody).toContain(PRESET_SWITCH_MARKER_A);
+	expect(lastRequestBody).not.toContain(PRESET_SWITCH_MARKER_B);
+
+	// Switching rebuilds the same conversation rather than starting a new one: the
+	// choice is appended to the session file, so the session id comes back.
+	drainIncoming();
+	send({ type: "set_session_preset", presetId: presetB });
+	const switched = await snapshotWhereFirst((snapshot) => !snapshot.streaming && snapshot.preset?.id === presetB);
+	expect(switched.activeSessionId).toBe(sessionId);
+	expect(switched.preset?.name).toBe(PRESET_SWITCH_NAME_B);
+	expect(switched.preset?.missing).toBe(false);
+
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SWITCH_SECOND_PROMPT });
+	await snapshotWhereFirst(answeredBy(PRESET_SWITCH_SECOND_DONE));
+	expect(lastRequestBody).toContain(PRESET_SWITCH_MARKER_B);
+	expect(lastRequestBody).not.toContain(PRESET_SWITCH_MARKER_A);
+
+	// And back to the plain default agent: neither briefing survives.
+	drainIncoming();
+	send({ type: "set_session_preset", presetId: null });
+	const cleared = await snapshotWhereFirst((snapshot) => !snapshot.streaming && snapshot.preset === null);
+	expect(cleared.activeSessionId).toBe(sessionId);
+
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SWITCH_THIRD_PROMPT });
+	await snapshotWhereFirst(answeredBy(PRESET_SWITCH_THIRD_DONE));
+	expect(lastRequestBody).not.toContain(PRESET_SWITCH_MARKER_A);
+	expect(lastRequestBody).not.toContain(PRESET_SWITCH_MARKER_B);
+
+	// "No preset" is a session entry too, so it is what a console restart replays.
+	await rebuildSessions();
+	const rebuilt = await snapshotWhereFirst((snapshot) => snapshot.activeSessionId === sessionId);
+	expect(rebuilt.preset).toBeNull();
+}, 90000);
+
+test("a sub-agent inherits the preset of the session that spawned it", async () => {
+	// Same restore as the engine test below: earlier tests wreck the model library
+	// on purpose, and this scenario really does call the endpoint. It goes through
+	// the settings screen rather than writeTestModel because a sub-agent resolves
+	// its model through the console's cached runtime: a direct library write leaves
+	// that runtime on a stale entry, and the spawn is then refused with "no model"
+	// before the sub-agent ever reaches the endpoint.
+	drainIncoming();
+	send({ type: "get_model_library" });
+	const library = await waitForFirst((message) => message.type === "model_library").then(
+		(message) => (message as { library: ZGModelLibraryView }).library,
+	);
+	const mainId =
+		library.roles.main ??
+		writeTestModel(agentDir, {
+			baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
+			apiKey: "test-key",
+			modelId: "zg-fake-model",
+		});
+	send({
+		type: "save_model_entry",
+		id: mainId,
+		name: "主端点",
+		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
+		apiKey: "test-key",
+		modelId: "zg-fake-model",
+	});
+	const restored = await snapshotWhereFirst((snapshot) => snapshot.modelConfigured === true);
+	expect(restored.model?.id).toBe("zg-fake-model");
+	expect(presetSubagentBody).toBe("");
+	// No project switch here on purpose: the test before this one already ran a
+	// session in the active project, and re-entering the project it is already in
+	// only races itself — the switch answers late and re-points the active session
+	// at the fresh, preset-less one it created, so the prompt would land there.
+
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			name: PRESET_SUBAGENT_NAME,
+			description: "子代理也要读同一份上下文",
+			tags: ["继承"],
+			text: `你是 Web 侦察专家。\n${PRESET_SUBAGENT_MARKER}`,
+		},
+	});
+	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as { preset: ZGPresetView | null };
+	const presetId = saved.preset?.id ?? "";
+	expect(presetId).not.toBe("");
+
+	drainIncoming();
+	send({ type: "new_session", presetId });
+	const opened = await snapshotWhereFirst((snapshot) => !snapshot.streaming && snapshot.preset?.id === presetId);
+	expect(opened.preset?.missing).toBe(false);
+
+	// One turn: the parent delegates, the child answers with its own text.
+	drainIncoming();
+	send({ type: "prompt", text: PRESET_SUBAGENT_PROMPT });
+	await snapshotWhereFirst(
+		(snapshot) =>
+			!snapshot.streaming &&
+			snapshot.messages.some(
+				(message) =>
+					(message as { role?: string }).role === "assistant" &&
+					((message as { content?: Array<{ type?: string; text?: string }> }).content ?? []).some((block) =>
+						block.text?.includes(PRESET_SUBAGENT_PARENT_DONE),
+					),
+			),
+	);
+
+	// The sub-agent runs in a session of its own, so its system prompt is the only
+	// place the preset can come from. The order matters too: the sub-agent identity
+	// comes first, the preset text after it, which is the same shape a worker's
+	// prompt takes.
+	expect(presetSubagentBody).toContain(SUBAGENT_MARKER);
+	expect(presetSubagentBody).toContain(PRESET_SUBAGENT_MARKER);
+	expect(presetSubagentBody.indexOf(SUBAGENT_MARKER)).toBeLessThan(presetSubagentBody.indexOf(PRESET_SUBAGENT_MARKER));
+}, 120000);
+
+test("the commander dispatches with a whitelisted preset and has an outsider refused", async () => {
+	// This test runs last, after the ones that wreck the model library on purpose
+	// (the 守门模型 refusal test deletes the main provider from models.json), so put a
+	// working endpoint back: the commander falls back to 主模型 and the workers use it.
+	writeTestModel(agentDir, {
+		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
+		apiKey: "test-key",
+		modelId: "zg-fake-model",
+	});
+	// The engine runs in the project every other test uses; an earlier test may have
+	// left the console inside a project it then deleted, and switching back to the
+	// project it is already in is a no-op that answers nothing, so ask for state.
+	drainIncoming();
+	send({ type: "switch_project", id: mainProjectId });
+	send({ type: "get_state" });
+	await snapshotWhereFirst((snapshot) => snapshot.project?.id === mainProjectId);
+
+	drainIncoming();
+	send({
+		type: "save_preset",
+		input: {
+			name: ENGINE_PRESET_NAME,
+			description: ENGINE_PRESET_DESCRIPTION,
+			tags: ["域", "内网"],
+			text: `你是域内账户枚举专家。\n${ENGINE_PRESET_MARKER}`,
+		},
+	});
+	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as { preset: ZGPresetView | null };
+	enginePresetId = saved.preset?.id ?? "";
+	expect(enginePresetId).not.toBe("");
+
+	drainIncoming();
+	send({
+		type: "engine_create",
+		input: {
+			name: "预设工程 e2e",
+			targets: "10.0.0.7\n10.0.0.8",
+			doctrines: ["standard"],
+			presetIds: [enginePresetId],
+			limits: { concurrency: 1, roundLimit: 3, tokenLimit: null, timeLimitMin: null, maxRetries: 1 },
+			gateMode: "auto",
+		},
+	});
+	const completed = (await waitForFirst(
+		(message) =>
+			message.type === "engine_update" &&
+			message.engine.status === "completed" &&
+			(message.engine.report ?? "").includes(ENGINE_REPORT_MARKER),
+		90000,
+	)) as { engine: ZGEngine };
+	const engine = completed.engine;
+
+	// The whitelist round-trips through the store and back to the console.
+	expect(engine.presetIds).toEqual([enginePresetId]);
+	// Exactly one task: the refused dispatch left no row behind, so the board never
+	// shows a preset name the worker did not run as.
+	expect(engine.tasks).toHaveLength(1);
+	const task = engine.tasks[0];
+	expect(task?.status).toBe("done");
+	expect(task?.presetId).toBe(enginePresetId);
+	expect(task?.presetName).toBe(ENGINE_PRESET_NAME);
+	expect(task?.summary).toContain(ENGINE_WORKER_SUMMARY);
+
+	// The commander's brief listed the preset with the id it had to use, and never
+	// mentioned the outsider it was refused.
+	expect(commanderBodies.some((body) => body.includes(`- ${enginePresetId} · ${ENGINE_PRESET_NAME}`))).toBe(true);
+
+	// The task session really ran as that preset: opening it from the task board puts
+	// the preset badge on the conversation and its own system prompt carries the text
+	// behind the worker identity.
+	drainIncoming();
+	send({ type: "engine_open_task_session", taskId: task?.id ?? "" });
+	const opened = await snapshotWhereFirst((snapshot) => snapshot.preset?.id === enginePresetId, 30000);
+	expect(opened.preset?.name).toBe(ENGINE_PRESET_NAME);
+	expect(opened.preset?.missing).toBe(false);
+	const addendum = addendumOf(opened);
+	expect(addendum).toContain(ENGINE_PRESET_MARKER);
+	expect(addendum).toContain("Work autonomously inside the assigned working directory");
+
+	// Whether a task may run without a preset is a per-engine switch, and the
+	// console learns about a flip from the broadcast.
+	drainIncoming();
+	send({ type: "engine_set_preset_optional", id: engine.id, optional: false });
+	const required = (await waitForFirst(
+		(message) => message.type === "engine_update" && message.engine.presetOptional === false,
+	)) as { engine: ZGEngine };
+	expect(required.engine.id).toBe(engine.id);
+	// Back to the default: presets stay optional unless the operator says otherwise.
+	send({ type: "engine_set_preset_optional", id: engine.id, optional: true });
+	const restored = (await waitForFirst(
+		(message) => message.type === "engine_update" && message.engine.presetOptional === true,
+	)) as { engine: ZGEngine };
+	expect(restored.engine.id).toBe(engine.id);
+}, 120000);

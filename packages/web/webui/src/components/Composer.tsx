@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { formatTokens } from "../transcript.ts";
-import type { ZGImageAttachment, ZGStatsView } from "../types.ts";
-import { BellIcon, ImageIcon, TargetIcon } from "./icons.tsx";
+import type { ZGImageAttachment, ZGPresetView, ZGSessionPresetView, ZGStatsView } from "../types.ts";
+import { BellIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
+import { type PresetMenuAnchor, PresetMenu, presetMenuPosition } from "./PresetMenu.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
 async function readImage(file: File): Promise<ZGImageAttachment | null> {
@@ -31,8 +32,11 @@ export function Composer({
 	blockedReason,
 	notifyRun,
 	goalDisabledReason,
+	presets,
+	preset,
 	onToggleNotifyRun,
 	onOpenGoal,
+	onSetPreset,
 	onSend,
 	onAbort,
 }: {
@@ -45,14 +49,22 @@ export function Composer({
 	notifyRun: boolean;
 	/** Why a persistent goal cannot start right now; null means it can. */
 	goalDisabledReason: string | null;
+	/** The library, for the 预设 Agent picker; disabled entries are not offered. */
+	presets: readonly ZGPresetView[];
+	/** The preset the viewed session runs under; null means the default agent. */
+	preset: ZGSessionPresetView | null;
 	onToggleNotifyRun: () => void;
 	onOpenGoal: () => void;
+	/** Re-brief the viewed session; null drops back to the default agent. */
+	onSetPreset: (presetId: string | null) => void;
 	onSend: (text: string, behavior?: "steer" | "followUp", images?: ZGImageAttachment[]) => void;
 	onAbort: () => void;
 }) {
 	const [text, setText] = useState("");
 	const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
 	const [images, setImages] = useState<ZGImageAttachment[]>([]);
+	/** The 预设 Agent picker, anchored under its button. */
+	const [presetMenu, setPresetMenu] = useState<PresetMenuAnchor | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	const submit = (override?: "steer" | "followUp") => {
@@ -79,10 +91,29 @@ export function Composer({
 	return (
 		<div className="composer-zone">
 			<div className="composer">
-				{/* Goal mode sits above the input because it changes what the input
-				    means: the objective is submitted once and then worked on by the
-				    agent on its own, round after round. */}
+				{/* Goal mode and the preset agent both sit above the input because they
+				    change what the input means: one makes it an objective the agent
+				    keeps working on, the other re-briefs who is reading it. */}
 				<div className="composer-goal-row">
+					<button
+						type="button"
+						className={`composer-tool preset-trigger ${preset ? "on" : ""}`}
+						onClick={(event) => {
+							setPresetMenu(presetMenuPosition(event.currentTarget.getBoundingClientRect()));
+						}}
+						disabled={!hasProject || blocked || streaming}
+						title={
+							streaming
+								? "会话正在运行，先中止再换预设"
+								: preset
+									? `当前预设：${preset.name}${preset.missing ? "（已失效，正按默认 Agent 运行）" : ""}；点击更换，只影响之后的回合`
+									: "给这个会话挂一个预设 Agent：换掉身份与背景，不影响可用工具和权限"
+						}
+					>
+						<SubagentIcon />
+						预设 Agent
+						{preset ? <span className="preset-trigger__name">{preset.name}</span> : null}
+					</button>
 					<button
 						type="button"
 						className="composer-tool goal-trigger"
@@ -95,6 +126,18 @@ export function Composer({
 					</button>
 					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
 				</div>
+				{presetMenu ? (
+					<PresetMenu
+						anchor={presetMenu}
+						presets={presets}
+						currentId={preset?.id ?? null}
+						onPick={(presetId) => {
+							setPresetMenu(null);
+							onSetPreset(presetId ?? null);
+						}}
+						onClose={() => setPresetMenu(null)}
+					/>
+				) : null}
 				{images.length > 0 ? (
 					<div className="attachment-strip">
 						{images.map((image, index) => (

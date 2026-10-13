@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS engines (
   pause_note TEXT,
   targets TEXT NOT NULL,
   doctrines TEXT NOT NULL,
+  preset_ids TEXT NOT NULL DEFAULT '[]',
+  preset_optional INTEGER NOT NULL DEFAULT 1,
   limits TEXT NOT NULL,
   gate_mode TEXT NOT NULL DEFAULT 'auto',
   created_at INTEGER NOT NULL,
@@ -54,6 +56,8 @@ CREATE TABLE IF NOT EXISTS engine_tasks (
   attempt INTEGER NOT NULL DEFAULT 1,
   criteria TEXT NOT NULL DEFAULT '[]',
   round_limit INTEGER NOT NULL,
+  preset_id TEXT,
+  preset_name TEXT,
   session_id TEXT,
   started_at INTEGER,
   ended_at INTEGER,
@@ -84,6 +88,9 @@ interface EngineRow {
 	pause_note: string | null;
 	targets: string;
 	doctrines: string;
+	preset_ids: string;
+	/** SQLite has no boolean: 1 means a task may run without a preset. */
+	preset_optional: number;
 	limits: string;
 	gate_mode: string;
 	created_at: number;
@@ -102,6 +109,8 @@ interface TaskRow {
 	attempt: number;
 	criteria: string;
 	round_limit: number;
+	preset_id: string | null;
+	preset_name: string | null;
 	session_id: string | null;
 	started_at: number | null;
 	ended_at: number | null;
@@ -124,6 +133,7 @@ export class EngineStore {
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
 		this.addGateModeColumn();
+		this.addPresetColumns();
 	}
 
 	/**
@@ -137,12 +147,41 @@ export class EngineStore {
 		this.db.exec("ALTER TABLE engines ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'auto'");
 	}
 
+	/**
+	 * Preset columns, added the same way. An engine from before presets gets an
+	 * empty whitelist — no restriction, which is exactly how it ran — and its
+	 * existing tasks get no preset, which is the default agent they used. Such an
+	 * engine also keeps presets optional, so it dispatches exactly as it did.
+	 */
+	private addPresetColumns(): void {
+		const engineColumns = this.db.prepare("PRAGMA table_info(engines)").all() as unknown as Array<{ name: string }>;
+		if (!engineColumns.some((column) => column.name === "preset_ids")) {
+			this.db.exec("ALTER TABLE engines ADD COLUMN preset_ids TEXT NOT NULL DEFAULT '[]'");
+		}
+		if (!engineColumns.some((column) => column.name === "preset_optional")) {
+			this.db.exec("ALTER TABLE engines ADD COLUMN preset_optional INTEGER NOT NULL DEFAULT 1");
+		}
+		const taskColumns = this.db.prepare("PRAGMA table_info(engine_tasks)").all() as unknown as Array<{
+			name: string;
+		}>;
+		if (!taskColumns.some((column) => column.name === "preset_id")) {
+			this.db.exec("ALTER TABLE engine_tasks ADD COLUMN preset_id TEXT");
+		}
+		if (!taskColumns.some((column) => column.name === "preset_name")) {
+			this.db.exec("ALTER TABLE engine_tasks ADD COLUMN preset_name TEXT");
+		}
+	}
+
 	createEngine(input: {
 		projectId: string;
 		projectName: string;
 		name: string;
 		targets: ZGEngineTarget[];
 		doctrines: string[];
+		/** Preset whitelist; omitted means no restriction. */
+		presetIds?: string[];
+		/** Whether a task may run without a preset; omitted means it may. */
+		presetOptional?: boolean;
 		limits: ZGEngineLimits;
 		gateMode: ZGEngineGateMode;
 	}): ZGEngine {
@@ -155,6 +194,8 @@ export class EngineStore {
 			pauseNote: null,
 			targets: input.targets,
 			doctrines: input.doctrines,
+			presetIds: input.presetIds ?? [],
+			presetOptional: input.presetOptional ?? true,
 			limits: input.limits,
 			gateMode: input.gateMode,
 			createdAt: Date.now(),
@@ -164,8 +205,8 @@ export class EngineStore {
 		};
 		this.db
 			.prepare(
-				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, limits, gate_mode, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, preset_ids, preset_optional, limits, gate_mode, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				engine.id,
@@ -175,6 +216,8 @@ export class EngineStore {
 				engine.status,
 				JSON.stringify(engine.targets),
 				JSON.stringify(engine.doctrines),
+				JSON.stringify(engine.presetIds),
+				engine.presetOptional ? 1 : 0,
 				JSON.stringify(engine.limits),
 				engine.gateMode,
 				engine.createdAt,
@@ -214,6 +257,23 @@ export class EngineStore {
 		this.db.prepare("UPDATE engines SET gate_mode = ? WHERE id = ?").run(gateMode, id);
 	}
 
+	/**
+	 * Replace this engine's preset whitelist. An empty list clears the restriction;
+	 * changing it cannot affect a task already dispatched, because a task records
+	 * the preset it ran as and its session file carries the choice.
+	 */
+	setEnginePresets(id: string, presetIds: string[]): void {
+		this.db.prepare("UPDATE engines SET preset_ids = ? WHERE id = ?").run(JSON.stringify(presetIds), id);
+	}
+
+	/**
+	 * Whether this engine's tasks may run without a preset. Like the whitelist this
+	 * is per dispatch: a task already created keeps the preset it captured.
+	 */
+	setEnginePresetOptional(id: string, optional: boolean): void {
+		this.db.prepare("UPDATE engines SET preset_optional = ? WHERE id = ?").run(optional ? 1 : 0, id);
+	}
+
 	/** Delete an engine with its tasks and event logs. The manager ensures it is not running. */
 	deleteEngine(id: string): void {
 		this.db.prepare("DELETE FROM engine_events WHERE owner_id = ?").run(id);
@@ -246,6 +306,9 @@ export class EngineStore {
 		roundLimit: number;
 		attempt: number;
 		criteria?: string[];
+		/** The preset agent this task runs as; null means the default agent. */
+		presetId?: string | null;
+		presetName?: string | null;
 	}): ZGEngineTask {
 		const engine = this.getEngine(input.engineId);
 		const seq = engine ? engine.tasks.length : 0;
@@ -266,6 +329,8 @@ export class EngineStore {
 			attempt: input.attempt,
 			roundLimit: input.roundLimit,
 			criteria: input.criteria ?? [],
+			presetId: input.presetId ?? null,
+			presetName: input.presetName ?? null,
 			sessionId: null,
 			startedAt: null,
 			endedAt: null,
@@ -276,8 +341,8 @@ export class EngineStore {
 		};
 		this.db
 			.prepare(
-				`INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, session_id, seq)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+				`INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, preset_id, preset_name, session_id, seq)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 			)
 			.run(
 				task.id,
@@ -290,6 +355,8 @@ export class EngineStore {
 				task.attempt,
 				JSON.stringify(task.criteria),
 				task.roundLimit,
+				task.presetId,
+				task.presetName,
 				seq,
 			);
 		return task;
@@ -301,12 +368,14 @@ export class EngineStore {
 		const next = { ...current, ...patch };
 		this.db
 			.prepare(
-				`UPDATE engine_tasks SET status = ?, criteria = ?, session_id = ?, started_at = ?, ended_at = ?, summary = ?,
+				`UPDATE engine_tasks SET status = ?, criteria = ?, preset_id = ?, preset_name = ?, session_id = ?, started_at = ?, ended_at = ?, summary = ?,
 				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ? WHERE id = ?`,
 			)
 			.run(
 				next.status,
 				JSON.stringify(next.criteria),
+				next.presetId,
+				next.presetName,
 				next.sessionId,
 				next.startedAt,
 				next.endedAt,
@@ -375,6 +444,11 @@ function engineFromRow(row: EngineRow, tasks: ZGEngineTask[]): ZGEngine {
 		pauseNote: row.pause_note,
 		targets: parseJson(row.targets, []) as ZGEngineTarget[],
 		doctrines: parseJson(row.doctrines, []) as string[],
+		// A row written before the column existed reads as no restriction, which is
+		// how it ran.
+		presetIds: parseJson(row.preset_ids, []) as string[],
+		// A row written before the column existed reads as optional, which is how it ran.
+		presetOptional: row.preset_optional !== 0,
 		limits: parseJson(row.limits, null) as unknown as ZGEngineLimits,
 		// A row written before the column existed reads as `auto`, which is how it ran.
 		gateMode: row.gate_mode === "ai" ? "ai" : "auto",
@@ -397,6 +471,8 @@ function taskFromRow(row: TaskRow): ZGEngineTask {
 		attempt: row.attempt,
 		roundLimit: row.round_limit,
 		criteria: parseJson(row.criteria, []) as string[],
+		presetId: row.preset_id,
+		presetName: row.preset_name,
 		sessionId: row.session_id,
 		startedAt: row.started_at,
 		endedAt: row.ended_at,

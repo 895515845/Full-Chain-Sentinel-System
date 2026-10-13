@@ -23,6 +23,11 @@ interface DispatchDetails {
 type MaybePromise<T> = T | Promise<T>;
 
 export interface CommanderPort {
+	/**
+	 * Whether a task may run without a preset. Read once, when the commander's tools
+	 * are built: like the brief, a mid-run flip reaches the commander on resume.
+	 */
+	presetOptional: boolean;
 	/** Queue a task; the engine assigns id, attempt, workspace, and turn order. */
 	dispatch(input: {
 		title: string;
@@ -30,6 +35,8 @@ export interface CommanderPort {
 		target: string | null;
 		criteria: string[];
 		roundLimit: number | null;
+		/** Preset agent id to run the task as; null uses the default agent. */
+		presetId: string | null;
 	}): { task?: ZGEngineTask; position?: number; error?: string };
 	/** Stop one task (queued or running) with a reason. */
 	abortTask(taskId: string, reason: string): MaybePromise<{ ok: boolean; error?: string }>;
@@ -58,6 +65,9 @@ export function formatTaskBoard(tasks: readonly ZGEngineTask[]): string {
 		.map(
 			(task) =>
 				`- [${TASK_STATUS_LABELS[task.status]}] ${task.id}「${task.title}」目标：${task.target ?? "（未指定）"}，第 ${task.attempt} 次派发` +
+				// The preset is part of what a re-dispatch must decide: a failed task
+				// re-dispatched as the same preset is the same attempt twice.
+				`，预设：${task.presetName ?? "默认 Agent"}` +
 				(task.summary ? `，结论：${task.summary}` : "") +
 				(task.error ? `，错误：${task.error}` : ""),
 		)
@@ -122,6 +132,9 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 			"Write objectives that stand alone: target, scope, method hints, and what counts as done",
 			"Dispatch parallel-friendly tasks instead of one giant task per target",
 			"When re-dispatching a failed target, change the approach and say what to do differently",
+			port.presetOptional
+				? "Set `preset` to the listed preset agent whose description and tags fit the task; omit it when none fits and let the task run as the default agent"
+				: "Every task must name a `preset` from the listed preset agents; a dispatch without one is refused, so pick the closest match",
 		],
 		parameters: Type.Object({
 			title: Type.String({
@@ -153,6 +166,13 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 					description: "Automatic continuation rounds for this task; omit to use the engine default.",
 				}),
 			),
+			preset: Type.Optional(
+				Type.String({
+					description: port.presetOptional
+						? "Preset agent id this task should run as, from the 「可用预设 Agent」 list. Omit to use the default agent. An id outside that list is refused."
+						: "Preset agent id this task must run as, from the 「可用预设 Agent」 list. Required here: a dispatch without one is refused, as is an id outside that list.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<DispatchDetails>> {
 			const result = port.dispatch({
@@ -161,6 +181,7 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 				target: params.target?.trim() || null,
 				criteria: (params.criteria ?? []).map((item) => item.trim()).filter(Boolean),
 				roundLimit: params.round_limit ?? null,
+				presetId: params.preset?.trim() || null,
 			});
 			if (result.error || !result.task) {
 				return {
