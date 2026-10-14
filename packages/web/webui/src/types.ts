@@ -21,6 +21,7 @@ export type ZGPageId =
 	| "vulns"
 	| "pocs"
 	| "apimodels"
+	| "droid"
 	| "engine"
 	| "gates"
 	| "settings.model"
@@ -31,7 +32,6 @@ export type ZGPageId =
 	| "settings.presets"
 	| "settings.pocs"
 	| "about";
-
 
 /** Reasoning effort levels pi accepts, ascending. */
 export type ZGThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -593,6 +593,34 @@ export interface ZGModelingState {
 	entityCount: number;
 }
 
+// ---------------------------------------------------------------------------
+// 安卓设备（Droid 插件）
+// ---------------------------------------------------------------------------
+
+/** One Android device the DroidBridge APK registered. */
+export interface DroidDevice {
+	id: string;
+	name: string;
+	model: string;
+	androidVersion: string;
+	sdkInt: number;
+	rooted: boolean;
+	online: boolean;
+	tokenId: string;
+	firstSeen: string;
+	lastSeen: string;
+}
+
+/** One reverse-connection token; the value is shown once for typing into the APK. */
+export interface DroidToken {
+	id: string;
+	label: string;
+	token: string;
+	createdAt: string;
+	revokedAt: string | null;
+	lastUsedAt: string | null;
+}
+
 export interface ZGStateSnapshot {
 	mode: ZGMode;
 	streaming: boolean;
@@ -924,6 +952,13 @@ export type ZGClientMessage =
 	| { type: "end_modeling" }
 	| { type: "detach_modeling" }
 	| { type: "end_api_model"; id: string }
+	/** The Android device page: pull the full gateway state. */
+	| { type: "droid_state" }
+	| { type: "droid_token_create"; label: string }
+	| { type: "droid_token_revoke"; id: string }
+	| { type: "droid_device_rename"; id: string; name: string }
+	| { type: "droid_device_remove"; id: string }
+	| { type: "droid_set_enabled"; enabled: boolean }
 	| { type: "list_api_models"; filters?: ZGApiModelFilters }
 	| { type: "get_api_model"; id: string }
 	| { type: "delete_api_model"; id: string }
@@ -1012,6 +1047,7 @@ export type ZGServerMessage =
 	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
 	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
+	| { type: "droid_state"; enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }
 	| { type: "error"; message: string };
 
 /**
@@ -1076,7 +1112,6 @@ export type SessionEventView =
 	| { type: "agent_start" }
 	| { type: "agent_settled"; aborted: boolean }
 	| { type: "queue_update"; steering: string[]; followUp: string[] };
-
 
 // ---------------------------------------------------------------------------
 // Engineering mode (mirrors packages/web/src/protocol.ts)

@@ -13,14 +13,13 @@ import {
 	Bot,
 	Bug,
 	Check,
-	KeyRound,
-	LogOut,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	ChevronUp,
 	Container,
 	Download,
+	FileCode,
 	FileText,
 	Folder,
 	FolderOpen,
@@ -28,7 +27,10 @@ import {
 	GitBranch,
 	Image as ImageGlyph,
 	Info,
+	KeyRound,
 	LayoutGrid,
+	LogOut,
+	type LucideProps,
 	MessageSquare,
 	Minimize2,
 	Network,
@@ -38,13 +40,12 @@ import {
 	Settings,
 	Shield,
 	ShieldCheck,
-	FileCode,
 	SlidersHorizontal,
+	Smartphone,
 	Target,
 	Trash,
 	X,
 	XCircle,
-	type LucideProps,
 } from "lucide-react";
 
 /** Matches the 12-13px label text the icons sit next to. */
@@ -210,6 +211,11 @@ export function PocIcon(props: IconProps) {
 /** Sider menu and composer: business modeling — the API model of a target. */
 export function ApiModelIcon(props: IconProps) {
 	return <Network size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: Android devices (the Droid plugin). */
+export function DroidIcon(props: IconProps) {
+	return <Smartphone size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Sider menu: console security settings. */

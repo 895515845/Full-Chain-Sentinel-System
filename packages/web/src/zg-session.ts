@@ -51,6 +51,9 @@ import {
 } from "./apimodels.ts";
 import { ApprovalGate } from "./approval.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
+import { DroidStore, droidDbPath } from "./droid.ts";
+import type { DroidGateway } from "./droid-gateway.ts";
+import { createApkTools, createDroidTools, DROID_TOOL_NAMES, type DroidToolContext } from "./droid-tool.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
 import { buildJudgeInput, GATEKEEPER_SAMPLE_COMMAND, Gatekeeper, type ResolvedJudgeEndpoint } from "./gatekeeper.ts";
 import { readGatekeeperConfig, writeGatekeeperConfig } from "./gatekeeper-config.ts";
@@ -221,6 +224,8 @@ export interface ZGRuntimeHooks {
 	onPocSourceChange(): void;
 	/** A business-modeling run changed (started, submitted, ended); consoles refresh the page. */
 	onApiModelChange(): void;
+	/** A device came online/went offline, or the device page's data changed. */
+	onDroidChange(): void;
 }
 
 /**
@@ -368,6 +373,11 @@ export class ZGAgentRuntime {
 	private readonly vulnerabilities: VulnerabilityStore;
 	private readonly pocs: PocStore;
 	private readonly apiModels: ApiModelStore;
+	private readonly droids: DroidStore;
+	/** Injected once the server has built the WS device gateway (see server.ts). */
+	private droidGateway: DroidGateway | undefined;
+	/** The device page's switch: off means the droid/apk tools are not mounted at all. */
+	private droidOn: boolean;
 	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
@@ -407,6 +417,8 @@ export class ZGAgentRuntime {
 		this.vulnerabilities = new VulnerabilityStore(vulnerabilityDbPath(this.agentDir));
 		this.pocs = new PocStore(pocsDbPath(this.agentDir));
 		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
+		this.droids = new DroidStore(droidDbPath(this.agentDir));
+		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
 			onSyncFailure: (source, record) => this.notifyPocSyncFailure(source, record),
@@ -654,6 +666,10 @@ export class ZGAgentRuntime {
 			// business modeling is an operator-driven action on a conversation.
 			...(task ? [] : createApiModelTools(this.createModelingPort(managed))),
 			...(task ? [] : createApiModelAttachTools(this.createModelingAttachPort(managed))),
+			// The Android toolset is opt-in from the device page; off means unmounted,
+			// which keeps an Android toolset out of a Web-pentest session's prompt.
+			...(task ? [] : createDroidTools(this.createDroidToolContext())),
+			...(task ? [] : createApkTools(this.createDroidToolContext())),
 			...(permissions.spawn_agent
 				? [
 						createSubagentTool({
@@ -719,6 +735,7 @@ export class ZGAgentRuntime {
 		// puts them back; every other session has them removed explicitly, so a
 		// loadout restored from an older transcript cannot resurrect them.
 		this.applyModelingTools(managed);
+		this.applyDroidTools(managed);
 		if (task) {
 			// Task sessions live under their engine's collapsible group in the
 			// sidebar, which already states the ownership — the name is just the
@@ -1334,6 +1351,120 @@ export class ZGAgentRuntime {
 	/** Runs a removed project takes with it. */
 	purgeProjectApiModels(projectId: string): number {
 		return this.apiModels.purgeProject(projectId);
+	}
+
+	// =========================================================================
+	// Android devices (Droid 插件)
+	// =========================================================================
+
+	/** The gateway is built by the server once the HTTP listener exists. */
+	setDroidGateway(gateway: DroidGateway): void {
+		this.droidGateway = gateway;
+	}
+
+	/** The registry the server's device gateway authenticates against. */
+	get droidRegistry(): DroidStore {
+		return this.droids;
+	}
+
+	/** Everything the device page shows: the switch, devices, and tokens. */
+	droidState(): {
+		enabled: boolean;
+		devices: ReturnType<DroidStore["listDevices"]>;
+		tokens: ReturnType<DroidStore["listTokens"]>;
+	} {
+		return { enabled: this.droidOn, devices: this.droids.listDevices(), tokens: this.droids.listTokens() };
+	}
+
+	/** Flip the toolset switch; every console session remounts its tool set. */
+	async setDroidEnabled(enabled: boolean): Promise<void> {
+		this.droidOn = enabled;
+		this.droids.setMeta("enabled", enabled ? "1" : "0");
+		for (const managed of this.sessions.values()) this.applyDroidTools(managed);
+		this.hooks.onStateChange();
+	}
+
+	async droidCreateToken(label: string): Promise<void> {
+		this.droids.createToken(label);
+		this.hooks.onDroidChange();
+	}
+
+	/** Revoke a token and drop every device that authenticated with it. */
+	async droidRevokeToken(id: string): Promise<void> {
+		if (!this.droids.revokeToken(id)) throw new Error("该 token 不存在或已吊销");
+		for (const device of this.droids.listDevices()) {
+			if (device.tokenId === id) this.droidGateway?.disconnect(device.id);
+		}
+		this.hooks.onDroidChange();
+	}
+
+	async droidRenameDevice(id: string, name: string): Promise<void> {
+		if (!this.droids.renameDevice(id, name)) throw new Error("设备不存在或名称为空");
+		this.hooks.onDroidChange();
+	}
+
+	async droidRemoveDevice(id: string): Promise<void> {
+		this.droidGateway?.disconnect(id);
+		if (!this.droids.removeDevice(id)) throw new Error("设备不存在");
+		this.hooks.onDroidChange();
+	}
+
+	private createDroidToolContext(): DroidToolContext {
+		return {
+			gateway: () => this.droidGateway,
+			enabled: () => this.droidOn,
+			container: () => this.requireContainer(),
+			workDir: () => this.cwd,
+			guard: (deviceName, command) => this.guardDroidCommand(deviceName, command),
+		};
+	}
+
+	/**
+	 * The approval chain for device commands, the same three modes container bash
+	 * goes through. The judge sees the device as the source, and an edited command
+	 * from the approval card is the one that runs.
+	 */
+	private guardDroidCommand(deviceName: string, command: string): Promise<string> {
+		const mode = this.effectiveMode(this.active);
+		const label = `设备「${deviceName}」`;
+		if (mode === "auto") return Promise.resolve(command);
+		if (mode === "review") {
+			if (this.approvals.isAutoAllowed(command)) return Promise.resolve(command);
+			return this.approvals
+				.request(command, this.activeContainer ? "/work" : "/", undefined, label)
+				.then((outcome) => {
+					if (outcome.approved && outcome.command !== undefined) return outcome.command;
+					throw new Error(outcome.reason ?? "已拒绝");
+				});
+		}
+		return this.gatekeeper
+			.guard({
+				command,
+				cwd: "/work",
+				source: label,
+				projectId: this.activeProjectId ?? null,
+				projectName: this.activeProjectName ?? null,
+				sessionId: this.active?.manager.getSessionId() ?? null,
+			})
+			.then((outcome) => {
+				if (outcome.kind === "allow" || outcome.kind === "failed") return command;
+				throw new Error(outcome.kind === "block" ? outcome.message : "已中止");
+			});
+	}
+
+	/**
+	 * Mount or unmount the Android toolset as one switch. The tools refuse to act
+	 * while no device is online, so the switch controls prompt noise, not
+	 * authority — the authority control is the command gate above.
+	 */
+	private applyDroidTools(managed: ManagedSession): void {
+		if (managed.taskSession) return;
+		const active = managed.session.getActiveToolNames();
+		const wanted = this.droidOn
+			? [...active, ...DROID_TOOL_NAMES.filter((name) => !active.includes(name))]
+			: active.filter((name) => !DROID_TOOL_NAMES.includes(name));
+		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
+		if (changed) managed.session.setActiveToolsByName(wanted);
 	}
 
 	/**
@@ -2646,6 +2777,7 @@ export class ZGAgentRuntime {
 		this.vulnerabilities.close();
 		this.pocs.close();
 		this.apiModels.close();
+		this.droids.close();
 		this.subscriptions.stop();
 		this.gateStore.close();
 	}

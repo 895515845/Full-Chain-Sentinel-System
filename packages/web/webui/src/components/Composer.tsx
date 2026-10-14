@@ -9,8 +9,8 @@ import type {
 	ZGStatsView,
 } from "../types.ts";
 import { ApiModelIcon, BellIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
-import { type PresetMenuAnchor, PresetMenu, presetMenuPosition } from "./PresetMenu.tsx";
 import { ModelingMenu } from "./ModelingMenu.tsx";
+import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
 async function readImage(file: File): Promise<ZGImageAttachment | null> {
@@ -118,7 +118,12 @@ export function Composer({
 		// One-shot: the checked records ride this message only, then the picker's
 		// checklist resets. Nothing checked means the message carries nothing extra.
 		const attachModelIds = attachSelection.length > 0 ? attachSelection : undefined;
-		onSend(trimmed, streaming ? (override ?? behavior) : undefined, images.length > 0 ? images : undefined, attachModelIds);
+		onSend(
+			trimmed,
+			streaming ? (override ?? behavior) : undefined,
+			images.length > 0 ? images : undefined,
+			attachModelIds,
+		);
 		setText("");
 		setImages([]);
 		setAttachSelection([]);
@@ -180,7 +185,9 @@ export function Composer({
 					<button
 						type="button"
 						className={`composer-tool modeling-trigger ${modeling || modelingAttached.length > 0 ? "on" : ""}`}
-						onClick={(event) => setModelingMenu(presetMenuPosition(event.currentTarget.getBoundingClientRect(), 300))}
+						onClick={(event) =>
+							setModelingMenu(presetMenuPosition(event.currentTarget.getBoundingClientRect(), 300))
+						}
 						disabled={!hasProject || blocked}
 						title={
 							!hasProject
@@ -226,7 +233,9 @@ export function Composer({
 						onStart={onStartModeling}
 						onEnd={onEndModeling}
 						onToggle={(id) =>
-							setAttachSelection((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
+							setAttachSelection((prev) =>
+								prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+							)
 						}
 						onDetach={() => {
 							setModelingMenu(null);
@@ -316,7 +325,12 @@ export function Composer({
 					{streaming ? (
 						<>
 							<label className="behavior">
-								<input type="radio" name="behavior" checked={behavior === "steer"} onChange={() => setBehavior("steer")} />
+								<input
+									type="radio"
+									name="behavior"
+									checked={behavior === "steer"}
+									onChange={() => setBehavior("steer")}
+								/>
 								插话
 							</label>
 							<label className="behavior">
@@ -348,7 +362,13 @@ export function Composer({
 				</div>
 			</div>
 			<div className="status-line">
-				{blocked ? <span className="status-alert">已锁定</span> : streaming ? <span className="status-alert">运行中…</span> : "空闲"}
+				{blocked ? (
+					<span className="status-alert">已锁定</span>
+				) : streaming ? (
+					<span className="status-alert">运行中…</span>
+				) : (
+					"空闲"
+				)}
 				{stats ? (
 					<>
 						{" · Token 输入 "}

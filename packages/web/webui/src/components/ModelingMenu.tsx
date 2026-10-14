@@ -78,7 +78,9 @@ export function ModelingMenu(props: {
 							type="button"
 							className="preset-menu-item"
 							disabled={!props.canToggleRun}
-							title={props.canToggleRun ? "结束这次建模，摘除两个建模工具" : "Agent 正在运行，先中止或等本轮结束"}
+							title={
+								props.canToggleRun ? "结束这次建模，摘除两个建模工具" : "Agent 正在运行，先中止或等本轮结束"
+							}
 							onClick={() => {
 								props.onEnd();
 								props.onClose();
@@ -123,7 +125,9 @@ export function ModelingMenu(props: {
 					>
 						<span className="preset-menu-name">
 							关联建模数据
-							{props.attached.length > 0 ? <span className="modeling-menu-count">{props.attached.length} 份</span> : null}
+							{props.attached.length > 0 ? (
+								<span className="modeling-menu-count">{props.attached.length} 份</span>
+							) : null}
 						</span>
 						<span className="preset-menu-desc">
 							{props.attached.length > 0
@@ -175,7 +179,8 @@ export function ModelingMenu(props: {
 								<div className="preset-menu-hint">这个项目还没有业务建模记录。先开始一次建模。</div>
 							) : (
 								<div className="preset-menu-hint">
-									勾选后随第一条消息把接口目录交给 Agent（细节它可用 api_model_read 自己查）；一条都不勾，就什么都不插入。发送后勾选自动清空。
+									勾选后随第一条消息把接口目录交给 Agent（细节它可用 api_model_read
+									自己查）；一条都不勾，就什么都不插入。发送后勾选自动清空。
 								</div>
 							)}
 						</>

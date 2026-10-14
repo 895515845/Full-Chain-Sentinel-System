@@ -28,6 +28,7 @@ import {
 } from "./auth.ts";
 import { buildImage } from "./docker.ts";
 import { deleteDoctrine, listDoctrines, saveDoctrine } from "./doctrines.ts";
+import { DroidGateway } from "./droid-gateway.ts";
 import { testModelConfig } from "./endpoint-probe.ts";
 import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
@@ -225,6 +226,7 @@ export async function startZGServer(
 			// A modeling run changed (started, submitted, ended): the page is a list
 			// of records, so the whole list is what goes out.
 			onApiModelChange: () => broadcastApiModels(),
+			onDroidChange: () => broadcastDroidDevices(),
 		},
 	});
 
@@ -361,6 +363,12 @@ export async function startZGServer(
 	 */
 	function broadcastApiModels(): void {
 		broadcast({ type: "api_models", items: runtime.listApiModels() });
+	}
+
+	/** Device gateway state, pushed whenever a device or token changes. */
+	function broadcastDroidDevices(): void {
+		const state = runtime.droidState();
+		broadcast({ type: "droid_state", enabled: state.enabled, devices: state.devices, tokens: state.tokens });
 	}
 
 	/** Project list with each project's finding and gate-record counts, for the delete warning. */
@@ -505,6 +513,15 @@ export async function startZGServer(
 		sendJson(response, { ok: true });
 	}
 
+	// The device gateway owns the reverse WS the DroidBridge APK dials. The store
+	// is the runtime's (its tools read the registry); the hooks route lifecycle
+	// events into the console broadcasts and the server log.
+	const droidGateway = new DroidGateway(runtime.droidRegistry, {
+		onDeviceChange: () => broadcastDroidDevices(),
+		log: (line: string) => console.error(`[zg-droid] ${line}`),
+	});
+	runtime.setDroidGateway(droidGateway);
+
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
@@ -560,6 +577,9 @@ export async function startZGServer(
 	// The upgrade handshake is where the WebSocket is gated: no valid session, no console.
 	server.on("upgrade", (request, socket, head) => {
 		const url = new URL(request.url ?? "/", "http://localhost");
+		// The DroidBridge APK authenticates with its own device token, not the
+		// console session, and must reach the gateway before the console's checks.
+		if (droidGateway.handleUpgrade(request, socket, head)) return;
 		if (url.pathname !== "/ws" || (authEnabled && !hasValidSession(currentAuth(), request))) {
 			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
 			socket.destroy();
@@ -1255,6 +1275,48 @@ export async function startZGServer(
 						ok,
 						...(ok ? {} : { error: "该记录不存在" }),
 					});
+					return;
+				}
+				case "droid_state": {
+					const state = runtime.droidState();
+					sendTo(socket, {
+						type: "droid_state",
+						enabled: state.enabled,
+						devices: state.devices,
+						tokens: state.tokens,
+					});
+					return;
+				}
+				case "droid_token_create": {
+					await runtime.droidCreateToken(message.label);
+					return;
+				}
+				case "droid_token_revoke": {
+					try {
+						await runtime.droidRevokeToken(message.id);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "droid_device_rename": {
+					try {
+						await runtime.droidRenameDevice(message.id, message.name);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "droid_device_remove": {
+					try {
+						await runtime.droidRemoveDevice(message.id);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "droid_set_enabled": {
+					await runtime.setDroidEnabled(message.enabled);
 					return;
 				}
 				case "export_api_model": {

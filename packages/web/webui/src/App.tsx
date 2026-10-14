@@ -1,73 +1,68 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AboutPage } from "./components/AboutPage.tsx";
+import { ApiModelPage } from "./components/ApiModelPage.tsx";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { AppSider } from "./components/AppSider.tsx";
+import { AuthGate } from "./components/AuthGate.tsx";
+import { BranchModal } from "./components/BranchModal.tsx";
 import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
-import { type FilePanelState, FilePanel, saveDownload } from "./components/FilePanel.tsx";
+import { DroidPage } from "./components/DroidPage.tsx";
+import { EnginePage } from "./components/EnginePage.tsx";
+import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
+import { FilePanel, type FilePanelState, saveDownload } from "./components/FilePanel.tsx";
+import { GateAuditPage } from "./components/GateAuditPage.tsx";
+import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { GoalBar } from "./components/GoalBar.tsx";
 import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
 import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
-import { RunFold } from "./components/RunFold.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
-import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
-import { PresetPanel, type PresetImportNotice } from "./components/PresetPanel.tsx";
+import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
+import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
+import { type PresetImportNotice, PresetPanel } from "./components/PresetPanel.tsx";
 import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { ProjectsPage } from "./components/ProjectsPage.tsx";
-import { SubagentPanel } from "./components/SubagentPanel.tsx";
-import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
-import { BranchModal } from "./components/BranchModal.tsx";
-import { EnginePage } from "./components/EnginePage.tsx";
-import { GateAuditPage } from "./components/GateAuditPage.tsx";
-import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
-import { AuthGate } from "./components/AuthGate.tsx";
+import { RunFold } from "./components/RunFold.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
-import { ApiModelPage } from "./components/ApiModelPage.tsx";
-import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
-import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
+import { SubagentPanel } from "./components/SubagentPanel.tsx";
+import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
 import type {
 	AgentMessageView,
+	DroidDevice,
+	DroidToken,
+	SessionEventView,
+	SessionInfoView,
+	SessionTreeNodeView,
 	ZGApiModel,
 	ZGApiModelEvent,
 	ZGApiModelFilters,
 	ZGApiModelSummary,
+	ZGClientMessage,
+	ZGDoctrineView,
+	ZGEngine,
 	ZGEnvReport,
 	ZGFileEntry,
 	ZGFilePreview,
+	ZGForkPoint,
 	ZGGateDecision,
 	ZGGateFilter,
-	ZGGateStats,
 	ZGGatekeeperConfig,
-	ZGModelLibraryView,
-	ZGProjectInfo,
-	SessionEventView,
-	SessionInfoView,
-	SessionTreeNodeView,
-	ZGForkPoint,
-	ZGModelConfig,
+	ZGGateStats,
 	ZGMode,
+	ZGModelConfig,
+	ZGModelLibraryView,
 	ZGNotifyConfig,
 	ZGNotifyStatus,
 	ZGPageId,
 	ZGPermissionPreset,
-	ZGPermissionsConfig,
 	ZGPermissionSet,
-	ZGPresetView,
-	ZGServerMessage,
-	ZGStateSnapshot,
-	ZGStatsView,
-	ZGSubagentEvent,
-	ZGSubagentRun,
-	ZGTestResult,
-	ZGToolInfo,
-	ZGVulnFilters,
-	ZGVulnStats,
+	ZGPermissionsConfig,
 	ZGPoc,
 	ZGPocFilters,
 	ZGPocImportFile,
@@ -76,12 +71,20 @@ import type {
 	ZGPocSourceSave,
 	ZGPocStats,
 	ZGPocSummary,
+	ZGPresetView,
+	ZGProjectInfo,
+	ZGServerMessage,
+	ZGStateSnapshot,
+	ZGStatsView,
+	ZGSubagentEvent,
+	ZGSubagentRun,
+	ZGTestResult,
+	ZGToolInfo,
+	ZGVulnerability,
+	ZGVulnFilters,
+	ZGVulnStats,
 	ZGVulnSummary,
 	ZGVulnUpdate,
-	ZGVulnerability,
-	ZGEngine,
-	ZGDoctrineView,
-	ZGClientMessage,
 } from "./types.ts";
 import { ZG_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
@@ -120,7 +123,8 @@ function chattedAfterGoalEnd(messages: unknown[], goal: { endedAt?: number }): b
 	const endedAt = goal.endedAt;
 	if (!endedAt) return false;
 	return messages.some(
-		(entry) => (entry as { role?: string }).role === "user" && ((entry as { timestamp?: number }).timestamp ?? 0) > endedAt,
+		(entry) =>
+			(entry as { role?: string }).role === "user" && ((entry as { timestamp?: number }).timestamp ?? 0) > endedAt,
 	);
 }
 
@@ -274,6 +278,12 @@ export function App() {
 	/** The one-click official sync runs for minutes; it keeps its own busy flag
 	 * because the source list is broadcast as soon as the source is created. */
 	const [pocOfficialSyncing, setPocOfficialSyncing] = useState(false);
+	/** Android devices: the device page's gateway state. */
+	const [droidState, setDroidState] = useState<{ enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }>({
+		enabled: false,
+		devices: [],
+		tokens: [],
+	});
 	/** Business modeling: the runs of the active project, and the open drill-down. */
 	const [apiModels, setApiModels] = useState<ZGApiModelSummary[]>([]);
 	const [apiModelDetail, setApiModelDetail] = useState<ZGApiModel | null>(null);
@@ -356,16 +366,16 @@ export function App() {
 					// being rendered from the event-built lists. A message is matched by
 					// role plus timestamp, and by content when it has none.
 					const persisted = new Set(
-						message.snapshot.messages.map(
-							(entry) => messageKey(entry as { role?: string; timestamp?: number }),
-						),
+						message.snapshot.messages.map((entry) => messageKey(entry as { role?: string; timestamp?: number })),
 					);
 					setPendingMessages((prev) => prev.filter((entry) => !persisted.has(messageKey(entry))));
 					setLiveTools((tools) =>
 						tools.filter(
 							(tool) =>
 								!message.snapshot.messages.some(
-									(entry) => (entry as { role?: string; toolCallId?: string }).role === "toolResult" && (entry as { toolCallId?: string }).toolCallId === tool.id,
+									(entry) =>
+										(entry as { role?: string; toolCallId?: string }).role === "toolResult" &&
+										(entry as { toolCallId?: string }).toolCallId === tool.id,
 								),
 						),
 					);
@@ -577,7 +587,11 @@ export function App() {
 					break;
 				case "projects":
 					setProjects(message.projects);
-					setActiveProject((prev) => message.projects.find((project) => project.id === message.activeProjectId) ?? (message.activeProjectId === null ? null : prev));
+					setActiveProject(
+						(prev) =>
+							message.projects.find((project) => project.id === message.activeProjectId) ??
+							(message.activeProjectId === null ? null : prev),
+					);
 					break;
 				case "files":
 					filePathRef.current = message.path;
@@ -693,6 +707,9 @@ export function App() {
 				case "api_models":
 					setApiModels(message.items);
 					break;
+				case "droid_state":
+					setDroidState({ enabled: message.enabled, devices: message.devices, tokens: message.tokens });
+					break;
 				case "api_model":
 					setApiModelDetail(message.model);
 					setApiModelEvents(message.events);
@@ -802,7 +819,9 @@ export function App() {
 			const partial = event.partialResult as { content?: unknown } | null;
 			const text = partial ? textFromContent(partial.content) : "";
 			if (text) {
-				setLiveTools((prev) => prev.map((tool) => (tool.id === event.toolCallId ? { ...tool, output: text } : tool)));
+				setLiveTools((prev) =>
+					prev.map((tool) => (tool.id === event.toolCallId ? { ...tool, output: text } : tool)),
+				);
 			}
 			return;
 		}
@@ -846,7 +865,9 @@ export function App() {
 					setAuthState("ready");
 					return;
 				}
-				const state = (await fetch("/api/auth/state").then((r) => r.json()).catch(() => null)) as {
+				const state = (await fetch("/api/auth/state")
+					.then((r) => r.json())
+					.catch(() => null)) as {
 					configured?: boolean;
 				} | null;
 				setAuthState(state?.configured ? "login" : "setup");
@@ -899,9 +920,9 @@ export function App() {
 			if (connection.connected) connection.send({ type: "list_sessions" });
 		}, 15000);
 		return () => {
-		window.clearInterval(poll);
-		connection.close();
-	};
+			window.clearInterval(poll);
+			connection.close();
+		};
 	}, [handleServerMessage, authReady]);
 
 	const send = useCallback((message: Parameters<ZGConnection["send"]>[0]) => {
@@ -1015,6 +1036,9 @@ export function App() {
 			case "apimodels":
 				send({ type: "list_api_models" });
 				break;
+			case "droid":
+				send({ type: "droid_state" });
+				break;
 			case "settings.model":
 				send({ type: "get_model_library" });
 				send({ type: "get_gatekeeper_config" });
@@ -1047,7 +1071,19 @@ export function App() {
 				refreshStats();
 				break;
 		}
-	}, [page, filesOpen, subagentsOpen, send, refreshStats, loadFiles, vulnFilters, pocFilters, gateFilter, gatePage, loadGates]);
+	}, [
+		page,
+		filesOpen,
+		subagentsOpen,
+		send,
+		refreshStats,
+		loadFiles,
+		vulnFilters,
+		pocFilters,
+		gateFilter,
+		gatePage,
+		loadGates,
+	]);
 
 	/**
 	 * The audit page reads on open and on every filter change. Its query is also
@@ -1354,8 +1390,7 @@ export function App() {
 							<span className="conn-banner-dot" />
 							<span>
 								与后端连接已断开，正在自动重连… 若浏览器提示 ERR_ADDRESS_INVALID，请确认打开的是
-								<code> http://127.0.0.1:端口 </code>
-								（<code>0.0.0.0</code> 不是可访问地址）。
+								<code> http://127.0.0.1:端口 </code>（<code>0.0.0.0</code> 不是可访问地址）。
 							</span>
 						</div>
 					)}
@@ -1364,7 +1399,8 @@ export function App() {
 							<span className="env-banner-dot" />
 							<span>
 								Docker 环境不可用，对话已锁定：
-								{envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ?? "环境检查未通过"}
+								{envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ??
+									"环境检查未通过"}
 								。请到
 								<button type="button" className="link" onClick={() => setPage("settings.environment")}>
 									设置 → 环境
@@ -1377,7 +1413,8 @@ export function App() {
 						<div className="gate-banner" role="status">
 							<span className="gate-banner-dot" />
 							<span title={gatekeeper?.lastError ?? undefined}>
-								守门模型不可用，已放行 {gatekeeper?.failures ?? 0} 次判定（AI 审批模式下命令未经过拦截直接执行）。
+								守门模型不可用，已放行 {gatekeeper?.failures ?? 0} 次判定（AI
+								审批模式下命令未经过拦截直接执行）。
 								{gatekeeper?.lastError ? ` 最近错误：${gatekeeper.lastError}` : ""}
 								请到
 								<button type="button" className="link" onClick={() => setPage("settings.model")}>
@@ -1437,7 +1474,8 @@ export function App() {
 								onSetSessionStatus={(status) => send({ type: "set_session_status", status })}
 								onToggleFiles={() => setFilesOpen((prev) => !prev)}
 								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
-								onSetMode={(next) => send({ type: "set_mode", mode: next })}								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
+								onSetMode={(next) => send({ type: "set_mode", mode: next })}
+								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
 								onToggleBranch={() => {
 									setBranchOpen((prev) => {
 										const next = !prev;
@@ -1464,15 +1502,15 @@ export function App() {
 							) : null}
 							<div className="ws-panel__body">
 								<div
-								className="transcript"
-								ref={transcriptRef}
-								onScroll={() => {
-									const el = transcriptRef.current;
-									if (el) {
-										transcriptFollowRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-									}
-								}}
-							>
+									className="transcript"
+									ref={transcriptRef}
+									onScroll={() => {
+										const el = transcriptRef.current;
+										if (el) {
+											transcriptFollowRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+										}
+									}}
+								>
 									{visibleMessages.length === 0 && !liveText && !streaming ? (
 										<div className="ws-empty">
 											<span>等待第一条指令</span>
@@ -1584,12 +1622,12 @@ export function App() {
 										);
 									})}
 									{snapshot?.goal &&
-									  snapshot.goal.status !== "active" &&
-									  !chattedAfterGoalEnd(snapshotRef.current?.messages ?? [], {
-											// Paused goals written before endedAt existed fall
-											// back to updatedAt, which pause() always set.
-											endedAt: snapshot.goal.endedAt ?? snapshot.goal.updatedAt,
-										}) ? (
+									snapshot.goal.status !== "active" &&
+									!chattedAfterGoalEnd(snapshotRef.current?.messages ?? [], {
+										// Paused goals written before endedAt existed fall
+										// back to updatedAt, which pause() always set.
+										endedAt: snapshot.goal.endedAt ?? snapshot.goal.updatedAt,
+									}) ? (
 										<div className={`goal-end-badge ${snapshot.goal.status}`}>
 											<span className="chip">
 												<b>
@@ -1634,8 +1672,8 @@ export function App() {
 									blockedReason={
 										envReport && !envReport.ok
 											? `Docker 环境不可用：${
-													envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ??
-													"环境检查未通过"
+													envReport.items.find((entry) => entry.blocking && entry.status !== "ok")
+														?.label ?? "环境检查未通过"
 												}。请到「设置 → 环境」修复。`
 											: envReport
 												? snapshot?.compacting
@@ -1650,10 +1688,14 @@ export function App() {
 									modeling={snapshot?.modeling ?? null}
 									modelingAttached={snapshot?.modelingAttached ?? []}
 									apiModels={
-										snapshot?.project ? apiModels.filter((item) => item.projectId === snapshot.project?.id) : apiModels
+										snapshot?.project
+											? apiModels.filter((item) => item.projectId === snapshot.project?.id)
+											: apiModels
 									}
 									freshConversation={
-										!(snapshot?.messages ?? []).some((message) => (message as { role?: string }).role === "user")
+										!(snapshot?.messages ?? []).some(
+											(message) => (message as { role?: string }).role === "user",
+										)
 									}
 									onDetachModeling={() => send({ type: "detach_modeling" })}
 									onStartModeling={() => send({ type: "start_modeling" })}
@@ -1737,7 +1779,9 @@ export function App() {
 					) : page === "apimodels" ? (
 						<ApiModelPage
 							items={
-								snapshot?.project ? apiModels.filter((item) => item.projectId === snapshot.project?.id) : apiModels
+								snapshot?.project
+									? apiModels.filter((item) => item.projectId === snapshot.project?.id)
+									: apiModels
 							}
 							detail={apiModelDetail}
 							events={apiModelEvents}
@@ -1754,9 +1798,21 @@ export function App() {
 								send({ type: "switch_session", path });
 							}}
 						/>
+					) : page === "droid" ? (
+						<DroidPage
+							enabled={droidState.enabled}
+							devices={droidState.devices}
+							tokens={droidState.tokens}
+							consoleUrl={location.origin}
+							send={send}
+						/>
 					) : page === "engine" ? (
 						<EnginePage
-							engines={snapshot?.project ? engines.filter((engine) => engine.projectId === snapshot.project?.id) : engines}
+							engines={
+								snapshot?.project
+									? engines.filter((engine) => engine.projectId === snapshot.project?.id)
+									: engines
+							}
 							doctrines={doctrines}
 							presets={presets ?? []}
 							commanderConfig={commanderConfig}
@@ -1785,9 +1841,7 @@ export function App() {
 								openPage("chat");
 								send({ type: "switch_session", path });
 							}}
-							sessionPathOf={(sessionId) =>
-								sessions.find((session) => session.id === sessionId)?.path ?? null
-							}
+							sessionPathOf={(sessionId) => sessions.find((session) => session.id === sessionId)?.path ?? null}
 						/>
 					) : page === "settings.model" ? (
 						<div className="page-card">
@@ -1950,7 +2004,9 @@ export function App() {
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
 									设置
-									<span className="ws-panel__sub">POC 订阅{pocSources.length > 0 ? ` · ${pocSources.length} 个源` : ""}</span>
+									<span className="ws-panel__sub">
+										POC 订阅{pocSources.length > 0 ? ` · ${pocSources.length} 个源` : ""}
+									</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -1976,7 +2032,9 @@ export function App() {
 									设置
 									<span className="ws-panel__sub">
 										预设 Agent
-										{presets ? ` · ${presets.filter((preset) => preset.enabled).length} / ${presets.length} 已启用` : " · 读取中"}
+										{presets
+											? ` · ${presets.filter((preset) => preset.enabled).length} / ${presets.length} 已启用`
+											: " · 读取中"}
 									</span>
 								</div>
 							</div>
@@ -2077,9 +2135,7 @@ export function App() {
 					}}
 					onUpdate={(id, patch: ZGVulnUpdate) => send({ type: "update_vuln", id, patch })}
 					onDelete={(id) => send({ type: "delete_vuln", id })}
-					onRetryReview={(id, force) =>
-						send({ type: "retry_vuln_review", id, ...(force ? { force: true } : {}) })
-					}
+					onRetryReview={(id, force) => send({ type: "retry_vuln_review", id, ...(force ? { force: true } : {}) })}
 					onPreview={previewVulnFile}
 				/>
 			) : null}

@@ -11,8 +11,31 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { ZG_MODE_LABELS } from "../types.ts";
-import { AboutIcon, ApiModelIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, PocIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
-import { SessionStatusControl, SessionStatusRail, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
+import {
+	AboutIcon,
+	ApiModelIcon,
+	CaretDownIcon,
+	ChatIcon,
+	CollapseIcon,
+	DeleteIcon,
+	DroidIcon,
+	EnvironmentIcon,
+	ExpandIcon,
+	GateIcon,
+	LockIcon,
+	LogoutIcon,
+	ModelIcon,
+	NotifyIcon,
+	PocIcon,
+	ProjectsIcon,
+	RefreshIcon,
+	RenameIcon,
+	SettingsIcon,
+	ShieldIcon,
+	SubagentIcon,
+	VulnIcon,
+} from "./icons.tsx";
+import { SESSION_STATUS_LABELS, SessionStatusControl, SessionStatusRail } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
@@ -34,6 +57,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
 			{ page: "vulns", label: "漏洞", icon: VulnIcon },
 			{ page: "apimodels", label: "业务建模", icon: ApiModelIcon },
+			{ page: "droid", label: "安卓设备", icon: DroidIcon },
 			{ page: "pocs", label: "POC 库", icon: PocIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
 			{ page: "gates", label: "守门审计", icon: GateIcon },
@@ -381,11 +405,11 @@ export function AppSider({
 				</button>
 			</div>
 			{/*
-				 * Under 全部 the two zones need a visible boundary: flat chat rows
-				 * and the engine groups are different kinds of things, and mixing
-				 * them without a separator reads as one jumbled list. The labels
-				 * appear only when both zones actually have content.
-				 */}
+			 * Under 全部 the two zones need a visible boundary: flat chat rows
+			 * and the engine groups are different kinds of things, and mixing
+			 * them without a separator reads as one jumbled list. The labels
+			 * appear only when both zones actually have content.
+			 */}
 			{chatSessions.length > 0 && engineGroups.length > 0 ? (
 				<div className="session-section-label">
 					对话 <span className="n">{chatSessions.length}</span>
@@ -463,8 +487,7 @@ export function AppSider({
 							const Icon = item.icon;
 							const isChat = item.page === "chat";
 							const isSettings = item.page === "settings.model";
-							const active =
-								activePage === item.page || (isSettings && activePage.startsWith("settings."));
+							const active = activePage === item.page || (isSettings && activePage.startsWith("settings."));
 							const childOpen = isChat ? sessionsOpen : settingsOpen;
 							const hasChildren = isChat || isSettings;
 							const badge = badgeFor(item);
@@ -499,29 +522,29 @@ export function AppSider({
 											</span>
 										) : null}
 									</button>
-									{hasChildren && childOpen && !collapsed
-										? isChat
-											? sessionRows()
-											: (
-													<div className="menu-sub">
-														{SETTINGS_CHILDREN.map((child) => {
-															const ChildIcon = child.icon;
-															return (
-																<button
-																	key={child.page}
-																	type="button"
-																	className={`menu-sub-item ${activePage === child.page ? "active" : ""}`}
-																	onClick={() => onNavigate(child.page)}
-																>
-																	<span className="menu-sub-dot" />
-																	<span className="menu-sub-name">{child.label}</span>
-																	<ChildIcon size={12} />
-																</button>
-															);
-														})}
-													</div>
-												)
-										: null}
+									{hasChildren && childOpen && !collapsed ? (
+										isChat ? (
+											sessionRows()
+										) : (
+											<div className="menu-sub">
+												{SETTINGS_CHILDREN.map((child) => {
+													const ChildIcon = child.icon;
+													return (
+														<button
+															key={child.page}
+															type="button"
+															className={`menu-sub-item ${activePage === child.page ? "active" : ""}`}
+															onClick={() => onNavigate(child.page)}
+														>
+															<span className="menu-sub-dot" />
+															<span className="menu-sub-name">{child.label}</span>
+															<ChildIcon size={12} />
+														</button>
+													);
+												})}
+											</div>
+										)
+									) : null}
 								</div>
 							);
 						})}

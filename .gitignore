@@ -50,3 +50,9 @@ packages/agent/docs/extensions/pi-server-artifact/index.md
 # ZGAgent web: test-only tool binaries (macOS arm64 copies)
 packages/web/test/fixtures/bin/
 packages/coding-agent/test/fixtures/bin/
+
+# DroidBridge APK build outputs
+packages/droid-apk/.gradle/
+packages/droid-apk/app/build/
+packages/droid-apk/build/
+packages/droid-apk/local.properties

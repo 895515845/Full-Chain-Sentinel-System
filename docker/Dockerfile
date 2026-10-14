@@ -115,5 +115,18 @@ RUN if [ -n "$PIP_INDEX" ]; then \
 
 WORKDIR /work
 
+# Android analysis layer (Droid 插件): decompile (jadx/apktool both pull in a JRE),
+# capture parsing (tshark) and dynamic instrumentation (frida-tools via pip).
+# jadx/apktool/tshark are reliable Kali packages; frida-tools is best-effort so a
+# pip hiccup cannot fail the whole image build.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		jadx \
+		apktool \
+		tshark \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& (pip3 install --break-system-packages frida-tools 2>/dev/null \
+		|| pip3 install frida-tools 2>/dev/null \
+		|| echo "[zgagent] frida-tools install skipped (ok)")
+
 # Long-running idle entrypoint; ZGAgent drives it with docker exec.
 CMD ["sleep", "infinity"]

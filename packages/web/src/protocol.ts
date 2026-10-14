@@ -7,6 +7,7 @@ import type {
 	SessionTreeNode,
 	ThinkingLevel,
 } from "@earendil-works/pi-coding-agent";
+import type { DroidDevice, DroidToken } from "./droid.ts";
 import type { ZGPermissionPreset, ZGPermissionSet, ZGPermissionsConfig } from "./permissions.ts";
 import type { ZGSessionListEntry, ZGSessionStatus } from "./session-status.ts";
 
@@ -1125,6 +1126,13 @@ export type ZGClientMessage =
 	| { type: "end_modeling" }
 	/** Remove the modeling records attached to the viewed session (带建模数据). */
 	| { type: "detach_modeling" }
+	/** The Android device page: pull the full gateway state. */
+	| { type: "droid_state" }
+	| { type: "droid_token_create"; label: string }
+	| { type: "droid_token_revoke"; id: string }
+	| { type: "droid_device_rename"; id: string; name: string }
+	| { type: "droid_device_remove"; id: string }
+	| { type: "droid_set_enabled"; enabled: boolean }
 	/** Close a record from the page, for a run whose session is no longer loaded. */
 	| { type: "end_api_model"; id: string }
 	| { type: "list_api_models"; filters?: ZGApiModelFilters }
@@ -1214,6 +1222,7 @@ export type ZGServerMessage =
 	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
 	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
+	| { type: "droid_state"; enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }
 	| { type: "error"; message: string };
 
 /**
