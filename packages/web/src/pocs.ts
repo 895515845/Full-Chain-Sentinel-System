@@ -10,7 +10,8 @@
  *
  * Imports dedupe by the template's own `info.id`: re-importing a template
  * replaces the stored copy, so a library refresh does not fork duplicates.
- * Templates without a usable id are skipped with a reason.
+ * Templates without a usable id are skipped with a reason, and so are nuclei
+ * workflows, which carry an id and an info block but no request of their own.
  */
 
 import { mkdirSync } from "node:fs";
@@ -110,6 +111,15 @@ export interface ZGPocListPage {
 }
 
 /**
+ * A nuclei workflow is not a template: it orchestrates other templates and has
+ * no request of its own. Official archives ship them next to the templates
+ * (`workflows/`), and a workflow also carries an `id` and an `info` block, so
+ * without this check it would land in the library as an unusable entry.
+ */
+export function isNucleiWorkflow(text: string): boolean {
+	return /^workflows\s*:/m.test(text);
+}
+
 /**
  * Extract a template's metadata without a yaml parser. Only the fields the
  * library indexes are read — `id`, `info.name`, `info.severity`,
@@ -118,6 +128,9 @@ export interface ZGPocListPage {
  * unusual degrades to missing metadata, never to a failed import.
  */
 export function parseNucleiTemplate(text: string): ParsedTemplate | null {
+	// The import loop names this case before parsing, so the skip reason points
+	// at the workflow rather than at a missing id.
+	if (isNucleiWorkflow(text)) return null;
 	let id = "";
 	let name = "";
 	let severity = "";
@@ -234,6 +247,10 @@ export class PocStore {
 				}
 				if (file.content.length > MAX_TEMPLATE_BYTES) {
 					skipped.push({ name: file.name, reason: "模板过大" });
+					continue;
+				}
+				if (isNucleiWorkflow(file.content)) {
+					skipped.push({ name: file.name, reason: "nuclei workflow，不是模板" });
 					continue;
 				}
 				const parsed = parseNucleiTemplate(file.content);

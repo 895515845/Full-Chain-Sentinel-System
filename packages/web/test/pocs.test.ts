@@ -11,7 +11,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { normalizePermissions } from "../src/permissions.ts";
 import { createPocTools } from "../src/poc-tool.ts";
 import { readZip } from "../src/poc-zip.ts";
-import { PocStore, parseNucleiTemplate } from "../src/pocs.ts";
+import { isNucleiWorkflow, PocStore, parseNucleiTemplate } from "../src/pocs.ts";
 import { openSqliteDatabase } from "../src/sqlite.ts";
 
 const TEMPLATE = (id: string, name = "Test template", severity = "high"): string => `id: ${id}
@@ -88,6 +88,23 @@ test("import inserts, dedupes by template id, and reports skips", () => {
 	expect(bad.skipped.map((item) => item.reason)).toEqual(
 		expect.arrayContaining(["只支持 .yaml / .yml / .zip", "缺少有效的模板 id"]),
 	);
+});
+
+test("a nuclei workflow is rejected with its own reason, not as a missing id", () => {
+	// Workflows do carry an id and an info block, so they parse — the guard is
+	// what keeps them out of a library the agent searches for requests.
+	const workflow = `${TEMPLATE("tech-detect", "Tech detect", "info")}
+workflows:
+  - template: http/technologies/tech-detect.yaml
+`;
+	expect(isNucleiWorkflow(workflow)).toBe(true);
+	expect(parseNucleiTemplate(workflow)).toBeNull();
+	// Only the file's own top-level key counts: an indented one is a field.
+	expect(isNucleiWorkflow("id: x\ninfo:\n  name: x\nhttp:\n  workflows: 2\n")).toBe(false);
+
+	const outcome = store.import([{ name: "tech-detect.yaml", bytes: Buffer.from(workflow, "utf8") }]);
+	expect(outcome).toMatchObject({ imported: 0, replaced: 0 });
+	expect(outcome.skipped).toEqual([{ name: "tech-detect.yaml", reason: "nuclei workflow，不是模板" }]);
 });
 
 test("list filters by tag, severity and search; stats count severities", () => {

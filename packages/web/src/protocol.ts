@@ -943,6 +943,8 @@ export type ZGClientMessage =
 	| { type: "save_poc_source"; source: ZGPocSourceSave }
 	| { type: "delete_poc_source"; id: string }
 	| { type: "sync_poc_source"; id: string }
+	/** One-click official sync: create the built-in official source if missing, then sync it. */
+	| { type: "sync_official_pocs" }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }

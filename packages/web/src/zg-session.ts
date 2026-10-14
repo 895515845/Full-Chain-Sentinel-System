@@ -2142,6 +2142,12 @@ export class ZGAgentRuntime {
 		return this.subscriptions.sync(id, "manual");
 	}
 
+	/** The one-click official sync: make sure the built-in source exists, then sync it. */
+	async syncOfficialPocs(): Promise<{ source: ZGPocSource } | { error: string }> {
+		const ensured = this.subscriptions.ensureOfficial();
+		return this.subscriptions.sync(ensured.source.id, "manual");
+	}
+
 	/** A failed sync pushes DingTalk once per attempt, gated by the pocs kind. */
 	private notifyPocSyncFailure(source: ZGPocSource, record: ZGPocSyncRecord): void {
 		const config = readNotifyConfig(this.agentDir);

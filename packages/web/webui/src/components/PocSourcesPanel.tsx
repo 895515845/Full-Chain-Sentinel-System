@@ -8,6 +8,12 @@
  * (0600) and never echoed back, so an edit leaves the field blank to keep the
  * stored secret.
  *
+ * 「一键同步官方 POC」 is the same machinery with the source supplied: the
+ * server creates the official nuclei-templates source if it is missing and
+ * syncs it, so a first-time operator never has to know the URL. That source is
+ * ordinary afterwards — this list edits, retargets, and deletes it like any
+ * other, and pressing the button again recreates it.
+ *
  * The page follows the console's settings idioms: labeled fields as a vertical
  * stack (`settings`), one block heading with its action on the right
  * (`settings-block__head`), and the source list as a `data-table`.
@@ -15,6 +21,7 @@
 
 import { useState } from "react";
 import type { ZGPocSource, ZGPocSourceSave } from "../types.ts";
+import { ZG_OFFICIAL_POC_SOURCE_ID } from "../types.ts";
 
 /** Editing state of the form; a source being edited fills every field. */
 interface Draft {
@@ -75,6 +82,8 @@ export function PocSourcesPanel({
 	onDelete,
 	onSync,
 	onRefresh,
+	officialSyncing,
+	onSyncOfficial,
 }: {
 	sources: ZGPocSource[];
 	/** Id currently syncing, so its row shows the wait instead of a second click. */
@@ -83,6 +92,9 @@ export function PocSourcesPanel({
 	onDelete(id: string): void;
 	onSync(id: string): void;
 	onRefresh(): void;
+	/** True while the one-click official sync runs (it creates its own source). */
+	officialSyncing: boolean;
+	onSyncOfficial(): void;
 }) {
 	const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
 	const [error, setError] = useState<string | null>(null);
@@ -213,9 +225,20 @@ export function PocSourcesPanel({
 				<h3 className="settings-section">
 					订阅源 <span className="hint">（{sources.length} 个）</span>
 				</h3>
-				<button type="button" onClick={onRefresh}>
-					刷新
-				</button>
+				<span className="settings-block__ops">
+					<button
+						type="button"
+						className="ghost small"
+						disabled={officialSyncing}
+						title="从官方仓库 projectdiscovery/nuclei-templates 下载最新模板包并导入；源不存在会自动创建，之后 URL 可以改成镜像"
+						onClick={onSyncOfficial}
+					>
+						{officialSyncing ? "同步中…" : "一键同步官方 POC"}
+					</button>
+					<button type="button" onClick={onRefresh}>
+						刷新
+					</button>
+				</span>
 			</div>
 
 			{sources.length === 0 ? (
@@ -234,6 +257,10 @@ export function PocSourcesPanel({
 						</div>
 						{sources.map((source) => {
 							const tag = statusTag(source);
+							// The official sync starts before its source exists in this
+							// list, so its busy state is not keyed on the id alone.
+							const busy =
+								syncing === source.id || (officialSyncing && source.id === ZG_OFFICIAL_POC_SOURCE_ID);
 							return (
 								<div className="data-row" key={source.id}>
 									<span className="data-name">
@@ -256,8 +283,8 @@ export function PocSourcesPanel({
 										{resultLine(source)}
 									</span>
 									<span className="data-actions">
-										<button type="button" disabled={syncing === source.id} onClick={() => onSync(source.id)}>
-											{syncing === source.id ? "同步中…" : "立即同步"}
+										<button type="button" disabled={busy} onClick={() => onSync(source.id)}>
+											{busy ? "同步中…" : "立即同步"}
 										</button>
 										<button
 											type="button"

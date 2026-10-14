@@ -78,6 +78,7 @@ import type {
 	ZGDoctrineView,
 	ZGClientMessage,
 } from "./types.ts";
+import { ZG_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
 import { ZGConnection } from "./ws.ts";
 
 interface LiveTool {
@@ -265,6 +266,9 @@ export function App() {
 	const [lastPocImport, setLastPocImport] = useState<ZGPocImportOutcome | null>(null);
 	const [pocSources, setPocSources] = useState<ZGPocSource[]>([]);
 	const [pocSyncing, setPocSyncing] = useState<string | null>(null);
+	/** The one-click official sync runs for minutes; it keeps its own busy flag
+	 * because the source list is broadcast as soon as the source is created. */
+	const [pocOfficialSyncing, setPocOfficialSyncing] = useState(false);
 	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
 	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
 	const [engines, setEngines] = useState<ZGEngine[]>([]);
@@ -671,6 +675,7 @@ export function App() {
 				case "poc_source_result":
 					if (!message.ok && message.error) pushError(message.error);
 					if (message.action === "同步" && message.ok && message.id) setPocSyncing(null);
+					if (message.action === "同步官方 POC") setPocOfficialSyncing(false);
 					break;
 				case "pocs_imported":
 					setPocImporting(false);
@@ -1079,6 +1084,12 @@ export function App() {
 		},
 		[send, pushError],
 	);
+
+	/** The one-click official sync: the server creates the source if it is gone. */
+	const syncOfficialPocs = useCallback(() => {
+		setPocOfficialSyncing(true);
+		send({ type: "sync_official_pocs" });
+	}, [send]);
 
 	/** Open one finding in full; the reply replaces whatever the overlay showed. */
 	const openVuln = useCallback(
@@ -1659,6 +1670,9 @@ export function App() {
 							onOpen={openPoc}
 							onImport={(files) => void importPocs(files)}
 							onDelete={(id) => send({ type: "delete_poc", id })}
+							officialSource={pocSources.find((source) => source.id === ZG_OFFICIAL_POC_SOURCE_ID) ?? null}
+							officialSyncing={pocOfficialSyncing}
+							onSyncOfficial={syncOfficialPocs}
 						/>
 					) : page === "engine" ? (
 						<EnginePage
@@ -1870,6 +1884,8 @@ export function App() {
 										send({ type: "sync_poc_source", id });
 									}}
 									onRefresh={() => send({ type: "list_poc_sources" })}
+									officialSyncing={pocOfficialSyncing}
+									onSyncOfficial={syncOfficialPocs}
 								/>
 							</div>
 						</div>

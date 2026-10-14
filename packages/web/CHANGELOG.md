@@ -9,8 +9,8 @@
 
 ### Added
 
-- POC 订阅（设置 → POC 订阅）：订阅远程 zip 模板包，源 = 名称 + zip 直链 URL + 可选认证头（单 header，值存 `subscriptions.json` 0600，前端不回显、编辑留空保留原值）+ 可选自动间隔（仅手动 / 1h / 6h / 24h / 7 天，默认 24h；服务端分钟级定时器到点自动拉取，控制台重启后恢复，正在同步的源不会被重复触发）。每个源可「立即同步」；同步走与手动导入相同的解析与按模板 id 去重覆盖路径，**只增不减**——本地模板从不因同步被删除，删除仍只能手动。下载限制：单源 512MB、单次 60 秒超时、网络错误自动重试一次、http/https 均可（内网源常见 http）。每个源保留最近 5 次同步记录（成功/失败、新增/覆盖/跳过、耗时、手动/自动、失败原因），失败按「设置 → 通知」新增的 kinds 子项「POC 订阅失败」推钉钉（默认开，成功不推送）
 - 漏洞中枢新增两个「重新评审」入口：详情页的「重新评审」按钮对单条记录强制重评（自动评审仍然只在记录还没被操作员动过时写等级，人工重评会覆盖手动改过的等级与状态，时间线记为「人工重新评审」并附新旧值与理由）；列表工具栏的「重新评审待确认」把当前项目所有「待确认」记录一次性交给评审 LLM（没有待确认记录时按钮禁用，点完列表立刻刷新成「评审中」）
+- POC 订阅（设置 → POC 订阅）：订阅远程 zip 模板包，源 = 名称 + zip 直链 URL + 可选认证头（单 header，值存 `subscriptions.json` 0600，前端不回显、编辑留空保留原值）+ 可选自动间隔（仅手动 / 1h / 6h / 24h / 7 天，默认 24h；服务端分钟级定时器到点自动拉取，控制台重启后恢复，正在同步的源不会被重复触发）。每个源可「立即同步」；同步走与手动导入相同的解析与按模板 id 去重覆盖路径，**只增不减**——本地模板从不因同步被删除，删除仍只能手动。下载限制：单源 512MB、单次下载超时 10 分钟、网络错误自动重试一次、http/https 均可（内网源常见 http）。每个源保留最近 5 次同步记录（成功/失败、新增/覆盖/跳过、耗时、手动/自动、失败原因），失败按「设置 → 通知」新增的 kinds 子项「POC 订阅失败」推钉钉（默认开，成功不推送）
 - POC 库（侧栏「工作台 → POC 库」）：操作员导入的 Nuclei 模板中心，全局共享、跨项目可用，存 `~/.zgagent/agent/pocs.db`（配置目录，不进容器）。导入支持多选 .yaml/.yml 与打包 .zip（zip 解包与 yaml 元数据解析在服务端完成，无需解压工具），按模板自身 `info.id` 去重覆盖，跳过项逐条回报原因；页面提供搜索（id/名称/标签/CVE）、等级筛选、精确标签筛选、全文预览与删除。Agent 侧新增两个只读工具 `poc_search`（按关键字/标签/等级检索，返回结构化列表）与 `poc_read`（按 id 取模板全文），受「设置 → 权限」新开关 `poc_read` 控制（旧 permissions.json 没有该开关按关闭读取，全新安装默认启用；子代理遵循子集规则）。模板文件永不挂进项目容器：Agent 拿到的是文本，要实际执行必须自己写 yaml 到工作目录并用 bash 跑 nuclei——两个工具的描述里都写明了这个约定
 - 设置 → 通知新增「推送内容」多选：运行报告 / 高危漏洞 / 持续目标结束 / 工程完成，可单独勾选要推送哪几类（默认全推，旧配置行为不变）；输入框旁单条强制发送的运行报告不受「运行报告」勾选影响，当场点名的照发。存于 notifications.json，同样 0600
 
@@ -99,6 +99,7 @@
 - 模式作用域：模式分「全局默认」与「本会话覆盖」两层。工具条上的切换只改当前会话，存在会话文件里（`custom` 条目 `zg-mode`），重开或重建会话仍然生效，fork 也继承；设置 → 模型 改的是全局默认，新会话跟随它，已有覆盖的会话不受影响
 - 工程任务的守门方式：每个工程在创建时选「自动执行」或「AI 裁判」，工程页上可随时改（有任务运行或排队时拒绝，避免同一批 worker 用两种模式）。选 AI 裁判时 worker 的每条命令都过守门员；指挥官自己的 bash 不受影响
 - POC 库的 `poc_read` 支持一次读多条模板（`ids` 数组，一次最多 8 条，单次正文总量上限 30,000 字符）：取一组候选模板全文只需一次调用，不再一条一个来回；超出总量预算的 id 在结果里被点名而不是静默丢弃，同一批里未命中的 id 单独列出、不影响已命中的模板
+- 一键同步官方 NucleiPOC：POC 库页头与「设置 → POC 订阅」区块各有一个按钮，点一下就把官方 `projectdiscovery/nuclei-templates`（main 分支 zip，实测 18.4MB / 14,110 个 yaml、约 14,064 个模板）下载下来，走与手动导入相同的按 id 去重覆盖路径并入 POC 库，已有模板不会被删除。源不存在时服务端自动创建（id 固定 `official`、名称「官方 NucleiPOC」、间隔「仅手动」），已存在则直接同步它当前的 URL——重复点击不会堆出第二个源，镜像或反向代理也能用：把该源的 URL 改掉再点按钮即可（按钮不校验内容是否来自官方，URL 是谁的就是谁的）。此后它就是一个普通订阅源，可改名、可设自动间隔、可删除（删掉后再点按钮会重建）。同步期间按钮显示「同步中…」，结束后 POC 库页头多一行状态，写明最近一次的新增/覆盖/跳过与耗时，失败红字带原因
 
 ### Changed
 
@@ -132,6 +133,9 @@
 
 - 项目容器现在把宿主项目目录挂载两次：`<宿主目录>:/work`，以及 `<宿主目录>:<宿主目录>`。系统提示词把宿主工作目录（会话 cwd）交给模型，而 bash 在容器内执行，于是模型用绝对路径写文件时会落到容器自己的可写层——文件到不了宿主机，read/write/edit 与文件面板都看不到，容器一重建就丢。同路径挂载后两种写法指向同一个目录（同一 inode），提示词与文件工具都不用改
 - The sub-agent panel is now a left list of dispatches and a right detail pane, and the process reads as turns instead of a flat list. Each turn carries a header (第 N 轮 · 工具数 · 耗时) and its steps hang off one rail: a tool row shows the tool name, one line taken from the argument that carries the point of the call (bash → its command, read → its path, anything else → its first scalar argument) and its own duration, instead of a pretty-printed JSON blob in the command slot. Expanding a call shows the structured arguments next to the terminal block, which keeps 复制命令 / 复制输出 / 全屏. Assistant prose folds to two lines, thinking folds to 思考 · N 字, the running call is expanded and the view follows the newest step until the operator scrolls up, the 过程 tab carries the tool count and, in red, the failure count (visible from 结果 too), and its toolbar filters by keyword or by failure with 跳到第一个失败. 结果 is its own tab and is what opens for a finished run. `tool_end` events now carry `durationMs`, so a slow step is visible without opening it
+- 导入 POC 时排除 nuclei workflow：顶层带 `workflows:` 的文件只是编排别的模板、自身没有请求，却同样有 `id` 与 `info` 块，此前会被当成模板入库；现在跳过并单独写明原因「nuclei workflow，不是模板」，与「缺少有效的模板 id」区分开（官方仓库里这类文件 207 个）
+- 订阅源的下载超时从 60 秒放宽到 10 分钟：官方模板包 18.4MB，本机 2.4 秒下完，慢链路要几分钟，60 秒会在下载中途放弃；512MB 的大小上限仍然兜底
+
 ### Changed
 
 - Task session titles drop the 「工程名 · 」 prefix: the sidebar's engine group heading already states ownership, so rows show the task title alone — the set_session_title tool and session creation write plain titles, and the display strips the prefix from sessions named before this change

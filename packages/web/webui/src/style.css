@@ -6790,6 +6790,13 @@ button.link {
 	border-top: none;
 }
 
+/* Two actions on one block heading: keep them together on the right. */
+.settings-block__ops {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
 /* One role per card: what the role is on the left, its pick and its effect on
    the right, so the row reads as one sentence instead of three loose columns. */
 .role-card {
@@ -7399,6 +7406,20 @@ button.link {
 .poc-sub {
 	font-size: 12px;
 	color: var(--dim);
+}
+/* The official sync's newest outcome: one dim line under the breadcrumb bar,
+   red when the last attempt failed. */
+.poc-official {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 7px 18px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--dim);
+}
+.poc-official.err-text {
+	color: var(--danger);
 }
 .poc-bar-ops {
 	margin-left: auto;

@@ -13,6 +13,9 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import {
 	clampIntervalHours,
 	isDue,
+	OFFICIAL_SOURCE_ID,
+	OFFICIAL_SOURCE_NAME,
+	OFFICIAL_SOURCE_URL,
 	PocSubscriptions,
 	type SubscriptionHooks,
 	sourceUrlError,
@@ -190,4 +193,43 @@ test("interval due logic", () => {
 	expect(isDue({ ...fresh, enabled: false })).toBe(false);
 	expect(isDue({ ...fresh, intervalHours: 0 })).toBe(false);
 	expect(isDue({ ...fresh, lastSyncAt: null })).toBe(true);
+});
+
+test("the one-click official source is created once, then syncs whatever URL it has", async () => {
+	const created = subscriptions.ensureOfficial();
+	expect(created.source).toMatchObject({
+		id: OFFICIAL_SOURCE_ID,
+		name: OFFICIAL_SOURCE_NAME,
+		url: OFFICIAL_SOURCE_URL,
+		intervalHours: 0,
+		enabled: true,
+	});
+	// Pressing the button again reuses the source instead of stacking duplicates.
+	expect(subscriptions.ensureOfficial().source.id).toBe(OFFICIAL_SOURCE_ID);
+	expect(subscriptions.list().filter((item) => item.id === OFFICIAL_SOURCE_ID)).toHaveLength(1);
+
+	// The URL stays editable: an operator who cannot reach GitHub points the
+	// button at a mirror, and the sync follows the stored URL.
+	routes = {
+		"/official.zip": {
+			status: 200,
+			body: buildZip([{ name: "t-official.yaml", data: Buffer.from(TEMPLATE("t-official"), "utf8") }]),
+		},
+	};
+	const saved = subscriptions.save({
+		id: OFFICIAL_SOURCE_ID,
+		name: OFFICIAL_SOURCE_NAME,
+		url: `http://127.0.0.1:${port}/official.zip`,
+		intervalHours: 0,
+		enabled: true,
+	});
+	expect("error" in saved).toBe(false);
+	const result = await subscriptions.sync(OFFICIAL_SOURCE_ID, "manual");
+	expect("error" in result).toBe(false);
+	expect(subscriptions.list().find((item) => item.id === OFFICIAL_SOURCE_ID)?.lastResult).toMatchObject({
+		ok: true,
+		imported: 1,
+		replaced: 0,
+	});
+	expect(store.get("t-official")).toBeDefined();
 });

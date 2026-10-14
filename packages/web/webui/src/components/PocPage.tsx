@@ -2,20 +2,29 @@
  * The POC library page: the operator's Nuclei template center.
  *
  * Layout follows the "console ledger" design (mockup C3): the whole page is
- * one panel card — breadcrumb bar with the import action, a toolbar with the
- * filters and the hit counter, then a ledger table whose rows expand inline
- * into a dark terminal block showing the template yaml. No modal: the code
- * belongs to its row.
+ * one panel card — breadcrumb bar with the import and official-sync actions, a
+ * toolbar with the filters and the hit counter, then a ledger table whose rows
+ * expand inline into a dark terminal block showing the template yaml. No modal:
+ * the code belongs to its row.
  *
- * Import is the only write action here and it belongs to the operator. The
- * agent never gets an import or delete tool — its whole interface to the
- * library is poc_search / poc_read, and the templates themselves are never
- * mounted into a project container. To fire a template, the agent writes its
- * own yaml into the working directory and runs nuclei on that.
+ * Import and the one-click official sync are the only write actions here, and
+ * both belong to the operator. The agent never gets an import or delete tool —
+ * its whole interface to the library is poc_search / poc_read, and the
+ * templates themselves are never mounted into a project container. To fire a
+ * template, the agent writes its own yaml into the working directory and runs
+ * nuclei on that.
  */
 
 import { useRef, useState } from "react";
-import type { ZGPoc, ZGPocFilters, ZGPocImportOutcome, ZGPocSeverity, ZGPocStats, ZGPocSummary } from "../types.ts";
+import type {
+	ZGPoc,
+	ZGPocFilters,
+	ZGPocImportOutcome,
+	ZGPocSeverity,
+	ZGPocSource,
+	ZGPocStats,
+	ZGPocSummary,
+} from "../types.ts";
 import { ZG_VULN_SEVERITIES, ZG_VULN_SEVERITY_LABELS } from "../types.ts";
 
 /** Sort keys the table headers offer. */
@@ -42,6 +51,15 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
+/** The official source's newest outcome as one dim line; failures say why. */
+function officialLine(source: ZGPocSource): string {
+	const last = source.lastResult;
+	if (!last) return "官方同步：还没有同步过";
+	const when = last.at.slice(0, 19).replace("T", " ");
+	const base = `${when} · 新增 ${last.imported} · 覆盖 ${last.replaced} · 跳过 ${last.skipped} · ${(last.durationMs / 1000).toFixed(1)}s`;
+	return last.ok ? `官方同步：${base}` : `官方同步失败：${base} · ${last.error ?? "未知错误"}`;
+}
+
 export function PocPage({
 	items,
 	stats,
@@ -53,6 +71,9 @@ export function PocPage({
 	onOpen,
 	onImport,
 	onDelete,
+	officialSource,
+	officialSyncing,
+	onSyncOfficial,
 }: {
 	items: ZGPocSummary[];
 	stats: ZGPocStats;
@@ -66,6 +87,11 @@ export function PocPage({
 	onOpen(id: string): void;
 	onImport(files: File[]): void;
 	onDelete(id: string): void;
+	/** The built-in official source, once the one-click sync created it. */
+	officialSource: ZGPocSource | null;
+	/** True while that sync downloads and imports; it can take minutes. */
+	officialSyncing: boolean;
+	onSyncOfficial(): void;
 }) {
 	const [search, setSearch] = useState(filters.search ?? "");
 	const [tag, setTag] = useState(filters.tag ?? "");
@@ -198,6 +224,15 @@ export function PocPage({
 					/>
 					<button
 						type="button"
+						className="ghost small"
+						disabled={officialSyncing}
+						title="从官方仓库 projectdiscovery/nuclei-templates 下载最新模板包（zip 约 18MB、约 1.4 万个模板），按 id 去重后并入 POC 库；不会删除已有模板"
+						onClick={onSyncOfficial}
+					>
+						{officialSyncing ? "同步中…" : "一键同步官方 POC"}
+					</button>
+					<button
+						type="button"
 						className="primary"
 						disabled={importing}
 						title="选择或拖入 Nuclei 模板文件：可多选 .yaml / .yml，或打包的 .zip（解包后自动跳过非模板文件）"
@@ -207,6 +242,12 @@ export function PocPage({
 					</button>
 				</span>
 			</div>
+
+			{officialSource?.lastResult ? (
+				<div className={officialSource.lastResult.ok ? "poc-official" : "poc-official err-text"}>
+					{officialLine(officialSource)}
+				</div>
+			) : null}
 
 			<div className="poc-toolbar">
 				<input

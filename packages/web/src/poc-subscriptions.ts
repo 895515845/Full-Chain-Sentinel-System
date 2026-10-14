@@ -7,6 +7,12 @@
  * deleted by a sync: the library grows, and removing a template stays a
  * manual decision, so a broken or hijacked source cannot empty the library.
  *
+ * One source is special only in how it is created: the console's one-click
+ * official sync makes sure a source with `OFFICIAL_SOURCE_ID` exists, pointed
+ * at the official nuclei-templates archive, and syncs it. Afterwards it is an
+ * ordinary source — the URL can be retargeted at a mirror, the name and
+ * interval edited, or the whole source deleted (the button recreates it).
+ *
  * Scheduling is one minute-ticker for every source: a source with
  * `intervalHours > 0` syncs when its interval has elapsed (a sync already in
  * flight is never started twice; a missed tick syncs at the next one).
@@ -21,8 +27,13 @@ import { MAX_ZIP_TOTAL_BYTES } from "./poc-zip.ts";
 import type { PocStore } from "./pocs.ts";
 import type { ZGPocImportOutcome, ZGPocSource, ZGPocSourceSave, ZGPocSyncRecord } from "./protocol.ts";
 
-/** Download timeout per attempt. */
-const FETCH_TIMEOUT_MS = 60_000;
+/**
+ * Download timeout per attempt. Deliberately generous: the official
+ * nuclei-templates archive is ~18MB, which is seconds on a fast link and
+ * minutes on a slow one, and the size cap already bounds the transfer — so
+ * this is a ceiling, not a target.
+ */
+const FETCH_TIMEOUT_MS = 10 * 60_000;
 /** Attempts per sync: the initial try plus one retry on a network error. */
 const FETCH_ATTEMPTS = 2;
 /** Largest archive a sync accepts, from the zip reader so the two cannot drift. */
@@ -32,6 +43,19 @@ const HISTORY_LIMIT = 5;
 /** Bounds of the automatic interval; 0 means manual-only. */
 export const MIN_INTERVAL_HOURS = 1;
 export const MAX_INTERVAL_HOURS = 24 * 30;
+
+/**
+ * The source the one-click official sync owns. The id is fixed so pressing the
+ * button twice reuses one source instead of stacking duplicates.
+ */
+export const OFFICIAL_SOURCE_ID = "official";
+export const OFFICIAL_SOURCE_NAME = "官方 NucleiPOC";
+/**
+ * The official archive: the main branch, so one stable URL always serves the
+ * newest templates (a release asset carries its version in the file name).
+ * Measured: 18.4MB zip, 14,110 yaml, about 14,064 importable templates.
+ */
+export const OFFICIAL_SOURCE_URL = "https://github.com/projectdiscovery/nuclei-templates/archive/refs/heads/main.zip";
 
 /** What is persisted per source (subscriptions.json, 0600). */
 interface StoredSource {
@@ -164,6 +188,31 @@ export class PocSubscriptions {
 
 	list(): ZGPocSource[] {
 		return this.sources.map(toView);
+	}
+
+	/**
+	 * The source behind the one-click official sync: created on demand, then
+	 * reused. The interval stays manual-only because the button is a click, not
+	 * a schedule; automatic syncing can be turned on afterwards like any source.
+	 */
+	ensureOfficial(): { source: ZGPocSource } {
+		const existing = this.sources.find((item) => item.id === OFFICIAL_SOURCE_ID);
+		if (existing) return { source: toView(existing) };
+		const source: StoredSource = {
+			id: OFFICIAL_SOURCE_ID,
+			name: OFFICIAL_SOURCE_NAME,
+			url: OFFICIAL_SOURCE_URL,
+			headerName: "",
+			headerValue: "",
+			intervalHours: 0,
+			enabled: true,
+			lastSyncAt: null,
+			history: [],
+		};
+		this.sources.push(source);
+		this.persist();
+		this.hooks.onChange();
+		return { source: toView(source) };
 	}
 
 	/** Create or update; returns the saved view or a rejection reason. */

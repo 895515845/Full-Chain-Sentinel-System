@@ -1165,6 +1165,16 @@ export async function startZGServer(
 					// The sync itself already broadcast the refreshed list.
 					return;
 				}
+				case "sync_official_pocs": {
+					const result = await runtime.syncOfficialPocs();
+					if ("error" in result) {
+						sendTo(socket, { type: "poc_source_result", action: "同步官方 POC", ok: false, error: result.error });
+						return;
+					}
+					sendTo(socket, { type: "poc_source_result", action: "同步官方 POC", ok: true });
+					// The sync itself already broadcast the refreshed list.
+					return;
+				}
 				case "delete_poc": {
 					const ok = runtime.deletePoc(message.id);
 					sendTo(socket, {

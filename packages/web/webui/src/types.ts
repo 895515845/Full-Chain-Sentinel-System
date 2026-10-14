@@ -466,6 +466,13 @@ export interface ZGPocImportOutcome {
 
 // --- POC 订阅（远程 zip 源；只增不减） ---
 
+/**
+ * Id of the source the one-click official sync owns. Mirrors
+ * `OFFICIAL_SOURCE_ID` in the server: the button compares against it to show
+ * that row as busy, and the page uses it to read that source's last outcome.
+ */
+export const ZG_OFFICIAL_POC_SOURCE_ID = "official";
+
 export interface ZGPocSource {
 	id: string;
 	name: string;
@@ -768,6 +775,7 @@ export type ZGClientMessage =
 	| { type: "save_poc_source"; source: ZGPocSourceSave }
 	| { type: "delete_poc_source"; id: string }
 	| { type: "sync_poc_source"; id: string }
+	| { type: "sync_official_pocs" }
 	| { type: "get_environment" }
 	| { type: "check_environment" }
 	| { type: "build_image" }
