@@ -1056,13 +1056,24 @@ export async function startZGServer(
 						sendError(socket, "未配置配置目录，无法评审");
 						return;
 					}
-					const result = reviewer.retry(message.id);
+					const result = message.force ? reviewer.requeue(message.id) : reviewer.retry(message.id);
 					sendTo(socket, {
 						type: "vuln_review_result",
 						id: message.id,
 						ok: result.ok,
 						...(result.error ? { error: result.error } : {}),
 					});
+					return;
+				}
+				case "review_pending_vulns": {
+					if (!reviewer) {
+						sendError(socket, "未配置配置目录，无法评审");
+						return;
+					}
+					// The requeue itself is the feedback: the refreshed list shows
+					// every record flipping to 评审中.
+					reviewer.requeueAll(runtime.pendingVulnIds());
+					broadcastVulns();
 					return;
 				}
 				case "delete_vuln": {

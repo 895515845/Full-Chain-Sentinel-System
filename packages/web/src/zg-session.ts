@@ -2099,6 +2099,17 @@ export class ZGAgentRuntime {
 		return deleted;
 	}
 
+	/**
+	 * Ids of the active project's still-pending findings: the scope of the hub's
+	 * "re-review everything pending" button. Records the operator already moved
+	 * on from are never handed to the reviewer.
+	 */
+	pendingVulnIds(): string[] {
+		const projectId = this.activeProjectId;
+		if (!projectId) return [];
+		return this.vulnerabilities.list(projectId, { status: "pending" }).map((summary) => summary.id);
+	}
+
 	/** Markdown report of the active project's findings. */
 	exportVulns(filters: ZGVulnFilters = {}): { filename: string; markdown: string } {
 		const projectId = this.activeProjectId;

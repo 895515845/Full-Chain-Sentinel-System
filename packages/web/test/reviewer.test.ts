@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { parseVerdict, VulnReviewer } from "../src/reviewer.ts";
+import { buildUserPrompt, parseVerdict, VulnReviewer } from "../src/reviewer.ts";
 import { VulnerabilityStore } from "../src/vulnerabilities.ts";
 import { writeTestModel } from "./model-fixtures.ts";
 
@@ -48,10 +48,10 @@ beforeAll(() => {
 		},
 		join(dir, "agent"),
 	);
-	// A deterministic stub: every call "reviews" down to medium/5.3.
+	// A deterministic stub: every call "reviews" down to medium/6.5. The model
+	// returns metrics only, so the score below is the code's own arithmetic.
 	reviewer.call = async () => ({
-		severity: "medium",
-		cvss: 5.3,
+		metrics: { av: "N", ac: "L", pr: "N", ui: "N", s: "U", c: "L", i: "L", a: "N" },
 		dubious: false,
 		reason: "内网低权限前提，影响有限。",
 	});
@@ -69,7 +69,11 @@ test("a pending submission is calibrated and the change is traced", async () => 
 	await new Promise((resolve) => setImmediate(resolve));
 	const after = store.get(vuln.id);
 	expect(after?.severity).toBe("medium");
-	expect(after?.cvss).toBe(5.3);
+	expect(after?.cvss).toBe(6.5);
+	expect(after?.cvssVector).toBe("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N");
+	// Derived from the score, so a record the reviewer rated can never carry the
+	// "severity and score disagree" warning.
+	expect(after?.severityMismatch).toBe(false);
 	expect(after?.review.state).toBe("done");
 	expect(after?.review.reason).toContain("内网");
 	const lastNote = after?.notes[after.notes.length - 1];
@@ -115,11 +119,87 @@ test("retry is refused for records outside the failed/queued states", () => {
 	expect(reviewer.retry(vuln.id).ok).toBe(false);
 });
 
+test("the operator can force a re-review of a record the machine had let go", async () => {
+	// A record the operator already confirmed keeps its own rating: the
+	// automatic pass refuses to touch it.
+	const vuln = submit({ title: "操作员已确认" });
+	store.update(vuln.id, { status: "confirmed", note: "我先确认了" });
+	reviewer.enqueue(vuln.id);
+	await new Promise((resolve) => setImmediate(resolve));
+	expect(store.get(vuln.id)?.review.state).toBe("skipped");
+
+	// The hub's 重新评审 button does overwrite it, and the timeline says so.
+	expect(reviewer.requeue(vuln.id).ok).toBe(true);
+	await new Promise((resolve) => setImmediate(resolve));
+	const after = store.get(vuln.id);
+	expect(after?.review.state).toBe("done");
+	expect(after?.severity).toBe("medium");
+	expect(after?.cvss).toBe(6.5);
+	const last = after?.notes[after.notes.length - 1];
+	expect(last?.text).toContain("人工重新评审");
+	// The operator's status is untouched by a rating change.
+	expect(after?.status).toBe("confirmed");
+});
+
+test("a failed re-review keeps the verdict it was re-reviewing", async () => {
+	const vuln = submit({ title: "重评失败" });
+	reviewer.enqueue(vuln.id);
+	await new Promise((resolve) => setImmediate(resolve));
+	expect(store.get(vuln.id)?.review.state).toBe("done");
+
+	const original = reviewer.call;
+	reviewer.call = async () => {
+		throw new Error("端点超时");
+	};
+	expect(reviewer.requeue(vuln.id).ok).toBe(true);
+	await new Promise((resolve) => setImmediate(resolve));
+	const failed = store.get(vuln.id);
+	expect(failed?.review.state).toBe("failed");
+	expect(failed?.review.error).toContain("超时");
+	// The old verdict is still readable behind the failure.
+	expect(failed?.review.severity).toBe("medium");
+	expect(failed?.review.reason).toContain("内网");
+	reviewer.call = original;
+});
+
+test("the bulk re-review only takes the pending records it is handed", async () => {
+	const pending = submit({ title: "待确认" });
+	const confirmed = submit({ title: "已确认" });
+	reviewer.enqueue(pending.id);
+	store.update(confirmed.id, { status: "confirmed", note: "确认" });
+	await new Promise((resolve) => setImmediate(resolve));
+	expect(store.get(pending.id)?.review.state).toBe("done");
+
+	// The session decides the scope (its pending ids); the reviewer takes exactly
+	// that list and re-reviews it by force.
+	const queued = reviewer.requeueAll([pending.id]);
+	expect(queued).toBe(1);
+	await new Promise((resolve) => setImmediate(resolve));
+	const after = store.get(pending.id);
+	expect(after?.review.state).toBe("done");
+	const notes = after?.notes ?? [];
+	expect(notes[notes.length - 1]?.text).toContain("人工重新评审");
+	// The confirmed record was never in the list, so it stays as the operator left it.
+	expect(store.get(confirmed.id)?.review.state).toBe("skipped");
+	// A record already waiting for its first review is not queued twice.
+	const fresh = submit({ title: "刚提交" });
+	expect(reviewer.requeueAll([fresh.id])).toBe(0);
+});
+
+test("the reviewer never sees the submitter's own rating", () => {
+	// Anchoring: the prompt used to hand the model the answer it was asked to
+	// check, so calibrations came back as the agent's own numbers. The rating is
+	// still on the record, it just does not reach the model.
+	const prompt = buildUserPrompt(submit({ severity: "critical", cvss: 9.8 }));
+	expect(prompt).toContain("原始数据包");
+	expect(prompt).not.toContain("9.8");
+	expect(prompt).not.toContain("提交者自评");
+});
+
 test("dubious verdicts are filterable", async () => {
 	const vuln = submit({ title: "证据不足的漏洞" });
 	reviewer.call = async () => ({
-		severity: "low",
-		cvss: 2.1,
+		metrics: { av: "N", ac: "H", pr: "N", ui: "N", s: "U", c: "L", i: "N", a: "N" },
 		dubious: true,
 		reason: "输出中没有回显，结论无佐证。",
 	});
@@ -131,19 +211,26 @@ test("dubious verdicts are filterable", async () => {
 	expect(filtered.some((item) => item.id === vuln.id)).toBe(true);
 });
 
-test("parseVerdict accepts fenced JSON and rejects bad severities", () => {
-	const fenced = '```json\n{"severity":"high","cvss":7.5,"dubious":false,"reason":"ok"}\n```';
-	expect(parseVerdict(fenced).severity).toBe("high");
+test("parseVerdict accepts fenced JSON and rejects unusable metrics", () => {
+	const body = '"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H","dubious":false,"reason":"ok"';
+	expect(parseVerdict(`\`\`\`json\n{${body}}\n\`\`\``).metrics.s).toBe("U");
 	expect(() => parseVerdict("no json here")).toThrow();
-	expect(() => parseVerdict('{"severity":"extreme","cvss":7.5,"dubious":false,"reason":"x"}')).toThrow(/severity/);
-	expect(() => parseVerdict('{"severity":"high","cvss":11,"dubious":false,"reason":"x"}')).toThrow(/cvss/);
+	expect(() => parseVerdict(`{${body.replace('"av":"N"', '"av":"Network"')}}`)).toThrow(/AV/);
+	expect(() => parseVerdict(`{${body.replace('"dubious":false', '"dubious":"no"')}}`)).toThrow(/dubious/);
+	expect(() => parseVerdict('{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H"}')).toThrow(
+		/dubious/,
+	);
 });
 
 test("queued reviews left by a crashed process are recovered", async () => {
 	const vuln = submit();
 	// Simulate the crash: the record is queued but never enqueued in memory.
 	const queue = new VulnReviewer(store, { onSettled: () => {} }, join(dir, "agent"));
-	queue.call = async () => ({ severity: "info", cvss: 0, dubious: false, reason: "r" });
+	queue.call = async () => ({
+		metrics: { av: "N", ac: "L", pr: "N", ui: "N", s: "U", c: "N", i: "N", a: "N" },
+		dubious: false,
+		reason: "r",
+	});
 	queue.recover();
 	await new Promise((resolve) => setImmediate(resolve));
 	expect(store.get(vuln.id)?.review.state).toBe("done");

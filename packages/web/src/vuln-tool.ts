@@ -229,6 +229,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 		promptGuidelines: [
 			"Submit every validated finding with vuln_submit as soon as it is confirmed, not only in the final report",
 			"Give vuln_submit the raw request or packet that proves the finding, plus a CVSS score that matches the severity bucket",
+			"Your severity and CVSS are a first estimate: the hub recalibrates a fresh finding from CVSS v3.1 metrics, so rate the flaw honestly for the evidence you have instead of reaching for the highest bucket",
 			"Check vuln_list before submitting so an already-recorded finding is updated in your notes instead of submitted twice",
 			"Keep the vuln_submit title to one line of at most 40 characters: the flaw plus what it affects. Plan numbers, rounds, corrected verdicts and fix advice go into description, never into the title",
 		],

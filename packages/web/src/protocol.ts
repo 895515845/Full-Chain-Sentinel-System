@@ -931,7 +931,9 @@ export type ZGClientMessage =
 	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
 	| { type: "delete_vuln"; id: string }
 	| { type: "export_vulns"; filters?: ZGVulnFilters }
-	| { type: "retry_vuln_review"; id: string }
+	/** `force` is the hub's manual re-review: it overwrites an already-settled verdict. */
+	| { type: "retry_vuln_review"; id: string; force?: boolean }
+	| { type: "review_pending_vulns" }
 	| { type: "list_pocs"; filters?: ZGPocFilters }
 	| { type: "get_poc"; id: string }
 	| { type: "import_pocs"; files: ZGPocImportFile[] }

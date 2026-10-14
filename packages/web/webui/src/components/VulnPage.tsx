@@ -97,6 +97,7 @@ export function VulnPage({
 	onOpen,
 	onExport,
 	onRetryReview,
+	onReviewAllPending,
 }: {
 	items: ZGVulnSummary[];
 	stats: ZGVulnStats;
@@ -106,7 +107,8 @@ export function VulnPage({
 	onFiltersChange: (filters: ZGVulnFilters) => void;
 	onOpen: (id: string) => void;
 	onExport: (filters: ZGVulnFilters) => void;
-	onRetryReview: (id: string) => void;
+	onRetryReview: (id: string, force: boolean) => void;
+	onReviewAllPending: () => void;
 }) {
 	const [search, setSearch] = useState(filters.search ?? "");
 
@@ -142,6 +144,15 @@ export function VulnPage({
 					</span>
 				</div>
 				<div className="ws-panel__actions">
+					<button
+						type="button"
+						className="ghost small"
+						disabled={stats.byStatus.pending === 0}
+						title="把本项目所有「待确认」记录重新交给评审 LLM：按 CVSS 3.1 指标重算等级与分数（会覆盖这些记录现有的等级，时间线里会记录）"
+						onClick={onReviewAllPending}
+					>
+						重新评审待确认
+					</button>
 					<button
 					type="button"
 					className={`ghost small ${filters.dubious ? "primary" : ""}`}
@@ -347,7 +358,7 @@ export function VulnDetail({
 	onUpdate: (id: string, patch: ZGVulnUpdate) => void;
 	onDelete: (id: string) => void;
 	onPreview: (path: string) => void;
-	onRetryReview: (id: string) => void;
+	onRetryReview: (id: string, force: boolean) => void;
 }) {
 	const [severity, setSeverity] = useState<ZGVulnSeverity>(vuln.severity);
 	const [cvss, setCvss] = useState(String(vuln.cvss));
@@ -455,17 +466,30 @@ export function VulnDetail({
 							{vuln.review.at
 								? ` · ${new Date(vuln.review.at).toLocaleString("zh-CN", { hour12: false })}`
 								: ""}
-							{vuln.review.state === "failed" || vuln.review.state === "queued" ? (
+							{vuln.review.state === "failed" ? (
 								<button
 									type="button"
 									className="ghost small"
 									style={{ marginLeft: 8 }}
-									disabled={vuln.review.state === "queued"}
-									onClick={() => onRetryReview(vuln.id)}
+									onClick={() => onRetryReview(vuln.id, false)}
 								>
 									重试评审
 								</button>
-							) : null}
+							) : vuln.review.state === "queued" ? (
+								<button type="button" className="ghost small" style={{ marginLeft: 8 }} disabled>
+									评审中…
+								</button>
+							) : (
+								<button
+									type="button"
+									className="ghost small"
+									style={{ marginLeft: 8 }}
+									title="按 CVSS 3.1 指标重新计算等级与分数。这条如果已被手动改过等级（或状态），也会一并覆盖，时间线里会记录"
+									onClick={() => onRetryReview(vuln.id, true)}
+								>
+									重新评审
+								</button>
+							)}
 						</span>
 					</div>
 					{vuln.review.state === "done" && vuln.review.reason ? (

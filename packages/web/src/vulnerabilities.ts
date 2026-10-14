@@ -356,10 +356,12 @@ export class VulnerabilityStore {
 	}
 
 	/**
-	 * Apply the reviewer LLM's verdict. Only a still-pending record with a
-	 * queued review is calibrated — anything the operator already touched is
-	 * out of the machine's hands. The change rides the same timeline as every
-	 * other edit, authored as "system".
+	 * Apply the reviewer LLM's verdict. An automatic review only calibrates a
+	 * still-pending record with a queued review — anything the operator already
+	 * touched is out of the machine's hands. `force` is the operator's own
+	 * re-review from the hub, which does overwrite their edits; the timeline
+	 * says so. Either way the change rides the same timeline as every other
+	 * edit, authored as "system".
 	 */
 	applyReview(
 		id: string,
@@ -371,10 +373,12 @@ export class VulnerabilityStore {
 			reason: string;
 			model: string;
 		},
+		force = false,
 	): ZGVulnerability | undefined {
 		const existing = this.get(id);
 		if (!existing) return undefined;
-		if (existing.status !== "pending" || existing.review.state !== "queued") return existing;
+		if (existing.review.state !== "queued") return existing;
+		if (existing.status !== "pending" && !force) return existing;
 		const review: ZGVulnReview = {
 			state: "done",
 			severity: verdict.severity,
@@ -403,27 +407,39 @@ export class VulnerabilityStore {
 		];
 		this.appendNote(id, {
 			author: "system",
-			text: `LLM 评审${verdict.dubious ? "（存疑）" : ""}：${changes.join("，")}。${verdict.reason}`,
+			text: `${force ? "人工重新评审" : "LLM 评审"}${verdict.dubious ? "（存疑）" : ""}：${changes.join("，")}。${verdict.reason}`,
 		});
 		return this.get(id);
 	}
 
-	/** The reviewer could not produce a verdict; keep the agent's values, keep the reason. */
+	/**
+	 * The reviewer could not produce a verdict; keep the values in place and
+	 * record why. A failed first review leaves the agent's rating untouched, and
+	 * a failed re-review keeps the verdict it was re-reviewing.
+	 */
 	markReviewFailed(id: string, error: string): void {
 		const existing = this.get(id);
 		if (!existing || existing.review.state !== "queued") return;
-		const review: ZGVulnReview = { state: "failed", error, at: Date.now() };
+		const review: ZGVulnReview = { ...existing.review, state: "failed", error, at: Date.now() };
 		this.db.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?").run(JSON.stringify(review), id);
 	}
 
 	/** Manual retry: a failed (or stuck queued) review goes back to the queue. */
-	requeueReview(id: string): boolean {
+	/**
+	 * Manual retry of a failed review, or of one that sat queued when the process
+	 * died. `force` widens it to a settled record: the re-review the operator
+	 * asks for from the hub, which overwrites the current rating on purpose. The
+	 * previous verdict stays in the review object until the new one lands, so a
+	 * failed re-review does not erase what it was re-reviewing.
+	 */
+	requeueReview(id: string, force = false): boolean {
 		const existing = this.get(id);
 		if (!existing) return false;
-		if (existing.review.state !== "failed" && existing.review.state !== "queued") return false;
+		if (existing.review.state === "queued") return false;
+		if (!force && existing.review.state !== "failed") return false;
 		this.db
 			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
-			.run(JSON.stringify({ state: "queued", at: Date.now() } satisfies ZGVulnReview), id);
+			.run(JSON.stringify({ ...existing.review, state: "queued", at: Date.now() } satisfies ZGVulnReview), id);
 		return true;
 	}
 
