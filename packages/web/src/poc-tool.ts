@@ -19,6 +19,16 @@ import type { ZGPocSeverity } from "./protocol.ts";
 /** Longest tool output handed back to the model. */
 const MAX_TOOL_OUTPUT = 12000;
 
+/**
+ * Ceiling for one batched `poc_read`. Templates run 1-3KB each, so eight of them
+ * are already a few thousand tokens of context; a model that needs more can ask
+ * again, and one oversized template must not push the rest out of the answer.
+ */
+const MAX_BATCH_OUTPUT = 30000;
+
+/** Ids one `poc_read` call is meant to carry; the schema states the same limit. */
+const MAX_BATCH_IDS = 8;
+
 function clip(text: string): string {
 	if (text.length <= MAX_TOOL_OUTPUT) return text;
 	return `${text.slice(0, MAX_TOOL_OUTPUT)}\n…（输出已截断，共 ${text.length} 字符）`;
@@ -61,7 +71,11 @@ const searchSchema = Type.Object({
 });
 
 const readSchema = Type.Object({
-	id: Type.String({ minLength: 1, description: "Template id from poc_search, e.g. 'CVE-2021-44228-log4j-rce'" }),
+	ids: Type.Array(Type.String({ minLength: 1 }), {
+		minItems: 1,
+		maxItems: MAX_BATCH_IDS,
+		description: `Template ids from poc_search, e.g. ["CVE-2021-44228-log4j-rce"]. One call reads up to ${MAX_BATCH_IDS}.`,
+	}),
 });
 
 export interface PocToolOptions {
@@ -71,13 +85,18 @@ export interface PocToolOptions {
 interface SearchDetails {
 	ok: boolean;
 	count: number;
-	error?: string;
+	/** The library held more matches than this answer listed. */
+	hasMore: boolean;
 }
 
 interface ReadDetails {
 	ok: boolean;
-	id?: string;
-	error?: string;
+	/** Ids whose template text is in this answer. */
+	ids: string[];
+	/** Ids that are not in the library. */
+	missing: string[];
+	/** Ids that exist but did not fit in this answer's output budget. */
+	omitted: string[];
 }
 
 export function createPocTools(options: PocToolOptions): ToolDefinition[] {
@@ -95,60 +114,104 @@ export function createPocTools(options: PocToolOptions): ToolDefinition[] {
 		],
 		parameters: searchSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<SearchDetails>> {
-			const items = options.store.list({
+			const page = options.store.list({
 				...(params.search?.trim() ? { search: params.search.trim() } : {}),
 				...(params.severity ? { severity: params.severity as ZGPocSeverity } : {}),
 				...(params.tag?.trim() ? { tag: params.tag.trim() } : {}),
 			});
-			if (items.length === 0) {
+			if (page.items.length === 0) {
 				return {
 					content: [{ type: "text", text: "POC 库中没有匹配的模板。" }],
-					details: { ok: true, count: 0 },
+					details: { ok: true, count: 0, hasMore: false },
 				};
 			}
-			const lines = items.map((item) => {
+			const lines = page.items.map((item) => {
 				const tags = item.tags.length > 0 ? ` | ${item.tags.join(",")}` : "";
 				const refs = item.references.length > 0 ? ` | ${item.references.join(",")}` : "";
 				return `${item.id} | ${SEVERITY_LABELS[item.severity]} | ${item.name}${tags}${refs}`;
 			});
+			// Both notes stay outside the clip: the list itself is what exhausts the
+			// budget, and a truncated answer that loses the "there is more" line would
+			// read as the whole library.
+			const notes = ["用 poc_read 按 id 取模板全文，可一次传多个 id。"];
+			if (page.hasMore) {
+				notes.push("库中还有更多匹配未列出：请用 severity、tag 或更具体的关键词收窄查询，再取下一批。");
+			}
+			const text = [
+				clip(`POC 库 ${page.items.length} 条匹配（id | 等级 | 名称 | 标签 | CVE）：\n${lines.join("\n")}`),
+				...notes,
+			].join("\n\n");
 			return {
-				content: [
-					{
-						type: "text",
-						text: clip(
-							`POC 库 ${items.length} 条匹配（id | 等级 | 名称 | 标签 | CVE）：\n${lines.join("\n")}\n用 poc_read 按 id 取模板全文。`,
-						),
-					},
-				],
-				details: { ok: true, count: items.length },
+				content: [{ type: "text", text }],
+				details: { ok: true, count: page.items.length, hasMore: page.hasMore },
 			};
 		},
 	});
 
 	const read = defineTool({
 		name: "poc_read",
-		label: "Read POC template",
-		description:
-			"Read one Nuclei template from the POC library in full, by its id. The text is reference material only — it is not mounted in the container and cannot be executed from the library. To test with it, write the yaml yourself into the working directory and run nuclei on your own file via bash.",
-		promptSnippet: "Read one template from the read-only Nuclei POC library in full",
+		label: "Read POC templates",
+		description: `Read Nuclei templates from the POC library in full, by id. Pass several ids to get them in one call (up to ${MAX_BATCH_IDS}); ids that are not in the library are reported back by name. The text is reference material only — it is not mounted in the container and cannot be executed from the library. To test with it, write the yaml yourself into the working directory and run nuclei on your own file via bash.`,
+		promptSnippet: "Read one or more templates from the read-only Nuclei POC library in full",
+		promptGuidelines: [
+			"Read several candidate templates in one poc_read call (up to 8 ids) instead of one call per template",
+		],
 		parameters: readSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<ReadDetails>> {
-			const poc = options.store.get(params.id.trim());
-			if (!poc) {
+			// A model copying ids out of a previous answer repeats them often enough to
+			// make dedupe worth it, and a blank id would otherwise query for "".
+			const ids = [...new Set(params.ids.map((id) => id.trim()).filter((id) => id.length > 0))];
+			if (ids.length === 0) {
 				return {
-					content: [{ type: "text", text: `POC 库中没有 id 为 ${params.id} 的模板。` }],
-					details: { ok: false, error: "not-found" },
+					content: [{ type: "text", text: "没有给出有效的模板 id。" }],
+					details: { ok: false, ids: [], missing: [], omitted: [] },
 					isError: true,
 				};
 			}
+			const byId = new Map(options.store.getMany(ids).map((poc) => [poc.id, poc]));
+			const missing: string[] = [];
+			const omitted: string[] = [];
+			const returned: string[] = [];
+			const sections: string[] = [];
+			let used = 0;
+			for (const id of ids) {
+				const poc = byId.get(id);
+				if (!poc) {
+					missing.push(id);
+					continue;
+				}
+				const section = clip(`模板 ${poc.id}（${SEVERITY_LABELS[poc.severity]}）：\n\n${poc.content}`);
+				// Greedy: a template too large for what is left is named in a note
+				// instead of blocking the smaller ones behind it.
+				if (used + section.length > MAX_BATCH_OUTPUT) {
+					omitted.push(poc.id);
+					continue;
+				}
+				used += section.length;
+				returned.push(poc.id);
+				sections.push(section);
+			}
+			if (sections.length === 0) {
+				const text =
+					missing.length > 0
+						? `POC 库中没有 id 为 ${missing.join("、")} 的模板。`
+						: "本次没有可返回的模板：单次可读的正文总量有限，请减少 id 数量后重试。";
+				return {
+					content: [{ type: "text", text }],
+					details: { ok: false, ids: [], missing, omitted },
+					isError: true,
+				};
+			}
+			const notes: string[] = [];
+			if (missing.length > 0) notes.push(`未找到：${missing.join("、")}（用 poc_search 确认 id）。`);
+			if (omitted.length > 0) {
+				notes.push(`本次未返回：${omitted.join("、")}（一次能带的正文总量有限，请减少 id 或单独读取）。`);
+			}
+			// The path note is outside the clips, so a truncated answer still carries it.
+			notes.push(TEMPLATE_PATH_NOTE);
 			return {
-				content: [
-					{
-						type: "text",
-						text: `${clip(`模板 ${poc.id}（${SEVERITY_LABELS[poc.severity]}）：\n\n${poc.content}`)}\n\n${TEMPLATE_PATH_NOTE}`,
-					},
-				],
-				details: { ok: true, id: poc.id },
+				content: [{ type: "text", text: `${sections.join("\n\n")}\n\n${notes.join("\n")}` }],
+				details: { ok: true, ids: returned, missing, omitted },
 			};
 		},
 	});

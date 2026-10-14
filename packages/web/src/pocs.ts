@@ -21,7 +21,11 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 /** Largest template accepted; real nuclei templates are a few kilobytes. */
 const MAX_TEMPLATE_BYTES = 512 * 1024;
-/** Templates listed in one poc_search answer. */
+/**
+ * Templates listed in one answer. The query asks for one row more than this and
+ * keeps the surplus as `hasMore`: an answer that cannot tell a full page from a
+ * truncated one reports a 5,000-row match as 100 rows.
+ */
 const LIST_CAP = 100;
 /**
  * Templates stored per commit. A whole-archive import is one transaction per
@@ -99,6 +103,13 @@ function toPoc(row: PocRow): ZGPoc {
 	return { ...toSummary(row), content: row.content };
 }
 
+/** One page of `list()` results; `hasMore` says the library held more matches. */
+export interface ZGPocListPage {
+	items: ZGPocSummary[];
+	hasMore: boolean;
+}
+
+/**
 /**
  * Extract a template's metadata without a yaml parser. Only the fields the
  * library indexes are read — `id`, `info.name`, `info.severity`,
@@ -302,7 +313,7 @@ export class PocStore {
 		}
 	}
 
-	list(filters: ZGPocFilters = {}): ZGPocSummary[] {
+	list(filters: ZGPocFilters = {}): ZGPocListPage {
 		const conditions: string[] = [];
 		const params: (string | number)[] = [];
 		if (filters.severity) {
@@ -322,12 +333,32 @@ export class PocStore {
 		const rows = this.db
 			.prepare(`SELECT ${SUMMARY_COLUMNS} FROM pocs${where} ORDER BY imported_at DESC, id LIMIT ${LIST_CAP + 1}`)
 			.all(...params) as unknown as PocSummaryRow[];
-		return rows.slice(0, LIST_CAP).map(toSummary);
+		return { items: rows.slice(0, LIST_CAP).map(toSummary), hasMore: rows.length > LIST_CAP };
 	}
 
 	get(id: string): ZGPoc | undefined {
 		const row = this.db.prepare("SELECT * FROM pocs WHERE id = ?").get(id) as unknown as PocRow | undefined;
 		return row ? toPoc(row) : undefined;
+	}
+
+	/**
+	 * Templates by id, in the order asked for and without duplicates. One query,
+	 * so a batched read is one trip to the database rather than one per id.
+	 */
+	getMany(ids: string[]): ZGPoc[] {
+		const unique = [...new Set(ids)];
+		if (unique.length === 0) return [];
+		const placeholders = unique.map(() => "?").join(", ");
+		const rows = this.db
+			.prepare(`SELECT * FROM pocs WHERE id IN (${placeholders})`)
+			.all(...unique) as unknown as PocRow[];
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		const found: ZGPoc[] = [];
+		for (const id of unique) {
+			const row = byId.get(id);
+			if (row) found.push(toPoc(row));
+		}
+		return found;
 	}
 
 	delete(id: string): boolean {

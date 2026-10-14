@@ -2167,7 +2167,7 @@ export class ZGAgentRuntime {
 
 	/** The library is global, not per project: templates are reference material. */
 	listPocs(filters: ZGPocFilters = {}): { items: ZGPocSummary[]; stats: ZGPocStats } {
-		return { items: this.pocs.list(filters), stats: this.pocs.stats() };
+		return { items: this.pocs.list(filters).items, stats: this.pocs.stats() };
 	}
 
 	getPoc(id: string): ZGPoc | undefined {

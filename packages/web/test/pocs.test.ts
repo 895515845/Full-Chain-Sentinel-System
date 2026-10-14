@@ -98,16 +98,16 @@ test("list filters by tag, severity and search; stats count severities", () => {
 	expect(
 		store
 			.list({ tag: "rce" })
-			.map((item) => item.id)
+			.items.map((item) => item.id)
 			.sort(),
 	).toEqual(["t-low", "t-med", "t1"]);
-	expect(store.list({ severity: "critical" })).toEqual([]);
-	expect(store.list({ severity: "medium" }).map((item) => item.id)).toEqual(["t-med"]);
-	expect(store.list({ search: "wordpress" }).map((item) => item.id)).toEqual(["t-med"]);
+	expect(store.list({ severity: "critical" }).items).toEqual([]);
+	expect(store.list({ severity: "medium" }).items.map((item) => item.id)).toEqual(["t-med"]);
+	expect(store.list({ search: "wordpress" }).items.map((item) => item.id)).toEqual(["t-med"]);
 	expect(
 		store
 			.list({ search: "cve-2021-44228" })
-			.map((item) => item.id)
+			.items.map((item) => item.id)
 			.sort(),
 	).toEqual(["t-low", "t-med", "t1"]);
 	expect(store.stats().total).toBe(3);
@@ -127,10 +127,10 @@ test("agent tools search and read, and say the library is not executable", async
 	const text = (result?.content as { type: string; text?: string }[])[0]?.text ?? "";
 	expect(text).toContain("Renamed");
 
-	const full = await callTool(read, { id: "t1" });
+	const full = await callTool(read, { ids: ["t1"] });
 	expect((full?.content as { type: string; text?: string }[])[0]?.text ?? "").toContain("CVE-2021-44228");
 
-	const missing = await callTool(read, { id: "nope" });
+	const missing = await callTool(read, { ids: ["nope"] });
 	expect(missing?.isError).toBe(true);
 });
 
@@ -150,7 +150,7 @@ test("the tools steer the model away from treating a template's path as the targ
 	expect(search?.description).toContain("generic fingerprint knowledge");
 	expect(search?.promptSnippet).toContain("read-only Nuclei POC library");
 
-	const full = await callTool(read, { id: "t1" });
+	const full = await callTool(read, { ids: ["t1"] });
 	const text = (full?.content as { type: string; text?: string }[])[0]?.text ?? "";
 	expect(text).toContain("真实路径");
 	// The note survives clipping: a template over the output cap still carries it.
@@ -158,10 +158,74 @@ test("the tools steer the model away from treating a template's path as the targ
 		{ name: "big.yaml", bytes: Buffer.from(`${TEMPLATE("t-huge")}${"# pad\n".repeat(2_000)}`, "utf8") },
 	]);
 	expect(big.imported).toBe(1);
-	const clipped = await callTool(read, { id: "t-huge" });
+	const clipped = await callTool(read, { ids: ["t-huge"] });
 	const clippedText = (clipped?.content as { type: string; text?: string }[])[0]?.text ?? "";
 	expect(clippedText).toContain("输出已截断");
 	expect(clippedText).toContain("真实路径");
+});
+
+test("poc_read takes several ids in one call and names the ones it could not find", async () => {
+	const tools = createPocTools({ store });
+	const read = tools.find((tool) => tool.name === "poc_read");
+
+	const batch = await callTool(read, { ids: ["t1", "t-low", "t1", "nope"] });
+	const text = (batch?.content as { type: string; text?: string }[])[0]?.text ?? "";
+	expect(text).toContain("模板 t1（");
+	expect(text).toContain("模板 t-low（");
+	// A repeated id reads once; the missing one is reported without failing the call.
+	expect(text.match(/模板 t1（/g)).toHaveLength(1);
+	expect(text).toContain("未找到：nope");
+	expect(batch?.isError).toBeFalsy();
+});
+
+test("a batch over the output budget names what it left out instead of dropping it", async () => {
+	// Each padded template clips to the 12KB per-template ceiling, so two fit in one
+	// 30KB answer and the third is reported rather than silently omitted.
+	const padded = store.import(
+		[1, 2, 3].map((n) => ({
+			name: `big-${n}.yaml`,
+			bytes: Buffer.from(`${TEMPLATE(`t-big-${n}`)}${"# pad\n".repeat(2_000)}`, "utf8"),
+		})),
+	);
+	expect(padded.imported).toBe(3);
+
+	const read = createPocTools({ store }).find((tool) => tool.name === "poc_read");
+	const batch = await callTool(read, { ids: ["t-big-1", "t-big-2", "t-big-3"] });
+	const text = (batch?.content as { type: string; text?: string }[])[0]?.text ?? "";
+	expect(text).toContain("本次未返回：t-big-3");
+	expect(text).toContain("真实路径");
+});
+
+test("a full page of matches says so instead of reading as the whole library", async () => {
+	const ownDir = mkdtempSync(join(tmpdir(), "zg-pocs-cap-"));
+	const own = new PocStore(join(ownDir, "pocs.db"));
+	try {
+		const files = [
+			{ name: "crit.yaml", bytes: Buffer.from(TEMPLATE("cap-crit", "Critical one", "critical"), "utf8") },
+			...Array.from({ length: 100 }, (_, index) => ({
+				name: `${index}.yaml`,
+				bytes: Buffer.from(TEMPLATE(`cap-${index}`), "utf8"),
+			})),
+		];
+		expect(own.import(files).imported).toBe(101);
+		const page = own.list();
+		expect(page.items).toHaveLength(100);
+		expect(page.hasMore).toBe(true);
+
+		const search = createPocTools({ store: own }).find((tool) => tool.name === "poc_search");
+		const wide = await callTool(search, {});
+		const wideText = (wide?.content as { type: string; text?: string }[])[0]?.text ?? "";
+		expect(wideText).toContain("还有更多匹配未列出");
+
+		// A query whose matches fit in one page carries no such warning.
+		const narrow = await callTool(search, { severity: "critical" });
+		const narrowText = (narrow?.content as { type: string; text?: string }[])[0]?.text ?? "";
+		expect(narrowText).toContain("cap-crit");
+		expect(narrowText).not.toContain("还有更多");
+	} finally {
+		own.close();
+		rmSync(ownDir, { recursive: true, force: true });
+	}
 });
 
 // --- zip ---
@@ -345,11 +409,18 @@ test("opening an existing library adds the listing indexes", () => {
 test("a list row carries the metadata and no template body", () => {
 	// The list reads only summary columns: a page of 100 templates must not drag
 	// up to 50MB of yaml out of the database to throw it away.
-	const rows = store.list({});
+	const rows = store.list({}).items;
 	expect(rows.length).toBeGreaterThan(0);
 	expect(Object.keys(rows[0] ?? {}).sort()).toEqual(
 		["id", "importedAt", "name", "references", "severity", "sourceFile", "tags"].sort(),
 	);
+});
+
+test("getMany returns the requested templates in order, once each", () => {
+	const rows = store.getMany(["t-low", "t1", "t-low", "missing"]);
+	expect(rows.map((row) => row.id)).toEqual(["t-low", "t1"]);
+	expect(rows[0]?.content).toContain("id: t-low");
+	expect(store.getMany([])).toEqual([]);
 });
 
 test("an import larger than one commit chunk stays complete and countable", () => {
