@@ -103,6 +103,10 @@ export interface ZGVulnCreateInput {
 	remediation?: string;
 	references?: string[];
 	evidence?: ZGVulnEvidence[];
+	/** 平台：默认 Web；安卓渗透提交时标 android 并附包名/版本。 */
+	platform?: "web" | "android";
+	appPackage?: string;
+	appVersion?: string;
 }
 
 const SCHEMA = `
@@ -121,6 +125,9 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
   status TEXT NOT NULL,
   target TEXT NOT NULL,
   category TEXT,
+  platform TEXT NOT NULL DEFAULT 'web',
+  app_package TEXT,
+  app_version TEXT,
   description TEXT NOT NULL,
   packet TEXT NOT NULL,
   repro TEXT,
@@ -169,6 +176,9 @@ interface VulnRow {
 	status: string;
 	target: string;
 	category: string | null;
+	platform: string;
+	app_package: string | null;
+	app_version: string | null;
 	description: string;
 	packet: string;
 	repro: string | null;
@@ -240,6 +250,17 @@ export class VulnerabilityStore {
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
 		this.addReviewColumn();
+		this.addDroidColumns();
+	}
+
+	/** Databases created before the Droid plugin existed have no platform columns. */
+	private addDroidColumns(): void {
+		const columns = this.db.prepare("PRAGMA table_info(vulnerabilities)").all() as unknown as Array<{ name: string }>;
+		const names = columns.map((column) => column.name);
+		if (!names.includes("platform"))
+			this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN platform TEXT NOT NULL DEFAULT 'web'");
+		if (!names.includes("app_package")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN app_package TEXT");
+		if (!names.includes("app_version")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN app_version TEXT");
 	}
 
 	/** Databases created before the reviewer existed have no review column. */
@@ -270,9 +291,9 @@ export class VulnerabilityStore {
 			.prepare(
 				`INSERT INTO vulnerabilities (
 					id, label, number, project_id, project_name, session_id, source, title, severity, cvss,
-					cvss_vector, status, target, category, description, packet, repro, remediation, refs, review,
-					created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					cvss_vector, status, target, category, platform, app_package, app_version, description, packet,
+					repro, remediation, refs, review, created_at, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -288,6 +309,9 @@ export class VulnerabilityStore {
 				input.cvssVector ?? null,
 				input.target,
 				input.category ?? null,
+				input.platform ?? "web",
+				input.appPackage ?? null,
+				input.appVersion ?? null,
 				input.description,
 				input.packet,
 				input.repro ?? null,
@@ -687,6 +711,9 @@ function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]
 		status: row.status as ZGVulnStatus,
 		target: row.target,
 		...(optional(row.category) ? { category: row.category as string } : {}),
+		platform: (row.platform as "web" | "android") ?? "web",
+		...(optional(row.app_package) ? { appPackage: row.app_package as string } : {}),
+		...(optional(row.app_version) ? { appVersion: row.app_version as string } : {}),
 		description: row.description,
 		packet: row.packet,
 		...(optional(row.repro) ? { repro: row.repro as string } : {}),

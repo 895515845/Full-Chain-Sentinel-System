@@ -15,6 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
+import { type AddressInfo, createServer, type Socket as TcpSocket } from "node:net";
 import type { Duplex } from "node:stream";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
@@ -39,6 +40,20 @@ interface DeviceConnection {
 	device: DroidDevice;
 	/** Payload chunks assembled so far, by request id. */
 	streams: Map<string, { chunks: Buffer[]; bytes: number; nextSeq: number }>;
+	/** tcp connId → the device-side socket is remote; the server side lives in `tunnels`. */
+	tcp: Map<string, TcpSocket>;
+}
+
+/** One server-side TCP listener bridged into a device port. */
+interface TcpTunnel {
+	deviceId: string;
+	server: import("node:net").Server;
+	port: number;
+	targetHost: string;
+	targetPort: number;
+	connections: Map<string, TcpSocket>;
+	/** Bytes that arrived before the device finished dialing, flushed on tcp_opened. */
+	buffers: Map<string, Buffer[]>;
 }
 
 interface PendingRequest {
@@ -55,6 +70,7 @@ export class DroidGateway {
 	private readonly pending = new Map<string, PendingRequest>();
 	/** reqId → deviceId, so a disconnect can fail exactly that device's calls. */
 	private readonly pendingDevices = new Map<string, string>();
+	private readonly tunnels = new Map<string, TcpTunnel>();
 	private counter = 0;
 
 	private readonly store: DroidStore;
@@ -115,7 +131,7 @@ export class DroidGateway {
 					},
 					tokenId,
 				);
-				this.connections.set(hello.deviceId, { ws, device, streams: new Map() });
+				this.connections.set(hello.deviceId, { ws, device, streams: new Map(), tcp: new Map() });
 				helloed = true;
 				ws.send(JSON.stringify({ t: "welcome", deviceId: hello.deviceId }));
 				this.hooks.log(
@@ -131,6 +147,53 @@ export class DroidGateway {
 			}
 			if (frame.t === "data") {
 				this.onData(device.id, frame.reqId, frame.seq, frame.b64, frame.done === true);
+				return;
+			}
+			if (frame.t === "tcp_data") {
+				const tunnel = this.tunnels.get(frame.tunnelId);
+				const socket = tunnel?.connections.get(frame.connId);
+				socket?.write(Buffer.from(frame.b64, "base64"));
+				return;
+			}
+			if (frame.t === "tcp_closed") {
+				const tunnel = this.tunnels.get(frame.tunnelId);
+				tunnel?.connections.get(frame.connId)?.destroy();
+				tunnel?.connections.delete(frame.connId);
+				return;
+			}
+			if (frame.t === "tcp_opened") {
+				console.error(
+					"[DIAG gw tcp_opened]",
+					frame.tunnelId,
+					frame.connId,
+					frame.ok,
+					"pending=",
+					this.pending.has(frame.reqId),
+				);
+				const pending = this.pending.get(frame.reqId);
+				if (!pending) return;
+				this.pending.delete(frame.reqId);
+				clearTimeout(pending.timer);
+				// Flush whatever the client wrote while the device was dialing.
+				const tunnel = this.tunnels.get(frame.tunnelId);
+				const buffered = tunnel?.buffers.get(frame.connId);
+				console.error("[DIAG gw flush]", frame.tunnelId, "tunnel=", !!tunnel, "buffered=", buffered?.length);
+				if (tunnel && buffered && frame.ok === true) {
+					tunnel.buffers.delete(frame.connId);
+					for (const chunk of buffered) {
+						ws.send(
+							JSON.stringify({
+								t: "tcp_send",
+								tunnelId: frame.tunnelId,
+								connId: frame.connId,
+								b64: chunk.toString("base64"),
+							}),
+						);
+					}
+				} else if (tunnel) {
+					tunnel.buffers.delete(frame.connId);
+				}
+				pending.resolve({ ok: frame.ok === true, error: frame.error });
 				return;
 			}
 			if (frame.t === "result") {
@@ -158,6 +221,12 @@ export class DroidGateway {
 			if (current && current.ws !== ws) return;
 			this.connections.delete(device.id);
 			this.store.setDeviceOnline(device.id, false);
+			for (const [tunnelId, tunnel] of [...this.tunnels.entries()]) {
+				if (tunnel.deviceId !== device.id) continue;
+				for (const socket of tunnel.connections.values()) socket.destroy();
+				tunnel.server.close();
+				this.tunnels.delete(tunnelId);
+			}
 			this.failPendingOf(device.id, "设备连接已断开");
 			this.hooks.log(`设备离线：${device.name}`);
 			this.hooks.onDeviceChange();
@@ -239,6 +308,113 @@ export class DroidGateway {
 	/** Drop a device's connection (token revoked, device removed). */
 	disconnect(deviceId: string): void {
 		this.connections.get(deviceId)?.ws.close(4004, "revoked");
+	}
+
+	listTunnels(): Array<{ tunnelId: string; deviceId: string; port: number; targetHost: string; targetPort: number }> {
+		return [...this.tunnels.entries()].map(([tunnelId, tunnel]) => ({
+			tunnelId,
+			deviceId: tunnel.deviceId,
+			port: tunnel.port,
+			targetHost: tunnel.targetHost,
+			targetPort: tunnel.targetPort,
+		}));
+	}
+
+	/**
+	 * Open a TCP tunnel: a loopback listener whose connections are bridged into
+	 * `targetHost:targetPort` on the device. The container reaches it via
+	 * host.docker.internal; the host via 127.0.0.1. Fails when the device already
+	 * serves this exact target through a live tunnel (reuse instead).
+	 */
+	openTunnel(
+		deviceId: string,
+		targetHost: string,
+		targetPort: number,
+	): Promise<{ ok: boolean; port?: number; tunnelId?: string; error?: string }> {
+		const conn = this.connections.get(deviceId);
+		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		for (const [tunnelId, tunnel] of this.tunnels.entries()) {
+			if (tunnel.deviceId === deviceId && tunnel.targetHost === targetHost && tunnel.targetPort === targetPort) {
+				return Promise.resolve({ ok: true, port: tunnel.port, tunnelId });
+			}
+		}
+		this.counter += 1;
+		const tunnelId = `tn${Date.now().toString(36)}${this.counter.toString(36)}`;
+		const tunnel: TcpTunnel = {
+			deviceId,
+			server: createServer(),
+			port: 0,
+			targetHost,
+			targetPort,
+			connections: new Map(),
+			buffers: new Map(),
+		};
+		this.tunnels.set(tunnelId, tunnel);
+		return new Promise((resolve) => {
+			tunnel.server.on("connection", (socket: TcpSocket) => {
+				const connId = randomUUID().slice(0, 8);
+				const reqId = randomUUID().slice(0, 8);
+				tunnel.connections.set(connId, socket);
+				// Clients like frida write their handshake immediately, before the
+				// device has finished dialing: buffer until tcp_opened, then flush.
+				tunnel.buffers.set(connId, []);
+				this.pendingDevices.set(reqId, deviceId);
+				const timer = setTimeout(() => {
+					this.pending.delete(reqId);
+					tunnel.connections.delete(connId);
+					socket.destroy();
+				}, 10_000);
+				this.pending.set(reqId, {
+					resolve: (result) => {
+						clearTimeout(timer);
+						if (!result.ok) {
+							tunnel.connections.delete(connId);
+							socket.destroy();
+						}
+					},
+					timer,
+				});
+				conn.ws.send(
+					JSON.stringify({ t: "tcp_open", reqId, tunnelId, connId, host: targetHost, port: targetPort }),
+				);
+				socket.on("data", (chunk: Buffer) => {
+					if (this.connections.get(deviceId) !== conn) return;
+					const buffer = tunnel.buffers.get(connId);
+					console.error("[DIAG gw sock data]", connId, chunk.length, "buffered=", !!buffer);
+					if (buffer) {
+						// The device-side dial is still in flight; hold the bytes in order.
+						buffer.push(chunk);
+						return;
+					}
+					conn.ws.send(JSON.stringify({ t: "tcp_send", tunnelId, connId, b64: chunk.toString("base64") }));
+				});
+				socket.on("close", () => {
+					tunnel.connections.delete(connId);
+					tunnel.buffers.delete(connId);
+					if (this.connections.get(deviceId) === conn) {
+						conn.ws.send(JSON.stringify({ t: "tcp_close", tunnelId, connId }));
+					}
+				});
+				socket.on("error", () => socket.destroy());
+			});
+			tunnel.server.on("error", (error: Error) => {
+				this.tunnels.delete(tunnelId);
+				resolve({ ok: false, error: `隧道监听失败：${error.message}` });
+			});
+			tunnel.server.listen(0, "127.0.0.1", () => {
+				tunnel.port = (tunnel.server.address() as AddressInfo).port;
+				resolve({ ok: true, port: tunnel.port, tunnelId });
+			});
+		});
+	}
+
+	closeTunnel(tunnelId: string): boolean {
+		const tunnel = this.tunnels.get(tunnelId);
+		if (!tunnel) return false;
+		for (const socket of tunnel.connections.values()) socket.destroy();
+		tunnel.server.close();
+		this.tunnels.delete(tunnelId);
+		return true;
 	}
 
 	/**

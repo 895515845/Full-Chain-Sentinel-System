@@ -76,7 +76,36 @@ export interface DroidCaptureStatusRequest {
 	reqId: string;
 }
 
+// -- TCP 隧道（第 2 期）-----------------------------------------------------------------
+// 服务器在本机起一个 TCP 监听，容器里的 frida-cli 连它；数据经 WS 透传到设备上
+// 的目标端口（如 frida-server 的 27042）。tunnelId + connId 定向一条双向流。
+
+export interface DroidTcpOpenRequest {
+	t: "tcp_open";
+	reqId: string;
+	tunnelId: string;
+	connId: string;
+	host: string;
+	port: number;
+}
+
+export interface DroidTcpSendRequest {
+	t: "tcp_send";
+	tunnelId: string;
+	connId: string;
+	b64: string;
+}
+
+export interface DroidTcpCloseRequest {
+	t: "tcp_close";
+	tunnelId: string;
+	connId: string;
+}
+
 export type DroidRequest =
+	| DroidTcpOpenRequest
+	| DroidTcpSendRequest
+	| DroidTcpCloseRequest
 	| DroidExecRequest
 	| DroidPullRequest
 	| DroidPushRequest
@@ -123,7 +152,39 @@ export interface DroidResultFrame {
 	error?: string;
 }
 
-export type DroidDeviceFrame = DroidHelloFrame | DroidHeartbeatFrame | DroidDataFrame | DroidResultFrame;
+/** Device → server: a tunnel connection was established (or refused) on the device. */
+export interface DroidTcpOpenedFrame {
+	t: "tcp_opened";
+	reqId: string;
+	tunnelId: string;
+	connId: string;
+	ok: boolean;
+	error?: string;
+}
+
+/** Device → server: bytes read from the tunneled socket. */
+export interface DroidTcpDataDeviceFrame {
+	t: "tcp_data";
+	tunnelId: string;
+	connId: string;
+	b64: string;
+}
+
+/** Device → server: the tunneled socket closed (or failed to open). */
+export interface DroidTcpClosedDeviceFrame {
+	t: "tcp_closed";
+	tunnelId: string;
+	connId: string;
+}
+
+export type DroidDeviceFrame =
+	| DroidHelloFrame
+	| DroidHeartbeatFrame
+	| DroidDataFrame
+	| DroidResultFrame
+	| DroidTcpOpenedFrame
+	| DroidTcpDataDeviceFrame
+	| DroidTcpClosedDeviceFrame;
 
 /** A request without its id: the gateway assigns one. */
 type DistributiveOmit<T, K extends string> = T extends unknown ? Omit<T, K> : never;

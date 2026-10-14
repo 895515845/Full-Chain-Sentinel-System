@@ -525,6 +525,11 @@ export interface ZGVulnerability {
 	target: string;
 	/** Vulnerability class, e.g. "SQL 注入" or "未授权访问". */
 	category?: string;
+	/** 平台：web（默认）或 android（Droid 插件提交的移动端发现）。 */
+	platform: "web" | "android";
+	/** android 时可选：目标应用的包名与版本。 */
+	appPackage?: string;
+	appVersion?: string;
 	description: string;
 	/** Raw request or packet, verbatim. */
 	packet: string;

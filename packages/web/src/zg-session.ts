@@ -50,11 +50,14 @@ import {
 	endpointsOf,
 } from "./apimodels.ts";
 import { ApprovalGate } from "./approval.ts";
+import { CAPTURE_TOOL_NAMES, createCaptureTools } from "./capture-tool.ts";
+import { CaptureStore, capturesDbPath } from "./captures.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { DroidStore, droidDbPath } from "./droid.ts";
 import type { DroidGateway } from "./droid-gateway.ts";
 import { createApkTools, createDroidTools, DROID_TOOL_NAMES, type DroidToolContext } from "./droid-tool.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
+import { createFridaTools, FRIDA_TOOL_NAMES } from "./frida-tool.ts";
 import { buildJudgeInput, GATEKEEPER_SAMPLE_COMMAND, Gatekeeper, type ResolvedJudgeEndpoint } from "./gatekeeper.ts";
 import { readGatekeeperConfig, writeGatekeeperConfig } from "./gatekeeper-config.ts";
 import { GatekeeperStore, gatekeeperDbPath } from "./gatekeeper-store.ts";
@@ -374,6 +377,7 @@ export class ZGAgentRuntime {
 	private readonly pocs: PocStore;
 	private readonly apiModels: ApiModelStore;
 	private readonly droids: DroidStore;
+	private readonly captures: CaptureStore;
 	/** Injected once the server has built the WS device gateway (see server.ts). */
 	private droidGateway: DroidGateway | undefined;
 	/** The device page's switch: off means the droid/apk tools are not mounted at all. */
@@ -418,6 +422,7 @@ export class ZGAgentRuntime {
 		this.pocs = new PocStore(pocsDbPath(this.agentDir));
 		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
 		this.droids = new DroidStore(droidDbPath(this.agentDir));
+		this.captures = new CaptureStore(capturesDbPath(this.agentDir));
 		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
@@ -670,6 +675,19 @@ export class ZGAgentRuntime {
 			// which keeps an Android toolset out of a Web-pentest session's prompt.
 			...(task ? [] : createDroidTools(this.createDroidToolContext())),
 			...(task ? [] : createApkTools(this.createDroidToolContext())),
+			...(task ? [] : createFridaTools(this.createDroidToolContext())),
+			...(task
+				? []
+				: createCaptureTools({
+						gateway: () => this.droidGateway,
+						container: () => this.requireContainer(),
+						workDir: () => this.cwd,
+						project: () =>
+							this.activeProjectId
+								? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
+								: null,
+						store: () => this.captures,
+					})),
 			...(permissions.spawn_agent
 				? [
 						createSubagentTool({
@@ -1353,6 +1371,11 @@ export class ZGAgentRuntime {
 		return this.apiModels.purgeProject(projectId);
 	}
 
+	/** HTTP capture evidence of a removed project. */
+	purgeProjectCaptures(projectId: string): number {
+		return this.captures.purgeProject(projectId);
+	}
+
 	// =========================================================================
 	// Android devices (Droid 插件)
 	// =========================================================================
@@ -1460,9 +1483,10 @@ export class ZGAgentRuntime {
 	private applyDroidTools(managed: ManagedSession): void {
 		if (managed.taskSession) return;
 		const active = managed.session.getActiveToolNames();
+		const droidNames = [...DROID_TOOL_NAMES, ...FRIDA_TOOL_NAMES, ...CAPTURE_TOOL_NAMES];
 		const wanted = this.droidOn
-			? [...active, ...DROID_TOOL_NAMES.filter((name) => !active.includes(name))]
-			: active.filter((name) => !DROID_TOOL_NAMES.includes(name));
+			? [...active, ...droidNames.filter((name) => !active.includes(name))]
+			: active.filter((name) => !droidNames.includes(name));
 		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
 		if (changed) managed.session.setActiveToolsByName(wanted);
 	}
@@ -2778,6 +2802,7 @@ export class ZGAgentRuntime {
 		this.pocs.close();
 		this.apiModels.close();
 		this.droids.close();
+		this.captures.close();
 		this.subscriptions.stop();
 		this.gateStore.close();
 	}

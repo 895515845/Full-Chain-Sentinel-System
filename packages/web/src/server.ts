@@ -983,6 +983,7 @@ export async function startZGServer(
 					const purged = runtime.purgeProjectVulns(message.id);
 					const purgedGates = runtime.purgeProjectGates(message.id);
 					const purgedModels = runtime.purgeProjectApiModels(message.id);
+					const purgedCaptures = runtime.purgeProjectCaptures(message.id);
 					console.error(
 						`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型`,
 					);

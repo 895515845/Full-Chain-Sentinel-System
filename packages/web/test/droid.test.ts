@@ -11,6 +11,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createConnection, createServer as netCreateServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
@@ -76,6 +77,15 @@ class FakeDevice {
 
 	send(frame: Record<string, unknown>): void {
 		this.ws?.send(JSON.stringify(frame));
+	}
+
+	/** Tunnel plumbing: remember the device-side socket and close it with the WS. */
+	private readonly tcp = new Map<string, import("node:net").Socket>();
+	onTcp?: (socket: import("node:net").Socket, tunnelId: string, connId: string) => void;
+
+	/** Called by the tunnel test to register its device-side socket for close tracking. */
+	trackTcp(socket: import("node:net").Socket, tunnelId: string, connId: string): void {
+		this.tcp.set(`${tunnelId}:${connId}`, socket);
 	}
 
 	close(): void {
@@ -344,4 +354,72 @@ test("the running console refuses a device upgrade without a valid token", async
 		close?.();
 		rmSync(tempRoot, { recursive: true, force: true });
 	}
+});
+
+test("the TCP tunnel bridges a loopback connection into the device port", async () => {
+	// A stand-in for frida-server: an echo server on the "device" side of the test.
+	const echo = netCreateServer((socket) => {
+		socket.on("data", (chunk) => socket.write(chunk));
+	});
+	await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+	const devicePort = (echo.address() as AddressInfo).port;
+
+	const token = tokenOf("隧道机");
+	const device = new FakeDevice("dvc-8", token, false);
+	await device.connect();
+
+	// The fake device implements the tunnel the way DroidBridge does: dial on
+	// tcp_open, pipe data both ways, close on tcp_close.
+	const dialed = new Set<string>();
+	const sockets = new Map<string, import("node:net").Socket>();
+	device.ws?.on("message", (raw: WebSocket.RawData) => {
+		const frame = JSON.parse(String(raw)) as Record<string, unknown>;
+		if (frame.t === "tcp_open" && !dialed.has(frame.connId as string)) {
+			dialed.add(frame.connId as string);
+			const tunnelId = frame.tunnelId as string;
+			const connId = frame.connId as string;
+			const socket = createConnection({ host: "127.0.0.1", port: devicePort }, () => {
+				device.send({ t: "tcp_opened", reqId: frame.reqId, tunnelId, connId, ok: true });
+			});
+			sockets.set(connId, socket);
+			socket.on("data", (chunk: Buffer) => {
+				device.send({ t: "tcp_data", tunnelId, connId, b64: chunk.toString("base64") });
+			});
+			socket.on("close", () => device.send({ t: "tcp_closed", tunnelId, connId }));
+		}
+		if (frame.t === "tcp_send") {
+			sockets.get(frame.connId as string)?.write(Buffer.from(frame.b64 as string, "base64"));
+		}
+	});
+
+	const tunnel = await gateway.openTunnel("dvc-8", "127.0.0.1", devicePort);
+	expect(tunnel.ok).toBe(true);
+	if (!tunnel.ok || !tunnel.port) return;
+
+	// A client on the host (the container would use host.docker.internal) echoes
+	// through the whole chain: TCP → WS → device socket → WS → TCP. The first
+	// bytes are written before the device finishes dialing, which is exactly how
+	// frida behaves — the gateway must buffer and flush them.
+	const client = createConnection({ host: "127.0.0.1", port: tunnel.port });
+	const echoed = await new Promise<string>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("echo timed out")), 5000);
+		client.on("data", (chunk: Buffer) => {
+			clearTimeout(timer);
+			resolve(chunk.toString());
+			client.destroy();
+		});
+		client.on("error", (error: Error) => {
+			clearTimeout(timer);
+			reject(error);
+		});
+		client.write("ping-frida");
+	});
+	expect(echoed).toBe("ping-frida");
+	expect(gateway.listTunnels().some((entry) => entry.port === tunnel.port)).toBe(true);
+
+	client.destroy();
+	gateway.closeTunnel(tunnel.tunnelId as string);
+	expect(gateway.listTunnels()).toHaveLength(0);
+	echo.close();
+	device.close();
 });

@@ -2,7 +2,12 @@ package com.zgagent.droidbridge
 
 import android.os.Build
 import org.json.JSONObject
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -20,9 +25,20 @@ class WsClient(
 	private val onFrame: (String) -> Unit,
 	private val onState: (state: String, detail: String) -> Unit,
 ) {
+	// 渗透工具自用：wss 允许自签名证书（服务器常见自签部署）。明文 ws 不受影响。
+	private val trustAll = object : X509TrustManager {
+		override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+		override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+		override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+	}
 	private val client = OkHttpClient.Builder()
 		.pingInterval(20, TimeUnit.SECONDS)
 		.connectTimeout(15, TimeUnit.SECONDS)
+		.sslSocketFactory(
+			SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(trustAll), SecureRandom()) }.socketFactory,
+			trustAll,
+		)
+		.hostnameVerifier { _, _ -> true }
 		.build()
 	private var ws: WebSocket? = null
 	@Volatile private var closed = false

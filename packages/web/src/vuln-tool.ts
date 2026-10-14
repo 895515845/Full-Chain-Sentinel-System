@@ -77,6 +77,11 @@ function renderFull(vuln: ZGVulnerability): string {
 		`目标：${vuln.target}`,
 	];
 	if (vuln.category) lines.push(`类型：${vuln.category}`);
+	if (vuln.platform === "android") {
+		lines.push(
+			`平台：安卓${vuln.appPackage ? ` · 包名 ${vuln.appPackage}${vuln.appVersion ? `（${vuln.appVersion}）` : ""}` : ""}`,
+		);
+	}
 	lines.push(`来源：${vuln.source}`, `提交时间：${vuln.createdAt}`, "", "漏洞详情：", vuln.description);
 	if (vuln.packet.trim()) lines.push("", "原始数据包：", vuln.packet);
 	if (vuln.repro) lines.push("", "复现步骤：", vuln.repro);
@@ -181,6 +186,16 @@ const submitSchema = Type.Object({
 	evidence: Type.Optional(
 		Type.Array(evidenceSchema, { description: "Supporting commands, outputs, and container files" }),
 	),
+	platform: Type.Optional(
+		Type.Union([Type.Literal("web"), Type.Literal("android")], {
+			description:
+				"Which surface the finding belongs to: web (default) or android. Use android for client-side app flaws and app-API findings found through the Droid toolset.",
+		}),
+	),
+	appPackage: Type.Optional(
+		Type.String({ description: "android only: target app package name, e.g. com.example.app" }),
+	),
+	appVersion: Type.Optional(Type.String({ description: "android only: target app versionName" })),
 });
 
 const listSchema = Type.Object({
@@ -281,6 +296,9 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 				...(params.remediation?.trim() ? { remediation: params.remediation } : {}),
 				...(params.references?.length ? { references: params.references } : {}),
 				...(params.evidence?.length ? { evidence: params.evidence } : {}),
+				...(params.platform ? { platform: params.platform } : {}),
+				...(params.appPackage?.trim() ? { appPackage: params.appPackage.trim() } : {}),
+				...(params.appVersion?.trim() ? { appVersion: params.appVersion.trim() } : {}),
 			});
 			if (vuln.severity === "critical" || vuln.severity === "high") {
 				options.onHighSeverity?.(vuln);
