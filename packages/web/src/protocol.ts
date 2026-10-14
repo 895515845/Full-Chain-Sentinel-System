@@ -682,6 +682,100 @@ export interface ZGPocImportOutcome {
 }
 
 // ---------------------------------------------------------------------------
+// 业务建模（Business modeling）
+// ---------------------------------------------------------------------------
+
+/**
+ * Lifecycle of one modeling run. `modeling` is the only live state: the two
+ * modeling tools are mounted in the session that started it. `done` is the
+ * agent's own declaration, `manual` is the operator ending it, `failed` marks a
+ * run whose session went away before it delivered anything.
+ */
+export type ZGApiModelStatus = "modeling" | "done" | "manual" | "failed";
+
+/** One field of a business entity the model inferred. */
+export interface ZGApiModelField {
+	name: string;
+	type?: string;
+	description?: string;
+}
+
+/** One relation between two business entities. */
+export interface ZGApiModelRelation {
+	target: string;
+	kind?: string;
+	description?: string;
+}
+
+/**
+ * A business entity: the object the API is about (user, order, payment), not a
+ * schema of the document. It is what makes the result a business model rather
+ * than an endpoint list, and it is stored next to the OpenAPI document.
+ */
+export interface ZGApiModelEntity {
+	name: string;
+	description?: string;
+	fields?: ZGApiModelField[];
+	relations?: ZGApiModelRelation[];
+}
+
+/** One stored modeling run. Every run is a new record; history is never overwritten. */
+export interface ZGApiModel {
+	id: string;
+	projectId: string | null;
+	/** Session the run was started from; null when it could not be resolved. */
+	sessionId: string | null;
+	sessionPath: string | null;
+	title: string;
+	/** What was modeled: a base URL, a host, or the operator's own words. */
+	target: string;
+	status: ZGApiModelStatus;
+	/** OpenAPI 3.x document, verbatim. */
+	openapi: Record<string, unknown>;
+	entities: ZGApiModelEntity[];
+	pathCount: number;
+	operationCount: number;
+	/** How many submissions the run made; 0 means the agent never delivered. */
+	submissions: number;
+	/** Why the run ended without a document, when it did. */
+	error?: string;
+	createdAt: string;
+	updatedAt: string;
+	doneAt: string | null;
+}
+
+/** A run without the document body, for lists. */
+export type ZGApiModelSummary = Omit<ZGApiModel, "openapi" | "entities"> & { entityCount: number };
+
+/** List filters; every field is optional and they combine with AND. */
+export interface ZGApiModelFilters {
+	status?: ZGApiModelStatus;
+	projectId?: string;
+	/** Case-insensitive substring match on title and target. */
+	search?: string;
+}
+
+/** One line of a run's audit trail. */
+export interface ZGApiModelEvent {
+	at: string;
+	kind: "created" | "submitted" | "done" | "manual" | "failed";
+	note?: string;
+	pathCount?: number;
+	operationCount?: number;
+}
+
+/** Live state of the modeling run in the viewed session, if any. */
+export interface ZGModelingState {
+	runId: string;
+	title: string;
+	target: string;
+	startedAt: string;
+	pathCount: number;
+	operationCount: number;
+	entityCount: number;
+}
+
+// ---------------------------------------------------------------------------
 // Engineering mode (工程模式)
 // ---------------------------------------------------------------------------
 
@@ -822,6 +916,18 @@ export interface ZGStateSnapshot {
 	sessionStatus: ZGSessionStatus | null;
 	/** The preset agent the active session was created with; null means the default agent. */
 	preset: ZGSessionPresetView | null;
+	/**
+	 * The business-modeling run in the active session, with live counters; null
+	 * when this session is not modeling. The modeling tools are only mounted
+	 * while this is set, so the console can state whether they are available.
+	 */
+	modeling: ZGModelingState | null;
+	/**
+	 * Modeling records the operator attached to the active session from the
+	 * composer (带建模数据); empty when none. While set, the read-only
+	 * `api_model_read` is mounted so the model can read the full documents.
+	 */
+	modelingAttached: Array<{ id: string; title: string }>;
 	/** Which mode applies and how the gatekeeper model is doing. */
 	gatekeeper: ZGGatekeeperView;
 	/**
@@ -848,6 +954,12 @@ export type ZGClientMessage =
 			streamingBehavior?: "steer" | "followUp";
 			images?: ImageContent[];
 			notify?: boolean;
+			/**
+			 * Modeling records to attach to this fresh conversation (带建模数据).
+			 * Honored only for a conversation that has no messages yet, and only on
+			 * this one prompt; their catalog is injected before the text runs.
+			 */
+			attachModelIds?: string[];
 	  }
 	| { type: "abort" }
 	| { type: "compact" }
@@ -1002,7 +1114,24 @@ export type ZGClientMessage =
 	/** Probes whatever the 守门模型 role resolves to with one fixed sample command. */
 	| { type: "test_judge" }
 	| { type: "gate_audit_query"; filter?: ZGGateFilter; page?: number; pageSize?: number }
-	| { type: "gate_audit_stats"; filter?: ZGGateFilter };
+	| { type: "gate_audit_stats"; filter?: ZGGateFilter }
+	/**
+	 * Start business modeling in the viewed session. No payload: the objective
+	 * comes from the conversation the operator is already in. Refused while the
+	 * session runs or while a modeling run is already active.
+	 */
+	| { type: "start_modeling" }
+	/** End the run in the viewed session (the operator's own way out). */
+	| { type: "end_modeling" }
+	/** Remove the modeling records attached to the viewed session (带建模数据). */
+	| { type: "detach_modeling" }
+	/** Close a record from the page, for a run whose session is no longer loaded. */
+	| { type: "end_api_model"; id: string }
+	| { type: "list_api_models"; filters?: ZGApiModelFilters }
+	| { type: "get_api_model"; id: string }
+	| { type: "delete_api_model"; id: string }
+	/** Render one run as a downloadable file; the browser turns it into a download. */
+	| { type: "export_api_model"; id: string; format: "json" | "yaml" };
 
 /** Server-to-client messages. */
 export type ZGServerMessage =
@@ -1081,6 +1210,10 @@ export type ZGServerMessage =
 	| { type: "gate_audit_stats"; stats: ZGGateStats }
 	/** One judgment, streamed live so an open audit page prepends it. */
 	| { type: "gate_decision"; decision: ZGGateDecision }
+	| { type: "api_models"; items: ZGApiModelSummary[] }
+	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
+	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
 	| { type: "error"; message: string };
 
 /**

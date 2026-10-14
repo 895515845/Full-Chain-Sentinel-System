@@ -31,6 +31,7 @@ import {
 	LayoutGrid,
 	MessageSquare,
 	Minimize2,
+	Network,
 	Pencil,
 	Plug,
 	RefreshCw,
@@ -204,6 +205,11 @@ export function VulnIcon(props: IconProps) {
 /** Sider menu: the POC library. */
 export function PocIcon(props: IconProps) {
 	return <FileCode size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu and composer: business modeling — the API model of a target. */
+export function ApiModelIcon(props: IconProps) {
+	return <Network size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Sider menu: console security settings. */

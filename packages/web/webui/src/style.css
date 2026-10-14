@@ -902,6 +902,93 @@ button.ghost.small {
 	color: var(--dim);
 }
 
+/* The 业务建模 menu: checklist rows for attaching, plus the removal action and
+   the back row of its second view. Reuses the preset menu's shell and items. */
+.modeling-menu .preset-menu-item {
+	flex-direction: row;
+	align-items: center;
+	gap: 7px;
+}
+
+.modeling-menu .preset-menu-desc {
+	flex: 1;
+	min-width: 0;
+	text-align: right;
+}
+
+.modeling-menu-count {
+	margin-left: 6px;
+	padding: 0 6px;
+	border-radius: 8px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-size: 10.5px;
+	line-height: 15px;
+	white-space: nowrap;
+}
+
+.modeling-menu-static {
+	cursor: default;
+}
+
+.modeling-menu-back {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 8px 6px;
+	border-bottom: 1px solid var(--border);
+	margin-bottom: 4px;
+}
+
+.modeling-menu-back__button {
+	padding: 1px 6px;
+	border: none;
+	background: none;
+	color: var(--accent);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.modeling-menu-back__title {
+	font-size: 12.5px;
+	font-weight: 500;
+	color: var(--text-bright);
+}
+
+.modeling-menu-remove {
+	width: 100%;
+	margin-top: 4px;
+	padding: 5px 8px;
+	border: none;
+	border-radius: 6px;
+	background: var(--danger-dim);
+	color: var(--danger);
+	font-size: 12px;
+	text-align: left;
+}
+
+.modeling-menu-remove:hover {
+	background: var(--danger);
+	color: #fff;
+}
+
+.attach-check {
+	flex: none;
+	width: 13px;
+	height: 13px;
+	border: 1px solid var(--border-strong);
+	border-radius: 3px;
+	background: #fff;
+}
+
+.attach-check.on {
+	border-color: var(--accent);
+	background: var(--accent);
+	box-shadow: inset 0 0 0 2px #fff;
+}
+
+
+
 /* Marks the preset the viewed session already runs under. */
 .preset-menu-current {
 	margin-left: 6px;
@@ -7866,3 +7953,349 @@ button.link {
 .err-text {
 	color: var(--danger);
 }
+
+/* ============================================================
+   业务建模（Business modeling）: the composer trigger, the two
+   transcript markers, and the page. The feature is invisible
+   until the operator presses the trigger — nothing here renders
+   for a session that is not modeling.
+   ============================================================ */
+
+/* Sits in the composer's top row, next to 预设 Agent and 持续目标. Neutral
+   while idle, so it does not compete with the two that change the whole run;
+   it turns accent-coloured while a run is in force. */
+.composer-goal-row .modeling-trigger.on {
+	color: var(--accent);
+	border-color: var(--accent);
+	background: var(--accent-dim);
+}
+
+.modeling-trigger__count {
+	padding: 0 5px;
+	border-radius: 8px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 10.5px;
+	line-height: 15px;
+}
+
+/* The two marker rows in the transcript: foldable, like a summary or a
+   loop-guard notice, because they are boundaries rather than speech. The accent
+   is an inset shadow rather than a border-left override: the summary box already
+   has a rounded 1px border, and replacing one of its sides pushed the accent
+   outside the rounded corner, where it read as a stray bar hanging off the row. */
+.modeling-row {
+	margin: 2px 0 6px;
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.modeling-row__open {
+	color: var(--accent);
+}
+
+.modeling-row__close {
+	color: var(--dim);
+}
+
+.api-model-chip {
+	padding: 1px 7px;
+	border-radius: 9px;
+	font-size: 11.5px;
+	line-height: 17px;
+	white-space: nowrap;
+}
+
+.api-model-chip--modeling {
+	background: var(--info-dim);
+	color: var(--info);
+}
+
+.api-model-chip--done {
+	background: var(--ok-dim);
+	color: var(--ok);
+}
+
+.api-model-chip--manual {
+	background: var(--raised);
+	color: var(--dim);
+}
+
+.api-model-chip--failed {
+	background: var(--danger-dim);
+	color: var(--danger);
+}
+
+/* One meta bar under the header instead of a stack of labelled blocks. */
+.api-model-meta {
+	display: flex;
+	flex: none;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 14px;
+	margin-top: 10px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.api-model-meta b {
+	color: var(--text);
+	font-weight: 500;
+}
+
+.api-model-error {
+	padding: 1px 8px;
+	border-radius: 9px;
+	background: var(--danger-dim);
+	color: var(--danger);
+	font-size: 11.5px;
+}
+
+.api-model-meta .link-button {
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--accent);
+	font-size: 12.5px;
+	cursor: pointer;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.api-model-detail .ws-panel__head {
+	flex: none;
+}
+
+/* Drill-down tabs: the document is the default pane, and whichever pane is on
+   owns the scroll — the page itself does not scroll, so the document reads like
+   a full-height Swagger page instead of a box inside a scrolling page. */
+.api-model-tabs {
+	display: flex;
+	flex: none;
+	gap: 2px;
+	margin-top: 10px;
+	border-bottom: 1px solid var(--border);
+}
+
+.api-model-tabs button {
+	padding: 7px 14px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	background: none;
+	color: var(--dim);
+	font-size: 13px;
+}
+
+.api-model-tabs button:hover {
+	color: var(--accent);
+}
+
+.api-model-tabs button.on {
+	border-bottom-color: var(--accent);
+	color: var(--accent);
+	font-weight: 500;
+}
+
+.api-model-tabs .n {
+	margin-left: 4px;
+	color: var(--disabled);
+	font-size: 11.5px;
+}
+
+.api-model-tabs button.on .n {
+	color: var(--accent);
+}
+
+.api-model-stage {
+	flex: 1;
+	min-height: 0;
+}
+
+.api-model-pane {
+	display: none;
+	height: 100%;
+	overflow: auto;
+}
+
+.api-model-pane.on {
+	display: block;
+}
+
+.api-model-pane__pad {
+	padding: 12px 2px;
+}
+
+/* Swagger UI runs in a sandboxed iframe with the document inlined, so a record
+   reads exactly like any other API doc the operator is handed. */
+.api-model-doc {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: #fff;
+}
+
+.api-model-timeline {
+	display: flex;
+	flex-direction: column;
+	font-size: 12.5px;
+}
+
+.api-model-event {
+	display: grid;
+	grid-template-columns: 150px 190px minmax(0, 1fr);
+	gap: 10px;
+	padding: 5px 0;
+	border-top: 1px dashed var(--border);
+	color: var(--dim);
+}
+
+.api-model-event:first-child {
+	border-top: none;
+}
+
+.api-model-table {
+	width: 100%;
+	border-collapse: collapse;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 12.5px;
+	table-layout: fixed;
+}
+
+.api-model-table th {
+	padding: 7px 10px;
+	background: var(--raised);
+	color: var(--dim);
+	font-weight: 500;
+	text-align: left;
+	border-bottom: 1px solid var(--border);
+}
+
+.api-model-table td {
+	padding: 7px 10px;
+	border-top: 1px solid var(--border);
+	vertical-align: top;
+	color: var(--text);
+}
+
+.api-model-list th:nth-child(1) { width: 22%; }
+.api-model-list th:nth-child(2) { width: 84px; }
+.api-model-list th:nth-child(3) { width: 24%; }
+.api-model-list th:nth-child(4) { width: 150px; }
+.api-model-list th:nth-child(5) { width: 60px; }
+.api-model-list th:nth-child(6) { width: 150px; }
+.api-model-list th:nth-child(7) { width: 62px; }
+
+.api-model-name {
+	font-weight: 500;
+	color: var(--text-bright);
+}
+
+.api-model-target {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.api-model-entities {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.api-model-entity {
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.api-model-entity__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 8px;
+	font-size: 13px;
+}
+
+.api-model-entity__desc {
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.api-model-fields {
+	width: 100%;
+	margin-top: 8px;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.api-model-fields th {
+	padding: 4px 8px;
+	color: var(--dim);
+	font-weight: 500;
+	text-align: left;
+	border-bottom: 1px solid var(--border);
+}
+
+.api-model-fields td {
+	padding: 4px 8px;
+	border-top: 1px solid var(--border);
+	color: var(--text);
+}
+
+.api-model-fields th:nth-child(1) { width: 26%; }
+.api-model-fields th:nth-child(2) { width: 22%; }
+
+.api-model-relations {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.api-model-relation {
+	padding: 1px 7px;
+	border-radius: 9px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 11.5px;
+}
+
+.api-model-timeline {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 12.5px;
+}
+
+.api-model-event {
+	display: grid;
+	grid-template-columns: 150px 190px minmax(0, 1fr);
+	gap: 10px;
+	color: var(--dim);
+}
+
+.api-model-event__time {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.api-model-event__kind {
+	color: var(--text);
+}
+
+.api-model-event__note {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+

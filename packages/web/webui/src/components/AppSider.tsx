@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
 import { ZG_MODE_LABELS } from "../types.ts";
-import { AboutIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, PocIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
+import { AboutIcon, ApiModelIcon, CaretDownIcon, ChatIcon, CollapseIcon, DeleteIcon, EnvironmentIcon, ExpandIcon, GateIcon, LockIcon, LogoutIcon, ModelIcon, NotifyIcon, PocIcon, ProjectsIcon, RefreshIcon, RenameIcon, SettingsIcon, ShieldIcon, SubagentIcon, VulnIcon } from "./icons.tsx";
 import { SessionStatusControl, SessionStatusRail, SESSION_STATUS_LABELS } from "./SessionStatusControl.tsx";
 
 type MenuIcon = React.ComponentType<{ size?: number }>;
@@ -33,6 +33,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "chat", label: "对话", icon: ChatIcon },
 			{ page: "projects", label: "项目", icon: ProjectsIcon },
 			{ page: "vulns", label: "漏洞", icon: VulnIcon },
+			{ page: "apimodels", label: "业务建模", icon: ApiModelIcon },
 			{ page: "pocs", label: "POC 库", icon: PocIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
 			{ page: "gates", label: "守门审计", icon: GateIcon },

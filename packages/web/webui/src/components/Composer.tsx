@@ -1,8 +1,16 @@
 import { useRef, useState } from "react";
 import { formatTokens } from "../transcript.ts";
-import type { ZGImageAttachment, ZGPresetView, ZGSessionPresetView, ZGStatsView } from "../types.ts";
-import { BellIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
+import type {
+	ZGApiModelSummary,
+	ZGImageAttachment,
+	ZGModelingState,
+	ZGPresetView,
+	ZGSessionPresetView,
+	ZGStatsView,
+} from "../types.ts";
+import { ApiModelIcon, BellIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
 import { type PresetMenuAnchor, PresetMenu, presetMenuPosition } from "./PresetMenu.tsx";
+import { ModelingMenu } from "./ModelingMenu.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
 async function readImage(file: File): Promise<ZGImageAttachment | null> {
@@ -32,10 +40,17 @@ export function Composer({
 	blockedReason,
 	notifyRun,
 	goalDisabledReason,
+	modeling,
+	modelingAttached,
+	apiModels,
+	freshConversation,
 	presets,
 	preset,
 	onToggleNotifyRun,
 	onOpenGoal,
+	onStartModeling,
+	onEndModeling,
+	onDetachModeling,
 	onSetPreset,
 	onSend,
 	onAbort,
@@ -49,15 +64,42 @@ export function Composer({
 	notifyRun: boolean;
 	/** Why a persistent goal cannot start right now; null means it can. */
 	goalDisabledReason: string | null;
+	/**
+	 * The business-modeling run in force for this session; null means none. While
+	 * it is set the button ends the run instead of starting one, because a session
+	 * can only model one thing at a time.
+	 */
+	modeling: ZGModelingState | null;
+	/**
+	 * The modeling records already attached to this conversation (带建模数据).
+	 * While set, `api_model_read` is mounted and the picker shows them instead of
+	 * the checklist, with a removal action.
+	 */
+	modelingAttached: ReadonlyArray<{ id: string; title: string }>;
+	/**
+	 * The modeling records of the active project, newest first. The picker offers
+	 * these on a fresh conversation only.
+	 */
+	apiModels: readonly ZGApiModelSummary[];
+	/** True while the conversation has no messages yet: only then can records ride the first prompt. */
+	freshConversation: boolean;
 	/** The library, for the 预设 Agent picker; disabled entries are not offered. */
 	presets: readonly ZGPresetView[];
 	/** The preset the viewed session runs under; null means the default agent. */
 	preset: ZGSessionPresetView | null;
 	onToggleNotifyRun: () => void;
 	onOpenGoal: () => void;
+	onStartModeling: () => void;
+	onEndModeling: () => void;
+	onDetachModeling: () => void;
 	/** Re-brief the viewed session; null drops back to the default agent. */
 	onSetPreset: (presetId: string | null) => void;
-	onSend: (text: string, behavior?: "steer" | "followUp", images?: ZGImageAttachment[]) => void;
+	onSend: (
+		text: string,
+		behavior?: "steer" | "followUp",
+		images?: ZGImageAttachment[],
+		attachModelIds?: string[],
+	) => void;
 	onAbort: () => void;
 }) {
 	const [text, setText] = useState("");
@@ -65,14 +107,21 @@ export function Composer({
 	const [images, setImages] = useState<ZGImageAttachment[]>([]);
 	/** The 预设 Agent picker, anchored under its button. */
 	const [presetMenu, setPresetMenu] = useState<PresetMenuAnchor | null>(null);
+	/** The 带建模数据 picker and what it has checked, applied to the next send. */
+	const [modelingMenu, setModelingMenu] = useState<PresetMenuAnchor | null>(null);
+	const [attachSelection, setAttachSelection] = useState<string[]>([]);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	const submit = (override?: "steer" | "followUp") => {
 		const trimmed = text.trim();
 		if (blocked || (!trimmed && images.length === 0)) return;
-		onSend(trimmed, streaming ? (override ?? behavior) : undefined, images.length > 0 ? images : undefined);
+		// One-shot: the checked records ride this message only, then the picker's
+		// checklist resets. Nothing checked means the message carries nothing extra.
+		const attachModelIds = attachSelection.length > 0 ? attachSelection : undefined;
+		onSend(trimmed, streaming ? (override ?? behavior) : undefined, images.length > 0 ? images : undefined, attachModelIds);
 		setText("");
 		setImages([]);
+		setAttachSelection([]);
 	};
 
 	const addImages = async (files: FileList | File[]) => {
@@ -124,6 +173,33 @@ export function Composer({
 						<TargetIcon />
 						持续目标
 					</button>
+					{/* Business modeling: one entry, two actions. 开始建模 runs the two-tool
+					    cycle here (or ends the run in force); 关联建模数据 rides existing
+					    records into a fresh conversation. Unchecked attach means nothing is
+					    inserted — no message, no tool. */}
+					<button
+						type="button"
+						className={`composer-tool modeling-trigger ${modeling || modelingAttached.length > 0 ? "on" : ""}`}
+						onClick={(event) => setModelingMenu(presetMenuPosition(event.currentTarget.getBoundingClientRect(), 300))}
+						disabled={!hasProject || blocked}
+						title={
+							!hasProject
+								? "请先创建或选择一个项目"
+								: blocked
+									? (blockedReason ?? "环境未就绪")
+									: modeling
+										? `正在业务建模：${modeling.title}；已提交 ${modeling.pathCount} 路径 / ${modeling.operationCount} 操作 / ${modeling.entityCount} 实体`
+										: "业务建模：开始一次建模，或把已有建模数据关联给这条对话"
+						}
+					>
+						<ApiModelIcon />
+						业务建模
+						{modeling ? (
+							<span className="modeling-trigger__count">{modeling.pathCount}</span>
+						) : modelingAttached.length > 0 ? (
+							<span className="modeling-trigger__count">{modelingAttached.length}</span>
+						) : null}
+					</button>
 					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
 				</div>
 				{presetMenu ? (
@@ -136,6 +212,27 @@ export function Composer({
 							onSetPreset(presetId ?? null);
 						}}
 						onClose={() => setPresetMenu(null)}
+					/>
+				) : null}
+				{modelingMenu ? (
+					<ModelingMenu
+						anchor={modelingMenu}
+						modeling={modeling}
+						attached={modelingAttached}
+						records={apiModels}
+						selected={attachSelection}
+						canAttach={freshConversation && apiModels.length > 0}
+						canToggleRun={!streaming}
+						onStart={onStartModeling}
+						onEnd={onEndModeling}
+						onToggle={(id) =>
+							setAttachSelection((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
+						}
+						onDetach={() => {
+							setModelingMenu(null);
+							onDetachModeling();
+						}}
+						onClose={() => setModelingMenu(null)}
 					/>
 				) : null}
 				{images.length > 0 ? (

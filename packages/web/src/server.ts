@@ -222,6 +222,9 @@ export async function startZGServer(
 			onGateDecision: (decision) => broadcast({ type: "gate_decision", decision }),
 			onPocChange: () => broadcastPocs(),
 			onPocSourceChange: () => broadcast({ type: "poc_sources", sources: runtime.listPocSources() }),
+			// A modeling run changed (started, submitted, ended): the page is a list
+			// of records, so the whole list is what goes out.
+			onApiModelChange: () => broadcastApiModels(),
 		},
 	});
 
@@ -350,6 +353,14 @@ export async function startZGServer(
 	function broadcastPocs(): void {
 		const view = runtime.listPocs();
 		broadcast({ type: "pocs", items: view.items, stats: view.stats });
+	}
+
+	/**
+	 * The business-modeling runs. The list is project-scoped on the page, so the
+	 * whole set goes out and the console filters it, the way the engine board does.
+	 */
+	function broadcastApiModels(): void {
+		broadcast({ type: "api_models", items: runtime.listApiModels() });
 	}
 
 	/** Project list with each project's finding and gate-record counts, for the delete warning. */
@@ -603,7 +614,13 @@ export async function startZGServer(
 						broadcastEnvironment();
 						return;
 					}
-					await runtime.prompt(message.text, message.streamingBehavior, images, message.notify);
+					await runtime.prompt(
+						message.text,
+						message.streamingBehavior,
+						images,
+						message.notify,
+						message.attachModelIds,
+					);
 					return;
 				}
 				case "compact": {
@@ -945,8 +962,9 @@ export async function startZGServer(
 					if (engines) await engines.purgeProject(message.id);
 					const purged = runtime.purgeProjectVulns(message.id);
 					const purgedGates = runtime.purgeProjectGates(message.id);
+					const purgedModels = runtime.purgeProjectApiModels(message.id);
 					console.error(
-						`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录`,
+						`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型`,
 					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.
@@ -1183,6 +1201,73 @@ export async function startZGServer(
 						id: message.id,
 						ok,
 						...(ok ? {} : { error: "该模板不存在" }),
+					});
+					return;
+				}
+				case "start_modeling": {
+					// Modeling runs the agent, so it needs the same container backend.
+					const report = await ensureEnvironment();
+					if (!report.ok) {
+						sendError(socket, blockedReason(report));
+						broadcastEnvironment();
+						return;
+					}
+					await runtime.startModeling();
+					return;
+				}
+				case "end_modeling":
+					await runtime.endModeling();
+					return;
+				case "detach_modeling":
+					await runtime.detachModeling();
+					return;
+				case "list_api_models":
+					sendTo(socket, { type: "api_models", items: runtime.listApiModels(message.filters) });
+					return;
+				case "get_api_model": {
+					const view = runtime.getApiModel(message.id);
+					if (!view) {
+						sendError(socket, `没有 id 为 ${message.id} 的业务建模记录`);
+						return;
+					}
+					sendTo(socket, { type: "api_model", model: view.model, events: view.events });
+					return;
+				}
+				case "end_api_model": {
+					// The page's way out of a run whose session is gone; a loaded
+					// session ends it through the normal path (tools off, marker).
+					const ok = runtime.finishApiModel(message.id, "manual", "操作员在业务建模页结束");
+					sendTo(socket, {
+						type: "api_model_result",
+						action: "结束",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该记录不存在" }),
+					});
+					return;
+				}
+				case "delete_api_model": {
+					const ok = runtime.deleteApiModel(message.id);
+					sendTo(socket, {
+						type: "api_model_result",
+						action: "删除",
+						id: message.id,
+						ok,
+						...(ok ? {} : { error: "该记录不存在" }),
+					});
+					return;
+				}
+				case "export_api_model": {
+					const file = runtime.exportApiModel(message.id, message.format);
+					if (!file) {
+						sendError(socket, "该记录不存在");
+						return;
+					}
+					sendTo(socket, {
+						type: "api_model_export",
+						filename: file.filename,
+						format: message.format,
+						text: file.text,
 					});
 					return;
 				}

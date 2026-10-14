@@ -35,6 +35,20 @@ import {
 	type ThinkingLevel,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import {
+	createApiModelAttachTools,
+	createApiModelTools,
+	type ModelingAttachPort,
+	type ModelingPort,
+	type ModelingSubmitOutcome,
+} from "./apimodel-tool.ts";
+import {
+	ApiModelStore,
+	type ApiModelSubmitInput,
+	apiModelsDbPath,
+	buildApiModelExport,
+	endpointsOf,
+} from "./apimodels.ts";
 import { ApprovalGate } from "./approval.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
@@ -82,6 +96,22 @@ import {
 	writeModelLibrary,
 } from "./model-library.ts";
 import {
+	buildModelingAttachMessage,
+	buildModelingBrief,
+	buildModelingCatalog,
+	buildModelingEndMessage,
+	MODELING_ATTACH_CUSTOM_TYPE,
+	MODELING_ATTACH_MESSAGE_CUSTOM_TYPE,
+	MODELING_MESSAGE_CUSTOM_TYPE,
+	MODELING_STATE_CUSTOM_TYPE,
+	type ModelingAttach,
+	type ModelingRun,
+	modelingState,
+	modelingToolLoadout,
+	readModelingAttach,
+	readModelingRun,
+} from "./modeling.ts";
+import {
 	buildGoalNotification,
 	buildRunNotification,
 	buildVulnNotification,
@@ -105,6 +135,11 @@ import { createPocTools } from "./poc-tool.ts";
 import { PocStore, pocsDbPath } from "./pocs.ts";
 import { findPreset, readPresetText } from "./presets.ts";
 import type {
+	ZGApiModel,
+	ZGApiModelEvent,
+	ZGApiModelFilters,
+	ZGApiModelStatus,
+	ZGApiModelSummary,
 	ZGFileEntry,
 	ZGFilePreview,
 	ZGForkPoint,
@@ -119,6 +154,7 @@ import type {
 	ZGGoalUsage,
 	ZGGoalView,
 	ZGMode,
+	ZGModelingState,
 	ZGModelLibraryView,
 	ZGModelRoleName,
 	ZGNotifyConfig,
@@ -183,6 +219,8 @@ export interface ZGRuntimeHooks {
 	onPocChange(): void;
 	/** A subscription source changed (save/delete/sync); consoles refresh the settings page. */
 	onPocSourceChange(): void;
+	/** A business-modeling run changed (started, submitted, ended); consoles refresh the page. */
+	onApiModelChange(): void;
 }
 
 /**
@@ -257,6 +295,19 @@ interface ManagedSession {
 	 * engine's worker — not by the console's goal bar.
 	 */
 	taskSession?: boolean;
+	/**
+	 * The business-modeling run in force for this session, read from the branch
+	 * at (re)build time. The two modeling tools are active exactly while this is
+	 * set, so a session that is not modeling has no trace of the feature in its
+	 * tool list or its system prompt.
+	 */
+	modeling?: ModelingRun;
+	/**
+	 * Modeling records the operator attached from the composer (带建模数据). The
+	 * catalog is injected once, with the first prompt; the read-only
+	 * `api_model_read` stays mounted until the operator removes the attachment.
+	 */
+	modelingAttach?: ModelingAttach;
 }
 
 /** Extra wiring a task session needs beyond a console session. */
@@ -316,6 +367,7 @@ export class ZGAgentRuntime {
 	private readonly subagents: SubagentRegistry;
 	private readonly vulnerabilities: VulnerabilityStore;
 	private readonly pocs: PocStore;
+	private readonly apiModels: ApiModelStore;
 	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
@@ -354,6 +406,7 @@ export class ZGAgentRuntime {
 		this.subagentStore = new SubagentStore(subagentDbPath(this.agentDir));
 		this.vulnerabilities = new VulnerabilityStore(vulnerabilityDbPath(this.agentDir));
 		this.pocs = new PocStore(pocsDbPath(this.agentDir));
+		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
 			onSyncFailure: (source, record) => this.notifyPocSyncFailure(source, record),
@@ -506,6 +559,11 @@ export class ZGAgentRuntime {
 			modeOverride: readSessionMode(manager.getBranch()),
 			presetId,
 			presetMissing: presetId !== null && presetText === null,
+			// Modeling is a console feature: an engineering task's worker never gets
+			// it, and a reopened conversation resumes the run it was left in.
+			modeling: task ? undefined : (readModelingRun(manager.getBranch()) ?? undefined),
+			// Attached records survive a restart the same way a run does.
+			modelingAttach: task ? undefined : (readModelingAttach(manager.getBranch()) ?? undefined),
 		};
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
@@ -590,6 +648,12 @@ export class ZGAgentRuntime {
 			// The POC library is read-only reference; the switch controls both of
 			// its tools, and sub-agents inherit it through the subset rule.
 			...(permissions.poc_read ? createPocTools({ store: this.pocs }) : []),
+			// The modeling tools are registered on every console session but declare
+			// `defaultActive: false`, so they are never part of the model's tool list
+			// until the operator starts a run. Task sessions do not get them at all:
+			// business modeling is an operator-driven action on a conversation.
+			...(task ? [] : createApiModelTools(this.createModelingPort(managed))),
+			...(task ? [] : createApiModelAttachTools(this.createModelingAttachPort(managed))),
 			...(permissions.spawn_agent
 				? [
 						createSubagentTool({
@@ -650,6 +714,11 @@ export class ZGAgentRuntime {
 		// contribute skills and prompt templates.
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
+		// The modeling tools are registered but never active on their own. A run
+		// left in force (a reopened conversation, a rebuild after a permission save)
+		// puts them back; every other session has them removed explicitly, so a
+		// loadout restored from an older transcript cannot resurrect them.
+		this.applyModelingTools(managed);
 		if (task) {
 			// Task sessions live under their engine's collapsible group in the
 			// sidebar, which already states the ownership — the name is just the
@@ -919,6 +988,352 @@ export class ZGAgentRuntime {
 				return { streak: result.streak, accepted: result.accepted };
 			},
 		};
+	}
+
+	// =========================================================================
+	// Business modeling (业务建模)
+	// =========================================================================
+
+	/**
+	 * What the two modeling tools may do to the run of this session. The tools
+	 * validate their own arguments; every accepted change lands here, so the
+	 * record, the console refresh and the transcript marker happen in one place.
+	 */
+	private createModelingPort(managed: ManagedSession): ModelingPort {
+		return {
+			current: () =>
+				managed.modeling ? { runId: managed.modeling.runId, target: managed.modeling.target } : undefined,
+			submit: (input) => this.submitApiModel(managed, input),
+			done: (summary) => {
+				// Not awaited: the tool call returns while the turn is still running, and
+				// removing the tools mid-turn is exactly what the SDK expects (the new
+				// loadout takes effect on the next turn).
+				void this.finishModeling(managed, "done", summary);
+			},
+		};
+	}
+
+	/** Store one submission and report the counters back to the tool. */
+	private submitApiModel(managed: ManagedSession, input: ApiModelSubmitInput): ModelingSubmitOutcome {
+		const run = managed.modeling;
+		if (!run) return { ok: false, errors: ["当前会话没有进行中的业务建模。"] };
+		const result = this.apiModels.submit(run.runId, input);
+		const record = result.model;
+		if (!record) return { ok: false, errors: result.errors ?? ["提交失败。"] };
+		// The target is whatever the model named on its first submission; the page
+		// and the closing marker read it from there.
+		if (!run.target && record.target) run.target = record.target;
+		this.hooks.onApiModelChange();
+		this.hooks.onStateChange();
+		return {
+			ok: true,
+			pathCount: record.pathCount,
+			operationCount: record.operationCount,
+			entityCount: record.entities.length,
+			// Problems that did not refuse the document (an unnamed entity) come back
+			// as warnings: the endpoints are stored, the model can resubmit the list.
+			warnings: result.errors ?? [],
+		};
+	}
+
+	/**
+	 * Mount or unmount the modeling tools for one session. They are registered
+	 * with `defaultActive: false`, so a session that is not modeling already has
+	 * them off; this only calls the SDK when the set actually has to change, which
+	 * keeps a normal session's system prompt from being rebuilt for nothing.
+	 */
+	private applyModelingTools(managed: ManagedSession): void {
+		if (managed.taskSession) return;
+		const active = managed.session.getActiveToolNames();
+		const wanted = modelingToolLoadout(active, managed.modeling !== undefined, managed.modelingAttach !== undefined);
+		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
+		if (changed) managed.session.setActiveToolsByName(wanted);
+	}
+
+	/** The read-only tool may read exactly the records attached to this session. */
+	private createModelingAttachPort(managed: ManagedSession): ModelingAttachPort {
+		return {
+			attached: () => {
+				const attach = managed.modelingAttach;
+				if (!attach) return [];
+				return this.apiModels.getMany(attach.ids).map((model) => ({ id: model.id, title: model.title }));
+			},
+			read: (id) => {
+				const attach = managed.modelingAttach;
+				if (!attach || !attach.ids.includes(id)) return undefined;
+				const model = this.apiModels.get(id);
+				if (!model) return undefined;
+				return { title: model.title, document: model.openapi, entities: model.entities };
+			},
+		};
+	}
+
+	/** The records attached to one session, in attach order; missing ones are skipped. */
+	private attachedRecordsOf(managed: ManagedSession): ZGApiModel[] {
+		const attach = managed.modelingAttach;
+		return attach ? this.apiModels.getMany(attach.ids) : [];
+	}
+
+	/**
+	 * Attach records to a fresh conversation and inject their catalog as one
+	 * foldable row before the operator's first message runs. One-shot: the picker
+	 * does not offer this again on this conversation; the records stay attached
+	 * (and `api_model_read` mounted) until the operator removes them.
+	 */
+	private async attachModelingRecords(managed: ManagedSession, ids: string[]): Promise<void> {
+		// Requested order wins, unknown or duplicated ids are collapsed.
+		const models = this.apiModels.getMany(ids);
+		const ordered = ids.flatMap((id) => models.filter((model) => model.id === id));
+		if (ordered.length === 0) return;
+		managed.modelingAttach = { ids: [...new Set(ordered.map((model) => model.id))], at: Date.now() };
+		managed.manager.appendCustomEntry(MODELING_ATTACH_CUSTOM_TYPE, { ...managed.modelingAttach });
+		this.applyModelingTools(managed);
+		const catalog = buildModelingCatalog(
+			ordered.map((model) => ({
+				id: model.id,
+				title: model.title,
+				target: model.target,
+				pathCount: model.pathCount,
+				operationCount: model.operationCount,
+				endpoints: endpointsOf(model.openapi),
+				entities: model.entities,
+			})),
+		);
+		this.hooks.onStateChange();
+		try {
+			await managed.session.sendCustomMessage(
+				{
+					customType: MODELING_ATTACH_MESSAGE_CUSTOM_TYPE,
+					content: `${buildModelingAttachMessage(ordered.map((model) => model.title))}\n\n${catalog}`,
+					display: true,
+				},
+				{ triggerTurn: false },
+			);
+		} catch {
+			// The records are attached and the tool mounted; a marker that could not
+			// be written does not undo that.
+		}
+	}
+
+	/** Remove the attachment at the operator's request; the read tool goes with it. */
+	async detachModeling(): Promise<void> {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active.modelingAttach) throw new Error("当前会话没有带入业务建模数据");
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再移除");
+		active.modelingAttach = undefined;
+		active.manager.appendCustomEntry(MODELING_ATTACH_CUSTOM_TYPE, null);
+		this.applyModelingTools(active);
+		this.hooks.onStateChange();
+		try {
+			await active.session.sendCustomMessage(
+				{
+					customType: MODELING_ATTACH_MESSAGE_CUSTOM_TYPE,
+					content: "【业务建模 · 已移除带入数据】带入的建模记录已从本会话移除，api_model_read 已摘除。",
+					display: true,
+				},
+				{ triggerTurn: false },
+			);
+		} catch {
+			// The state is cleared either way.
+		}
+	}
+
+	/** The attached records as the snapshot reports them, for the composer's state. */
+	private modelingAttachedView(managed: ManagedSession | undefined): Array<{ id: string; title: string }> {
+		if (!managed) return [];
+		return this.attachedRecordsOf(managed).map((model) => ({ id: model.id, title: model.title }));
+	}
+
+	/**
+	 * Start business modeling in the viewed conversation.
+	 *
+	 * Until this call the session carries no trace of the feature: the system
+	 * prompt is untouched and the two tools are registered but inactive, so the
+	 * model does not think about modeling while it does anything else. This mounts
+	 * them, records the run on the branch (a restart or a permission rebuild
+	 * resumes it) and injects the briefing as a visible row of its own. The agent
+	 * then works in the conversation it already has — same model, same
+	 * permissions, same command gate.
+	 */
+	async startModeling(): Promise<void> {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (active.taskSession) throw new Error("工程任务的会话不能做业务建模");
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止或等本轮结束再开始业务建模");
+		if (active.modeling) throw new Error("当前会话已经在业务建模中");
+		const sessionFile = active.manager.getSessionFile();
+		const record = this.apiModels.beginRun({
+			projectId: this.activeProjectId ?? null,
+			sessionId: active.manager.getSessionId(),
+			sessionPath: sessionFile ? resolveFsPath(sessionFile) : null,
+			title: active.manager.getSessionName() ?? undefined,
+		});
+		const run: ModelingRun = { runId: record.id, target: "", startedAt: Date.now() };
+		active.modeling = run;
+		// The entry is what makes the run survive a rebuild or a restart; the record
+		// itself lives in the hub database.
+		active.manager.appendCustomEntry(MODELING_STATE_CUSTOM_TYPE, { ...run });
+		this.applyModelingTools(active);
+		this.hooks.onApiModelChange();
+		this.hooks.onStateChange();
+		// Not awaited: with `triggerTurn` the promise settles when the whole turn is
+		// over, and the WebSocket handler has to return while the agent works.
+		void active.session
+			.sendCustomMessage(
+				{
+					customType: MODELING_MESSAGE_CUSTOM_TYPE,
+					content: buildModelingBrief(
+						run.target,
+						this.activeProjectName ?? null,
+						this.attachedRecordsOf(active).map((model) => ({ title: model.title, pathCount: model.pathCount })),
+					),
+					display: true,
+				},
+				{ triggerTurn: true },
+			)
+			.catch((error: unknown) => {
+				void this.finishModeling(
+					active,
+					"failed",
+					`建模指令注入失败：${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
+	}
+
+	/**
+	 * End the run of the viewed session at the operator's request. Refused while
+	 * the agent runs: the rebuild would take the tools away mid-turn, and the
+	 * operator has 中止 for that.
+	 */
+	async endModeling(): Promise<void> {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active.modeling) throw new Error("当前会话没有进行中的业务建模");
+		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再结束业务建模");
+		await this.finishModeling(active, "manual");
+	}
+
+	/**
+	 * Close a run: drop the tools, clear the branch entry, close the record and
+	 * leave a closing row in the transcript. Idempotent — the agent's
+	 * `api_model_done` and the operator's button race by design, and the second
+	 * caller finds nothing to do.
+	 */
+	private async finishModeling(
+		managed: ManagedSession,
+		status: Exclude<ZGApiModelStatus, "modeling">,
+		note?: string,
+	): Promise<void> {
+		const run = managed.modeling;
+		if (!run) return;
+		managed.modeling = undefined;
+		managed.manager.appendCustomEntry(MODELING_STATE_CUSTOM_TYPE, null);
+		this.applyModelingTools(managed);
+		const record = this.apiModels.finish(run.runId, status, {
+			...(note ? { note } : {}),
+			...(status === "failed" && note ? { error: note } : {}),
+		});
+		this.hooks.onApiModelChange();
+		this.hooks.onStateChange();
+		const text = buildModelingEndMessage({
+			status,
+			pathCount: record?.pathCount ?? 0,
+			operationCount: record?.operationCount ?? 0,
+			entityCount: record?.entities.length ?? 0,
+			...(note ? { note } : {}),
+		});
+		try {
+			await managed.session.sendCustomMessage(
+				{ customType: MODELING_MESSAGE_CUSTOM_TYPE, content: text, display: true },
+				{ triggerTurn: false },
+			);
+		} catch {
+			// The record is closed and the tools are gone; a marker that could not be
+			// written is not worth failing the caller over.
+		}
+	}
+
+	/** The run in force for the viewed session, as the snapshot reports it. */
+	private modelingView(managed: ManagedSession | undefined): ZGModelingState | null {
+		const run = managed?.modeling;
+		if (!run) return null;
+		const record = this.apiModels.get(run.runId);
+		if (!record) return null;
+		return modelingState(run, {
+			title: record.title,
+			pathCount: record.pathCount,
+			operationCount: record.operationCount,
+			entityCount: record.entities.length,
+		});
+	}
+
+	/** Every modeling run, newest first; the page filters by project and status. */
+	listApiModels(filters: ZGApiModelFilters = {}): ZGApiModelSummary[] {
+		return this.apiModels.list(filters);
+	}
+
+	/** One run with its audit trail. */
+	getApiModel(id: string): { model: ZGApiModel; events: ZGApiModelEvent[] } | undefined {
+		const model = this.apiModels.get(id);
+		return model ? { model, events: this.apiModels.events(id) } : undefined;
+	}
+
+	/** The document as a file, in the requested format. */
+	exportApiModel(id: string, format: "json" | "yaml"): { filename: string; text: string } | undefined {
+		const model = this.apiModels.get(id);
+		return model ? buildApiModelExport(model, format) : undefined;
+	}
+
+	/**
+	 * Close a record from the page. When its session is loaded the run is ended
+	 * through the normal path (tools off, marker written); otherwise the record is
+	 * closed on its own, which is the way out of a run whose console went away.
+	 */
+	finishApiModel(id: string, status: Exclude<ZGApiModelStatus, "modeling">, note?: string): boolean {
+		for (const managed of this.sessions.values()) {
+			if (managed.modeling?.runId === id) {
+				void this.finishModeling(managed, status, note);
+				return true;
+			}
+		}
+		const record = this.apiModels.finish(id, status, {
+			...(note ? { note } : {}),
+			...(status === "failed" && note ? { error: note } : {}),
+		});
+		if (record) this.hooks.onApiModelChange();
+		return record !== undefined;
+	}
+
+	/**
+	 * Delete one run. Deleting the live record also ends the run: leaving the
+	 * tools mounted would let the agent submit into a record that is gone. A
+	 * deleted record an older conversation still carries as attached simply
+	 * disappears from that conversation's reads.
+	 */
+	deleteApiModel(id: string): boolean {
+		for (const managed of this.sessions.values()) {
+			if (managed.modeling?.runId === id) void this.finishModeling(managed, "manual", "记录已被操作员删除");
+			if (managed.modelingAttach?.ids.includes(id)) {
+				managed.modelingAttach = {
+					ids: managed.modelingAttach.ids.filter((attached) => attached !== id),
+					at: managed.modelingAttach.at,
+				};
+				if (managed.modelingAttach.ids.length === 0) {
+					managed.modelingAttach = undefined;
+					managed.manager.appendCustomEntry(MODELING_ATTACH_CUSTOM_TYPE, null);
+					this.applyModelingTools(managed);
+				}
+			}
+		}
+		const ok = this.apiModels.delete(id);
+		if (ok) this.hooks.onApiModelChange();
+		return ok;
+	}
+
+	/** Runs a removed project takes with it. */
+	purgeProjectApiModels(projectId: string): number {
+		return this.apiModels.purgeProject(projectId);
 	}
 
 	/**
@@ -1315,6 +1730,7 @@ export class ZGAgentRuntime {
 		streamingBehavior?: "steer" | "followUp",
 		images?: ImageContent[],
 		notify?: boolean,
+		attachModelIds?: string[],
 	): Promise<void> {
 		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
 		const active = this.active;
@@ -1334,6 +1750,12 @@ export class ZGAgentRuntime {
 		// is never rebuilt behind the operator's back.
 		await this.ensureModelRuntime();
 		await this.syncMainModel(active);
+		// 带建模数据 lands with the first message of a fresh conversation only: the
+		// catalog is injected before that message runs, and afterwards the composer's
+		// picker is gone (the records stay attached until removed).
+		if (attachModelIds && attachModelIds.length > 0 && branchUserMessages(active.manager.getBranch()).length === 0) {
+			await this.attachModelingRecords(active, attachModelIds);
+		}
 		// A steer joins the run already in flight: keep its start time, let the
 		// operator's latest choice decide whether the run is reported.
 		active.run = {
@@ -2001,6 +2423,8 @@ export class ZGAgentRuntime {
 			// in the list must show up here without a second file read.
 			sessionStatus: active ? readSessionStatus(active.manager.getBranch()) : null,
 			preset: this.presetView(active),
+			modeling: this.modelingView(active),
+			modelingAttached: this.modelingAttachedView(active),
 			gatekeeper,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,
@@ -2221,6 +2645,7 @@ export class ZGAgentRuntime {
 		this.subagentStore.close();
 		this.vulnerabilities.close();
 		this.pocs.close();
+		this.apiModels.close();
 		this.subscriptions.stop();
 		this.gateStore.close();
 	}

@@ -26,12 +26,17 @@ import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
+import { ApiModelPage } from "./components/ApiModelPage.tsx";
 import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
 import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
 import type {
 	AgentMessageView,
+	ZGApiModel,
+	ZGApiModelEvent,
+	ZGApiModelFilters,
+	ZGApiModelSummary,
 	ZGEnvReport,
 	ZGFileEntry,
 	ZGFilePreview,
@@ -269,6 +274,10 @@ export function App() {
 	/** The one-click official sync runs for minutes; it keeps its own busy flag
 	 * because the source list is broadcast as soon as the source is created. */
 	const [pocOfficialSyncing, setPocOfficialSyncing] = useState(false);
+	/** Business modeling: the runs of the active project, and the open drill-down. */
+	const [apiModels, setApiModels] = useState<ZGApiModelSummary[]>([]);
+	const [apiModelDetail, setApiModelDetail] = useState<ZGApiModel | null>(null);
+	const [apiModelEvents, setApiModelEvents] = useState<ZGApiModelEvent[]>([]);
 	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
 	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
 	const [engines, setEngines] = useState<ZGEngine[]>([]);
@@ -681,6 +690,31 @@ export function App() {
 					setPocImporting(false);
 					setLastPocImport(message.outcome);
 					break;
+				case "api_models":
+					setApiModels(message.items);
+					break;
+				case "api_model":
+					setApiModelDetail(message.model);
+					setApiModelEvents(message.events);
+					break;
+				case "api_model_result":
+					if (!message.ok && message.error) pushError(message.error);
+					if (message.ok && message.action === "删除") setApiModelDetail(null);
+					break;
+				case "api_model_export": {
+					// The document is text, so the download is built directly instead of
+					// going through the base64 path the file panel uses.
+					const mime = message.format === "yaml" ? "text/yaml;charset=utf-8" : "application/json;charset=utf-8";
+					const url = URL.createObjectURL(new Blob([message.text], { type: mime }));
+					const anchor = document.createElement("a");
+					anchor.href = url;
+					anchor.download = message.filename;
+					document.body.appendChild(anchor);
+					anchor.click();
+					anchor.remove();
+					URL.revokeObjectURL(url);
+					break;
+				}
 				case "error":
 					// A protocol error naming a message this server does not know means
 					// the page is newer than the process serving it: the browser keeps the
@@ -978,6 +1012,9 @@ export function App() {
 			case "pocs":
 				send({ type: "list_pocs", filters: pocFilters });
 				break;
+			case "apimodels":
+				send({ type: "list_api_models" });
+				break;
 			case "settings.model":
 				send({ type: "get_model_library" });
 				send({ type: "get_gatekeeper_config" });
@@ -1049,6 +1086,17 @@ export function App() {
 		},
 		[send],
 	);
+
+	/**
+	 * Modeling records are project-scoped like findings, so the page re-reads on
+	 * every project change and once on connect. A drill-down from the previous
+	 * project is dropped rather than shown over the new one.
+	 */
+	useEffect(() => {
+		setApiModelDetail(null);
+		setApiModelEvents([]);
+		if (connected) send({ type: "list_api_models" });
+	}, [snapshot?.project?.id, connected, send]);
 
 	/** Re-read the library under the current filter. */
 	const loadPocs = useCallback(
@@ -1599,10 +1647,21 @@ export function App() {
 									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
 									goalDisabledReason={goalDisabledReason}
 									onOpenGoal={() => setGoalOpen(true)}
+									modeling={snapshot?.modeling ?? null}
+									modelingAttached={snapshot?.modelingAttached ?? []}
+									apiModels={
+										snapshot?.project ? apiModels.filter((item) => item.projectId === snapshot.project?.id) : apiModels
+									}
+									freshConversation={
+										!(snapshot?.messages ?? []).some((message) => (message as { role?: string }).role === "user")
+									}
+									onDetachModeling={() => send({ type: "detach_modeling" })}
+									onStartModeling={() => send({ type: "start_modeling" })}
+									onEndModeling={() => send({ type: "end_modeling" })}
 									presets={presets ?? []}
 									preset={snapshot?.preset ?? null}
 									onSetPreset={(presetId) => send({ type: "set_session_preset", presetId })}
-									onSend={(text, behavior, images) => {
+									onSend={(text, behavior, images, attachModelIds) => {
 										const userCount = (snapshotRef.current?.messages ?? []).filter(
 											(entry) => (entry as { role?: string }).role === "user",
 										).length;
@@ -1616,6 +1675,7 @@ export function App() {
 											streamingBehavior: behavior,
 											images,
 											notify: notifyRun ?? notifyConfig.enabled,
+											...(attachModelIds && attachModelIds.length > 0 ? { attachModelIds } : {}),
 										});
 									}}
 									onAbort={() => send({ type: "abort" })}
@@ -1673,6 +1733,26 @@ export function App() {
 							officialSource={pocSources.find((source) => source.id === ZG_OFFICIAL_POC_SOURCE_ID) ?? null}
 							officialSyncing={pocOfficialSyncing}
 							onSyncOfficial={syncOfficialPocs}
+						/>
+					) : page === "apimodels" ? (
+						<ApiModelPage
+							items={
+								snapshot?.project ? apiModels.filter((item) => item.projectId === snapshot.project?.id) : apiModels
+							}
+							detail={apiModelDetail}
+							events={apiModelEvents}
+							projectName={snapshot?.project?.name ?? null}
+							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+							onRefresh={() => send({ type: "list_api_models" })}
+							onOpen={(id) => send({ type: "get_api_model", id })}
+							onClose={() => setApiModelDetail(null)}
+							onDelete={(id) => send({ type: "delete_api_model", id })}
+							onEnd={(id) => send({ type: "end_api_model", id })}
+							onExport={(id, format) => send({ type: "export_api_model", id, format })}
+							onOpenSession={(path) => {
+								openPage("chat");
+								send({ type: "switch_session", path });
+							}}
 						/>
 					) : page === "engine" ? (
 						<EnginePage

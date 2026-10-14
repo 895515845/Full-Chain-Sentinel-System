@@ -305,6 +305,43 @@ export function MessageView({
 				</details>
 			);
 		}
+		// Business-modeling rows: the briefing the button injected and the line that
+		// closed the run. They fold like a summary — the operator needs the boundary
+		// in the transcript, not the whole briefing in the way.
+		if (message.customType === "zg-modeling") {
+			const text = textFromContent(message.content);
+			const closing = text.startsWith("【业务建模 · 结束】");
+			return (
+				<details className="summary modeling-row">
+					<summary>
+						<span className={closing ? "modeling-row__close" : "modeling-row__open"}>
+							{closing ? "业务建模已结束" : "业务建模已启动"}
+						</span>
+						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
+					</summary>
+					<pre>{text}</pre>
+				</details>
+			);
+		}
+		// Attached-records rows: the catalog that rode the first message of a
+		// conversation (带建模数据), and the line stating it was removed. The catalog
+		// is long, so it lives entirely inside the fold.
+		if (message.customType === "zg-modeling-attach") {
+			const text = textFromContent(message.content);
+			const removed = text.startsWith("【业务建模 · 已移除");
+			const attached = text.match(/已带入 (\d+) 份/);
+			return (
+				<details className="summary modeling-row">
+					<summary>
+						<span className={removed ? "modeling-row__close" : "modeling-row__open"}>
+							{removed ? "已移除带入的建模数据" : `已带入业务建模${attached ? ` ${attached[1]} 份` : "数据"}`}
+						</span>
+						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
+					</summary>
+					<pre>{text}</pre>
+				</details>
+			);
+		}
 		return null;
 	}
 

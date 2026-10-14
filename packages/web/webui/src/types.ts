@@ -20,6 +20,7 @@ export type ZGPageId =
 	| "projects"
 	| "vulns"
 	| "pocs"
+	| "apimodels"
 	| "engine"
 	| "gates"
 	| "settings.model"
@@ -508,6 +509,90 @@ export interface ZGPocSourceSave {
 	enabled: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// 业务建模（Business modeling）
+// ---------------------------------------------------------------------------
+
+export type ZGApiModelStatus = "modeling" | "done" | "manual" | "failed";
+
+export const ZG_API_MODEL_STATUS_LABELS: Record<ZGApiModelStatus, string> = {
+	modeling: "建模中",
+	done: "已完成",
+	manual: "人工结束",
+	failed: "失败",
+};
+
+/** One field of a business entity. */
+export interface ZGApiModelField {
+	name: string;
+	type?: string;
+	description?: string;
+}
+
+/** One relation between two business entities. */
+export interface ZGApiModelRelation {
+	target: string;
+	kind?: string;
+	description?: string;
+}
+
+/** A business entity: the object the API is about, not a schema of the document. */
+export interface ZGApiModelEntity {
+	name: string;
+	description?: string;
+	fields?: ZGApiModelField[];
+	relations?: ZGApiModelRelation[];
+}
+
+/** One stored modeling run. */
+export interface ZGApiModel {
+	id: string;
+	projectId: string | null;
+	sessionId: string | null;
+	sessionPath: string | null;
+	title: string;
+	target: string;
+	status: ZGApiModelStatus;
+	openapi: Record<string, unknown>;
+	entities: ZGApiModelEntity[];
+	pathCount: number;
+	operationCount: number;
+	submissions: number;
+	error?: string;
+	createdAt: string;
+	updatedAt: string;
+	doneAt: string | null;
+}
+
+/** A run without the document body, for the list. */
+export type ZGApiModelSummary = Omit<ZGApiModel, "openapi" | "entities"> & { entityCount: number };
+
+export interface ZGApiModelFilters {
+	status?: ZGApiModelStatus;
+	projectId?: string;
+	search?: string;
+}
+
+/** One line of a run's audit trail. */
+export interface ZGApiModelEvent {
+	at: string;
+	kind: "created" | "submitted" | "done" | "manual" | "failed";
+	note?: string;
+	pathCount?: number;
+	operationCount?: number;
+}
+
+/** Live state of the modeling run in the viewed session. */
+export interface ZGModelingState {
+	runId: string;
+	title: string;
+	target: string;
+	startedAt: string;
+	pathCount: number;
+	operationCount: number;
+	entityCount: number;
+}
+
 export interface ZGStateSnapshot {
 	mode: ZGMode;
 	streaming: boolean;
@@ -533,6 +618,17 @@ export interface ZGStateSnapshot {
 	gatekeeper: ZGGatekeeperView;
 	/** The preset agent the active session was created with; null means the default agent. */
 	preset: ZGSessionPresetView | null;
+	/**
+	 * The business-modeling run in force for the active session, with live
+	 * counters; null when this session is not modeling. The two modeling tools
+	 * exist only while this is set.
+	 */
+	modeling: ZGModelingState | null;
+	/**
+	 * Modeling records attached to the active session from the composer (带建模
+	 * 数据); empty when none. While set, api_model_read is mounted for the agent.
+	 */
+	modelingAttached: Array<{ id: string; title: string }>;
 	/** Compaction is running for the active session, which blocks prompts. */
 	compacting: boolean;
 	/** When that compaction started, for the elapsed time; null when idle. */
@@ -695,6 +791,11 @@ export type ZGClientMessage =
 			images?: ZGImageAttachment[];
 			/** Composer choice: force a notification for this run. */
 			notify?: boolean;
+			/**
+			 * 带建模数据: records whose catalog rides this first message of a fresh
+			 * conversation. Honored only then; unchecked means the field is absent.
+			 */
+			attachModelIds?: string[];
 	  }
 	| { type: "abort" }
 	| { type: "compact" }
@@ -818,6 +919,15 @@ export type ZGClientMessage =
 	| { type: "test_judge" }
 	| { type: "gate_audit_query"; filter?: ZGGateFilter; page?: number; pageSize?: number }
 	| { type: "gate_audit_stats"; filter?: ZGGateFilter }
+	/** Start business modeling in the viewed session; the objective comes from the conversation. */
+	| { type: "start_modeling" }
+	| { type: "end_modeling" }
+	| { type: "detach_modeling" }
+	| { type: "end_api_model"; id: string }
+	| { type: "list_api_models"; filters?: ZGApiModelFilters }
+	| { type: "get_api_model"; id: string }
+	| { type: "delete_api_model"; id: string }
+	| { type: "export_api_model"; id: string; format: "json" | "yaml" }
 	| { type: "engine_set_gate_mode"; id: string; gateMode: ZGEngineGateMode }
 	/**
 	 * Replace this engine's preset whitelist. An empty list means "no restriction":
@@ -898,6 +1008,10 @@ export type ZGServerMessage =
 	| { type: "gate_audit"; page: ZGGatePage }
 	| { type: "gate_audit_stats"; stats: ZGGateStats }
 	| { type: "gate_decision"; decision: ZGGateDecision }
+	| { type: "api_models"; items: ZGApiModelSummary[] }
+	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
+	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
 	| { type: "error"; message: string };
 
 /**
