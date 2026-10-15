@@ -1,14 +1,17 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatTokens, textFromContent } from "../transcript.ts";
-import type { ContentBlockView, AgentMessageView } from "../types.ts";
+import type { AgentMessageView, ContentBlockView } from "../types.ts";
 import { ToolCard } from "./ToolCard.tsx";
 
 /** Markdown renderer for model output; raw HTML is never rendered. */
 export function MarkdownText({ text }: { text: string }) {
 	return (
 		<div className="markdown-body">
-			<Markdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer" /> }}>
+			<Markdown
+				remarkPlugins={[remarkGfm]}
+				components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer" /> }}
+			>
 				{text}
 			</Markdown>
 		</div>
@@ -105,15 +108,7 @@ function hintForError(message: string): string {
  * conversation instead of a sequence of "new sessions". Both expand to the
  * full contract text for auditing.
  */
-function GoalMarker({
-	text,
-	timestamp,
-	elapsedMs,
-}: {
-	text: string;
-	timestamp?: number;
-	elapsedMs?: number;
-}) {
+function GoalMarker({ text, timestamp, elapsedMs }: { text: string; timestamp?: number; elapsedMs?: number }) {
 	if (text.startsWith("【持续目标已启动】")) {
 		const objective = /^目标（来自操作员）：(.+)$/m.exec(text)?.[1];
 		const limit = /自动续跑上限为 (\d+) 轮/.exec(text)?.[1];
@@ -211,7 +206,8 @@ export function MessageView({
 		const text = blocks.map(blockText).join("");
 		const failed = message.stopReason === "error" || message.stopReason === "aborted";
 		const isSubagentToolCall = blocks.some(
-			(block) => (block as { type?: string }).type === "toolCall" && (block as { name?: string }).name === "spawn_agent",
+			(block) =>
+				(block as { type?: string }).type === "toolCall" && (block as { name?: string }).name === "spawn_agent",
 		);
 		return (
 			<AgentEntry subagent={isSubagentToolCall} timestamp={message.timestamp}>

@@ -90,7 +90,7 @@ export function LoginBackdrop() {
 		const profileHeight = (i: number, j: number) => {
 			const d = Math.hypot(i - CENTER, j - CENTER);
 			const t = Math.max(0, 1 - d / PROFILE_SPAN);
-			return 3 + Math.pow(t, 1.25) * 10.5;
+			return 3 + t ** 1.25 * 10.5;
 		};
 
 		const buildTower = (i: number, j: number, instant: boolean) => {
@@ -110,7 +110,7 @@ export function LoginBackdrop() {
 			if (towerCount >= TOWER_CAP) return;
 			const quota = Math.min(130, TOWER_CAP - towerCount);
 			for (let k = 0; k < quota * 3 && pendingWave.length < quota; k += 1) {
-				const r = Math.pow(Math.random(), 1.1) * PROFILE_SPAN;
+				const r = Math.random() ** 1.1 * PROFILE_SPAN;
 				const a = Math.random() * Math.PI * 2;
 				const i = Math.round(CENTER + Math.cos(a) * r);
 				const j = Math.round(CENTER + Math.sin(a) * r);
@@ -231,7 +231,15 @@ export function LoginBackdrop() {
 			// Cold glow behind the tallest towers (cached bitmap).
 			if (glowLayer) ctx.drawImage(glowLayer, 0, 0, width, height);
 
-			const cells: { i: number; j: number; sx: number; sy: number; terrainH: number; built: number; red: boolean }[] = [];
+			const cells: {
+				i: number;
+				j: number;
+				sx: number;
+				sy: number;
+				terrainH: number;
+				built: number;
+				red: boolean;
+			}[] = [];
 			for (const [i, j] of order) {
 				const sx = ox + (i - j) * (tileW / 2);
 				const sy = oy + (i + j) * (tileH / 2);

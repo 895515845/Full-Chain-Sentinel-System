@@ -56,3 +56,14 @@ test("normalization keeps the sub-agent subset rule intact", () => {
 	expect(config.subagent.bash).toBe(false);
 	expect(config.subagent.spawn_agent).toBe(false);
 });
+
+test("the sub-agent turn budget defaults, clamps, and survives a round-trip", () => {
+	// A file from before the field existed reads as the default budget.
+	expect(normalizePermissions({}).subagentMaxTurns).toBe(defaultPermissions().subagentMaxTurns);
+	expect(normalizePermissions({ subagentMaxTurns: 80 }).subagentMaxTurns).toBe(80);
+	expect(normalizePermissions({ subagentMaxTurns: 0 }).subagentMaxTurns).toBe(1);
+	expect(normalizePermissions({ subagentMaxTurns: 9999 }).subagentMaxTurns).toBe(200);
+	expect(normalizePermissions({ subagentMaxTurns: "many" }).subagentMaxTurns).toBe(
+		defaultPermissions().subagentMaxTurns,
+	);
+});

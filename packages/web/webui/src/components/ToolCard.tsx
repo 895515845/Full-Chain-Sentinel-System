@@ -66,7 +66,9 @@ export function ToolCard({
 			<div className={`tool-card ${status}`}>
 				<div className="tool-row" role="button" tabIndex={0} onClick={toggle} onKeyDown={onBarKey}>
 					<span className="tool-name">{name}</span>
-					{preview ? <span className={`tool-summary ${status === "running" ? "live" : ""}`}>{preview}</span> : null}
+					{preview ? (
+						<span className={`tool-summary ${status === "running" ? "live" : ""}`}>{preview}</span>
+					) : null}
 					<span className={`tool-meta ${status}`}>
 						{status === "running" ? "运行中" : status === "error" ? "失败" : "✓"}
 						{duration ? <span className="tool-duration">{duration}</span> : null}
@@ -143,19 +145,13 @@ export function ToolCard({
 	);
 }
 
-export function OutputViewer({
-	title,
-	output,
-	onClose,
-}: {
-	title: string;
-	output: string;
-	onClose: () => void;
-}) {
+export function OutputViewer({ title, output, onClose }: { title: string; output: string; onClose: () => void }) {
 	const [query, setQuery] = useState("");
 	const lines = output.split("\n");
 	const matched = query
-		? lines.map((line, index) => ({ line, index })).filter(({ line }) => line.toLowerCase().includes(query.toLowerCase()))
+		? lines
+				.map((line, index) => ({ line, index }))
+				.filter(({ line }) => line.toLowerCase().includes(query.toLowerCase()))
 		: null;
 
 	return (

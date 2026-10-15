@@ -5,7 +5,7 @@
  * not about the agent conversation) and logs every other session out. Logout
  * lives in the sider footer; the server refuses tokens issued before it.
  */
-import { useState, type FormEvent } from "react";
+import { type FormEvent, useState } from "react";
 
 export function SecurityPanel({ username }: { username: string | null }) {
 	const [current, setCurrent] = useState("");

@@ -40,7 +40,9 @@ export function GoalStartDialog({
 	const [rounds, setRounds] = useState(String(DEFAULT_GOAL_ROUNDS));
 
 	const parsed = Number(rounds);
-	const limit = Number.isFinite(parsed) ? Math.min(MAX_GOAL_ROUNDS, Math.max(1, Math.round(parsed))) : DEFAULT_GOAL_ROUNDS;
+	const limit = Number.isFinite(parsed)
+		? Math.min(MAX_GOAL_ROUNDS, Math.max(1, Math.round(parsed)))
+		: DEFAULT_GOAL_ROUNDS;
 	const canSubmit = objective.trim().length > 0;
 
 	return (
