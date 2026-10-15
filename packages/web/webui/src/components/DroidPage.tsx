@@ -43,16 +43,17 @@ export function DroidPage({
 	const [revealed, setRevealed] = useState<string | null>(null);
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 	const [loaded, setLoaded] = useState(false);
-	const [listenHost, setListenHost] = useState<string>("");
-	const [listenPort, setListenPort] = useState<string>("");
+	// Sensible defaults so the 应用 button works on first use; the effect aligns
+	// the fields with what the operator saved before.
+	const [listenHost, setListenHost] = useState("0.0.0.0");
+	const [listenPort, setListenPort] = useState("9944");
 
-	// Keep the picker aligned with what the operator last chose.
 	useEffect(() => {
-		if (listenConfig && !listenHost) {
+		if (listenConfig) {
 			setListenHost(listenConfig.host);
 			setListenPort(String(listenConfig.port));
 		}
-	}, [listenConfig, listenHost]);
+	}, [listenConfig]);
 
 	/** The address the phone should dial: the dedicated listener when bound, the console origin otherwise. */
 	const reverseAddress = (() => {
