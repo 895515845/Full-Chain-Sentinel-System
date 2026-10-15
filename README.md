@@ -1,218 +1,120 @@
 # 全链哨兵 Full Chain Sentinel System
 
-全链哨兵 是基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带 Web 控制台。
+基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带中文 Web 控制台与容器化作业环境。
 
-核心能力：
+## 授权使用声明
 
-- **渗透测试系统提示**：方法论驱动（侦察 → 枚举 → 漏洞映射 → 验证 → 利用 → 后渗透 → 报告），强调授权范围、证据留痕、最小侵入。
-- **Web 控制台**（中文）：流式对话、工具执行卡片、会话管理，见 [packages/web](packages/web/README.md)。
-- **双执行模式**：审批模式（默认，每条 bash 命令可编辑后放行/拒绝）与自动执行模式，运行时可切换。
-- **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，Web 界面直接配置。
-- **会话即审计**：复用 pi 的 JSONL 会话树，每条命令、输出与模型决策完整留痕。
+本项目是攻击性安全工具，**只能用于你已获得书面授权的目标**。
+
+- 未经授权对他人系统做渗透测试、漏洞扫描、口令破解或入侵，在中国大陆及多数司法辖区属于违法行为（参见《网络安全法》第二十七条，《刑法》第二百八十五条、第二百八十六条、第二百八十七条之二；本段不构成法律意见）。
+- 首次进入控制台必须勾选「我承诺只用于授权合法的渗透测试」，承诺与声明的哈希保存在本机配置目录，声明更新或换账号会重新确认。
+- Agent 的行为难以完全管控：自动执行模式下模型可以运行任意命令。**因使用本项目造成的业务中断、数据损坏、越权访问或其他后果，由使用者自行承担**，作者与贡献者不承担任何责任。
+- 请在授权范围内、隔离环境中使用；对生产系统测试前先取得书面授权并约定时间窗。
+
+本项目以 MIT 许可发布，不附带任何担保。
+
+## 功能
+
+- **方法论驱动的渗透流程**：侦察 → 枚举 → 漏洞映射 → 验证 → 利用 → 后渗透 → 报告，系统提示强调授权范围、证据留痕与最小侵入。
+- **中文 Web 控制台**（[packages/web](packages/web/README.md)）：流式对话与思考过程、工具执行卡片、会话树、文件与子代理弹窗、项目选择。
+- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门员模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。设备命令走与 bash 相同的守门与审批链。
+- **容器化作业环境**：每个项目一个 Kali 容器，内置侦察、枚举、Web 利用、口令与内网工具；容器网络模式在「设置 → 环境」切换（默认 host）。
+- **漏洞中枢**：`vuln_submit` 提交已验证漏洞，必填 CVSS 分数，原始数据包逐字保存，操作员复核留时间线，可按项目导出 Markdown 报告。
+- **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
+- **安卓设备插件**：root 测试机安装自研 DroidBridge APK 主动反连，提供 shell、文件上下行、截屏、logcat、tcpdump 抓包、frida 动态调试与 APK 静态分析。
+- **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
+- **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 
 ## 快速开始
 
+要求 Node.js >= 22.19.0。
+
 ```bash
 npm install --ignore-scripts
-npm run build
-npm run start:web          # 打开 http://127.0.0.1:7777
+npm run build          # 后端各包与 coding-agent（首次需联网拉取模型目录）
+npm run build:web      # Web 控制台与前端资源
+npm run start:web
 ```
 
-在控制台左侧「模型设置」中配置端点（Base URL / API Key / 模型 ID）后即可开始。CLI 同样可用：
+`npm run build` 只构建后端各包，控制台需要额外的 `npm run build:web`。
+
+启动后日志里会打印本次的入口地址，形如 `http://<地址>:<端口>/<随机串>`。默认监听 `0.0.0.0`，随机入口串与 cookie 校验用于挡扫描器：没有入口串的请求一律返回普通 404，入口串每次启动都变。请在日志里取完整地址访问。
+
+首次访问的流程：
+
+1. 设置控制台密码（scrypt 哈希，保存在本机配置目录）。
+2. 阅读并勾选授权使用承诺。
+3. 在左侧「模型设置」配置端点（Base URL / API Key / 模型 ID）。
+
+启动参数与环境变量：
+
+| 参数 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `--host <地址>` | `SENTINEL_HOST` | 监听地址，默认 `0.0.0.0` |
+| `--port <端口>` | `SENTINEL_PORT` | 监听端口，默认 `7777` |
+| `--cwd <目录>` | `SENTINEL_CWD` | 工作目录，默认当前目录 |
+| `--gate-token <串>` | `SENTINEL_GATE_TOKEN` | 固定入口串，默认每次启动随机 |
+| `--no-gate` | — | 关闭随机入口，直接以 `/` 提供服务（仅本机调试） |
+| `--no-consent` | — | 跳过首次授权承诺（自动化环境） |
+| `--check` | — | 只做启动前自检并打印报告，不启动服务 |
+
+CLI 同样可用：
 
 ```bash
 ./pi-test.sh --no-env      # 从源码运行 sentinel CLI
 ```
 
+## 目录结构
+
+本仓库沿用上游 pi monorepo 的分包结构（包名仍是上游的 `@earendil-works/*`，改名单独进行）：
+
+| 包 | 说明 |
+| --- | --- |
+| [packages/web](packages/web) | 全链哨兵 Web 控制台：HTTP + WebSocket 服务与前端 |
+| [packages/coding-agent](packages/coding-agent) | Agent CLI 与运行时 |
+| [packages/agent](packages/agent) | 工具调用与状态管理 |
+| [packages/ai](packages/ai) | 多 provider LLM API |
+| [packages/tui](packages/tui) | 终端 UI 库 |
+| [packages/durable](packages/durable) | 会话、任务与文档运行时 |
+| [packages/mcp](packages/mcp) · [packages/protocol](packages/protocol) | MCP 与协议层 |
+| [packages/droid-apk](packages/droid-apk) | 安卓 DroidBridge APK（Kotlin） |
+| [docker](docker) | 作业容器镜像（Kali + 工具链） |
+
+## 开发
+
+```bash
+./test.sh                   # 全部非 e2e 测试
+npm run check               # biome + 依赖/导入/入口图检查 + tsc + webui + 浏览器冒烟
+npm run hydrate:model-data  # 首次或模型目录变更后补齐 packages/ai/src/providers/data/
+```
+
+单测从包根目录跑：
+
+```bash
+node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/<name>.test.ts
+```
+
+`packages/ai/src/providers/data/` 是 `generate-models` 的产物、不进版本库，所以全新克隆要先跑 `npm run hydrate:model-data` 或 `npm run build`（需联网）再做类型检查，否则 `tsc` 会因缺失 JSON 报出大量错误。
+
+作业容器：
+
+```bash
+docker build -t sentinel:latest docker/
+```
+
+基础镜像与 apt/pip/npm/go 软件源可在控制台「设置 → 环境」配置，也可以在命令行用 `--build-arg` 覆盖。
+
 ## 安全边界
 
 全链哨兵 沿用 pi 的权限模型：无内建沙箱，工具以当前用户权限执行。审批模式只拦截 bash 工具。自动执行模式下模型可运行任意命令，请仅在**授权目标与隔离环境**中使用，必要时配合容器化（参见 [containerization.md](packages/coding-agent/docs/containerization.md)）。
 
-## 上游说明
+安全问题请通过仓库 Issue 反馈，不要在公开 Issue 里附可直接利用的细节。
 
-本仓库内部包结构、开发与发布流程沿用上游 pi monorepo：
+## 上游与许可
 
-## Getting started
+本项目是 [pi](https://github.com/earendil-works/pi) 的衍生作品（fork），**不是上游官方项目**，与上游团队无关。
 
-Install the command-line interface:
+上游代码以 MIT 许可发布，版权归 Mario Zechner，许可全文见 [LICENSE](LICENSE)；本仓库保留该许可与版权声明，并在此基础上加入渗透测试相关的系统提示、Web 控制台、容器化作业环境与安卓设备插件。
 
-```bash
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-On Windows:
-
-```shell
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
-
-The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
-
-Start Pi in the directory where you want it to work:
-
-```bash
-cd /path/to/project
-pi
-```
-
-For a built-in AI provider, run `/login` inside Pi to connect a subscription or API key. Then give Pi a task.
-
-See the [documentation](https://pi.dev/docs/latest) for full setup and usage instructions, or [visit pi.dev](https://pi.dev) for demos.
-
-## Run with Nix
-
-```bash
-nix run github:earendil-works/pi/stable
-```
-
-`stable` points at the latest release. Install it with `nix profile add github:earendil-works/pi/stable` and update with `nix profile upgrade pi`. Use a release tag such as `github:earendil-works/pi/v1.0.0` to pin a version, or `github:earendil-works/pi` for unreleased changes on `main`. Nix builds Pi from source.
-
-Supports ARM64 and x86-64 on Linux and macOS. Use `nix build .` or `nix run .` to build or run your checkout.
-
-Nix builds are offline, so the bundled model data comes from a pi.dev model catalog revision pinned in `nix/model-catalog.json`. At runtime, Pi still overlays newer catalog data from pi.dev as usual. The Nix workflow replaces the pin on `main` when it no longer matches the checkout, for example after a provider is added or gains a new model type. To refresh it by hand:
-
-```bash
-npm run update:model-catalog-pin
-```
-
-## Packages
-
-This monorepo contains the Pi CLI and its supporting libraries.
-
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Standalone application-composition runtime for services, replicated state, RPC, and plugins |
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-durable](packages/durable)** | Durable conversation, task, and document runtime |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Permissions & Containerization
-
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
-
-## Development
-
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
-```
-
-### Using local packages outside the monorepo
-
-Build every public package into one coherent local artifact set:
-
-```bash
-npm run pack:packages -- --out .artifacts/pi-packages
-```
-
-This refreshes model data before building `pi-ai`. To avoid network access when
-model data is already hydrated, pass `--offline-model-data`.
-
-Then configure an external project to consume one package and resolve all of
-its Pi dependencies from the same artifact set. npm is the default:
-
-```bash
-node scripts/use-local-packages.mjs \
-  --manifest .artifacts/pi-packages/manifest.json \
-  --consumer ../my-project \
-  --package @earendil-works/pi-durable \
-  --package @earendil-works/pi-agent-core
-cd ../my-project
-npm install --ignore-scripts
-```
-
-For a pnpm project, point `--consumer` at the workspace root:
-
-```bash
-node scripts/use-local-packages.mjs \
-  --manifest .artifacts/pi-packages/manifest.json \
-  --consumer ../my-project \
-  --package @earendil-works/pi-agent-core \
-  --package-manager pnpm
-cd ../my-project
-pnpm install --ignore-scripts
-```
-
-Repeat `--package` for each direct dependency. The command updates the
-consumer's `package.json` with content-addressed local `file:` references. It
-writes transitive overrides to `package.json` for npm or `pnpm-workspace.yaml`
-for pnpm. Keep the artifact directory available while installing or updating
-the consumer. Re-run both commands after changing Pi source.
-
-## Building standalone binaries from release source
-
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
-
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
-
-The archive includes release model data and native prebuilds. `--offline-model-data` uses that model data without refreshing provider catalogs. The script installs dependencies and builds the executable with its runtime assets; pass `--skip-install` if dependencies are already provided.
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
-- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
-- Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Install lock generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
-
-## License
-
-MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+- 上游仓库：https://github.com/earendil-works/pi
+- 本项目新增部分的版权归本项目作者，同样以 MIT 发布。
