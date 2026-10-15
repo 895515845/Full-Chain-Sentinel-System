@@ -42,7 +42,6 @@ export function DroidPage({
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 	const [listenHost, setListenHost] = useState("0.0.0.0");
 	const [listenPort, setListenPort] = useState("9944");
-	const qrRef = useRef<HTMLCanvasElement | null>(null);
 	const [qrToken, setQrToken] = useState<DroidToken | null>(null);
 
 	useEffect(() => {
@@ -51,6 +50,15 @@ export function DroidPage({
 			setListenPort(String(listenConfig.port));
 		}
 	}, [listenConfig]);
+
+	// The server only pushes `droid_state` when something changes, so a page that
+	// merely opens shows whatever the last broadcast happened to carry — after a
+	// browser reload that is nothing, and the token list stays empty until the
+	// operator creates a token. Pull the state on mount and on every reconnect
+	// (`connected` flips false → true), which is what the list is built from.
+	useEffect(() => {
+		if (connected) send({ type: "droid_state" });
+	}, [connected, send]);
 
 	// The address the phone should dial: the dedicated listener when bound, the
 	// console origin otherwise. 0.0.0.0 is a bind address, not dialable — show the
@@ -67,17 +75,7 @@ export function DroidPage({
 		};
 	})();
 
-	const active = tokens.filter((token) => !token.revokedAt);
 	const onlineCount = devices.filter((device) => device.online).length;
-	const firstToken = active[0];
-
-	// 扫码即连：地址 + token 打包进二维码，DroidBridge 扫描后自动填入。
-	useEffect(() => {
-		const canvas = qrRef.current;
-		if (!canvas) return;
-		const payload = firstToken ? `${reverseAddress.url}?token=${firstToken.token}` : reverseAddress.url;
-		QRCode.toCanvas(canvas, payload, { width: 168, margin: 1, errorCorrectionLevel: "M" }).catch(() => undefined);
-	}, [firstToken, reverseAddress.url]);
 
 	return (
 		<div className="page-card droid-page">
@@ -143,7 +141,7 @@ export function DroidPage({
 					<div className="droid-card">
 						<h3 className="droid-card__title">
 							连接令牌
-							<span className="api-model-chip api-model-chip--manual">{active.length} 个有效</span>
+							<span className="api-model-chip api-model-chip--manual">{tokens.length} 个</span>
 						</h3>
 						<div className="droid-field">
 							<label>新建 token</label>
@@ -171,14 +169,14 @@ export function DroidPage({
 						) : (
 							<div className="droid-token-list">
 								{tokens.map((token) => (
-									<div key={token.id} className={`droid-token ${token.revokedAt ? "revoked" : ""}`}>
+									<div key={token.id} className="droid-token">
 										<div className="droid-token__main">
 											<div className="droid-token__name">{token.label}</div>
 											<div className="droid-token__val">
 												{revealed === token.id ? token.token : `${token.token.slice(0, 16)}…`}
 											</div>
 											<div className="droid-token__meta">
-												{token.revokedAt ? "已吊销" : `创建 ${formatTime(token.createdAt)} · 最近使用 ${formatTime(token.lastUsedAt)}`}
+												{`创建 ${formatTime(token.createdAt)} · 最近使用 ${formatTime(token.lastUsedAt)}`}
 											</div>
 										</div>
 										<div className="droid-token__ops">
@@ -193,20 +191,16 @@ export function DroidPage({
 											>
 												{revealed === token.id ? "隐藏" : "显示/复制"}
 											</button>
-											{!token.revokedAt ? (
-												<button type="button" className="ghost small" onClick={() => setQrToken(token)}>
-													二维码
-												</button>
-											) : null}
-											{!token.revokedAt ? (
-												<button
-													type="button"
-													className="ghost small danger"
-													onClick={() => send({ type: "droid_token_revoke", id: token.id })}
-												>
-													删除
-												</button>
-											) : null}
+											<button type="button" className="ghost small" onClick={() => setQrToken(token)}>
+												二维码
+											</button>
+											<button
+												type="button"
+												className="ghost small danger"
+												onClick={() => send({ type: "droid_token_delete", id: token.id })}
+											>
+												删除
+											</button>
 										</div>
 									</div>
 								))}
@@ -283,21 +277,9 @@ export function DroidPage({
 					</div>
 
 					<div className="droid-card">
-						<h3 className="droid-card__title">扫码即连</h3>
-						<div className="droid-qr-wrap">
-							<canvas ref={qrRef} className="droid-qr" />
-							<div className="droid-qr-wrap__meta">
-								<p className="droid-hint" style={{ margin: 0 }}>
-									二维码包含当前反连地址与首个有效 token。手机上 DroidBridge 点「扫码填入」即可完成配置；换地址或换 token 后二维码自动更新。
-								</p>
-							</div>
-						</div>
-					</div>
-
-					<div className="droid-card">
 						<h3 className="droid-card__title">接入指引</h3>
 						<ol className="droid-steps">
-							<li>左侧创建一个 token 并复制。</li>
+							<li>左侧创建一个 token；点该行「二维码」用手机扫，或点「显示/复制」手填。</li>
 							<li>
 								手机安装 DroidBridge（<code>packages/droid-apk</code> 构建产物），填入地址与 token：
 								<div className="mono">{reverseAddress.url}</div>
@@ -305,7 +287,6 @@ export function DroidPage({
 							<li>点「启动反连」，Magisk 弹窗点允许。</li>
 							<li>设备出现在上方即接入成功；到对话页打开「安卓」开关，Agent 即可操控设备。</li>
 						</ol>
-						{firstToken ? <div className="mono">{`${reverseAddress.url}?token=${firstToken.token}`}</div> : null}
 					</div>
 				</div>
 			</div>

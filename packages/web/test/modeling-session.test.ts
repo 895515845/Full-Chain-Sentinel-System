@@ -2,11 +2,11 @@
  * Business modeling over the real WebSocket protocol.
  *
  * This is the invariant the feature exists for, checked where it actually
- * matters: the two modeling tools are registered on a console session but never
- * active, pressing the button mounts them for exactly one run, and the run's
- * record lands in the hub. Nothing here needs Docker or a provider — the
- * configured endpoint is a port nothing listens on, which is enough to observe
- * the mounting, the record and the unmounting.
+ * matters: the two modeling tools are declared on a console session so the
+ * operator can start modeling by asking for it in the conversation, pressing the
+ * button records the run, and the run's record lands in the hub. Nothing here
+ * needs Docker or a provider — the configured endpoint is a port nothing listens
+ * on, which is enough to observe the declaration, the record and the closing.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -135,32 +135,34 @@ afterAll(() => {
 	if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
 });
 
-test("a fresh session carries the modeling tools without activating them", async () => {
+test("a fresh session carries the modeling tools active, with no run", async () => {
 	const snapshot = await snapshotWhere(() => true);
 	expect(snapshot.modeling).toBeNull();
 
 	const tools = await mountedTools();
 	const modeling = tools.filter((tool) => tool.name.startsWith("api_model_"));
-	// Registered, so the runtime can mount them without rebuilding the session…
 	expect(modeling.map((tool) => tool.name).sort()).toEqual(["api_model_done", "api_model_read", "api_model_submit"]);
-	// …and inactive, so the model's tool list and system prompt do not carry them.
-	// The unit tests pin the mechanism this rests on: both tools declare
-	// `defaultActive: false`, and the loadout rule strips them from any set that is
-	// not modeling.
-	expect(modeling.every((tool) => !tool.active)).toBe(true);
-	expect(activeNames(tools)).not.toContain("api_model_submit");
+	// The two run tools are declared in every session, so the operator can start
+	// modeling by asking for it in the conversation instead of pressing a button.
+	// What keeps modeling out of ordinary work is the wording both tools carry: the
+	// unit tests pin that every description and first guideline say not to call
+	// them unless the operator asked.
+	expect(activeNames(tools)).toContain("api_model_submit");
+	expect(activeNames(tools)).toContain("api_model_done");
+	// The read tool is the one that still follows the session's attached records.
+	expect(activeNames(tools)).not.toContain("api_model_read");
 });
 
-test("the button mounts them for one run, records it, and takes them away again", async () => {
+test("the button records the run; the tools stay declared when it ends", async () => {
 	send({ type: "start_modeling" });
 	const started = await snapshotWhere((snapshot) => snapshot.modeling !== null);
 	expect(started.modeling?.pathCount).toBe(0);
 	expect(started.modeling?.runId).toBeTruthy();
 
-	// The two tools are active for this run only. The active set is the source of
-	// truth for the system prompt too: the SDK rebuilds the prompt's tool section
-	// from exactly this list (`_rebuildSystemPrompt(tools.map(name))`), so a name
-	// that is not active here cannot appear in what the model is told it has.
+	// The active set is the source of truth for the system prompt too: the SDK
+	// rebuilds the prompt's tool section from exactly this list
+	// (`_rebuildSystemPrompt(tools.map(name))`), so a name that is not active here
+	// cannot appear in what the model is told it has.
 	const mounted = await mountedTools();
 	expect(activeNames(mounted)).toEqual(expect.arrayContaining(["api_model_submit", "api_model_done"]));
 
@@ -173,15 +175,17 @@ test("the button mounts them for one run, records it, and takes them away again"
 	expect(records[0].projectId).toBe(started.project?.id);
 
 	// The configured endpoint is closed, so the turn the button started fails at
-	// once. Either way the run must be closable and the tools must come off.
+	// once. Either way the run must be closable.
 	await snapshotWhere((snapshot) => !snapshot.streaming);
 	if ((await snapshotWhere(() => true)).modeling !== null) {
 		send({ type: "end_modeling" });
 		await snapshotWhere((snapshot) => snapshot.modeling === null);
 	}
+	// Ending a run does not take the tools away any more — they are declared in
+	// every session, and the closing marker is what tells the model to stop using
+	// them. Only the run state changes.
 	const after = await mountedTools();
-	expect(activeNames(after)).not.toContain("api_model_submit");
-	expect(activeNames(after)).not.toContain("api_model_done");
+	expect(activeNames(after)).toEqual(expect.arrayContaining(["api_model_submit", "api_model_done"]));
 
 	const closed = await apiModels();
 	expect(closed[0].status === "manual" || closed[0].status === "failed").toBe(true);

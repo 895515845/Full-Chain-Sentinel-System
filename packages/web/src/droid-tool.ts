@@ -13,13 +13,15 @@
  * gatekeeper.db like every other command.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execInContainer } from "./docker.ts";
+import type { DroidDevice } from "./droid.ts";
 import type { DroidGateway } from "./droid-gateway.ts";
+import { DROID_MAX_STREAM_BYTES } from "./droid-protocol.ts";
 
 /** Every tool name this plugin registers, for mount/unmount as one switch. */
 export const DROID_TOOL_NAMES: readonly string[] = [
@@ -62,6 +64,17 @@ function truncate(text: string | undefined, max = 16_000): string {
 	return `${value.slice(0, max)}\n…[输出过长已截断，共 ${value.length} 字符]`;
 }
 
+/**
+ * A connected device that stopped answering. The socket is still open, so it
+ * stays in the online list, but no request will ever come back: say so here
+ * instead of letting every tool wait out its own timeout (a frozen app never
+ * sends a result).
+ */
+function unresponsive(device: DroidDevice): string {
+	const seconds = Math.round((device.idleMs ?? 0) / 1000);
+	return `设备「${device.name}」无响应：已 ${seconds}s 未收到心跳（DroidBridge 进程可能被系统或模拟器冻结：socket 还在，但 app 不再执行任何代码）。请在设备上唤醒或重开 DroidBridge，等它恢复心跳后重试`;
+}
+
 /** Pick the device: the id when given, the only online device otherwise. */
 function pickDevice(ctx: DroidToolContext, device: string | undefined): { id: string; name: string } | string {
 	const gateway = ctx.gateway();
@@ -75,12 +88,15 @@ function pickDevice(ctx: DroidToolContext, device: string | undefined): { id: st
 		if (!found) {
 			return `设备「${needle}」不在线。在线设备：${online.map((candidate) => `${candidate.name}(${candidate.id.slice(0, 8)})`).join("、")}`;
 		}
+		if (found.stale) return unresponsive(found);
 		return { id: found.id, name: found.name };
 	}
 	if (online.length > 1) {
 		return `多台设备在线，请用 device 参数指定：${online.map((candidate) => `${candidate.name}(${candidate.id.slice(0, 8)})`).join("、")}`;
 	}
-	return { id: online[0]!.id, name: online[0]!.name };
+	const only = online[0]!;
+	if (only.stale) return unresponsive(only);
+	return { id: only.id, name: only.name };
 }
 
 const deviceParam = Type.Optional(Type.String({ description: "目标设备：deviceId 或设备名；只有一台在线时可省略" }));
@@ -100,12 +116,23 @@ export function createDroidTools(ctx: DroidToolContext): ToolDefinition[] {
 			const online = gateway.onlineDevices();
 			const all = ctx.enabled() ? online : online;
 			if (all.length === 0) return failure("没有在线的安卓设备：在手机上打开 DroidBridge，等它反连成功后重试。");
-			const lines = all.map(
-				(device) =>
-					`- ${device.name} [id: ${device.id}] · ${device.model} · Android ${device.androidVersion} (SDK ${device.sdkInt}) · ${device.rooted ? "已 root" : "未 root"} · ${device.online ? "在线" : "离线"}`,
-			);
+			const lines = all.map((device) => {
+				// `online` is the socket; a frozen app keeps it open without running, so
+				// say that separately instead of reporting a healthy 在线.
+				const state = device.stale
+					? `无响应（已 ${Math.round((device.idleMs ?? 0) / 1000)}s 无心跳，进程可能被冻结）`
+					: device.online
+						? "在线"
+						: "离线";
+				return `- ${device.name} [id: ${device.id}] · ${device.model} · Android ${device.androidVersion} (SDK ${device.sdkInt}) · ${device.rooted ? "已 root" : "未 root"} · ${state}`;
+			});
+			const stale = all.filter((device) => device.stale).length;
+			const hint =
+				stale > 0
+					? `\n\n注意：${stale} 台设备 socket 还在但已停止响应，任何请求都会立刻失败——请先在设备上唤醒或重开 DroidBridge。`
+					: "";
 			return {
-				content: [{ type: "text", text: `在线设备 ${all.length} 台：\n${lines.join("\n")}` }],
+				content: [{ type: "text", text: `在线设备 ${all.length} 台：\n${lines.join("\n")}${hint}` }],
 				details: { ok: true },
 			};
 		},
@@ -178,25 +205,39 @@ export function createDroidTools(ctx: DroidToolContext): ToolDefinition[] {
 			if (typeof picked === "string") return failure(picked);
 			const gateway = ctx.gateway();
 			if (!gateway) return failure("设备网关未启动");
-			const result = await gateway.request(
-				picked.id,
-				{ t: "pull", path: params.path, maxBytes: 256 * 1024 * 1024 },
-				{
-					timeoutMs: 120_000,
-				},
-			);
-			if (!result.ok) return failure(`拉取失败：${result.error ?? "未知错误"}`);
-			const bytes = result.bytes ?? Buffer.alloc(0);
-			if (bytes.length === 0) return failure(`文件为空或不存在：${params.path}`);
 			const dir = join(ctx.workDir(), "evidence", "droid");
 			mkdirSync(dir, { recursive: true });
 			const target = join(dir, `${Date.now()}-${basename(params.path)}`);
-			writeFileSync(target, bytes);
+			// Write each chunk as it arrives: the device streams the file now (see
+			// DroidService.answerStreamFile), so the host must not hold a second copy of
+			// a 256MB pull in memory either.
+			const fd = openSync(target, "w");
+			let written = 0;
+			const result = await gateway
+				.request(
+					picked.id,
+					{ t: "pull", path: params.path, maxBytes: 256 * 1024 * 1024 },
+					{
+						timeoutMs: 120_000,
+						onData: (chunk) => {
+							writeSync(fd, chunk);
+							written += chunk.length;
+						},
+					},
+				)
+				.finally(() => closeSync(fd));
+			if (!result.ok || written === 0) {
+				// Nothing usable landed on disk: drop the stub instead of leaving an empty
+				// "evidence" file behind.
+				rmSync(target, { force: true });
+				if (!result.ok) return failure(`拉取失败：${result.error ?? "未知错误"}`);
+				return failure(`文件为空或不存在：${params.path}`);
+			}
 			return {
 				content: [
 					{
 						type: "text",
-						text: `已拉取 ${picked.name}:${params.path} → ${target}（${bytes.length} 字节）。该路径在工作目录内，可直接作为漏洞证据引用。`,
+						text: `已拉取 ${picked.name}:${params.path} → ${target}（${written} 字节）。该路径在工作目录内，可直接作为漏洞证据引用。`,
 					},
 				],
 				details: { ok: true, path: target },
@@ -227,13 +268,12 @@ export function createDroidTools(ctx: DroidToolContext): ToolDefinition[] {
 			} catch (error) {
 				return failure(`读取工作目录文件失败：${error instanceof Error ? error.message : String(error)}`);
 			}
-			if (bytes.length > 256 * 1024 * 1024) return failure("文件超过 256MB 上限");
-			// One frame per ~4MB keeps base64 under the gateway's message cap.
-			const result = await gateway.request(
-				picked.id,
-				{ t: "push", path: params.devicePath, b64: bytes.toString("base64") },
-				{ timeoutMs: 180_000 },
-			);
+			if (bytes.length > DROID_MAX_STREAM_BYTES) {
+				return failure(`文件超过 ${Math.round(DROID_MAX_STREAM_BYTES / 1024 / 1024)}MB 上限`);
+			}
+			// The gateway streams it in chunks: one frame per ~1MB. Sending the whole
+			// file as a single base64 frame is what used to OOM the app on the phone.
+			const result = await gateway.pushFile(picked.id, params.devicePath, bytes, { timeoutMs: 180_000 });
 			if (!result.ok) return failure(`推送失败：${result.error ?? "未知错误"}`);
 			return {
 				content: [{ type: "text", text: `已推送到 ${picked.name}:${params.devicePath}（${bytes.length} 字节）` }],

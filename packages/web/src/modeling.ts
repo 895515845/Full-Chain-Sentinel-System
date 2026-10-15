@@ -2,12 +2,14 @@
  * Business modeling: the per-session state, the injected instruction, and the
  * two markers the transcript shows.
  *
- * Modeling is not a mode of the console and not a prompt the agent always
- * carries: a session that is not modeling has no trace of it in its system
- * prompt, its tool list, or its context. The operator presses 业务建模, the
- * runtime mounts two tools for that session, and this module supplies the
- * instruction that tells the model what it was just handed. When the run ends
- * the tools go away again.
+ * The two run tools are declared to the model in every console session, because
+ * modeling can also be asked for in the conversation ("帮我做业务建模") and a tool
+ * that only a button can mount cannot be reached that way. What keeps modeling
+ * out of ordinary work is therefore the instruction the tools carry rather than
+ * their absence: both descriptions and both guideline lists open by saying they
+ * may only be called when the operator asked for business modeling. The run
+ * itself is opened by the first submission when the model is the one that
+ * started it.
  *
  * The state lives on the branch as a `custom` entry, the way the mode, the
  * preset and the manual status do: it survives a restart, is inherited by a
@@ -17,9 +19,10 @@
 import type { ZGApiModelStatus, ZGModelingState } from "./protocol.ts";
 
 /**
- * The tools mounted for the duration of a run. They are registered on every
- * session but activated only while modeling is on, which is why the model never
- * sees them during ordinary work.
+ * The two run tools. They are declared in every console session — the operator
+ * may start modeling by asking for it instead of pressing the button — and they
+ * are the only modeling tools that are: the read tool below stays conditional on
+ * the session actually carrying attached records.
  */
 export const MODELING_TOOLS: readonly string[] = ["api_model_submit", "api_model_done"];
 
@@ -102,20 +105,19 @@ export function readModelingAttach(entries: readonly unknown[]): ModelingAttach 
 }
 
 /**
- * The tool set a session should have, given its current one, whether a run is in
- * force, and whether modeling records are attached. This is the whole mechanism
- * that keeps modeling out of ordinary work: the tools are registered with
- * `defaultActive: false`, so they are only ever declared to the model while a run
- * is on or records are attached, and every other session states explicitly that
- * they are off — a loadout restored from an older transcript cannot bring them
- * back.
+ * The tool set a session should have, given its current one and whether modeling
+ * records are attached. The two run tools are always in it — a loadout restored
+ * from an older transcript that left them out gets them back — so the model
+ * always knows modeling exists; only the read tool is mounted and unmounted
+ * here.
  *
- * The order of the untouched tools is preserved, so switching a run on and off
- * leaves the rest of the loadout exactly as the SDK built it.
+ * The order of the untouched tools is preserved, so attaching and detaching
+ * records leaves the rest of the loadout exactly as the SDK built it.
  */
-export function modelingToolLoadout(active: readonly string[], modeling: boolean, attached: boolean): string[] {
-	const mounted = [...(modeling ? MODELING_TOOLS : []), ...(attached ? MODELING_ATTACH_TOOLS : [])];
-	const kept = active.filter((name) => !MODELING_TOOLS.includes(name) && !MODELING_ATTACH_TOOLS.includes(name));
+export function modelingToolLoadout(active: readonly string[], attached: boolean): string[] {
+	const managed = [...MODELING_TOOLS, ...MODELING_ATTACH_TOOLS];
+	const mounted = [...MODELING_TOOLS, ...(attached ? MODELING_ATTACH_TOOLS : [])];
+	const kept = active.filter((name) => !managed.includes(name));
 	return [...kept, ...mounted.filter((name) => !kept.includes(name))];
 }
 
@@ -208,7 +210,7 @@ export function buildModelingBrief(
 		"【业务建模】现在开始业务建模。这与前面的渗透工作分开：目标是把目标站点的业务接口还原成一份可用的 OpenAPI 3.0 文档，并整理出它背后的业务实体与关系。",
 		scope,
 		...(prior ? [prior] : []),
-		"已经给你挂上两个工具（只在这一步可用）：",
+		"用这两个工具把结果交回来（它们平时也在工具表里，但只有操作员要求建模时才该调用；本次是操作员明确要求的）：",
 		'- api_model_submit：提交文档，可以反复调用。两种形态——整份提交 { openapi: {...} }；分片提交 { paths: { "/a": {...} }, components: { schemas: {...} } }，按 key 合并进已有草稿（接口多的站点分片交，一次别塞太多）。同一个调用里可以用 entities 提交业务实体（name 必填，可带 fields / relations / description）。文档会被服务端校验（必须是 3.x、必须有 info.title / info.version 和 paths）；被拒绝时按返回的具体原因改，不要原样重试。',
 		"- api_model_done：声明建模结束。确认文档已经提交、并且覆盖了已确认的接口之后再调用。",
 		"怎么做：",
@@ -244,7 +246,7 @@ export function buildModelingEndMessage(input: {
 		`【业务建模 · 结束】业务建模已结束（${END_LABELS[input.status]}）：已记录 ${input.pathCount} 个路径 / ${input.operationCount} 个操作 / ${input.entityCount} 个业务实体。`,
 	];
 	if (input.note?.trim()) lines.push(input.note.trim());
-	lines.push("两个建模工具已从本会话摘除，会话回到普通状态。");
+	lines.push("会话回到普通状态：两个建模工具仍在工具表里，但没有操作员要求时不要再调用。");
 	return lines.join("\n");
 }
 

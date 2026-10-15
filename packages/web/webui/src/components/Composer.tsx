@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { formatTokens } from "../transcript.ts";
+import { formatSize, formatTokens } from "../transcript.ts";
 import type {
 	ZGApiModelSummary,
 	ZGImageAttachment,
@@ -8,7 +8,8 @@ import type {
 	ZGSessionPresetView,
 	ZGStatsView,
 } from "../types.ts";
-import { ApiModelIcon, BellIcon, DroidIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
+import { attachmentManifest, planAttachments, staleUploads, type UploadedFile, uploadFile } from "../uploads.ts";
+import { ApiModelIcon, BellIcon, DroidIcon, FilesIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
 import { ModelingMenu } from "./ModelingMenu.tsx";
 import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
 
@@ -25,6 +26,35 @@ async function readImage(file: File): Promise<ZGImageAttachment | null> {
 	return { type: "image", data: dataUrl.slice(comma + 1), mimeType: file.type || "image/png" };
 }
 
+/** The idle hint when no preset agent brings its own. */
+const DEFAULT_HINT = "输入目标与任务，Enter 发送，Shift+Enter 换行，可粘贴截图或拖入文件";
+
+/**
+ * The grey line in the input box. A preset agent may bring its own, which is how
+ * an operator says what this agent expects to be asked; a preset whose body went
+ * missing runs the default agent, so it falls back to the default text as well.
+ */
+export function composerHint(preset: ZGSessionPresetView | null): string {
+	const custom = preset && !preset.missing ? preset.placeholder.trim() : "";
+	return custom || DEFAULT_HINT;
+}
+
+/**
+ * One attachment in the composer: uploading, stored, or refused. The file itself
+ * is already in the project's work dir by the time it is stored — the message
+ * carries only its path.
+ */
+interface PendingAttachment {
+	/** Client-side key: the same file may be attached twice. */
+	id: string;
+	name: string;
+	size: number;
+	/** 0..1 while the body is on the wire. */
+	ratio: number;
+	error: string | null;
+	uploaded: UploadedFile | null;
+}
+
 /**
  * The prompt box.
  *
@@ -37,6 +67,7 @@ export function Composer({
 	streaming,
 	stats,
 	hasProject,
+	projectId,
 	blockedReason,
 	notifyRun,
 	goalDisabledReason,
@@ -60,6 +91,8 @@ export function Composer({
 	streaming: boolean;
 	stats: ZGStatsView | null;
 	hasProject: boolean;
+	/** The active project's id; null while none is selected. Uploads land in its work dir. */
+	projectId: string | null;
 	/** Set when the console cannot run anything: the input is locked until it clears. */
 	blockedReason: string | null;
 	/** Whether the run started from here reports to the notification channel. */
@@ -118,16 +151,36 @@ export function Composer({
 	/** The 带建模数据 picker and what it has checked, applied to the next send. */
 	const [modelingMenu, setModelingMenu] = useState<PresetMenuAnchor | null>(null);
 	const [attachSelection, setAttachSelection] = useState<string[]>([]);
+	/** Files already uploaded to the project (or being uploaded, or refused). */
+	const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+	const [dragging, setDragging] = useState(false);
+	/** Why the last send was refused; cleared as soon as the composer changes. */
+	const [sendNotice, setSendNotice] = useState<string | null>(null);
+	/** The 图片 picker and the 附件 picker: images are inlined, files are uploaded. */
+	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	const submit = (override?: "steer" | "followUp") => {
 		const trimmed = text.trim();
-		if (blocked || (!trimmed && images.length === 0)) return;
+		const ready = attachments.flatMap((item) => (item.uploaded ? [item.uploaded] : []));
+		const uploading = attachments.some((item) => !item.uploaded && !item.error);
+		if (blocked || uploading) return;
+		if (!trimmed && images.length === 0 && ready.length === 0) return;
+		// An upload is written into whichever project was active when it finished,
+		// and only that project's directory is mounted into the container: a path
+		// from another project is a reference the agent cannot follow, so the
+		// message is refused instead of sent with a dead path in it.
+		const stale = staleUploads(ready, projectId);
+		if (stale.length > 0) {
+			setSendNotice(`这些文件属于另一个项目，请移除后重新上传：${stale.map((file) => file.name).join("、")}`);
+			return;
+		}
 		// One-shot: the checked records ride this message only, then the picker's
 		// checklist resets. Nothing checked means the message carries nothing extra.
 		const attachModelIds = attachSelection.length > 0 ? attachSelection : undefined;
+		const manifest = attachmentManifest(ready);
 		onSend(
-			trimmed,
+			manifest ? `${manifest}\n\n${trimmed}` : trimmed,
 			streaming ? (override ?? behavior) : undefined,
 			images.length > 0 ? images : undefined,
 			attachModelIds,
@@ -135,6 +188,8 @@ export function Composer({
 		setText("");
 		setImages([]);
 		setAttachSelection([]);
+		setAttachments([]);
+		setSendNotice(null);
 	};
 
 	const addImages = async (files: FileList | File[]) => {
@@ -147,12 +202,68 @@ export function Composer({
 		if (next.length > 0) setImages((prev) => [...prev, ...next]);
 	};
 
+	/**
+	 * Take files from a drop, a paste or the image picker. Images keep riding the
+	 * vision path; every other file is uploaded right away, so the chip can show
+	 * real progress and sending only has to write the paths into the message.
+	 */
+	const addFiles = (files: FileList | File[]) => {
+		const plans = planAttachments(Array.from(files), projectId);
+		const images = plans.flatMap((plan) => (plan.kind === "image" ? [plan.file] : []));
+		if (images.length > 0) void addImages(images);
+		for (const plan of plans) {
+			if (plan.kind === "image") continue;
+			const entry: PendingAttachment = {
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+				name: plan.file.name,
+				size: plan.file.size,
+				ratio: 0,
+				error: plan.kind === "refused" ? plan.reason : null,
+				uploaded: null,
+			};
+			setAttachments((prev) => [...prev, entry]);
+			if (plan.kind === "refused") continue;
+			setSendNotice(null);
+			void uploadFile(plan.file, plan.projectId, (ratio) => {
+				setAttachments((prev) => prev.map((item) => (item.id === entry.id ? { ...item, ratio } : item)));
+			})
+				.then((uploaded) => {
+					setAttachments((prev) =>
+						prev.map((item) => (item.id === entry.id ? { ...item, uploaded, ratio: 1 } : item)),
+					);
+				})
+				.catch((error: unknown) => {
+					const message = error instanceof Error ? error.message : "上传失败";
+					setAttachments((prev) => prev.map((item) => (item.id === entry.id ? { ...item, error: message } : item)));
+				});
+		}
+	};
+
 	const blocked = blockedReason !== null;
-	const canSend = !blocked && (text.trim().length > 0 || images.length > 0);
+	const uploading = attachments.some((item) => !item.uploaded && !item.error);
+	const readyCount = attachments.filter((item) => item.uploaded !== null).length;
+	const canSend = !blocked && !uploading && (text.trim().length > 0 || images.length > 0 || readyCount > 0);
 
 	return (
 		<div className="composer-zone">
-			<div className="composer">
+			{/* Files can be dropped anywhere on the box; the class is the only feedback
+			    that the drop will be taken. */}
+			<div
+				className={`composer${dragging ? " composer-dragging" : ""}`}
+				onDragOver={(event) => {
+					if (!event.dataTransfer.types.includes("Files")) return;
+					event.preventDefault();
+					setDragging(true);
+				}}
+				onDragLeave={(event) => {
+					if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+				}}
+				onDrop={(event) => {
+					event.preventDefault();
+					setDragging(false);
+					if (event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files);
+				}}
+			>
 				{/* Goal mode and the preset agent both sit above the input because they
 				    change what the input means: one makes it an objective the agent
 				    keeps working on, the other re-briefs who is reading it. */}
@@ -289,6 +400,40 @@ export function Composer({
 						<span className="attachment-count">{images.length} 张图片待发送</span>
 					</div>
 				) : null}
+				{attachments.length > 0 ? (
+					<div className="attachment-strip">
+						{attachments.map((item) => (
+							<div
+								key={item.id}
+								className={`attachment-file ${item.error ? "bad" : ""}`}
+								title={item.uploaded?.path ?? item.name}
+							>
+								<span className="attachment-file__name">{item.name}</span>
+								<span className="attachment-file__meta">
+									{item.error ??
+										(item.uploaded
+											? formatSize(item.uploaded.size)
+											: `上传中 ${Math.round(item.ratio * 100)}%`)}
+								</span>
+								<span className="attachment-file__bar">
+									<span style={{ width: `${Math.round((item.uploaded ? 1 : item.ratio) * 100)}%` }} />
+								</span>
+								<button
+									type="button"
+									className="attachment-remove"
+									title={item.uploaded ? "从待发送列表移除（文件仍在 uploads/ 里）" : "移除"}
+									onClick={() => setAttachments((prev) => prev.filter((entry) => entry.id !== item.id))}
+								>
+									×
+								</button>
+							</div>
+						))}
+						<span className="attachment-count">
+							{uploading ? "上传中…" : `${readyCount} 个文件待发送`}
+						</span>
+					</div>
+				) : null}
+				{sendNotice ? <div className="attachment-notice">{sendNotice}</div> : null}
 				<textarea
 					value={text}
 					placeholder={
@@ -297,17 +442,22 @@ export function Composer({
 							: hasProject
 								? streaming
 									? "Agent 正在运行… 输入内容可插话或排队"
-									: "输入目标与任务，Enter 发送，Shift+Enter 换行，可直接粘贴截图"
+									: composerHint(preset)
 								: "请先在「项目」页创建或选择一个项目"
 					}
 					disabled={!hasProject || blocked}
-					onChange={(event) => setText(event.target.value)}
+					onChange={(event) => {
+						setText(event.target.value);
+						setSendNotice(null);
+					}}
 					onPaste={(event) => {
-						const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-						if (files.length > 0) {
-							event.preventDefault();
-							void addImages(files);
-						}
+						// A pasted file (from the file manager) arrives in `files`, a pasted
+						// screenshot as an image; both are taken here, plain text is left to
+						// the textarea.
+						const files = Array.from(event.clipboardData.files);
+						if (files.length === 0) return;
+						event.preventDefault();
+						addFiles(files);
 					}}
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -321,12 +471,22 @@ export function Composer({
 					<button
 						type="button"
 						className="composer-tool"
-						onClick={() => fileInputRef.current?.click()}
+						onClick={() => imageInputRef.current?.click()}
 						disabled={!hasProject || blocked}
 						title="附加图片（也可直接粘贴截图）"
 					>
 						<ImageIcon />
 						图片
+					</button>
+					<button
+						type="button"
+						className="composer-tool"
+						onClick={() => fileInputRef.current?.click()}
+						disabled={!hasProject || blocked}
+						title="附加文件（任意类型；上传到项目工作目录，随消息把路径交给 Agent；也可直接拖入或粘贴）"
+					>
+						<FilesIcon />
+						附件
 					</button>
 					<button
 						type="button"
@@ -338,13 +498,25 @@ export function Composer({
 						通知
 					</button>
 					<input
-						ref={fileInputRef}
+						ref={imageInputRef}
 						type="file"
 						accept="image/*"
 						multiple
 						hidden
 						onChange={(event) => {
-							if (event.target.files) void addImages(event.target.files);
+							if (event.target.files) addFiles(event.target.files);
+							event.target.value = "";
+						}}
+					/>
+					{/* Any type: the plan decides whether a picked file is inlined (image)
+					    or uploaded (everything else). */}
+					<input
+						ref={fileInputRef}
+						type="file"
+						multiple
+						hidden
+						onChange={(event) => {
+							if (event.target.files) addFiles(event.target.files);
 							event.target.value = "";
 						}}
 					/>

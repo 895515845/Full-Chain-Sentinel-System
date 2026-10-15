@@ -15,6 +15,11 @@ class Prefs(context: Context) {
 		get() = sp.getString("token", "") ?: ""
 		set(value) = sp.edit().putString("token", value.trim()).apply()
 
+	/** 兄弟进程守护开关：默认开（代价是第二个前台通知）。 */
+	var guardEnabled: Boolean
+		get() = sp.getBoolean("guardEnabled", true)
+		set(value) = sp.edit().putBoolean("guardEnabled", value).apply()
+
 	val deviceId: String
 		get() {
 			val existing = sp.getString("deviceId", null)

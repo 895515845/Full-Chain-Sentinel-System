@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -22,7 +24,8 @@ class MainActivity : Activity() {
 	private lateinit var urlInput: EditText
 	private lateinit var tokenInput: EditText
 
-	private val scanRequest = 42
+	/** 请求码：相机权限（通知权限用 1，扫码结果由 zxing 自己的固定请求码返回）。 */
+	private val cameraRequest = 2
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -63,6 +66,23 @@ class MainActivity : Activity() {
 		root.addView(start)
 		root.addView(stop)
 
+		// 守护进程是独立进程：单个进程被冻结（模拟器/系统节能策略）或被杀时由它恢复。
+		// 关掉它就是不要第二个前台通知，代价是被冻后只能等控制台侧的看门狗报无响应。
+		root.addView(
+			CheckBox(this).apply {
+				text = "守护进程（独立进程，被冻结/被杀后自动恢复）"
+				isChecked = prefs.guardEnabled
+				setOnCheckedChangeListener { _, checked ->
+					prefs.guardEnabled = checked
+					if (checked) {
+						GuardService.start(this@MainActivity, Process.myPid())
+					} else {
+						stopService(Intent(this@MainActivity, GuardService::class.java))
+					}
+				}
+			},
+		)
+
 		status = TextView(this).apply { text = "状态见通知栏" }
 		root.addView(status)
 
@@ -89,7 +109,7 @@ class MainActivity : Activity() {
 	/** 扫控制台「安卓设备」页的二维码：ws(s)://host:port/ws/droid?token=droid_… */
 	private fun initiateScan() {
 		if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-			ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 2)
+			ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), cameraRequest)
 			return
 		}
 		val integrator = IntentIntegrator(this)
@@ -97,6 +117,17 @@ class MainActivity : Activity() {
 		integrator.setPrompt("对准控制台「安卓设备」页的二维码")
 		integrator.setBeepEnabled(false)
 		integrator.initiateScan()
+	}
+
+	/** 相机权限刚被授予时直接开扫，否则操作员得再点一次「扫码填入」才有效果。 */
+	override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+		if (requestCode != cameraRequest) return
+		if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+			initiateScan()
+		} else {
+			status.text = "未获得相机权限，无法扫码"
+		}
 	}
 
 	/** 解析二维码内容：反连地址 + token 一键填入。 */
@@ -117,8 +148,11 @@ class MainActivity : Activity() {
 	}
 
 	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-		if (requestCode == scanRequest) {
-			val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+		// zxing 的 IntentIntegrator 用它自己的固定请求码（IntentIntegrator.REQUEST_CODE）
+		// 启动扫码 Activity；此前这里比对的是一个自定义值 42，永远不相等，扫码结果
+		// 被当成别人的结果直接丢掉，所以「扫码填入」看着完全没反应。
+		if (requestCode == IntentIntegrator.REQUEST_CODE) {
+			val result = IntentIntegrator.parseActivityResult(resultCode, data)
 			val contents = result?.contents
 			if (!contents.isNullOrEmpty()) {
 				applyScanned(contents)

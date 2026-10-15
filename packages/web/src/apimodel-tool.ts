@@ -1,11 +1,14 @@
 /**
- * The two tools business modeling mounts for the duration of a run.
+ * The two tools business modeling works through.
  *
- * They exist only while a run is active — the runtime activates them when the
- * operator presses 业务建模 and removes them when the run ends — but they still
- * refuse to do anything without a live run, so a stale activation (a session
- * restored from a transcript that declared them) cannot write into a finished
- * record.
+ * They are declared to the model in every console session: the operator may ask
+ * for modeling in the conversation instead of pressing 业务建模, and a tool that
+ * only a button can mount cannot be reached that way. The discipline therefore
+ * lives in the tools themselves — both descriptions and both guideline lists
+ * open by saying they may only be called when the operator asked for business
+ * modeling — and the first submission opens the run when the model is the one
+ * that started it. `api_model_done` still refuses without a live run, so a stale
+ * activation cannot close a record that is already finished.
  *
  * `api_model_submit` is deliberately usable many times. A real site has hundreds
  * of endpoints, and a single document that big does not fit in one model answer;
@@ -28,6 +31,11 @@ export type ModelingSubmitOutcome =
 export interface ModelingPort {
 	/** The run in force for the calling session, if any. */
 	current(): { runId: string; target: string } | undefined;
+	/**
+	 * The run in force, opening one when there is none: the model may start
+	 * modeling from the conversation, and the first submission is what opens it.
+	 */
+	ensureRun(): { runId: string; target: string };
 	submit(input: ApiModelSubmitInput): ModelingSubmitOutcome;
 	/** The agent's own declaration that the document is complete. */
 	done(summary: string): void;
@@ -103,12 +111,12 @@ function failure(text: string, error: string): AgentToolResult<ModelingToolDetai
 }
 
 export function createApiModelTools(port: ModelingPort): ToolDefinition[] {
-	/** Both tools start here: without a live run there is nothing to write into. */
+	/** `api_model_done` starts here: without a live run there is nothing to close. */
 	const requireActive = (): { runId: string } | { error: string } => {
 		const run = port.current();
 		if (!run) {
 			return {
-				error: "当前会话没有进行中的业务建模。业务建模由操作员在输入框上方点「业务建模」启动。",
+				error: "当前会话没有进行中的业务建模。先调用 api_model_submit 开始一次，或由操作员在输入框上方点「业务建模」。",
 			};
 		}
 		return { runId: run.runId };
@@ -117,14 +125,15 @@ export function createApiModelTools(port: ModelingPort): ToolDefinition[] {
 	const submit = defineTool({
 		name: "api_model_submit",
 		label: "Submit API model",
-		// Registered on every console session, declared to the model only while a
-		// run is active: the model must not carry business modeling in its tool
-		// list while it does ordinary work.
-		defaultActive: false,
+		// Declared everywhere: the operator can start modeling by asking for it in
+		// the conversation, and the guard against doing it unasked is the wording of
+		// the description and the guidelines below, not the tool's absence.
+		defaultActive: true,
 		description:
-			"Store the OpenAPI 3.x document describing this target's business API, or one slice of it. Call it repeatedly: send a whole document with `openapi`, or send `paths` / `components` slices that merge into the draft by key — that is how a site with hundreds of endpoints is delivered without one oversized answer. `entities` records the business entities and their relations. The merged document is validated server-side (3.x, info.title, info.version, paths); when the call is refused nothing is stored and the answer lists exactly what to fix. Only usable while a modeling run is active.",
-		promptSnippet: "Submit (or extend) the OpenAPI document and business entities for the current modeling run",
+			"Only call this when the operator asked for business modeling — if the user does not need business modeling, do not call this tool. Stores the OpenAPI 3.x document describing this target's business API, or one slice of it. Call it repeatedly: send a whole document with `openapi`, or send `paths` / `components` slices that merge into the draft by key — that is how a site with hundreds of endpoints is delivered without one oversized answer. `entities` records the business entities and their relations. The merged document is validated server-side (3.x, info.title, info.version, paths); when the call is refused nothing is stored and the answer lists exactly what to fix. Calling it with no run in force starts one.",
+		promptSnippet: "Submit (or extend) the OpenAPI document and business entities of a modeling run",
 		promptGuidelines: [
+			"Call this only when the operator asked for business modeling (in the conversation or by pressing 业务建模); if the user does not need business modeling, do not call this tool",
 			"Submit the skeleton first (info plus an empty paths and the shared components/securitySchemes), then add endpoints in batches with the paths slice",
 			"Only submit endpoints and fields you actually verified against the target; mark anything inferred in its description instead of dropping the caveat",
 			"Do not invent endpoints, parameters or response fields to fill the document out — a smaller verified document is the deliverable",
@@ -133,8 +142,9 @@ export function createApiModelTools(port: ModelingPort): ToolDefinition[] {
 		],
 		parameters: submitSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<ModelingToolDetails>> {
-			const active = requireActive();
-			if ("error" in active) return failure(active.error, "no-modeling-run");
+			// No run in force means the operator asked for modeling in the
+			// conversation rather than pressing the button: this call opens the run.
+			const active = port.ensureRun();
 			const outcome = port.submit(params);
 			if (!outcome.ok) {
 				return failure(
@@ -169,11 +179,12 @@ export function createApiModelTools(port: ModelingPort): ToolDefinition[] {
 	const done = defineTool({
 		name: "api_model_done",
 		label: "Finish API modeling",
-		defaultActive: false,
+		defaultActive: true,
 		description:
-			"Declare the business model complete and end the run. The document must already be submitted. State the coverage: which modules were mapped, which were not, and what is only inferred. After this call the two modeling tools are removed from the session.",
+			"Only call this when the operator asked for business modeling — if the user does not need business modeling, do not call this tool. Declares the business model complete and ends the run. The document must already be submitted. State the coverage: which modules were mapped, which were not, and what is only inferred.",
 		promptSnippet: "Declare the business-modeling run complete, with its coverage",
 		promptGuidelines: [
+			"Call this only when the operator asked for business modeling, and only to close a run you actually started or continued; if the user does not need business modeling, do not call this tool",
 			"Call api_model_submit with the final document before api_model_done; a run that ends without a submission has produced nothing",
 			"State the coverage honestly in the summary: modules mapped, modules left out, and what remains inferred",
 		],
@@ -188,7 +199,7 @@ export function createApiModelTools(port: ModelingPort): ToolDefinition[] {
 				content: [
 					{
 						type: "text",
-						text: `业务建模已结束，记录已归档。两个建模工具已从本会话摘除，可以继续原来的工作。\n结论：${summary}`,
+						text: `业务建模已结束，记录已归档，可以继续原来的工作。\n结论：${summary}`,
 					},
 				],
 				details: { ok: true, runId: active.runId },

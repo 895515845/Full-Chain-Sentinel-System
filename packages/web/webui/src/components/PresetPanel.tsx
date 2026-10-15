@@ -28,10 +28,11 @@ interface Draft {
 	name: string;
 	description: string;
 	tags: string;
+	placeholder: string;
 	text: string;
 }
 
-const EMPTY_DRAFT: Draft = { name: "", description: "", tags: "", text: "" };
+const EMPTY_DRAFT: Draft = { name: "", description: "", tags: "", placeholder: "", text: "" };
 
 function draftOf(preset: ZGPresetView): Draft {
 	return {
@@ -39,6 +40,7 @@ function draftOf(preset: ZGPresetView): Draft {
 		name: preset.name,
 		description: preset.description,
 		tags: preset.tags.join(", "),
+		placeholder: preset.placeholder,
 		text: preset.text,
 	};
 }
@@ -83,6 +85,7 @@ export function PresetPanel({
 				.split(/[,，]/)
 				.map((tag) => tag.trim())
 				.filter(Boolean),
+			placeholder: draft.placeholder.trim(),
 			text: draft.text,
 		});
 		setDraft(null);
@@ -101,7 +104,8 @@ export function PresetPanel({
 			<p className="settings-hint">
 				预设 Agent 是「一段追加到会话系统提示的文本」，只影响身份与背景知识：
 				它不改变可用的工具、技能或模型，也不能扩大权限——能不能做什么只由「权限」页决定。
-				这个库初始为空，所有预设都由你手动创建；新建会话时可选一个，已有会话在输入框上方的「预设 Agent」里随时可换，工程模式下由指挥官按任务自行挑选。
+				这个库初始为空，所有预设都由你手动创建；新建会话时可选一个，已有会话在输入框上方的「预设
+				Agent」里随时可换，工程模式下由指挥官按任务自行挑选。
 			</p>
 
 			{importNotice ? (
@@ -179,7 +183,9 @@ export function PresetPanel({
 								</span>
 								<span className="preset-description" title={preset.description}>
 									{preset.textMissing ? (
-										<span className="preset-missing-text">正文文件已丢失，该预设不可用，需重新编写正文并保存</span>
+										<span className="preset-missing-text">
+											正文文件已丢失，该预设不可用，需重新编写正文并保存
+										</span>
 									) : null}
 									{preset.textMissing && preset.description ? " · " : null}
 									{preset.description || (preset.textMissing ? null : "（未填写）")}
@@ -199,7 +205,10 @@ export function PresetPanel({
 									粗估 {preset.tokens} tokens
 								</span>
 								<span>
-									<label className="preset-toggle" title="停用后新建会话与工程派发都不再选它；已在运行的会话不受影响">
+									<label
+										className="preset-toggle"
+										title="停用后新建会话与工程派发都不再选它；已在运行的会话不受影响"
+									>
 										<input
 											type="checkbox"
 											checked={preset.enabled}
@@ -256,6 +265,15 @@ export function PresetPanel({
 								value={draft.tags}
 								onChange={(event) => setDraft({ ...draft, tags: event.target.value })}
 								placeholder="用逗号分隔，如：web, 内网, 免杀"
+								spellCheck={false}
+							/>
+						</label>
+						<label title="该预设生效时，输入框里的灰色提示文案；留空则用控制台默认的那句（可拖入文件 / 粘贴截图）">
+							输入框提示
+							<input
+								value={draft.placeholder}
+								onChange={(event) => setDraft({ ...draft, placeholder: event.target.value })}
+								placeholder="留空用默认文案，如：说说这次要看的目标"
 								spellCheck={false}
 							/>
 						</label>

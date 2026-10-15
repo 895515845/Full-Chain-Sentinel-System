@@ -1500,6 +1500,66 @@ button.ghost.small {
 	color: var(--dim);
 }
 
+/* Files uploaded to the project: one chip per file, with the progress of its own
+   transfer. Images keep the thumbnail form above. */
+.attachment-file {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 120px;
+	max-width: 220px;
+	padding: 6px 22px 6px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+.attachment-file.bad {
+	border-color: var(--danger);
+}
+
+.attachment-file__name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.attachment-file__meta {
+	color: var(--dim);
+}
+
+.attachment-file.bad .attachment-file__meta {
+	color: var(--danger);
+}
+
+.attachment-file__bar {
+	display: block;
+	height: 2px;
+	background: var(--border);
+	border-radius: 1px;
+	overflow: hidden;
+}
+
+.attachment-file__bar > span {
+	display: block;
+	height: 100%;
+	background: var(--accent);
+}
+
+.attachment-notice {
+	padding: 6px 12px 0;
+	font-size: 11px;
+	color: var(--danger);
+}
+
+/* A file dropped anywhere on the box is taken; this is the only feedback. */
+.composer-dragging {
+	border-color: var(--accent);
+	background: var(--accent-dim);
+}
+
 .message-images {
 	display: flex;
 	flex-wrap: wrap;
@@ -8675,12 +8735,6 @@ button.link {
 	font-size: 11px;
 }
 
-.droid-token.revoked .droid-token__name,
-.droid-token.revoked .droid-token__val {
-	color: var(--disabled);
-	text-decoration: line-through;
-}
-
 .droid-token__ops {
 	display: flex;
 	flex-direction: column;
@@ -8789,23 +8843,6 @@ button.link {
 	.droid-layout {
 		grid-template-columns: 1fr;
 	}
-}
-
-.droid-qr-wrap {
-	display: flex;
-	gap: 12px;
-	align-items: flex-start;
-}
-
-.droid-qr-wrap__meta {
-	flex: 1;
-	min-width: 0;
-}
-
-.droid-qr {
-	border: 1px solid var(--border);
-	border-radius: 6px;
-	background: #fff;
 }
 
 .droid-qr-overlay {

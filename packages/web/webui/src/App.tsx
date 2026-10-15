@@ -1686,6 +1686,7 @@ export function App() {
 									streaming={streaming}
 									stats={stats}
 									hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
+									projectId={snapshot?.project?.id ?? null}
 									blockedReason={
 										envReport && !envReport.ok
 											? `Docker 环境不可用：${

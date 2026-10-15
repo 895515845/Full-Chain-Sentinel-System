@@ -84,6 +84,13 @@ export function formatTokens(count: number): string {
 	return String(count);
 }
 
+/** Byte sizes, for the file panel and the composer's attachment chips. */
+export function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /** Whether a message is a summary that marks where the context was cut. */
 export function isSummaryMessage(message: AgentMessageView): boolean {
 	return message.role === "compactionSummary" || message.role === "branchSummary";

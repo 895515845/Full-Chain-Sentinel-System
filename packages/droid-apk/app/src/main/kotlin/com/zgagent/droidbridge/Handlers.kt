@@ -13,6 +13,9 @@ data class Request(
 	val path: String = "",
 	val maxBytes: Long = 0,
 	val b64: String = "",
+	val seq: Int = 0,
+	val done: Boolean = true,
+	val mode: String = "0700",
 	val lines: Int = 200,
 	val filter: String? = null,
 	val thirdPartyOnly: Boolean = true,
@@ -129,32 +132,179 @@ object Handlers {
 
 	fun captureStatus(): ExecResult = Shell.run("ls -l '$CAPTURE_PATH' 2>/dev/null || echo none", asRoot = true, timeoutMs = 5_000)
 
+	/** 一个文件字节来源：直读文件，或 root cat 的原始 stdout。 */
+	private class FileSource(val input: java.io.InputStream, val finish: (Long) -> String?, val close: () -> Unit)
+
 	/**
-	 * pull：读文件字节，交给调用方分片。超限拒绝（上限由服务端下发）。
-	 * 直接读不到（root 建的文件、其他应用的私有目录）就走 root cat。
+	 * pull：把文件按块读出来交给 sink，全程只留当前这一块。
+	 *
+	 * 这里必须流式：之前是先 `readBytes()` 把整个文件读进内存、再
+	 * `toList().chunked()` 切片，20MB 的文件要摊 20MB 源数组 + 2100 万个装箱引用
+	 * （约 80MB）+ 77 个分片数组，还没发出第一帧就把堆顶穿，进程被 OOM 杀掉，
+	 * 服务端只看到「设备连接已断开」。
+	 *
+	 * 直读拿不到（root 建的文件、其他应用的私有目录）时走 `su cat`，读的是
+	 * **原始字节流**——不能用 Shell.run：它把 stdout 当字符串收，跨 8KB 边界的
+	 * 多字节序列会被拆坏、非法 UTF-8 字节会被替换成 U+FFFD，二进制拉下来就是坏的。
 	 */
-	fun readFile(path: String, maxBytes: Long): ByteArray {
-		val file = File(path)
-		val direct = try {
-			if (file.exists() && file.length() > maxBytes) throw IllegalArgumentException("文件超过上限: ${file.length()} > $maxBytes")
-			file.readBytes()
-		} catch (_: Exception) {
-			null
+	fun streamFile(path: String, maxBytes: Long, sink: (chunk: ByteArray, length: Int, done: Boolean) -> Unit) {
+		val source = openSource(path, maxBytes)
+		// 双缓冲轮换：只有读到下一块才知道上一块是不是最后一块，所以手里要压着一块。
+		val buffers = arrayOf(ByteArray(CHUNK), ByteArray(CHUNK))
+		var pending: ByteArray? = null
+		var pendingLength = 0
+		var slot = 0
+		var total = 0L
+		try {
+			while (true) {
+				val current = buffers[slot]
+				val n = readChunk(source.input, current)
+				if (n < 0) break
+				total += n
+				if (total > maxBytes) throw IllegalArgumentException("文件超过上限: $total > $maxBytes")
+				val previous = pending
+				if (previous != null) sink(previous, pendingLength, false)
+				pending = current
+				pendingLength = n
+				slot = 1 - slot
+			}
+			source.finish(total)?.let { throw IllegalArgumentException(it) }
+			// 空文件也要发一片 done，服务端才有一个 seq=0 可收。
+			sink(pending ?: ByteArray(0), pendingLength, true)
+		} finally {
+			try {
+				source.close()
+			} catch (_: Exception) {
+			}
 		}
-		if (direct != null) return direct
-		val result = Shell.run("cat '$path'", asRoot = true, timeoutMs = 30_000)
-		if (result.code != 0) throw IllegalArgumentException("读取失败: ${result.stderr.ifEmpty { "文件不存在或无权限" }}")
-		val bytes = Base64.decode(Base64.encodeToString(result.stdout.toByteArray(), Base64.NO_WRAP), Base64.DEFAULT)
-		if (bytes.size > maxBytes) throw IllegalArgumentException("文件超过上限: ${bytes.size} > $maxBytes")
-		return bytes
 	}
 
-	/** push：把 base64 写到目标路径。 */
-	fun writeFile(path: String, b64: String): Long {
-		val bytes = Base64.decode(b64, Base64.DEFAULT)
+	private fun openSource(path: String, maxBytes: Long): FileSource {
 		val file = File(path)
-		file.parentFile?.mkdirs()
-		file.writeBytes(bytes)
-		return bytes.size.toLong()
+		if (file.isFile) {
+			// 直读前先看大小：超限就没必要先传 256MB 再报错。
+			if (file.length() > maxBytes) throw IllegalArgumentException("文件超过上限: ${file.length()} > $maxBytes")
+			try {
+				return FileSource(file.inputStream(), { null }, {})
+			} catch (_: Exception) {
+				// 读不到（root-only）：落到 su cat。
+			}
+		}
+		val proc = try {
+			ProcessBuilder(listOf("su", "-c", "cat '$path'")).start()
+		} catch (e: Exception) {
+			throw IllegalArgumentException("读取失败: ${e.message ?: "无法启动 su"}")
+		}
+		return FileSource(
+			proc.inputStream,
+			{ total ->
+				// 一个字节都没读到又非 0 退出：把 stderr 带回去当错误信息。
+				if (total > 0L) {
+					null
+				} else if (!proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) || proc.exitValue() != 0) {
+					val err = try {
+						proc.errorStream.readBytes().toString(Charsets.UTF_8).trim()
+					} catch (_: Exception) {
+						""
+					}
+					"读取失败: ${err.ifEmpty { "文件不存在或无权限" }}"
+				} else {
+					null
+				}
+			},
+			{ proc.destroyForcibly() },
+		)
+	}
+
+	/** 尽量填满缓冲区：管道一次只给 64KB，不填满会退化成几百个小分片。 */
+	private fun readChunk(input: java.io.InputStream, buffer: ByteArray): Int {
+		var filled = 0
+		while (filled < buffer.size) {
+			val n = input.read(buffer, filled, buffer.size - filled)
+			if (n < 0) break
+			filled += n
+		}
+		return if (filled == 0) -1 else filled
+	}
+
+	/**
+	 * 一条分片推送的落盘状态：先写应用私有缓存，done 时再搬到目标路径。
+	 *
+	 * 应用 uid 写不了 /data/local/tmp（那是 shell 的 0771 目录），搬位因此和
+	 * readFile 读不到就走 root cat 一样，必要时经 su。分片只留在磁盘上，
+	 * 内存里始终只有当前这一片。
+	 */
+	class PushTarget(val tmp: File, val out: java.io.OutputStream) {
+		var bytes = 0L
+		var nextSeq = 0
+	}
+
+	private val pushes = java.util.concurrent.ConcurrentHashMap<String, PushTarget>()
+
+	/** seq=0：开（截断）目标对应的缓存文件并写入第一片。 */
+	fun pushOpen(reqId: String, cacheDir: File, seq: Int, b64: String): Long {
+		if (seq != 0) throw IllegalStateException("推送分片乱序：期望 0，收到 $seq")
+		pushAbort(reqId)
+		val safe = reqId.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+		val tmp = File(cacheDir, "push-$safe.part")
+		pushes[reqId] = PushTarget(tmp, tmp.outputStream())
+		return pushAppend(reqId, seq, b64)
+	}
+
+	/** 追加一片，返回已写入的总字节数。乱序即失败，绝不写歪。 */
+	fun pushAppend(reqId: String, seq: Int, b64: String): Long {
+		val target = pushes[reqId] ?: throw IllegalStateException("推送分片丢失了打开状态")
+		if (seq != target.nextSeq) throw IllegalStateException("推送分片乱序：期望 ${target.nextSeq}，收到 $seq")
+		target.nextSeq += 1
+		val bytes = Base64.decode(b64, Base64.DEFAULT)
+		target.out.write(bytes)
+		target.bytes += bytes.size
+		return target.bytes
+	}
+
+	/** done：关流并把缓存文件搬到目标路径（应用能直接写就直接写，否则经 su）。 */
+	fun pushFinish(reqId: String, path: String, mode: String): Long {
+		val target = pushes.remove(reqId) ?: throw IllegalStateException("推送分片丢失了打开状态")
+		target.out.close()
+		val chmod = mode.ifEmpty { "0700" }
+		try {
+			val file = File(path)
+			val direct = try {
+				file.parentFile?.mkdirs()
+				target.tmp.copyTo(file, overwrite = true)
+				Shell.run("chmod $chmod '${path.replace("'", "")}'", asRoot = false, timeoutMs = 10_000)
+				true
+			} catch (_: Exception) {
+				false
+			}
+			if (!direct) {
+				val dir = path.substringBeforeLast('/', "")
+				val cmd = buildString {
+					if (dir.isNotEmpty()) append("mkdir -p '").append(dir).append("'; ")
+					append("cat '").append(target.tmp.absolutePath).append("' > '").append(path).append("'; ")
+					append("chmod ").append(chmod).append(" '").append(path).append("'; ")
+					append("ls -l '").append(path).append("'")
+				}
+				val result = Shell.run(cmd, asRoot = true, timeoutMs = 120_000)
+				if (result.code != 0) throw IllegalStateException(result.stderr.ifEmpty { "写入失败（退出码 ${result.code}）" })
+			}
+			return target.bytes
+		} finally {
+			target.tmp.delete()
+		}
+	}
+
+	/** 丢掉一条未完成的推送（失败、乱序、或服务停止）。 */
+	fun pushAbort(reqId: String) {
+		val target = pushes.remove(reqId) ?: return
+		try {
+			target.out.close()
+		} catch (_: Exception) {
+		}
+		target.tmp.delete()
+	}
+
+	fun abortAllPushes() {
+		for (reqId in pushes.keys.toList()) pushAbort(reqId)
 	}
 }

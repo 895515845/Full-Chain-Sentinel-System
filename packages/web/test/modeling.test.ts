@@ -1,12 +1,12 @@
 /**
  * Unit tests for business modeling: the two tools, the per-session state, the
- * loadout rule that keeps them out of ordinary work, and the two markers.
+ * loadout rule, and the two markers.
  *
- * The invariant these tests exist for: a session that is not modeling has no
- * trace of the feature. That is enforced in three places, and each is checked
- * here — the tools declare `defaultActive: false`, the loadout function removes
- * them when no run is in force, and both tools refuse without a live run even if
- * something activates them anyway.
+ * The invariant these tests exist for: the model always knows modeling exists,
+ * but never starts it on its own. That rests on two things, and each is checked
+ * here — both tools declare `defaultActive: true` and open their description and
+ * guidelines by saying not to call them unless the operator asked, and the first
+ * submission opens a run while `api_model_done` still refuses without one.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -48,6 +48,8 @@ interface CallResult {
 type CallableTool = {
 	name: string;
 	defaultActive?: boolean;
+	description?: string;
+	promptGuidelines?: string[];
 	execute: (toolCallId: string, params: never) => Promise<CallResult>;
 };
 
@@ -72,6 +74,22 @@ afterAll(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+/** The port's submit, backed by the real store, the way the runtime wires it. */
+function submitInto(store: ApiModelStore, runId: () => string): ModelingPort["submit"] {
+	return (input) => {
+		const result = store.submit(runId(), input);
+		const model = result.model;
+		if (!model) return { ok: false, errors: result.errors ?? ["提交失败。"] };
+		return {
+			ok: true,
+			pathCount: model.pathCount,
+			operationCount: model.operationCount,
+			entityCount: model.entities.length,
+			warnings: result.errors ?? [],
+		};
+	};
+}
+
 /**
  * A port backed by the real store, the way the runtime wires it: the store owns
  * the document and the counters, the port only translates.
@@ -88,18 +106,8 @@ function harness(): {
 	const done: string[] = [];
 	const port: ModelingPort = {
 		current: () => live,
-		submit: (input) => {
-			const result = store.submit(live.runId, input);
-			const model = result.model;
-			if (!model) return { ok: false, errors: result.errors ?? ["提交失败。"] };
-			return {
-				ok: true,
-				pathCount: model.pathCount,
-				operationCount: model.operationCount,
-				entityCount: model.entities.length,
-				warnings: result.errors ?? [],
-			};
-		},
+		ensureRun: () => live,
+		submit: submitInto(store, () => live.runId),
 		done: (summary) => {
 			done.push(summary);
 		},
@@ -107,38 +115,73 @@ function harness(): {
 	return { store, tools: createApiModelTools(port), run: live, done };
 }
 
-test("both tools stay out of the model's tool list until a run starts", () => {
+test("both tools are declared everywhere, and say when not to call them", () => {
 	const { tools } = harness();
 	for (const name of MODELING_TOOLS) {
-		expect(toolOf(tools, name).defaultActive).toBe(false);
+		const tool = toolOf(tools, name);
+		expect(tool.defaultActive).toBe(true);
+		// The guard is the wording, not the absence of the tool: the description and
+		// the first guideline both tell the model not to call it unasked.
+		expect(tool.description).toContain("if the user does not need business modeling, do not call this tool");
+		expect(tool.promptGuidelines?.[0]).toContain("do not call this tool");
 	}
 	expect(tools.map((tool) => tool.name)).toEqual([...MODELING_TOOLS]);
 });
 
-test("the loadout rule mounts and unmounts exactly the modeling tools", () => {
+test("the loadout rule always carries the two run tools and toggles the read tool", () => {
 	const base = ["read", "bash", "edit", "write", "session_title"];
-	expect(modelingToolLoadout(base, false, false)).toEqual(base);
-	expect(modelingToolLoadout([...base, ...MODELING_TOOLS], false, false)).toEqual(base);
-	expect(modelingToolLoadout(base, true, false)).toEqual([...base, ...MODELING_TOOLS]);
+	// Whatever the session state, the run tools are in the set: that is what lets
+	// the operator start modeling by asking for it in the conversation.
+	expect(modelingToolLoadout(base, false)).toEqual([...base, ...MODELING_TOOLS]);
+	expect(modelingToolLoadout(base, true)).toEqual([...base, ...MODELING_TOOLS, "api_model_read"]);
 	// A loadout that already carries them is not duplicated, and the rest keeps its order.
-	expect(modelingToolLoadout([...base, ...MODELING_TOOLS], true, false)).toEqual([...base, ...MODELING_TOOLS]);
-	expect(modelingToolLoadout(["api_model_done", "read", "api_model_submit"], false, false)).toEqual(["read"]);
-});
-
-test("an attached session mounts only the read tool, and unchecking removes it", () => {
-	const base = ["read", "bash", "session_title"];
-	expect(modelingToolLoadout(base, false, true)).toEqual([...base, "api_model_read"]);
-	// Attached and modeling at once: all three tools.
-	expect(modelingToolLoadout(base, true, true)).toEqual([...base, ...MODELING_TOOLS, "api_model_read"]);
+	expect(modelingToolLoadout([...base, ...MODELING_TOOLS], false)).toEqual([...base, ...MODELING_TOOLS]);
+	// A loadout restored from an older transcript (which declared them off) gets them back.
+	expect(modelingToolLoadout(["read"], false)).toEqual(["read", ...MODELING_TOOLS]);
 	// A stale loadout from an older transcript cannot keep the read tool alive.
-	expect(modelingToolLoadout([...base, "api_model_read"], false, false)).toEqual(base);
+	expect(modelingToolLoadout([...base, "api_model_read"], false)).toEqual([...base, ...MODELING_TOOLS]);
 });
 
-test("both tools refuse without a live run", async () => {
-	const { tools, store } = harness();
-	// A port with no run: the state entry was cleared while the tools were still mounted.
+test("a submission with no run opens one, and the record shows it", async () => {
+	const store = new ApiModelStore(join(dir, `modeling-open-${counter++}.db`));
+	let live: { runId: string; target: string } | undefined;
+	const port: ModelingPort = {
+		current: () => live,
+		ensureRun: () => {
+			if (live) return live;
+			const record = store.beginRun({ projectId: "p1", sessionId: "s1", sessionPath: null, title: "商城" });
+			live = { runId: record.id, target: "" };
+			return live;
+		},
+		submit: submitInto(store, () => {
+			if (!live) throw new Error("submit ran before ensureRun opened the run");
+			return live.runId;
+		}),
+		done: () => {
+			throw new Error("done must not be reached");
+		},
+	};
+	const tools = createApiModelTools(port);
+	const result = await toolOf(tools, "api_model_submit").execute("call-1", {
+		paths: { "/a": { get: {} } },
+		target: "https://shop.example.com",
+	} as never);
+	expect(result.isError).toBeFalsy();
+	expect(textOf(result)).toContain("路径 1 个");
+	const records = store.list({ projectId: "p1" });
+	expect(records).toHaveLength(1);
+	expect(records[0].status).toBe("modeling");
+	expect(records[0].submissions).toBe(1);
+	expect(records[0].target).toBe("https://shop.example.com");
+});
+
+test("api_model_done refuses without a live run", async () => {
+	const store = new ApiModelStore(join(dir, `modeling-orphan-${counter++}.db`));
 	const port: ModelingPort = {
 		current: () => undefined,
+		ensureRun: () => {
+			throw new Error("ensureRun must not be reached by done");
+		},
 		submit: () => {
 			throw new Error("submit must not be reached");
 		},
@@ -147,17 +190,11 @@ test("both tools refuse without a live run", async () => {
 		},
 	};
 	const orphaned = createApiModelTools(port);
-	const submit = await toolOf(orphaned, "api_model_submit").execute("call-1", {
-		paths: { "/a": { get: {} } },
-	} as never);
 	const done = await toolOf(orphaned, "api_model_done").execute("call-2", { summary: "完成" } as never);
-	expect(submit.isError).toBe(true);
 	expect(done.isError).toBe(true);
-	expect(textOf(submit)).toContain("没有进行中的业务建模");
 	expect(textOf(done)).toContain("没有进行中的业务建模");
-	// Nothing was written by the refused calls.
-	expect(store.list({ projectId: "p1" })[0].submissions).toBe(0);
-	expect(tools.length).toBe(2);
+	expect(store.list({ projectId: "p1" })).toEqual([]);
+	expect(orphaned.length).toBe(2);
 });
 
 test("a whole document submitted through the tool is stored and counted", async () => {

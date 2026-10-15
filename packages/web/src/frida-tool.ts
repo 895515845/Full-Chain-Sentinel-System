@@ -95,11 +95,11 @@ export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
 						`  curl -L -o /work/frida-server "https://gh-proxy.com/https://github.com/frida/frida/releases/download/<版本>/frida-server-<版本>-android-arm64"`,
 				);
 			}
-			const push = await gateway.request(
-				picked.id,
-				{ t: "push", path: DEVICE_FRIDA, b64: readFileSync(hostPath).toString("base64") },
-				{ timeoutMs: 120_000 },
-			);
+			// 59MB 走分片：整份 base64 塞进一帧会把手机上的 APP 撑到 OOM（见 pushFile）。
+			const push = await gateway.pushFile(picked.id, DEVICE_FRIDA, readFileSync(hostPath), {
+				mode: "0755",
+				timeoutMs: 120_000,
+			});
 			if (!push.ok) return failure(`推送失败：${push.error ?? "未知错误"}`);
 			const start = await gateway.request(picked.id, {
 				t: "exec",

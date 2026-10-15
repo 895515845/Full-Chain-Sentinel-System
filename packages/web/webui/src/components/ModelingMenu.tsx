@@ -79,7 +79,7 @@ export function ModelingMenu(props: {
 							className="preset-menu-item"
 							disabled={!props.canToggleRun}
 							title={
-								props.canToggleRun ? "结束这次建模，摘除两个建模工具" : "Agent 正在运行，先中止或等本轮结束"
+								props.canToggleRun ? "结束这次建模，Agent 回到普通工作" : "Agent 正在运行，先中止或等本轮结束"
 							}
 							onClick={() => {
 								props.onEnd();
@@ -107,7 +107,7 @@ export function ModelingMenu(props: {
 							}}
 						>
 							<span className="preset-menu-name">开始建模</span>
-							<span className="preset-menu-desc">只在建模期间给 Agent 两个建模工具，结束即摘除</span>
+							<span className="preset-menu-desc">在本会话里还原接口与业务实体；在对话里直接要求也可以</span>
 						</button>
 					)}
 					<button

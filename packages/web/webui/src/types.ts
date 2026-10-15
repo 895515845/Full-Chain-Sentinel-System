@@ -617,7 +617,6 @@ export interface DroidToken {
 	label: string;
 	token: string;
 	createdAt: string;
-	revokedAt: string | null;
 	lastUsedAt: string | null;
 }
 
@@ -935,7 +934,15 @@ export type ZGClientMessage =
 	 */
 	| {
 			type: "save_preset";
-			input: { id?: string; name: string; description?: string; tags?: string[]; text: string; enabled?: boolean };
+			input: {
+				id?: string;
+				name: string;
+				description?: string;
+				tags?: string[];
+				placeholder?: string;
+				text: string;
+				enabled?: boolean;
+			};
 	  }
 	| { type: "delete_preset"; id: string }
 	| { type: "set_preset_enabled"; id: string; enabled: boolean }
@@ -957,7 +964,7 @@ export type ZGClientMessage =
 	/** The Android device page: pull the full gateway state. */
 	| { type: "droid_state" }
 	| { type: "droid_token_create"; label: string }
-	| { type: "droid_token_revoke"; id: string }
+	| { type: "droid_token_delete"; id: string }
 	| { type: "droid_device_rename"; id: string; name: string }
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
@@ -1228,6 +1235,8 @@ export interface ZGPreset {
 	name: string;
 	description: string;
 	tags: string[];
+	/** The composer's idle hint while this preset is in force; empty means the default text. */
+	placeholder: string;
 	enabled: boolean;
 	createdAt: number;
 	updatedAt: number;
@@ -1252,6 +1261,8 @@ export interface ZGSessionPresetView {
 	name: string;
 	/** The preset is gone or its body file is missing: the session runs the default agent. */
 	missing: boolean;
+	/** The preset's composer hint; empty when it has none, or when the preset is gone. */
+	placeholder: string;
 }
 
 export interface ZGEngineCreateInput {

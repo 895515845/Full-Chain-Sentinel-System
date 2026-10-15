@@ -7,7 +7,7 @@
  * ask it to send a request frame and await the device's result, which keeps the
  * tools free of any WebSocket plumbing.
  *
- * A device must say `hello` with a valid, non-revoked token before anything
+ * A device must say `hello` with a valid, not-deleted token before anything
  * else; frames arriving before the handshake, or a second connection for the
  * same deviceId, are dropped (the newest connection wins for the hello case,
  * because a phone that lost its network half-closes the old socket first).
@@ -23,10 +23,36 @@ import type { DroidDevice, DroidHello, DroidStore } from "./droid.ts";
 import {
 	DROID_MAX_FRAME_BYTES,
 	DROID_MAX_STREAM_BYTES,
+	DROID_PUSH_CHUNK_BYTES,
 	type DroidDeviceFrame,
 	type DroidRequestInput,
 	type DroidResult,
 } from "./droid-protocol.ts";
+
+/**
+ * A device that stops sending anything is almost never a closed socket: Android
+ * (and emulators) can SIGSTOP the whole app process, which leaves the TCP
+ * connection ESTABLISHED while no thread runs — heartbeats stop, requests are
+ * never answered, and the gateway would keep reporting 在线 while every call
+ * waits out its own timeout. Heartbeats are 15s, so three missed ones mean the
+ * app stopped running: the sweep fails that device's calls immediately and marks
+ * it unresponsive, and the first frame back clears the flag (an unfrozen process
+ * resumes on the very same socket).
+ */
+const DROID_STALE_MS = 45_000;
+const DROID_WATCHDOG_TICK_MS = 5_000;
+
+function unresponsiveMessage(idleMs: number): string {
+	const seconds = Math.round(idleMs / 1000);
+	return `设备无响应：已 ${seconds}s 未收到心跳（DroidBridge 进程可能被系统或模拟器冻结：socket 还在，但 app 不再执行任何代码）。请在设备上唤醒或重开 DroidBridge，等心跳恢复后重试`;
+}
+
+export interface DroidGatewayOptions {
+	/** Silence longer than this marks a device unresponsive (default 45s). */
+	staleMs?: number;
+	/** Liveness sweep interval (default 5s). */
+	watchdogTickMs?: number;
+}
 
 export interface DroidGatewayHooks {
 	/** A device came online, went offline, or changed; consoles refresh the page. */
@@ -42,6 +68,10 @@ interface DeviceConnection {
 	streams: Map<string, { chunks: Buffer[]; bytes: number; nextSeq: number }>;
 	/** tcp connId → the device-side socket is remote; the server side lives in `tunnels`. */
 	tcp: Map<string, TcpSocket>;
+	/** When the last frame of any kind arrived (heartbeats included). */
+	lastFrameAt: number;
+	/** Set by the liveness sweep; cleared by the first frame after a freeze. */
+	stale: boolean;
 }
 
 /** One server-side TCP listener bridged into a device port. */
@@ -73,14 +103,20 @@ export class DroidGateway {
 	private readonly tunnels = new Map<string, TcpTunnel>();
 	/** The dedicated reverse-connection listener (independent of the console port). */
 	private listener: { server: HttpServer; host: string; port: number } | undefined;
+	/** Liveness sweep, alive only while at least one device is connected. */
+	private watchdog: ReturnType<typeof setInterval> | undefined;
 	private counter = 0;
 
 	private readonly store: DroidStore;
 	private readonly hooks: DroidGatewayHooks;
+	private readonly staleMs: number;
+	private readonly watchdogTickMs: number;
 
-	constructor(store: DroidStore, hooks: DroidGatewayHooks) {
+	constructor(store: DroidStore, hooks: DroidGatewayHooks, options: DroidGatewayOptions = {}) {
 		this.store = store;
 		this.hooks = hooks;
+		this.staleMs = options.staleMs ?? DROID_STALE_MS;
+		this.watchdogTickMs = options.watchdogTickMs ?? DROID_WATCHDOG_TICK_MS;
 	}
 
 	/** HTTP upgrade dispatch: only this path, only a valid token. */
@@ -92,7 +128,7 @@ export class DroidGateway {
 		if (!record) {
 			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
 			socket.destroy();
-			this.hooks.log("设备反连被拒绝：token 无效或已吊销");
+			this.hooks.log("设备反连被拒绝：token 无效或已删除");
 			return true;
 		}
 		this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, record.id));
@@ -110,6 +146,8 @@ export class DroidGateway {
 			} catch {
 				return;
 			}
+			// Any frame — heartbeat, result, data chunk — proves the app is running.
+			if (device) this.markAlive(device.id, ws);
 			if (!helloed) {
 				if (frame.t !== "hello") {
 					ws.close(4001, "handshake required");
@@ -133,7 +171,15 @@ export class DroidGateway {
 					},
 					tokenId,
 				);
-				this.connections.set(hello.deviceId, { ws, device, streams: new Map(), tcp: new Map() });
+				this.connections.set(hello.deviceId, {
+					ws,
+					device,
+					streams: new Map(),
+					tcp: new Map(),
+					lastFrameAt: Date.now(),
+					stale: false,
+				});
+				this.ensureWatchdog();
 				helloed = true;
 				ws.send(JSON.stringify({ t: "welcome", deviceId: hello.deviceId }));
 				this.hooks.log(
@@ -222,6 +268,7 @@ export class DroidGateway {
 			const current = this.connections.get(device.id);
 			if (current && current.ws !== ws) return;
 			this.connections.delete(device.id);
+			this.stopWatchdogIfIdle();
 			this.store.setDeviceOnline(device.id, false);
 			for (const [tunnelId, tunnel] of [...this.tunnels.entries()]) {
 				if (tunnel.deviceId !== device.id) continue;
@@ -234,6 +281,68 @@ export class DroidGateway {
 			this.hooks.onDeviceChange();
 		});
 		ws.on("error", () => ws.close());
+	}
+
+	/** Start the liveness sweep once there is something to watch. */
+	private ensureWatchdog(): void {
+		if (this.watchdog) return;
+		this.watchdog = setInterval(() => this.sweepLiveness(), this.watchdogTickMs);
+		// A device may never come back: never hold the process open for it.
+		this.watchdog.unref?.();
+	}
+
+	private stopWatchdogIfIdle(): void {
+		if (!this.watchdog || this.connections.size > 0) return;
+		clearInterval(this.watchdog);
+		this.watchdog = undefined;
+	}
+
+	/**
+	 * Fail a device's calls as soon as it stops answering, instead of letting each
+	 * one wait out its own timeout: a frozen app never sends a result, so the
+	 * caller otherwise learns nothing for a minute per attempt.
+	 */
+	private sweepLiveness(): void {
+		const now = Date.now();
+		for (const [deviceId, conn] of this.connections) {
+			if (conn.stale || now - conn.lastFrameAt <= this.staleMs) continue;
+			conn.stale = true;
+			const idleMs = now - conn.lastFrameAt;
+			this.hooks.log(
+				`设备无响应：${conn.device.name}（已 ${Math.round(idleMs / 1000)}s 未收到心跳，进程可能被冻结或已停止响应）`,
+			);
+			this.failPendingOf(deviceId, unresponsiveMessage(idleMs));
+			this.hooks.onDeviceChange();
+		}
+	}
+
+	/** The first frame after a freeze means the app is executing again. */
+	private markAlive(deviceId: string, ws: WebSocket): void {
+		const conn = this.connections.get(deviceId);
+		// A replaced socket must not refresh its successor's liveness.
+		if (!conn || conn.ws !== ws) return;
+		conn.lastFrameAt = Date.now();
+		if (!conn.stale) return;
+		conn.stale = false;
+		this.hooks.log(`设备恢复响应：${conn.device.name}`);
+		this.hooks.onDeviceChange();
+	}
+
+	/** Staleness at this instant: the sweep lags by up to one tick, callers must not. */
+	private isStale(conn: DeviceConnection, now = Date.now()): boolean {
+		return conn.stale || now - conn.lastFrameAt > this.staleMs;
+	}
+
+	/** What a call gets when the device is connected but has stopped answering. */
+	private staleFailure(conn: DeviceConnection): { ok: false; error: string } {
+		return { ok: false, error: unresponsiveMessage(Date.now() - conn.lastFrameAt) };
+	}
+
+	/** Runtime liveness of one device, for the console's device list. */
+	livenessOf(deviceId: string): { stale: boolean; idleMs: number } | undefined {
+		const conn = this.connections.get(deviceId);
+		if (!conn) return undefined;
+		return { stale: this.isStale(conn), idleMs: Date.now() - conn.lastFrameAt };
 	}
 
 	/** Assemble one streamed payload; a broken sequence or oversized stream fails the request. */
@@ -259,8 +368,11 @@ export class DroidGateway {
 			conn.streams.delete(reqId);
 			return;
 		}
-		stream.chunks.push(chunk);
-		pending.onData?.(chunk);
+		// A consumer that writes as it goes must not also leave a copy here: that is
+		// what makes a streamed pull actually stream (a 256MB file would otherwise
+		// sit in the gateway heap until the result frame).
+		if (pending.onData) pending.onData(chunk);
+		else stream.chunks.push(chunk);
 		// `done` stays with the frame so the device can mark its own end; the
 		// assembled stream is consumed (and freed) by takeStream at the result.
 		void done;
@@ -292,11 +404,17 @@ export class DroidGateway {
 		}
 	}
 
+	/** Connected devices, annotated with whether the app still answers. */
 	onlineDevices(): DroidDevice[] {
+		const now = Date.now();
 		return [...this.connections.values()]
-			.map((conn) => conn.device)
-			.map((device) => this.store.getDevice(device.id))
-			.filter((device): device is DroidDevice => device !== undefined);
+			.map((conn) => ({ conn, device: this.store.getDevice(conn.device.id) }))
+			.filter((entry): entry is { conn: DeviceConnection; device: DroidDevice } => entry.device !== undefined)
+			.map(({ conn, device }) => ({
+				...device,
+				stale: this.isStale(conn, now),
+				idleMs: now - conn.lastFrameAt,
+			}));
 	}
 
 	onlineDeviceIds(): string[] {
@@ -307,9 +425,9 @@ export class DroidGateway {
 		return this.connections.has(deviceId);
 	}
 
-	/** Drop a device's connection (token revoked, device removed). */
+	/** Drop a device's connection (token deleted, device removed). */
 	disconnect(deviceId: string): void {
-		this.connections.get(deviceId)?.ws.close(4004, "revoked");
+		this.connections.get(deviceId)?.ws.close(4004, "deleted");
 	}
 
 	/**
@@ -334,7 +452,7 @@ export class DroidGateway {
 			if (!record) {
 				socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
 				socket.destroy();
-				this.hooks.log("设备反连被拒绝：token 无效或已吊销");
+				this.hooks.log("设备反连被拒绝：token 无效或已删除");
 				return;
 			}
 			this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, record.id));
@@ -391,6 +509,7 @@ export class DroidGateway {
 	): Promise<{ ok: boolean; port?: number; tunnelId?: string; error?: string }> {
 		const conn = this.connections.get(deviceId);
 		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
 		for (const [tunnelId, tunnel] of this.tunnels.entries()) {
 			if (tunnel.deviceId === deviceId && tunnel.targetHost === targetHost && tunnel.targetPort === targetPort) {
 				return Promise.resolve({ ok: true, port: tunnel.port, tunnelId });
@@ -477,7 +596,9 @@ export class DroidGateway {
 
 	/**
 	 * Send a request to a device and await its final result. Streamed payloads are
-	 * assembled into `bytes` when `onData` is absent, forwarded when present.
+	 * assembled into `bytes` when `onData` is absent; when it is present each chunk
+	 * goes straight to the consumer and `bytes` stays empty (that is the streaming
+	 * path — see `droid_file_pull`).
 	 */
 	request(
 		deviceId: string,
@@ -486,6 +607,7 @@ export class DroidGateway {
 	): Promise<DroidResult> {
 		const conn = this.connections.get(deviceId);
 		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
 		this.counter += 1;
 		const reqId = `d${Date.now().toString(36)}${this.counter.toString(36)}${randomUUID().slice(0, 8)}`;
 		// The wire frame is the request plus its assigned id.
@@ -499,13 +621,124 @@ export class DroidGateway {
 				resolve({ ok: false, error: `设备响应超时（${Math.round((options.timeoutMs ?? 30000) / 1000)}s）` });
 			}, options.timeoutMs ?? 30000);
 			this.pending.set(reqId, { resolve, timer, onData: options.onData });
-			conn.ws.send(JSON.stringify(frame), (error) => {
-				if (error) {
-					this.pending.delete(reqId);
-					this.pendingDevices.delete(reqId);
-					clearTimeout(timer);
-					resolve({ ok: false, error: `发送失败：${error.message}` });
+			this.sendFrame(conn, frame).catch((error: Error) => {
+				if (!this.pending.has(reqId)) return;
+				this.pending.delete(reqId);
+				this.pendingDevices.delete(reqId);
+				clearTimeout(timer);
+				resolve({ ok: false, error: `发送失败：${error.message}` });
+			});
+		});
+	}
+
+	/**
+	 * Write a file onto a device in `push` chunks. One request id spans every
+	 * chunk, so the device answers exactly once (the `done` chunk) and this
+	 * resolves like any other request.
+	 *
+	 * Chunks are sent one at a time, each awaited: the socket drains as the device
+	 * appends, instead of the whole file queueing in the gateway's send buffer.
+	 */
+	pushFile(
+		deviceId: string,
+		path: string,
+		bytes: Buffer,
+		options: { mode?: string; timeoutMs?: number } = {},
+	): Promise<DroidResult> {
+		const conn = this.connections.get(deviceId);
+		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
+		if (bytes.length > DROID_MAX_STREAM_BYTES) {
+			return Promise.resolve({
+				ok: false,
+				error: `文件 ${bytes.length} 字节超过上限 ${DROID_MAX_STREAM_BYTES}`,
+			});
+		}
+		this.counter += 1;
+		const reqId = `d${Date.now().toString(36)}${this.counter.toString(36)}${randomUUID().slice(0, 8)}`;
+		this.pendingDevices.set(reqId, deviceId);
+		// A slow link must not trip the timeout mid-transfer: the floor is a
+		// generous 100 KB/s, so only a genuinely stuck push gives up.
+		const timeoutMs = Math.max(options.timeoutMs ?? 30_000, 30_000 + Math.ceil(bytes.length / 100_000) * 1000);
+		return new Promise<DroidResult>((resolve) => {
+			const timer = setTimeout(() => {
+				this.pending.delete(reqId);
+				this.pendingDevices.delete(reqId);
+				conn.streams.delete(reqId);
+				resolve({ ok: false, error: `设备响应超时（${Math.round(timeoutMs / 1000)}s）` });
+			}, timeoutMs);
+			this.pending.set(reqId, { resolve, timer });
+			void this.sendPushChunks(conn, deviceId, reqId, path, bytes, options.mode);
+		});
+	}
+
+	/** Stream one file as `push` frames; the last one carries `done`. */
+	private async sendPushChunks(
+		conn: DeviceConnection,
+		deviceId: string,
+		reqId: string,
+		path: string,
+		bytes: Buffer,
+		mode: string | undefined,
+	): Promise<void> {
+		const total = Math.max(1, Math.ceil(bytes.length / DROID_PUSH_CHUNK_BYTES));
+		try {
+			for (let seq = 0; seq < total; seq += 1) {
+				// The push may have already failed (timeout, disconnect): stop sending.
+				if (!this.pending.has(reqId)) return;
+				if (this.connections.get(deviceId) !== conn) {
+					this.fail(reqId, "设备连接已断开");
+					return;
 				}
+				const chunk = bytes.subarray(seq * DROID_PUSH_CHUNK_BYTES, (seq + 1) * DROID_PUSH_CHUNK_BYTES);
+				await this.sendFrame(
+					conn,
+					{
+						t: "push",
+						reqId,
+						path,
+						seq,
+						done: seq === total - 1,
+						b64: chunk.toString("base64"),
+						...(mode ? { mode } : {}),
+					},
+					reqId,
+				);
+			}
+		} catch (error) {
+			this.fail(reqId, `发送失败：${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/**
+	 * The one place an outgoing frame leaves the gateway, so no caller can put a
+	 * bulk payload in a single message and take the phone down with it.
+	 *
+	 * `reqId` is for streaming callers: the send callback only fires once the
+	 * socket drains, so a request that already failed (timeout, disconnect) would
+	 * otherwise keep the chunk loop — and the whole payload it references —
+	 * waiting on a socket that stopped draining. The watcher lets go instead.
+	 */
+	private sendFrame(conn: DeviceConnection, frame: Record<string, unknown>, reqId?: string): Promise<void> {
+		const text = JSON.stringify(frame);
+		const size = Buffer.byteLength(text);
+		if (size > DROID_MAX_FRAME_BYTES) {
+			return Promise.reject(
+				new Error(`单帧 ${size} 字节超过 ${DROID_MAX_FRAME_BYTES} 上限，请分片发送（DROID_PUSH_CHUNK_BYTES）`),
+			);
+		}
+		return new Promise((resolve, reject) => {
+			const watch = reqId
+				? setInterval(() => {
+						if (this.pending.has(reqId)) return;
+						clearInterval(watch);
+						resolve();
+					}, 500)
+				: undefined;
+			conn.ws.send(text, (error) => {
+				if (watch) clearInterval(watch);
+				if (error) reject(error);
+				else resolve();
 			});
 		});
 	}

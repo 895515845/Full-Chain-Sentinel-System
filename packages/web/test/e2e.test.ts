@@ -181,6 +181,9 @@ const PRESET_DESCRIPTION = "先指纹后目录后参数";
 const PRESET_TAGS = ["web", "外网"];
 const PRESET_BODY_MARKER = "PRESET_ADDENDUM_MARKER_ALPHA";
 const PRESET_EDITED_MARKER = "PRESET_ADDENDUM_MARKER_BETA";
+/** The composer hint the preset brings, and the one an edit replaces it with. */
+const PRESET_PLACEHOLDER = "说说这次要看的目标";
+const PRESET_PLACEHOLDER_EDITED = "这次先看目录，再说参数";
 const PRESET_SESSION_PROMPT = "preset session turn";
 const PRESET_SESSION_DONE = "PRESET_SESSION_DONE";
 const PRESET_SESSION_SECOND_PROMPT = "preset session second turn";
@@ -2612,6 +2615,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 			name: PRESET_NAME,
 			description: PRESET_DESCRIPTION,
 			tags: PRESET_TAGS,
+			placeholder: PRESET_PLACEHOLDER,
 			text: `你是 Web 侦察专家：先指纹，再目录，最后参数。\n${PRESET_BODY_MARKER}`,
 		},
 	});
@@ -2625,6 +2629,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 	expect(saved.preset?.name).toBe(PRESET_NAME);
 	expect(saved.preset?.description).toBe(PRESET_DESCRIPTION);
 	expect(saved.preset?.tags).toEqual(PRESET_TAGS);
+	expect(saved.preset?.placeholder).toBe(PRESET_PLACEHOLDER);
 	expect(saved.preset?.enabled).toBe(true);
 	expect(saved.preset?.tokens).toBeGreaterThan(0);
 
@@ -2644,6 +2649,9 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 	expect(sessionId).not.toBeNull();
 	expect(opened.preset?.name).toBe(PRESET_NAME);
 	expect(opened.preset?.missing).toBe(false);
+	// The composer's grey line comes from the session's preset, so the snapshot has
+	// to carry the hint the operator wrote, not only the name.
+	expect(opened.preset?.placeholder).toBe(PRESET_PLACEHOLDER);
 
 	// One turn, so pi writes the system prompt. The preset text must be in the
 	// console's view of it AND in the request the model actually received.
@@ -2670,6 +2678,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 		(snapshot) => snapshot.activeSessionId === sessionId && snapshot.preset?.id === presetId,
 	);
 	expect(rebuilt.preset?.name).toBe(PRESET_NAME);
+	expect(rebuilt.preset?.placeholder).toBe(PRESET_PLACEHOLDER);
 	expect(addendumOf(rebuilt)).toContain(PRESET_BODY_MARKER);
 
 	// Editing the body changes what the next build injects: the text is read from
@@ -2683,12 +2692,22 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 			name: PRESET_NAME,
 			description: PRESET_DESCRIPTION,
 			tags: PRESET_TAGS,
+			placeholder: PRESET_PLACEHOLDER_EDITED,
 			text: `你是 Web 侦察专家：先指纹，再目录，最后参数。\n${PRESET_EDITED_MARKER}`,
 		},
 	});
 	await waitForFirst((message) => message.type === "preset_saved");
+	// A save pushes a fresh snapshot, so an open chat page gets the new hint without
+	// waiting for the next rebuild.
+	await snapshotWhereFirst(
+		(snapshot) =>
+			snapshot.activeSessionId === sessionId && snapshot.preset?.placeholder === PRESET_PLACEHOLDER_EDITED,
+	);
 	await rebuildSessions();
-	await snapshotWhereFirst((snapshot) => snapshot.activeSessionId === sessionId && snapshot.preset?.id === presetId);
+	const afterEdit = await snapshotWhereFirst(
+		(snapshot) => snapshot.activeSessionId === sessionId && snapshot.preset?.id === presetId,
+	);
+	expect(afterEdit.preset?.placeholder).toBe(PRESET_PLACEHOLDER_EDITED);
 
 	drainIncoming();
 	send({ type: "prompt", text: PRESET_SESSION_SECOND_PROMPT });
@@ -2731,6 +2750,8 @@ test("deleting a preset returns its sessions to the default agent and says so", 
 	const rebuilt = await snapshotWhereFirst((snapshot) => snapshot.preset?.id === presetId);
 	expect(rebuilt.preset?.missing).toBe(true);
 	expect(rebuilt.preset?.name).toBe(presetId);
+	// The hint belongs to the preset, so the composer falls back to its default line.
+	expect(rebuilt.preset?.placeholder).toBe("");
 
 	// Naming it in a new session is refused outright; silently starting the default
 	// agent would look like the preset had been applied.

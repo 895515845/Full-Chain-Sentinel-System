@@ -3,4 +3,6 @@
 	<string name="app_name">DroidBridge</string>
 	<string name="notif_channel">反连通道</string>
 	<string name="notif_title">DroidBridge 反连运行中</string>
+	<string name="guard_channel">反连守护</string>
+	<string name="guard_title">DroidBridge 守护进程</string>
 </resources>

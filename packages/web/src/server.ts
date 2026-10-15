@@ -63,6 +63,7 @@ interface AcquiredTaskSession {
 }
 
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
+import { storeUpload } from "./upload.ts";
 import { ZGAgentRuntime } from "./zg-session.ts";
 
 const MIME_TYPES: Record<string, string> = {
@@ -533,6 +534,21 @@ export async function startZGServer(
 		sendJson(response, { ok: true });
 	}
 
+	/**
+	 * One chat attachment: the raw request body is the file, `name` says what to
+	 * call it. It is streamed into the project's uploads directory (see upload.ts)
+	 * and the answer carries the absolute path the message will hand the model.
+	 */
+	async function handleUpload(request: IncomingMessage, response: ServerResponse, workDir: string): Promise<void> {
+		const name = new URL(request.url ?? "/", "http://localhost").searchParams.get("name") ?? "";
+		const stored = await storeUpload(workDir, name, request);
+		if (!stored.ok) {
+			sendJson(response, { error: stored.error }, stored.status);
+			return;
+		}
+		sendJson(response, { ok: true, name: stored.name, path: stored.path, size: stored.size });
+	}
+
 	// The device gateway owns the reverse WS the DroidBridge APK dials. The store
 	// is the runtime's (its tools read the registry); the hooks route lifecycle
 	// events into the console broadcasts and the server log.
@@ -588,6 +604,18 @@ export async function startZGServer(
 					return;
 				}
 				void handleChangePassword(request, response, auth);
+				return;
+			}
+			// One chat attachment: the raw body is the file, `name` is what to call
+			// it. It lands in the active project's work dir, which is the directory
+			// the agent reads in a container session and in a host session alike.
+			if (path === "/api/upload" && request.method === "POST") {
+				const active = runtime.snapshot();
+				if (!active.project) {
+					sendJson(response, { error: "请先创建或选择一个项目，再上传附件" }, 409);
+					return;
+				}
+				void handleUpload(request, response, active.cwd);
 				return;
 			}
 		} else if (path.startsWith("/api/")) {
@@ -1319,9 +1347,9 @@ export async function startZGServer(
 					await runtime.droidCreateToken(message.label);
 					return;
 				}
-				case "droid_token_revoke": {
+				case "droid_token_delete": {
 					try {
-						await runtime.droidRevokeToken(message.id);
+						await runtime.droidDeleteToken(message.id);
 					} catch (error) {
 						sendError(socket, error instanceof Error ? error.message : String(error));
 					}
@@ -1581,6 +1609,10 @@ export async function startZGServer(
 						preset: result.preset ? presetView(agentDir, result.preset.id) : null,
 						...(result.error ? { error: result.error } : {}),
 					});
+					// The snapshot carries the active session's preset view — its name and
+					// the composer hint — so an edit has to reach an open chat page too,
+					// not just the settings page that made it.
+					if (result.preset) broadcastSnapshot();
 					return;
 				}
 				case "delete_preset": {
@@ -1592,6 +1624,7 @@ export async function startZGServer(
 						ok: result.ok,
 						...(result.error ? { error: result.error } : {}),
 					});
+					if (result.ok) broadcastSnapshot();
 					return;
 				}
 				case "set_preset_enabled": {
@@ -1605,6 +1638,7 @@ export async function startZGServer(
 						preset: result.preset ? presetView(agentDir, result.preset.id) : null,
 						...(result.error ? { error: result.error } : {}),
 					});
+					if (result.preset) broadcastSnapshot();
 					return;
 				}
 				case "export_presets": {

@@ -8,8 +8,9 @@
  *
  * A device is identified by a deviceId the APK generates on first start and
  * keeps in its private storage; it authenticates with a token the operator
- * created in the console. Tokens are per device class, revocable, and stored in
- * plain text next to the model keys (0600 on the directory is what protects
+ * created in the console. Tokens are per device class, deletable (the page's
+ * 删除 removes the row, so the secret can never authenticate again), and stored
+ * in plain text next to the model keys (0600 on the directory is what protects
  * them, the same trade-off the model library makes).
  */
 
@@ -34,6 +35,16 @@ export interface DroidDevice {
 	tokenId: string;
 	firstSeen: string;
 	lastSeen: string;
+	/**
+	 * Runtime-only, never persisted: the socket is still open but the device
+	 * stopped sending anything. Android (or an emulator) can SIGSTOP the whole app
+	 * process, and the kernel keeps the connection ESTABLISHED — so "online" alone
+	 * lies for as long as the freeze lasts. The gateway sets this once the last
+	 * frame is older than its liveness window.
+	 */
+	stale?: boolean;
+	/** Runtime-only: milliseconds since the device's last frame (0 when fresh). */
+	idleMs?: number;
 }
 
 export interface DroidToken {
@@ -41,7 +52,6 @@ export interface DroidToken {
 	label: string;
 	token: string;
 	createdAt: string;
-	revokedAt: string | null;
 	lastUsedAt: string | null;
 }
 
@@ -60,6 +70,9 @@ CREATE TABLE IF NOT EXISTS droid_tokens (
   label TEXT NOT NULL,
   token TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  -- Legacy: deleting a token used to only set this column. Nothing writes it
+  -- any more, and rows that still carry a value are dropped when the store
+  -- opens; the column stays so those databases can still be read.
   revoked_at TEXT,
   last_used_at TEXT
 );
@@ -100,7 +113,6 @@ interface TokenRow {
 	label: string;
 	token: string;
 	created_at: string;
-	revoked_at: string | null;
 	last_used_at: string | null;
 }
 
@@ -129,7 +141,6 @@ function toToken(row: TokenRow): DroidToken {
 		label: row.label,
 		token: row.token,
 		createdAt: row.created_at,
-		revokedAt: row.revoked_at,
 		lastUsedAt: row.last_used_at,
 	};
 }
@@ -140,6 +151,11 @@ export class DroidStore {
 	constructor(path: string) {
 		this.db = openSqliteDatabase(path);
 		this.db.exec(SCHEMA);
+		// One-time migration. A token used to be "revoked" by stamping
+		// `revoked_at`, and the page offered no action on a row in that state, so
+		// such a row was stuck in the list forever. Deleting is the only meaning
+		// the operator has now, so the leftovers go too.
+		this.db.prepare("DELETE FROM droid_tokens WHERE revoked_at IS NOT NULL").run();
 	}
 
 	// -- tokens ---------------------------------------------------------------
@@ -151,13 +167,10 @@ export class DroidStore {
 			// Long enough that guessing is hopeless, short enough to type into the APK once.
 			token: `droid_${randomUUID().replace(/-/g, "")}`,
 			createdAt: now(),
-			revokedAt: null,
 			lastUsedAt: null,
 		};
 		this.db
-			.prepare(
-				"INSERT INTO droid_tokens (id, label, token, created_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, NULL, NULL)",
-			)
+			.prepare("INSERT INTO droid_tokens (id, label, token, created_at, last_used_at) VALUES (?, ?, ?, ?, NULL)")
 			.run(token.id, token.label, token.token, token.createdAt);
 		return token;
 	}
@@ -167,7 +180,12 @@ export class DroidStore {
 		return rows.map(toToken);
 	}
 
-	/** The token record for a presented secret, or undefined (unknown or revoked). */
+	/**
+	 * The token record for a presented secret, or undefined (unknown or deleted).
+	 * The `revoked_at` clause is belt and braces for a database written by an
+	 * older console: such a row must never authenticate, even if the purge in the
+	 * constructor were somehow skipped.
+	 */
 	findToken(token: string): DroidToken | undefined {
 		if (!token) return undefined;
 		const row = this.db.prepare("SELECT * FROM droid_tokens WHERE token = ? AND revoked_at IS NULL").get(token) as
@@ -180,14 +198,7 @@ export class DroidStore {
 		this.db.prepare("UPDATE droid_tokens SET last_used_at = ? WHERE id = ?").run(now(), id);
 	}
 
-	revokeToken(id: string): boolean {
-		const result = this.db
-			.prepare("UPDATE droid_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-			.run(now(), id);
-		return Number(result.changes ?? 0) > 0;
-	}
-
-	/** 删除一条 token（操作员语义：吊销即消失）。设备引用它的连接由调用方断开。 */
+	/** Delete a token (the page's 删除): the secret can never authenticate again. */
 	deleteToken(id: string): boolean {
 		const result = this.db.prepare("DELETE FROM droid_tokens WHERE id = ?").run(id);
 		return Number(result.changes ?? 0) > 0;

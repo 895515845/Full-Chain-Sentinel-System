@@ -22,6 +22,7 @@ import {
 	listEnabledPresets,
 	listPresets,
 	MAX_PRESET_NAME_CHARS,
+	MAX_PRESET_PLACEHOLDER_CHARS,
 	PRESETS_EXPORT_FORMAT,
 	PRESETS_EXPORT_VERSION,
 	presetBriefLines,
@@ -127,6 +128,35 @@ describe("savePreset", () => {
 		);
 		expect(listPresets(dir)[0]?.enabled).toBe(true);
 	});
+
+	test("stores the composer hint, and empty means the default text", () => {
+		const dir = freshAgentDir();
+		const hinted = savePreset(dir, {
+			name: "Web Recon",
+			placeholder: "  说说这次要看的目标  ",
+			text: "你是侦察专家。",
+		}).preset;
+		expect(hinted?.placeholder).toBe("说说这次要看的目标");
+		expect(savePreset(dir, { name: "AD Enum", text: "x" }).preset?.placeholder).toBe("");
+		// The hint is metadata for the operator: it must not leak into the prompt body.
+		expect(readPresetText(dir, hinted?.id ?? "")?.trim()).toBe("你是侦察专家。");
+	});
+
+	test("rejects an over-long composer hint", () => {
+		const dir = freshAgentDir();
+		const long = "p".repeat(MAX_PRESET_PLACEHOLDER_CHARS + 1);
+		expect(savePreset(dir, { name: "x", placeholder: long, text: "y" }).error).toContain("输入框提示");
+	});
+
+	test("a stored entry written before the hint existed reads as empty", () => {
+		const dir = freshAgentDir();
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "presets.json"),
+			JSON.stringify({ presets: [{ id: "legacy", name: "Legacy", description: "", tags: [], createdAt: 1 }] }),
+		);
+		expect(listPresets(dir)[0]?.placeholder).toBe("");
+	});
 });
 
 describe("reads", () => {
@@ -226,6 +256,23 @@ describe("export and import", () => {
 		expect(exported.presets.map((preset) => preset.id)).toEqual(["ad-enum"]);
 	});
 
+	test("round-trips the composer hint, and an older file imports without one", () => {
+		const source = freshAgentDir();
+		savePreset(source, { name: "Web Recon", placeholder: "先指纹再目录", text: "x" });
+		const target = freshAgentDir();
+		const result = importPresets(target, exportPresets(source));
+		expect(result.imported[0]?.placeholder).toBe("先指纹再目录");
+
+		// A file exported before the hint existed carries no field at all.
+		const older = freshAgentDir();
+		const legacy = importPresets(older, {
+			format: PRESETS_EXPORT_FORMAT,
+			version: PRESETS_EXPORT_VERSION,
+			presets: [{ name: "Old", text: "x" }],
+		});
+		expect(legacy.imported[0]?.placeholder).toBe("");
+	});
+
 	test("importing a second time adds a copy instead of overwriting", () => {
 		const source = freshAgentDir();
 		savePreset(source, { name: "Web Recon", text: "imported" });
@@ -286,6 +333,7 @@ describe("commander brief", () => {
 		name: "Web 侦察",
 		description: "先指纹后目录",
 		tags: ["web"],
+		placeholder: "",
 		enabled: true,
 		createdAt: 1,
 		updatedAt: 1,

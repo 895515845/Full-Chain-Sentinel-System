@@ -29,5 +29,12 @@
 			android:name=".DroidService"
 			android:exported="false"
 			android:foregroundServiceType="dataSync" />
+
+		<!-- 守护进程跑在独立进程里：被冻住的是单个进程时，它能给兄弟进程发 SIGCONT。 -->
+		<service
+			android:name=".GuardService"
+			android:exported="false"
+			android:process=":guard"
+			android:foregroundServiceType="dataSync" />
 	</application>
 </manifest>

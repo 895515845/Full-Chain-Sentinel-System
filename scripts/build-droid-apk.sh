@@ -11,7 +11,16 @@ set -euo pipefail
 
 TOOLS_DIR="${HOME}/zg-tools"
 SDK_DIR="${TOOLS_DIR}/sdk"
-JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home}"
+DEFAULT_JAVA_HOME="/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home"
+# 脚本的前置是 JDK 17，但 shell 里常见的 JAVA_HOME 指向 JDK 8，而 AGP 8.5 需要 11+
+# —— 那样 Gradle 只会抛一个「No matching variant … compatible with Java 8」的报错，
+# 看不出是 JDK 的问题。这里只在 JAVA_HOME 缺失或确实是 Java 8 时兜底到 JDK 17。
+if [ -z "${JAVA_HOME:-}" ] || ! [ -x "${JAVA_HOME}/bin/java" ]; then
+	JAVA_HOME="${DEFAULT_JAVA_HOME}"
+elif "${JAVA_HOME}/bin/java" -version 2>&1 | grep -q 'version "1\.8'; then
+	echo "[zgagent] JAVA_HOME 指向 Java 8，改用 ${DEFAULT_JAVA_HOME}" >&2
+	JAVA_HOME="${DEFAULT_JAVA_HOME}"
+fi
 GRADLE_BIN="${TOOLS_DIR}/gradle-8.7/bin/gradle"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

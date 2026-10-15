@@ -18,6 +18,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
 import { DroidStore, droidDbPath } from "../src/droid.ts";
 import { DroidGateway } from "../src/droid-gateway.ts";
+import { DROID_MAX_FRAME_BYTES, DROID_PUSH_CHUNK_BYTES } from "../src/droid-protocol.ts";
+import { openSqliteDatabase } from "../src/sqlite.ts";
 
 let dir: string;
 let store: DroidStore;
@@ -30,10 +32,13 @@ let changes = 0;
 class FakeDevice {
 	ws?: WebSocket;
 	received: Array<Record<string, unknown>> = [];
+	/** Payload chunks of an in-flight push, by request id. */
+	private readonly pushes = new Map<string, Buffer[]>();
 
 	readonly deviceId: string;
 	private readonly token: string;
-	private readonly autoReply: boolean;
+	/** Set false to model a frozen app: the socket stays open, nothing is answered. */
+	autoReply: boolean;
 
 	constructor(deviceId: string, token: string, autoReply = true) {
 		this.deviceId = deviceId;
@@ -41,9 +46,9 @@ class FakeDevice {
 		this.autoReply = autoReply;
 	}
 
-	connect(): Promise<void> {
+	connect(url = baseUrl): Promise<void> {
 		return new Promise((resolve, reject) => {
-			const ws = new WebSocket(`${baseUrl}/ws/droid?token=${this.token}`);
+			const ws = new WebSocket(`${url}/ws/droid?token=${this.token}`);
 			ws.on("open", () => {
 				ws.send(
 					JSON.stringify({
@@ -68,6 +73,26 @@ class FakeDevice {
 					ws.send(
 						JSON.stringify({ t: "result", reqId: frame.reqId, ok: true, code: 0, stdout: `ran:${frame.cmd}` }),
 					);
+				}
+				// Chunked push, like DroidBridge: append per request, answer only on `done`.
+				if (this.autoReply && frame.t === "push") {
+					const reqId = String(frame.reqId);
+					const chunks = this.pushes.get(reqId) ?? [];
+					chunks.push(Buffer.from(String(frame.b64), "base64"));
+					this.pushes.set(reqId, chunks);
+					if (frame.done === true) {
+						this.pushes.delete(reqId);
+						const bytes = Buffer.concat(chunks);
+						ws.send(
+							JSON.stringify({
+								t: "result",
+								reqId,
+								ok: true,
+								code: 0,
+								stdout: `写入 ${bytes.length} 字节`,
+							}),
+						);
+					}
 				}
 			});
 			ws.on("error", reject);
@@ -125,16 +150,47 @@ afterAll(async () => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-test("tokens: create, find, last-used, revoke", () => {
+test("tokens: create, find, last-used, delete", () => {
 	const created = store.createToken("测试机-一加");
 	expect(created.token.startsWith("droid_")).toBe(true);
 	expect(store.findToken(created.token)?.label).toBe("测试机-一加");
 	store.touchToken(created.id);
 	expect(store.findToken(created.token)?.lastUsedAt).not.toBeNull();
-	expect(store.revokeToken(created.id)).toBe(true);
+	// 删除 is the only way out: the row is gone, so the secret cannot authenticate.
+	expect(store.deleteToken(created.id)).toBe(true);
 	expect(store.findToken(created.token)).toBeUndefined();
-	// Revoking twice is not an error, it just does nothing.
-	expect(store.revokeToken(created.id)).toBe(false);
+	expect(store.listTokens().some((token) => token.id === created.id)).toBe(false);
+	// Deleting twice is not an error, it just does nothing.
+	expect(store.deleteToken(created.id)).toBe(false);
+});
+
+test("a token an older console only marked revoked is dropped when the registry opens", () => {
+	// The previous semantic stamped `revoked_at`, and the page had no action for a
+	// row in that state, so it stayed in the list forever. Opening the store must
+	// clean it up, otherwise the operator keeps seeing a token that is already dead.
+	const legacyPath = join(dir, "legacy-droids.db");
+	const legacy = openSqliteDatabase(legacyPath);
+	legacy.exec(`
+		CREATE TABLE droid_tokens (
+			id TEXT PRIMARY KEY,
+			label TEXT NOT NULL,
+			token TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			revoked_at TEXT,
+			last_used_at TEXT
+		);
+	`);
+	legacy
+		.prepare(
+			"INSERT INTO droid_tokens (id, label, token, created_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, NULL)",
+		)
+		.run("legacy-1", "旧机", "droid_legacy", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z");
+	legacy.close();
+
+	const reopened = new DroidStore(legacyPath);
+	expect(reopened.listTokens()).toEqual([]);
+	expect(reopened.findToken("droid_legacy")).toBeUndefined();
+	reopened.close();
 });
 
 test("a wrong or missing token is refused at the upgrade", async () => {
@@ -187,7 +243,13 @@ test("a device that never answers times out and reports it", async () => {
 	const token = tokenOf("沉默机");
 	const device = new FakeDevice("dvc-3", token, false);
 	await device.connect();
-	const result = await gateway.request("dvc-3", { t: "exec", cmd: "slow", asRoot: false, timeoutMs: 200 });
+	// The frame's timeoutMs is the device-side budget; the gateway's own timer is
+	// the third argument, and this test is about the gateway giving up.
+	const result = await gateway.request(
+		"dvc-3",
+		{ t: "exec", cmd: "slow", asRoot: false, timeoutMs: 200 },
+		{ timeoutMs: 200 },
+	);
 	expect(result.ok).toBe(false);
 	expect(result.error).toContain("超时");
 	device.close();
@@ -226,6 +288,76 @@ test("a device that breaks the chunk sequence fails the request instead of scram
 	const result = await pending;
 	expect(result.ok).toBe(false);
 	expect(result.error).toContain("乱序");
+	device.close();
+});
+
+test("onData streams a payload straight through instead of buffering a second copy", async () => {
+	const token = tokenOf("流式机");
+	const device = new FakeDevice("dvc-stream", token, false);
+	await device.connect();
+	const chunks: Buffer[] = [];
+	const pending = gateway.request(
+		"dvc-stream",
+		{ t: "pull", path: "/data/local/tmp/big.apk", maxBytes: 1 << 20 },
+		{ timeoutMs: 5000, onData: (chunk) => chunks.push(chunk) },
+	);
+	const reqId = await findReqId(device);
+	device.send({ t: "data", reqId, seq: 0, b64: Buffer.from("part-1").toString("base64"), done: false });
+	// The consumer sees the first chunk before the request is answered at all.
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(Buffer.concat(chunks).toString()).toBe("part-1");
+	device.send({ t: "data", reqId, seq: 1, b64: Buffer.from("-part-2").toString("base64"), done: true });
+	device.send({ t: "result", reqId, ok: true });
+	const result = await pending;
+	expect(result.ok).toBe(true);
+	expect(Buffer.concat(chunks).toString()).toBe("part-1-part-2");
+	// Nothing was kept in the gateway as well.
+	expect(result.bytes?.length ?? 0).toBe(0);
+	device.close();
+});
+
+test("a push streams in ordered chunks, and only the last frame is answered", async () => {
+	const token = tokenOf("推送机");
+	const device = new FakeDevice("dvc-push", token);
+	await device.connect();
+	// 5.5 MB crosses several 1 MB chunks; as one frame it would be ~7.3 MB of base64,
+	// which is what used to make the phone materialize the whole file and die.
+	const payload = Buffer.alloc(5_500_000);
+	for (let index = 0; index < payload.length; index += 1) payload[index] = index % 251;
+
+	const result = await gateway.pushFile("dvc-push", "/data/local/tmp/frida-server", payload, { mode: "0755" });
+	expect(result.ok).toBe(true);
+	expect(result.stdout).toBe(`写入 ${payload.length} 字节`);
+
+	const frames = device.received.filter((frame) => frame.t === "push");
+	expect(frames).toHaveLength(Math.ceil(payload.length / DROID_PUSH_CHUNK_BYTES));
+	expect(frames.map((frame) => frame.seq)).toEqual(frames.map((_frame, index) => index));
+	// One request, one answer: only the last chunk is `done`.
+	expect(frames.filter((frame) => frame.done === true)).toHaveLength(1);
+	expect(frames.at(-1)?.done).toBe(true);
+	expect(frames.every((frame) => frame.mode === "0755")).toBe(true);
+	// Every frame stays inside the gateway's own limit, with room to spare.
+	for (const frame of frames) {
+		expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThan(DROID_MAX_FRAME_BYTES);
+	}
+	const reassembled = Buffer.concat(frames.map((frame) => Buffer.from(String(frame.b64), "base64")));
+	expect(reassembled.equals(payload)).toBe(true);
+	device.close();
+});
+
+test("an oversized single frame is refused instead of taking the device down", async () => {
+	const token = tokenOf("巨帧机");
+	const device = new FakeDevice("dvc-big", token);
+	await device.connect();
+	const result = await gateway.request("dvc-big", {
+		t: "exec",
+		cmd: "x".repeat(DROID_MAX_FRAME_BYTES + 1),
+		asRoot: false,
+		timeoutMs: 1000,
+	});
+	expect(result.ok).toBe(false);
+	expect(result.error).toContain("超过");
+	expect(device.received.some((frame) => frame.t === "exec")).toBe(false);
 	device.close();
 });
 
@@ -472,4 +604,65 @@ test("the dedicated listener accepts a device handshake and rebinds on demand", 
 	});
 	expect(refused).toContain("ECONNREFUSED");
 	gateway.stopListener();
+});
+
+test("a device that stops answering fails its calls fast, and recovers on the next heartbeat", async () => {
+	// Android and emulators can SIGSTOP the whole app process: the TCP connection
+	// stays ESTABLISHED while no thread runs, so without a liveness check the
+	// gateway reports 在线 and every call waits out its own timeout — one silent
+	// black hole per attempt. A frozen device is modelled here by a socket that
+	// simply stops replying.
+	const strict = new DroidGateway(
+		store,
+		{ onDeviceChange: () => {}, log: () => {} },
+		{ staleMs: 120, watchdogTickMs: 20 },
+	);
+	const strictServer = createServer();
+	strictServer.on("upgrade", (request, socket, head) => {
+		strict.handleUpgrade(request, socket, head);
+	});
+	await new Promise<void>((resolve) => strictServer.listen(0, "127.0.0.1", resolve));
+	const strictUrl = `ws://127.0.0.1:${(strictServer.address() as AddressInfo).port}`;
+
+	const token = tokenOf("冻结机");
+	const device = new FakeDevice("dvc-frozen", token);
+	await device.connect(strictUrl);
+	expect(strict.onlineDevices()[0]?.stale).toBe(false);
+
+	// A request already in flight when the freeze starts must come back with the
+	// liveness error, long before its own 5s timeout.
+	device.autoReply = false;
+	const started = Date.now();
+	const inflight = await strict.request("dvc-frozen", { t: "exec", cmd: "id", asRoot: false, timeoutMs: 5000 });
+	expect(inflight.ok).toBe(false);
+	expect(inflight.error).toContain("设备无响应");
+	expect(Date.now() - started).toBeLessThan(1000);
+
+	// The device stays listed — its socket is open — but marked unresponsive.
+	const listed = strict.onlineDevices();
+	expect(listed.length).toBe(1);
+	expect(listed[0]?.stale).toBe(true);
+	expect(listed[0]?.online).toBe(true);
+
+	// A new call fails immediately and never reaches the wire.
+	const received = device.received.length;
+	const rejected = await strict.request("dvc-frozen", { t: "exec", cmd: "id", asRoot: false, timeoutMs: 5000 });
+	expect(rejected.ok).toBe(false);
+	expect(rejected.error).toContain("设备无响应");
+	expect(device.received.length).toBe(received);
+
+	// A heartbeat means the app is executing again (unfreezing resumes it on the
+	// very same socket), so the device is usable without a reconnect.
+	device.autoReply = true;
+	device.send({ t: "hb" });
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	expect(strict.onlineDevices()[0]?.stale).toBe(false);
+	const recovered = await strict.request("dvc-frozen", { t: "exec", cmd: "id", asRoot: false, timeoutMs: 5000 });
+	expect(recovered.ok).toBe(true);
+	expect(recovered.stdout).toBe("ran:id");
+
+	device.close();
+	strict.stopListener();
+	strictServer.close();
+	await new Promise((resolve) => setTimeout(resolve, 50));
 });

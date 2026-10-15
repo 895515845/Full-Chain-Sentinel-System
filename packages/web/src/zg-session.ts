@@ -665,10 +665,12 @@ export class ZGAgentRuntime {
 			// The POC library is read-only reference; the switch controls both of
 			// its tools, and sub-agents inherit it through the subset rule.
 			...(permissions.poc_read ? createPocTools({ store: this.pocs }) : []),
-			// The modeling tools are registered on every console session but declare
-			// `defaultActive: false`, so they are never part of the model's tool list
-			// until the operator starts a run. Task sessions do not get them at all:
-			// business modeling is an operator-driven action on a conversation.
+			// The modeling tools are declared on every console session — the operator
+			// may start modeling by asking for it instead of pressing the button — and
+			// they carry their own "only call this when asked" wording. Task sessions
+			// do not get them at all, and a sub-agent only receives the tools in its
+			// own subset: business modeling stays an operator-driven action on a
+			// conversation.
 			...(task ? [] : createApiModelTools(this.createModelingPort(managed))),
 			...(task ? [] : createApiModelAttachTools(this.createModelingAttachPort(managed))),
 			// The Android toolset is opt-in from the device page; off means unmounted,
@@ -748,10 +750,9 @@ export class ZGAgentRuntime {
 		// contribute skills and prompt templates.
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
-		// The modeling tools are registered but never active on their own. A run
-		// left in force (a reopened conversation, a rebuild after a permission save)
-		// puts them back; every other session has them removed explicitly, so a
-		// loadout restored from an older transcript cannot resurrect them.
+		// The modeling tools are declared in every console session (see
+		// modelingToolLoadout); this only puts the read tool in place when the
+		// conversation carries attached records.
 		this.applyModelingTools(managed);
 		this.applyDroidTools(managed);
 		if (task) {
@@ -1038,14 +1039,42 @@ export class ZGAgentRuntime {
 		return {
 			current: () =>
 				managed.modeling ? { runId: managed.modeling.runId, target: managed.modeling.target } : undefined,
+			ensureRun: () => this.ensureModelingRun(managed),
 			submit: (input) => this.submitApiModel(managed, input),
 			done: (summary) => {
 				// Not awaited: the tool call returns while the turn is still running, and
-				// removing the tools mid-turn is exactly what the SDK expects (the new
+				// closing the run mid-turn is exactly what the SDK expects (the new
 				// loadout takes effect on the next turn).
 				void this.finishModeling(managed, "done", summary);
 			},
 		};
+	}
+
+	/**
+	 * The run in force for this session, opening one when the model is the one
+	 * starting it (the operator asked for modeling in the conversation instead of
+	 * pressing 业务建模). Record, branch entry and console refresh are the same as
+	 * the button's; only the briefing is skipped, because the tool descriptions
+	 * already said what to produce. No message is injected, so this cannot rebuild
+	 * the prompt in the middle of the turn that is calling the tool.
+	 */
+	private ensureModelingRun(managed: ManagedSession): { runId: string; target: string } {
+		const existing = managed.modeling;
+		if (existing) return { runId: existing.runId, target: existing.target };
+		const sessionFile = managed.manager.getSessionFile();
+		const record = this.apiModels.beginRun({
+			projectId: this.activeProjectId ?? null,
+			sessionId: managed.manager.getSessionId(),
+			sessionPath: sessionFile ? resolveFsPath(sessionFile) : null,
+			title: managed.manager.getSessionName() ?? undefined,
+		});
+		const run: ModelingRun = { runId: record.id, target: "", startedAt: Date.now() };
+		managed.modeling = run;
+		managed.manager.appendCustomEntry(MODELING_STATE_CUSTOM_TYPE, { ...run });
+		this.applyModelingTools(managed);
+		this.hooks.onApiModelChange();
+		this.hooks.onStateChange();
+		return { runId: run.runId, target: run.target };
 	}
 
 	/** Store one submission and report the counters back to the tool. */
@@ -1072,15 +1101,16 @@ export class ZGAgentRuntime {
 	}
 
 	/**
-	 * Mount or unmount the modeling tools for one session. They are registered
-	 * with `defaultActive: false`, so a session that is not modeling already has
-	 * them off; this only calls the SDK when the set actually has to change, which
+	 * Bring the modeling tools of one session in line with its state: the two run
+	 * tools are always in the set (the model has to know modeling exists for the
+	 * operator to be able to ask for it in chat), and the read tool follows the
+	 * attached records. The SDK is only called when the set actually changes, which
 	 * keeps a normal session's system prompt from being rebuilt for nothing.
 	 */
 	private applyModelingTools(managed: ManagedSession): void {
 		if (managed.taskSession) return;
 		const active = managed.session.getActiveToolNames();
-		const wanted = modelingToolLoadout(active, managed.modeling !== undefined, managed.modelingAttach !== undefined);
+		const wanted = modelingToolLoadout(active, managed.modelingAttach !== undefined);
 		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
 		if (changed) managed.session.setActiveToolsByName(wanted);
 	}
@@ -1183,10 +1213,8 @@ export class ZGAgentRuntime {
 	/**
 	 * Start business modeling in the viewed conversation.
 	 *
-	 * Until this call the session carries no trace of the feature: the system
-	 * prompt is untouched and the two tools are registered but inactive, so the
-	 * model does not think about modeling while it does anything else. This mounts
-	 * them, records the run on the branch (a restart or a permission rebuild
+	 * The tools are already declared (they always are), so what this adds is the
+	 * run: it records the run on the branch (a restart or a permission rebuild
 	 * resumes it) and injects the briefing as a visible row of its own. The agent
 	 * then works in the conversation it already has — same model, same
 	 * permissions, same command gate.
@@ -1396,7 +1424,13 @@ export class ZGAgentRuntime {
 		devices: ReturnType<DroidStore["listDevices"]>;
 		tokens: ReturnType<DroidStore["listTokens"]>;
 	} {
-		return { enabled: this.droidOn, devices: this.droids.listDevices(), tokens: this.droids.listTokens() };
+		// The stored row only knows the socket; merge in whether the app still
+		// answers, so the page never shows 在线 for a frozen process.
+		const devices = this.droids.listDevices().map((device) => {
+			const liveness = this.droidGateway?.livenessOf(device.id);
+			return { ...device, stale: liveness?.stale ?? false, idleMs: liveness?.idleMs ?? 0 };
+		});
+		return { enabled: this.droidOn, devices, tokens: this.droids.listTokens() };
 	}
 
 	/** The persisted reverse-listener config; null until the operator enabled it. */
@@ -1433,8 +1467,8 @@ export class ZGAgentRuntime {
 		this.hooks.onDroidChange();
 	}
 
-	/** 删除一条 token（操作员语义：吊销即删除），并断开用它反连的设备。 */
-	async droidRevokeToken(id: string): Promise<void> {
+	/** 删除一条 token（设备页的「删除」），并断开用它反连的设备。 */
+	async droidDeleteToken(id: string): Promise<void> {
 		if (!this.droids.deleteToken(id)) throw new Error("该 token 不存在");
 		for (const device of this.droids.listDevices()) {
 			if (device.tokenId === id) this.droidGateway?.disconnect(device.id);
@@ -2541,10 +2575,14 @@ export class ZGAgentRuntime {
 	 */
 	private presetView(active: ManagedSession | undefined): ZGSessionPresetView | null {
 		if (!active?.presetId) return null;
+		const preset = findPreset(this.agentDir, active.presetId);
 		return {
 			id: active.presetId,
-			name: findPreset(this.agentDir, active.presetId)?.name ?? active.presetId,
+			name: preset?.name ?? active.presetId,
 			missing: active.presetMissing,
+			// The hint belongs to the preset, so a session whose preset is gone falls
+			// back to the console's default text.
+			placeholder: preset?.placeholder ?? "",
 		};
 	}
 

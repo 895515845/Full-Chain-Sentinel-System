@@ -32,6 +32,8 @@ export const PRESETS_DIR = "presets";
 export const MAX_PRESET_NAME_CHARS = 60;
 /** Longest accepted description. The brief shows only its first 80 characters. */
 export const MAX_PRESET_DESCRIPTION_CHARS = 200;
+/** Longest accepted composer hint. It has to read as one line above the input. */
+export const MAX_PRESET_PLACEHOLDER_CHARS = 120;
 /** Longest accepted tag, and how many a preset may carry. */
 export const MAX_PRESET_TAG_CHARS = 24;
 export const MAX_PRESET_TAGS = 12;
@@ -167,6 +169,9 @@ function normalizeStored(value: unknown): ZGPreset | null {
 		name: entry.name.trim(),
 		description: typeof entry.description === "string" ? entry.description.trim() : "",
 		tags: normalizeTags(entry.tags),
+		// A preset written before the hint existed has none, and none means "use the
+		// console's default text" — never a blank input.
+		placeholder: typeof entry.placeholder === "string" ? entry.placeholder.trim() : "",
 		// A stored entry without the flag was written before presets could be
 		// disabled; reading it as disabled would hide a preset the operator
 		// never turned off.
@@ -276,6 +281,8 @@ export interface SavePresetInput {
 	name: string;
 	description?: string;
 	tags?: string[];
+	/** The composer hint while this preset is active; omitted or empty keeps the default. */
+	placeholder?: string;
 	text: string;
 	/** Defaults to true on create, and to the stored value on update. */
 	enabled?: boolean;
@@ -290,6 +297,10 @@ export function savePreset(agentDir: string, input: SavePresetInput): { preset?:
 	const description = (input.description ?? "").trim();
 	if (description.length > MAX_PRESET_DESCRIPTION_CHARS) {
 		return { error: `预设描述过长（最多 ${MAX_PRESET_DESCRIPTION_CHARS} 字）` };
+	}
+	const placeholder = (input.placeholder ?? "").trim();
+	if (placeholder.length > MAX_PRESET_PLACEHOLDER_CHARS) {
+		return { error: `输入框提示过长（最多 ${MAX_PRESET_PLACEHOLDER_CHARS} 字）` };
 	}
 	const tags = normalizeTags(input.tags ?? []);
 	if (tags.length > MAX_PRESET_TAGS) return { error: `标签过多（最多 ${MAX_PRESET_TAGS} 个）` };
@@ -311,6 +322,7 @@ export function savePreset(agentDir: string, input: SavePresetInput): { preset?:
 				name,
 				description,
 				tags,
+				placeholder,
 				enabled: input.enabled ?? existing.enabled,
 				updatedAt: now,
 			}
@@ -319,6 +331,7 @@ export function savePreset(agentDir: string, input: SavePresetInput): { preset?:
 				name,
 				description,
 				tags,
+				placeholder,
 				enabled: input.enabled ?? true,
 				createdAt: now,
 				updatedAt: now,
@@ -424,6 +437,7 @@ export function importPresets(agentDir: string, payload: unknown): ZGPresetImpor
 			name: typeof entry.name === "string" ? entry.name : "",
 			description: typeof entry.description === "string" ? entry.description : "",
 			tags: Array.isArray(entry.tags) ? entry.tags.filter((tag): tag is string => typeof tag === "string") : [],
+			placeholder: typeof entry.placeholder === "string" ? entry.placeholder : "",
 			text: typeof entry.text === "string" ? entry.text : "",
 			enabled: entry.enabled !== false,
 		});

@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import android.util.Base64
 import org.json.JSONObject
 import java.io.File
@@ -21,28 +22,60 @@ import kotlinx.coroutines.launch
  * 请求分发给 Handlers，并把结果/分片回传。协议即 packages/web/src/droid-protocol.ts。
  */
 class DroidService : Service() {
+	companion object {
+		/** 回传时的发送队列水位：超过就等排空，避免整个文件排在内存里。 */
+		private const val SEND_QUEUE_LIMIT = 4L * 1024 * 1024
+	}
+
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private val tcpSockets = java.util.concurrent.ConcurrentHashMap<String, java.net.Socket>()
 	/** 连接建立前早到的下行字节，tcp_open 完成后冲刷（frida 一连上就发首包）。 */
 	private val tcpPending = java.util.concurrent.ConcurrentHashMap<String, MutableList<ByteArray>>()
+	/**
+	 * 分片必须按序落盘，而 scope 是多线程的 IO 池：push 走这条单线程，
+	 * 同一文件的分片就不会互相插队（其他请求仍在 scope 上并发）。
+	 */
+	private val pushDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+		Thread(runnable, "droid-push").apply { isDaemon = true }
+	}
 	private lateinit var prefs: Prefs
 	private lateinit var client: WsClient
 
 	override fun onCreate() {
 		super.onCreate()
 		prefs = Prefs(this)
+		// 上次没传完的推送分片：进程重启后没人会再来收尾，留着只占空间。
+		cacheDir.listFiles { file -> file.name.startsWith("push-") && file.name.endsWith(".part") }?.forEach {
+			it.delete()
+		}
 		startForeground()
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 		connect()
+		startGuard()
 		return START_STICKY
+	}
+
+	/**
+	 * 拉起/刷新守护进程（另一个进程里的前台服务）。心跳每 15s 顺带调一次：守护进程被
+	 * 系统回收时能重新起来，主进程换了 pid 也能及时告诉它。操作员点了「停止反连」时
+	 * 由 [onDestroy] 把守护进程一起停掉，所以它不会把操作员主动停掉的服务又拉起来。
+	 */
+	private fun startGuard() {
+		if (!prefs.guardEnabled) return
+		GuardService.start(this, Process.myPid())
 	}
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
 	override fun onDestroy() {
+		// 操作员点了「停止反连」，或系统停掉了这个服务：守护进程一起停，否则它会在
+		// 15s 后把这个服务又拉起来。
+		stopService(Intent(this, GuardService::class.java))
 		scope.cancel()
+		pushDispatcher.shutdownNow()
+		Handlers.abortAllPushes()
 		for (socket in tcpSockets.values) socket.close()
 		tcpSockets.clear()
 		if (this::client.isInitialized) client.close()
@@ -86,13 +119,23 @@ class DroidService : Service() {
 			onState("未配置", "请先填写地址与 token")
 			return
 		}
-		client = WsClient(url, token, prefs.deviceId, onFrame = ::onFrame, onState = ::onState)
+		// onStartCommand 会被重复触发（再点一次「启动反连」、系统重启服务）：旧 client
+		// 必须先停，否则两条连接抢同一个 deviceId，网关只能用 4003 不停替换，手机侧就是
+		// 「断开重连」刷屏。
+		if (this::client.isInitialized) client.close()
+		client = WsClient(url, token, prefs.deviceId, onFrame = ::onFrame, onState = ::onState, onTick = ::startGuard)
 		client.connect()
 	}
 
 	/** 收到服务器帧：welcome 忽略，其余按 t 分发；一切都在 IO 线程里跑。 */
 	private fun onFrame(text: String) {
 		val obj = JSONObject(text)
+		// push 在进 scope 之前就交给单线程：scope 是多线程的，绕一圈可能让
+		// 同一文件的分片提交乱序，而分片顺序就是文件内容。
+		if (obj.optString("t") == "push") {
+			pushDispatcher.execute { onPush(obj) }
+			return
+		}
 		scope.launch {
 			when (obj.optString("t")) {
 				"exec" -> answer(obj) { resultOf(it, Handlers.exec(it)) }
@@ -101,28 +144,50 @@ class DroidService : Service() {
 				"capture_start" -> answer(obj) { resultOf(it, Handlers.captureStart(it)) }
 				"capture_stop" -> answer(obj) { resultOf(it, Handlers.captureStop()) }
 				"capture_status" -> answer(obj) { resultOf(it, Handlers.captureStatus()) }
-				"screencap" -> answerStream(obj) {
-					val (file, r) = Handlers.screencap()
-					if (!r.ok) throw IllegalStateException("截屏失败: ${r.stderr}")
-					// root 建的文件应用 uid 可能读不到，走 root cat。
-					val bytes = try {
-						file.readBytes()
-					} catch (_: Exception) {
-						Handlers.readFile(file.absolutePath, 32L * 1024 * 1024)
+				"screencap" -> {
+					val req = parseRequest(obj)
+					try {
+						val (file, r) = Handlers.screencap()
+						if (!r.ok) throw IllegalStateException("截屏失败: ${r.stderr}")
+						// root 建的文件应用 uid 读不到，streamFile 自己会走 su cat。
+						answerStreamFile(req, file.absolutePath, 32L * 1024 * 1024)
+						Shell.run("rm -f '${file.absolutePath}'", asRoot = true, timeoutMs = 5_000)
+					} catch (e: Exception) {
+						client.send(errorFrame(req, e.message ?: "截屏失败").toString())
 					}
-					Shell.run("rm -f '${file.absolutePath}'", asRoot = true, timeoutMs = 5_000)
-					bytes to r
 				}
-				"pull" -> answerStream(obj) { Handlers.readFile(it.path, it.maxBytes) to ExecResult(0, "", "") }
+				"pull" -> {
+					val req = parseRequest(obj)
+					answerStreamFile(req, req.path, req.maxBytes)
+				}
 				"tcp_open" -> scope.launch { onTcpOpen(obj) }
 				"tcp_send" -> scope.launch { onTcpSend(obj) }
 				"tcp_close" -> scope.launch { onTcpClose(obj) }
-				"push" -> answer(obj) {
-					val size = Handlers.writeFile(it.path, it.b64)
-					JSONObject().put("t", "result").put("reqId", it.reqId).put("ok", true).put("code", 0)
-						.put("stdout", "写入 $size 字节")
-				}
 			}
+		}
+	}
+
+	/**
+	 * 一条 push 分片：seq=0 开文件，之后追加；只有 done 那一片回 result
+	 * （服务端一次推送 = 一个请求 = 一个应答）。出错就丢掉临时文件并回报。
+	 */
+	private fun onPush(obj: JSONObject) {
+		val req = parseRequest(obj)
+		try {
+			if (req.seq == 0) {
+				Handlers.pushOpen(req.reqId, cacheDir, req.seq, req.b64)
+			} else {
+				Handlers.pushAppend(req.reqId, req.seq, req.b64)
+			}
+			if (!req.done) return
+			val size = Handlers.pushFinish(req.reqId, req.path, req.mode)
+			client.send(
+				JSONObject().put("t", "result").put("reqId", req.reqId).put("ok", true).put("code", 0)
+					.put("stdout", "写入 $size 字节").toString(),
+			)
+		} catch (e: Exception) {
+			Handlers.pushAbort(req.reqId)
+			client.send(errorFrame(req, e.message ?: "写入失败").toString())
 		}
 	}
 
@@ -135,6 +200,9 @@ class DroidService : Service() {
 		path = obj.optString("path"),
 		maxBytes = obj.optLong("maxBytes", 256L * 1024 * 1024),
 		b64 = obj.optString("b64"),
+		seq = obj.optInt("seq", 0),
+		done = obj.optBoolean("done", true),
+		mode = obj.optString("mode", "0700"),
 		lines = obj.optInt("lines", 200),
 		filter = if (obj.has("filter")) obj.getString("filter") else null,
 		thirdPartyOnly = obj.optBoolean("thirdPartyOnly", true),
@@ -159,15 +227,40 @@ class DroidService : Service() {
 		}
 	}
 
-	/** 字节流型请求（pull/screencap）：data 分片回传后补一条 result 收尾。 */
-	private inline fun answerStream(obj: JSONObject, crossinline body: (Request) -> Pair<ByteArray, ExecResult>) {
-		val req = parseRequest(obj)
+	/**
+	 * 字节流型请求（pull/screencap）：从文件里读一片发一片，最后补一条 result。
+	 *
+	 * 之前是 `Handlers.readFile` 先把整个文件读进内存、再 `toList().chunked()` 切片：
+	 * 20MB 的文件要摊 20MB 源数组 + 2100 万个装箱引用（约 80MB）+ 77 个分片数组，
+	 * 还没发出第一帧就把堆顶穿，进程被 OOM 杀掉，服务端只看到「设备连接已断开」。
+	 */
+	private fun answerStreamFile(req: Request, path: String, maxBytes: Long) {
 		try {
-			val (bytes, r) = body(req)
-			streamBytes(req, bytes)
-			client.send(resultOf(req, r).toString())
+			var seq = 0
+			Handlers.streamFile(path, maxBytes) { chunk, length, done ->
+				// OkHttp 的发送队列没有上限：慢链路上不背压就等于把整个文件排进内存。
+				waitForSendQueue()
+				client.send(
+					JSONObject().put("t", "data").put("reqId", req.reqId).put("seq", seq++)
+						.put("b64", Base64.encodeToString(chunk, 0, length, Base64.NO_WRAP))
+						.put("done", done).toString(),
+				)
+			}
+			client.send(resultOf(req, ExecResult(0, "", "")).toString())
 		} catch (e: Exception) {
-			client.send(errorFrame(req, e.message ?: "处理失败").toString())
+			client.send(errorFrame(req, e.message ?: "读取失败").toString())
+		}
+	}
+
+	/**
+	 * 发送队列超过 4MB 就等它排空。最多等 60s：socket 半死时不能在这里卡到天荒地老，
+	 * 后面的 send 会自然失败，服务端按超时收场。
+	 */
+	private fun waitForSendQueue() {
+		var waited = 0L
+		while (client.queueSize() > SEND_QUEUE_LIMIT && waited < 60_000) {
+			Thread.sleep(20)
+			waited += 20
 		}
 	}
 
@@ -235,20 +328,6 @@ class DroidService : Service() {
 	private fun onTcpClose(obj: JSONObject) {
 		val key = "${obj.optString("tunnelId")}:${obj.optString("connId")}"
 		tcpSockets.remove(key)?.close()
-	}
-
-	/** 256KB 原始字节一片，base64 后约 350KB，远低于网关单帧上限。 */
-	private fun streamBytes(req: Request, bytes: ByteArray) {
-		val chunks = if (bytes.isEmpty()) listOf(ByteArray(0)) else bytes.toList().chunked(Handlers.CHUNK).map { it.toByteArray() }
-		chunks.forEachIndexed { index, chunk ->
-			val frame = JSONObject()
-				.put("t", "data")
-				.put("reqId", req.reqId)
-				.put("seq", index)
-				.put("b64", Base64.encodeToString(chunk, Base64.NO_WRAP))
-				.put("done", index == chunks.size - 1)
-			client.send(frame.toString())
-		}
 	}
 }
 

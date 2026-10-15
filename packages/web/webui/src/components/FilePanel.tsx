@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatSize } from "../transcript.ts";
 import type { ZGFileEntry, ZGFilePreview } from "../types.ts";
 import { DirIcon, FileIcon, ParentDirIcon } from "./icons.tsx";
 
@@ -9,12 +10,6 @@ export interface FilePanelState {
 	preview: ZGFilePreview | null;
 	/** True while a request for this panel is in flight. */
 	busy: boolean;
-}
-
-export function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function formatTime(seconds: number): string {
@@ -264,7 +259,11 @@ export function FilePanel({
 									className="file-action danger"
 									title="删除（目录会连同内容一起删除）"
 									onClick={() => {
-										if (window.confirm(`确定删除 ${entry.name}？${entry.type === "dir" ? "目录内的文件会一并删除。" : ""}`)) {
+										if (
+											window.confirm(
+												`确定删除 ${entry.name}？${entry.type === "dir" ? "目录内的文件会一并删除。" : ""}`,
+											)
+										) {
 											onDelete(entry.path);
 										}
 									}}
@@ -335,7 +334,11 @@ export function FilePanel({
 							onChange={(event) => setDraft(event.target.value)}
 						/>
 					) : preview.kind === "image" && preview.data ? (
-						<img className="file-image" src={`data:${preview.mimeType};base64,${preview.data}`} alt={preview.path} />
+						<img
+							className="file-image"
+							src={`data:${preview.mimeType};base64,${preview.data}`}
+							alt={preview.path}
+						/>
 					) : preview.kind === "text" ? (
 						<pre className="file-text">{preview.text}</pre>
 					) : (
