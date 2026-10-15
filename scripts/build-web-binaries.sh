@@ -97,7 +97,10 @@ done
 # ("src/extensions/codemode/worker.ts"). Staging the console under the
 # coding-agent package keeps that common directory at packages/coding-agent, so
 # the embedded worker layout matches what the runtime asks for.
-STAGE="packages/coding-agent/dist/web"
+#
+# Absolute: the compile below cds into packages/coding-agent, so a relative path
+# would resolve against that directory when the cleanup trap runs.
+STAGE="$(pwd)/packages/coding-agent/dist/web"
 cleanup() {
 	rm -rf "$STAGE"
 }
