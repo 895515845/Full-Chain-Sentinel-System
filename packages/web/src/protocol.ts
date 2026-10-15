@@ -944,6 +944,8 @@ export interface ZGStateSnapshot {
 	compacting: boolean;
 	/** When the current compaction started, for the elapsed time; null when idle. */
 	compactionStartedAt: number | null;
+	/** The Droid plugin's toolset switch (device page persists it; the chat toggles it). */
+	droidEnabled: boolean;
 }
 
 /** A point the conversation can branch from. */

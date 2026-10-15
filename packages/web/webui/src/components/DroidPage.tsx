@@ -1,11 +1,11 @@
 /**
- * The Android device page: the reverse-connection side of the Droid plugin.
+ * The Android device page (左右分栏).
  *
- * The operator's jobs here are three: create a token and type it into the
- * DroidBridge APK together with the console's address, watch devices come
- * online, and flip the toolset switch that mounts the droid and apk tools into
- * the agent's prompt. Everything else — what the agent does with a device —
- * happens in the conversation and lands in the audit trail like any command.
+ * Left column owns the service: the reverse listener (bind address/port, picked
+ * by the operator) and the connection tokens. Right column owns the devices and
+ * the onboarding steps. The Agent toolset switch deliberately does NOT live
+ * here — it sits in the conversation, where the tools are actually used, and
+ * stays off (no prompt, no tools) until explicitly enabled there.
  */
 
 import { useEffect, useState } from "react";
@@ -17,7 +17,6 @@ function formatTime(iso: string | null): string {
 }
 
 export function DroidPage({
-	enabled,
 	devices,
 	tokens,
 	listen,
@@ -26,25 +25,17 @@ export function DroidPage({
 	consoleUrl,
 	send,
 }: {
-	enabled: boolean;
 	devices: DroidDevice[];
 	tokens: DroidToken[];
-	/** The dedicated reverse listener, when bound. */
 	listen: { host: string; port: number } | null;
-	/** What the operator picked; may differ from `listen` when binding failed. */
 	listenConfig: { host: string; port: number } | null;
-	/** Non-internal IPv4 addresses of the server, for the listen picker. */
 	lanIps: string[];
-	/** The address the browser itself uses; the fallback when no dedicated listener is bound. */
 	consoleUrl: string;
 	send(message: ZGClientMessage): void;
 }) {
 	const [label, setLabel] = useState("");
 	const [revealed, setRevealed] = useState<string | null>(null);
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-	const [loaded, setLoaded] = useState(false);
-	// Sensible defaults so the 应用 button works on first use; the effect aligns
-	// the fields with what the operator saved before.
 	const [listenHost, setListenHost] = useState("0.0.0.0");
 	const [listenPort, setListenPort] = useState("9944");
 
@@ -55,13 +46,13 @@ export function DroidPage({
 		}
 	}, [listenConfig]);
 
-	/** The address the phone should dial: the dedicated listener when bound, the console origin otherwise. */
+	// The address the phone should dial: the dedicated listener when bound, the
+	// console origin otherwise. 0.0.0.0 is a bind address, not dialable — show the
+	// machine's first LAN IPv4 and say so.
 	const reverseAddress = (() => {
 		if (listen) {
-			// 0.0.0.0 is a bind address, not something a phone can dial: substitute
-			// the machine's first LAN IPv4 and say so.
 			const host = listen.host === "0.0.0.0" ? (lanIps[0] ?? "0.0.0.0") : listen.host;
-			const note = listen.host === "0.0.0.0" && lanIps.length > 1 ? "（服务器多网卡，如不通请手改 IP）" : "";
+			const note = listen.host === "0.0.0.0" && lanIps.length > 1 ? "（多网卡，如不通请手改 IP）" : "";
 			return { url: `ws://${host}:${listen.port}/ws/droid`, note };
 		}
 		return {
@@ -70,256 +61,222 @@ export function DroidPage({
 		};
 	})();
 
-	useEffect(() => {
-		if (!loaded) {
-			send({ type: "droid_state" });
-			setLoaded(true);
-		}
-	}, [loaded, send]);
-
-	const wsUrl = consoleUrl.replace(/^http/, "ws").replace(/\/$/, "") + "/ws/droid";
 	const active = tokens.filter((token) => !token.revokedAt);
+	const onlineCount = devices.filter((device) => device.online).length;
+	const firstToken = active[0];
 
 	return (
-		<div className="page-card">
+		<div className="page-card droid-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					安卓设备
 					<span className="ws-panel__sub">
-						{enabled
-							? `工具已启用 · ${devices.filter((device) => device.online).length}/${devices.length} 台在线`
-							: "工具未启用"}
+						{devices.length > 0
+							? `${onlineCount}/${devices.length} 台在线`
+							: "DroidBridge 反连通道与设备管理"}
 					</span>
 				</div>
 				<div className="ws-panel__actions">
-					<label className="inline-label">
-						<input
-							type="checkbox"
-							checked={enabled}
-							onChange={(event) => send({ type: "droid_set_enabled", enabled: event.target.checked })}
-						/>
-						启用 Agent 安卓工具（droid_* / apk_*）
-					</label>
 					<button type="button" className="ghost small" onClick={() => send({ type: "droid_state" })}>
 						刷新
 					</button>
 				</div>
 			</div>
-			<div className="ws-panel__body">
-				<p className="ws-hint">
-					在 root 测试机上安装自研的 DroidBridge APK，填入下面的反连地址与
-					token；手机会主动反连本控制台（服务器不开放任何面向手机的端口）。 启用工具后，Agent
-					在对话里即可执行设备命令、拉取文件、截屏、读 logcat，并对 APK 做静态分析。所有设备命令走与 bash
-					相同的守门/审批链，审计可溯。
-				</p>
 
-				<h3 className="api-model-section">反连信息</h3>
-				<div className="droid-kv">
-					<div>
-						<span className="droid-kv__k">APK 反连地址</span>
-						<code className="droid-kv__v">{wsUrl}</code>
-					</div>
-					<div>
-						<span className="droid-kv__k">token</span>
-						<span className="droid-kv__v">
-							{revealed ? (
-								<code>{tokens.find((token) => token.id === revealed)?.token ?? "—"}</code>
+			<div className="droid-layout">
+				{/* 左栏：反连服务 + 令牌 */}
+				<div className="droid-col">
+					<div className="droid-card">
+						<h3 className="droid-card__title">
+							反连服务
+							{listen ? (
+								<span className="api-model-chip api-model-chip--done">监听中 {listen.host}:{listen.port}</span>
 							) : (
-								<em>先在下方创建 token，创建后可在此复制</em>
+								<span className="api-model-chip api-model-chip--manual">未启用独立监听</span>
 							)}
-						</span>
+						</h3>
+						<div className="droid-field">
+							<label>监听地址</label>
+							<select value={listenHost} onChange={(event) => setListenHost(event.target.value)}>
+								<option value="0.0.0.0">0.0.0.0（所有网卡，局域网手机可连）</option>
+								<option value="127.0.0.1">127.0.0.1（仅本机）</option>
+								{lanIps.map((ip) => (
+									<option key={ip} value={ip}>
+										{ip}（网卡）
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="droid-field">
+							<label>端口</label>
+							<input
+								value={listenPort}
+								onChange={(event) => setListenPort(event.target.value.replace(/\D/g, ""))}
+								placeholder="9944"
+							/>
+						</div>
+						<button
+							type="button"
+							className="primary droid-block-btn"
+							disabled={!listenHost || !listenPort}
+							onClick={() => send({ type: "droid_set_listen", host: listenHost, port: Number(listenPort) })}
+						>
+							应用并重绑
+						</button>
+						<p className="droid-hint">独立于控制台端口，应用立即生效；0.0.0.0 表示局域网内手机都可反连（仍需 token）。</p>
 					</div>
-				</div>
 
-				<h3 className="api-model-section">
-					监听
-					{listen ? (
-						<span className="api-model-chip api-model-chip--done">
-							已监听 {listen.host}:{listen.port}
-						</span>
-					) : (
-						<span className="api-model-chip api-model-chip--manual">未启用独立监听</span>
-					)}
-				</h3>
-				<div className="droid-listen">
-					<select
-						className="inline-input"
-						value={listenHost}
-						onChange={(event) => setListenHost(event.target.value)}
-					>
-						<option value="0.0.0.0">0.0.0.0（所有网卡，局域网手机可连）</option>
-						<option value="127.0.0.1">127.0.0.1（仅本机）</option>
-						{lanIps.map((ip) => (
-							<option key={ip} value={ip}>
-								{ip}（网卡）
-							</option>
-						))}
-					</select>
-					<input
-						className="inline-input"
-						style={{ maxWidth: 110 }}
-						value={listenPort}
-						placeholder="端口"
-						onChange={(event) => setListenPort(event.target.value.replace(/\D/g, ""))}
-					/>
-					<button
-						type="button"
-						className="primary"
-						disabled={!listenHost || !listenPort}
-						onClick={() => send({ type: "droid_set_listen", host: listenHost, port: Number(listenPort) })}
-					>
-						应用并监听
-					</button>
-				</div>
-
-				<h3 className="api-model-section">连接令牌（{active.length} 个有效）</h3>
-				<div className="droid-token-create">
-					<input
-						className="inline-input"
-						placeholder="token 名称，例如 测试机-一加"
-						value={label}
-						onChange={(event) => setLabel(event.target.value)}
-					/>
-					<button
-						type="button"
-						className="primary"
-						onClick={() => {
-							if (!label.trim()) return;
-							send({ type: "droid_token_create", label: label.trim() });
-							setLabel("");
-						}}
-					>
-						创建 token
-					</button>
-				</div>
-				{tokens.length === 0 ? (
-					<div className="ws-empty">还没有创建 token。</div>
-				) : (
-					<table className="api-model-table">
-						<thead>
-							<tr>
-								<th>名称</th>
-								<th>token</th>
-								<th>状态</th>
-								<th>创建 / 最近使用</th>
-								<th />
-							</tr>
-						</thead>
-						<tbody>
-							{tokens.map((token) => (
-								<tr key={token.id}>
-									<td>{token.label}</td>
-									<td className="api-model-target">
-										<code>{revealed === token.id ? token.token : `${token.token.slice(0, 12)}…`}</code>
-									</td>
-									<td>
-										{token.revokedAt ? (
-											<span className="api-model-chip api-model-chip--failed">已吊销</span>
-										) : (
-											<span className="api-model-chip api-model-chip--done">有效</span>
-										)}
-									</td>
-									<td>
-										{formatTime(token.createdAt)} / {formatTime(token.lastUsedAt)}
-									</td>
-									<td>
-										<button
-											type="button"
-											className="ghost small"
-											onClick={() => setRevealed((prev) => (prev === token.id ? null : token.id))}
-										>
-											{revealed === token.id ? "隐藏" : "显示/复制"}
-										</button>
-										{!token.revokedAt ? (
+					<div className="droid-card">
+						<h3 className="droid-card__title">
+							连接令牌
+							<span className="api-model-chip api-model-chip--manual">{active.length} 个有效</span>
+						</h3>
+						<div className="droid-field">
+							<label>新建 token</label>
+							<div className="droid-inline">
+								<input
+									value={label}
+									placeholder="名称，例如 测试机-一加"
+									onChange={(event) => setLabel(event.target.value)}
+								/>
+								<button
+									type="button"
+									className="primary"
+									onClick={() => {
+										if (!label.trim()) return;
+										send({ type: "droid_token_create", label: label.trim() });
+										setLabel("");
+									}}
+								>
+									创建
+								</button>
+							</div>
+						</div>
+						{tokens.length === 0 ? (
+							<p className="droid-hint">还没有 token。创建一个，填进手机上的 DroidBridge。</p>
+						) : (
+							<div className="droid-token-list">
+								{tokens.map((token) => (
+									<div key={token.id} className={`droid-token ${token.revokedAt ? "revoked" : ""}`}>
+										<div className="droid-token__main">
+											<div className="droid-token__name">{token.label}</div>
+											<div className="droid-token__val">
+												{revealed === token.id ? token.token : `${token.token.slice(0, 16)}…`}
+											</div>
+											<div className="droid-token__meta">
+												{token.revokedAt ? "已吊销" : `创建 ${formatTime(token.createdAt)} · 最近使用 ${formatTime(token.lastUsedAt)}`}
+											</div>
+										</div>
+										<div className="droid-token__ops">
 											<button
 												type="button"
-												className="ghost small danger"
-												onClick={() => send({ type: "droid_token_revoke", id: token.id })}
+												className="ghost small"
+												onClick={() => {
+													const show = revealed !== token.id;
+													setRevealed((prev) => (prev === token.id ? null : token.id));
+													if (show) void navigator.clipboard?.writeText(token.token).catch(() => undefined);
+												}}
 											>
-												吊销
+												{revealed === token.id ? "隐藏" : "显示/复制"}
 											</button>
-										) : null}
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				)}
-
-				<h3 className="api-model-section">设备（{devices.filter((device) => device.online).length} 台在线）</h3>
-				{devices.length === 0 ? (
-					<div className="ws-empty">还没有设备注册过。安装 DroidBridge 并填入上面的地址与 token。</div>
-				) : (
-					<table className="api-model-table api-model-list">
-						<thead>
-							<tr>
-								<th>名称</th>
-								<th>状态</th>
-								<th>机型 / 系统</th>
-								<th>root</th>
-								<th>最近在线</th>
-								<th />
-							</tr>
-						</thead>
-						<tbody>
-							{devices.map((device) => (
-								<tr key={device.id}>
-									<td className="api-model-name">
-										{renaming?.id === device.id ? (
-											<span className="droid-rename">
-												<input
-													className="inline-input"
-													value={renaming.name}
-													onChange={(event) => setRenaming({ id: device.id, name: event.target.value })}
-												/>
+											{!token.revokedAt ? (
 												<button
 													type="button"
-													className="ghost small"
-													onClick={() => {
-														send({ type: "droid_device_rename", id: device.id, name: renaming.name });
-														setRenaming(null);
-													}}
+													className="ghost small danger"
+													onClick={() => send({ type: "droid_token_revoke", id: token.id })}
 												>
-													保存
+													吊销
 												</button>
-											</span>
-										) : (
-											device.name
-										)}
-									</td>
-									<td>
-										<span
-											className={`api-model-chip ${device.online ? "api-model-chip--done" : "api-model-chip--manual"}`}
-										>
-											{device.online ? "在线" : "离线"}
-										</span>
-									</td>
-									<td>
-										{device.model} · Android {device.androidVersion}
-									</td>
-									<td>{device.rooted ? "已 root" : "未 root"}</td>
-									<td>{formatTime(device.lastSeen)}</td>
-									<td>
-										<button
-											type="button"
-											className="ghost small"
-											onClick={() => setRenaming({ id: device.id, name: device.name })}
-										>
-											重命名
-										</button>
-										<button
-											type="button"
-											className="ghost small danger"
-											onClick={() => send({ type: "droid_device_remove", id: device.id })}
-										>
-											移除
-										</button>
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				)}
+											) : null}
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+
+				{/* 右栏：设备 + 接入指引 */}
+				<div className="droid-col">
+					<div className="droid-card">
+						<h3 className="droid-card__title">
+							设备
+							<span className="api-model-chip api-model-chip--manual">
+								{onlineCount} 在线 / {devices.length} 台
+							</span>
+						</h3>
+						{devices.length === 0 ? (
+							<p className="droid-hint">还没有设备注册过。按右侧指引安装 DroidBridge 并反连。</p>
+						) : (
+							<div className="droid-device-list">
+								{devices.map((device) => (
+									<div key={device.id} className={`droid-device ${device.online ? "" : "offline"}`}>
+										<div className="droid-device__head">
+											<span className={`droid-dot ${device.online ? "" : "off"}`} />
+											<span className="droid-device__name">{device.name}</span>
+											<span className="droid-device__model">{device.model}</span>
+										</div>
+										<div className="droid-device__facts">
+											<span className="droid-tag">Android {device.androidVersion} (SDK {device.sdkInt})</span>
+											{device.rooted ? <span className="droid-tag root">已 root</span> : <span className="droid-tag">未 root</span>}
+											<span className="droid-tag">{device.online ? "在线" : `离线 · ${formatTime(device.lastSeen)}`}</span>
+											<span className="droid-tag mono-tag">id {device.id.slice(0, 8)}</span>
+										</div>
+										<div className="droid-device__ops">
+											{renaming?.id === device.id ? (
+												<>
+													<input
+														value={renaming.name}
+														onChange={(event) => setRenaming({ id: device.id, name: event.target.value })}
+													/>
+													<button
+														type="button"
+														onClick={() => {
+															send({ type: "droid_device_rename", id: device.id, name: renaming.name });
+															setRenaming(null);
+														}}
+													>
+														保存
+													</button>
+													<button type="button" onClick={() => setRenaming(null)}>
+														取消
+													</button>
+												</>
+											) : (
+												<>
+													<button type="button" className="ghost small" onClick={() => setRenaming({ id: device.id, name: device.name })}>
+														重命名
+													</button>
+													<button
+														type="button"
+														className="ghost small danger"
+														onClick={() => send({ type: "droid_device_remove", id: device.id })}
+													>
+														移除
+													</button>
+												</>
+											)}
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
+					<div className="droid-card">
+						<h3 className="droid-card__title">接入指引</h3>
+						<ol className="droid-steps">
+							<li>左侧创建一个 token 并复制。</li>
+							<li>
+								手机安装 DroidBridge（<code>packages/droid-apk</code> 构建产物），填入地址与 token：
+								<div className="mono">{reverseAddress.url}</div>
+							</li>
+							<li>点「启动反连」，Magisk 弹窗点允许。</li>
+							<li>设备出现在上方即接入成功；到对话页打开「安卓」开关，Agent 即可操控设备。</li>
+						</ol>
+						{firstToken ? <div className="mono">{`${reverseAddress.url}?token=${firstToken.token}`}</div> : null}
+					</div>
+				</div>
 			</div>
 		</div>
 	);

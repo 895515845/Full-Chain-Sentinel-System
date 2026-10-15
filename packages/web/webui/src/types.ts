@@ -661,6 +661,8 @@ export interface ZGStateSnapshot {
 	compacting: boolean;
 	/** When that compaction started, for the elapsed time; null when idle. */
 	compactionStartedAt: number | null;
+	/** The Droid plugin's toolset switch (device page persists it; the chat toggles it). */
+	droidEnabled: boolean;
 }
 
 export interface SessionInfoView {

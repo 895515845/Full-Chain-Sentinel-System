@@ -8,7 +8,7 @@ import type {
 	ZGSessionPresetView,
 	ZGStatsView,
 } from "../types.ts";
-import { ApiModelIcon, BellIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
+import { ApiModelIcon, BellIcon, DroidIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
 import { ModelingMenu } from "./ModelingMenu.tsx";
 import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
 
@@ -42,6 +42,8 @@ export function Composer({
 	goalDisabledReason,
 	modeling,
 	modelingAttached,
+	droidEnabled,
+	onToggleDroid,
 	apiModels,
 	freshConversation,
 	presets,
@@ -70,6 +72,12 @@ export function Composer({
 	 * can only model one thing at a time.
 	 */
 	modeling: ZGModelingState | null;
+	/**
+	 * The Droid plugin's toolset switch. Off is maximally clean: no device tools
+	 * in the prompt, nothing in context.
+	 */
+	droidEnabled: boolean;
+	onToggleDroid: (next: boolean) => void;
 	/**
 	 * The modeling records already attached to this conversation (带建模数据).
 	 * While set, `api_model_read` is mounted and the picker shows them instead of
@@ -206,6 +214,25 @@ export function Composer({
 						) : modelingAttached.length > 0 ? (
 							<span className="modeling-trigger__count">{modelingAttached.length}</span>
 						) : null}
+					</button>
+					{/* Android tools: an explicit opt-in. Off is the clean state — no
+					    device tools in the prompt, nothing in context. */}
+					<button
+						type="button"
+						className={`composer-tool modeling-trigger ${droidEnabled ? "on" : ""}`}
+						disabled={!hasProject}
+						onClick={() => onToggleDroid(!droidEnabled)}
+						title={
+							!hasProject
+								? "请先创建或选择一个项目"
+								: droidEnabled
+									? "安卓工具已挂载（droid_* / apk_*）。点击摘除，回到无痕迹状态"
+									: "挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线"
+						}
+					>
+						<DroidIcon />
+						安卓
+						{droidEnabled ? <span className="modeling-trigger__count on">✓</span> : null}
 					</button>
 					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
 				</div>

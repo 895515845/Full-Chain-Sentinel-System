@@ -1704,6 +1704,8 @@ export function App() {
 									onOpenGoal={() => setGoalOpen(true)}
 									modeling={snapshot?.modeling ?? null}
 									modelingAttached={snapshot?.modelingAttached ?? []}
+									droidEnabled={snapshot?.droidEnabled ?? false}
+									onToggleDroid={(next) => send({ type: "droid_set_enabled", enabled: next })}
 									apiModels={
 										snapshot?.project
 											? apiModels.filter((item) => item.projectId === snapshot.project?.id)
@@ -1817,7 +1819,6 @@ export function App() {
 						/>
 					) : page === "droid" ? (
 						<DroidPage
-							enabled={droidState.enabled}
 							devices={droidState.devices}
 							tokens={droidState.tokens}
 							listen={droidState.listen}

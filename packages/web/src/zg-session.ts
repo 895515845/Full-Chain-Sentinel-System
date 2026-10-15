@@ -2601,6 +2601,7 @@ export class ZGAgentRuntime {
 			preset: this.presetView(active),
 			modeling: this.modelingView(active),
 			modelingAttached: this.modelingAttachedView(active),
+			droidEnabled: this.droidOn,
 			gatekeeper,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,
