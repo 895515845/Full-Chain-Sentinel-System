@@ -1,6 +1,9 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 
+// The template is hand-written source, but upstream's newer revisions use double
+// quotes. These assertions check the escaping patterns, not the quote style, so
+// they accept either.
 describe("export HTML markdown link sanitization", () => {
 	const templateJs = readFileSync(new URL("../src/core/export-html/template.js", import.meta.url), "utf-8");
 
@@ -16,7 +19,7 @@ describe("export HTML markdown link sanitization", () => {
 	});
 
 	it("strips C0 controls before checking and emitting markdown URLs", () => {
-		expect(templateJs).toContain("replace(/[\\x00-\\x1f\\x7f]/g, '')");
+		expect(templateJs).toMatch(/replace\(\/\[\\x00-\\x1f\\x7f\]\/g, ['"]{2}\)/);
 		expect(templateJs).not.toMatch(/\^\\s\*\(javascript\|vbscript\|data\):/i);
 	});
 
@@ -33,26 +36,26 @@ describe("export HTML markdown link sanitization", () => {
 
 	it("escapes image data attributes", () => {
 		// Image data is embedded in src attributes and must not allow attribute breakout.
-		expect(templateJs).not.toMatch(/;base64,\$\{img\.data\}"/);
-		expect(templateJs).toMatch(/;base64,\$\{escapeHtml\(img\.data \|\| (?:''|"")\)\}"/);
+		expect(templateJs).not.toMatch(/;base64,\$\{img\.data\}['"]/);
+		expect(templateJs).toMatch(/;base64,\$\{escapeHtml\(img\.data \|\| (?:''|"")\)\}['"]/);
 	});
 
 	it("escapes entry IDs before inserting them into attributes", () => {
 		// Session entry IDs are embedded in id and data-entry-id attributes.
-		expect(templateJs).not.toMatch(/id="\$\{entryId\}"/);
-		expect(templateJs).not.toMatch(/data-entry-id="\$\{entryId\}"/);
+		expect(templateJs).not.toMatch(/id=['"]\$\{entryId\}['"]/);
+		expect(templateJs).not.toMatch(/data-entry-id=['"]\$\{entryId\}['"]/);
 		expect(templateJs).toMatch(/entry-\$\{escapeHtml\(entry\.id\)\}/);
-		expect(templateJs).toMatch(/data-entry-id="\$\{escapeHtml\(entryId\)\}"/);
+		expect(templateJs).toMatch(/data-entry-id=['"]\$\{escapeHtml\(entryId\)\}['"]/);
 	});
 
 	it("escapes tree metadata rendered from session fields", () => {
 		// The tree renders session metadata via innerHTML, so dynamic fields must be escaped.
-		expect(templateJs).not.toMatch(/\[\$\{msg\.toolName \|\| 'tool'\}\]/);
+		expect(templateJs).not.toMatch(/\[\$\{msg\.toolName \|\| ['"]tool['"]\}\]/);
 		expect(templateJs).not.toMatch(/\[\$\{msg\.role\}\]/);
 		expect(templateJs).not.toMatch(/\[model: \$\{entry\.modelId\}\]/);
 		expect(templateJs).not.toMatch(/\[thinking: \$\{entry\.thinkingLevel\}\]/);
 		expect(templateJs).not.toMatch(/\[\$\{entry\.type\}\]/);
-		expect(templateJs).toMatch(/\$\{escapeHtml\(msg\.toolName \|\| 'tool'\)\}/);
+		expect(templateJs).toMatch(/\$\{escapeHtml\(msg\.toolName \|\| ['"]tool['"]\)\}/);
 		expect(templateJs).toMatch(/\$\{escapeHtml\(msg\.role\)\}/);
 		expect(templateJs).toMatch(/\$\{escapeHtml\(entry\.modelId\)\}/);
 		expect(templateJs).toMatch(/\$\{escapeHtml\(entry\.thinkingLevel\)\}/);
@@ -61,7 +64,7 @@ describe("export HTML markdown link sanitization", () => {
 
 	it("escapes model names in the exported header", () => {
 		// Assistant message provider/model values are collected from the session and rendered with innerHTML.
-		expect(templateJs).not.toMatch(/\$\{globalStats\.models\.join\(', '\) \|\| 'unknown'\}/);
-		expect(templateJs).toMatch(/\$\{escapeHtml\(globalStats\.models\.join\(', '\) \|\| 'unknown'\)\}/);
+		expect(templateJs).not.toMatch(/\$\{globalStats\.models\.join\(['"], ['"]\) \|\| ['"]unknown['"]\}/);
+		expect(templateJs).toMatch(/\$\{escapeHtml\(globalStats\.models\.join\(['"], ['"]\) \|\| ['"]unknown['"]\)\}/);
 	});
 });
