@@ -1,6 +1,6 @@
 import { describeEval, StructuredOutputJudge } from "vitest-evals";
-import { inspectAddedModel, type AddedModelOutput } from "./configured-runtime.ts";
 import { createPiDocumentationEvalHarness } from "../src/harness.ts";
+import { type AddedModelOutput, inspectAddedModel } from "./configured-runtime.ts";
 
 const PROVIDER_ID = "openai";
 const MODEL_ID = "fixture-chat";

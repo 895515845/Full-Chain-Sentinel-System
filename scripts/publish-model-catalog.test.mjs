@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -47,14 +47,7 @@ test("publishes explicit per-type and total model counts", (t) => {
 
 	const result = spawnSync(
 		process.execPath,
-		[
-			"scripts/publish-model-catalog.mjs",
-			"--input",
-			input,
-			"--source-commit",
-			"test-commit",
-			"--dry-run",
-		],
+		["scripts/publish-model-catalog.mjs", "--input", input, "--source-commit", "test-commit", "--dry-run"],
 		{ cwd: root, encoding: "utf8" },
 	);
 	assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);

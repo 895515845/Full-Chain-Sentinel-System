@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	copyFileSync,
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 function printUsage() {
 	console.log(`Usage: node scripts/diff-model-catalog.mjs [--thinking] [provider ...]
@@ -154,7 +163,11 @@ try {
 
 	const nodeModules = join(repoRoot, "node_modules");
 	if (existsSync(nodeModules)) {
-		symlinkSync(nodeModules, join(baselineWorktree, "node_modules"), process.platform === "win32" ? "junction" : "dir");
+		symlinkSync(
+			nodeModules,
+			join(baselineWorktree, "node_modules"),
+			process.platform === "win32" ? "junction" : "dir",
+		);
 	}
 
 	console.log("Generating catalog from HEAD...");

@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import {
 	compareModelCatalogPiVersions,
@@ -127,7 +121,9 @@ function validateBundle(inputDir) {
 				throw new Error(`Invalid model entry in provider catalog: ${providerId}`);
 			}
 			if (!MODEL_TYPES.includes(model.type)) {
-				throw new Error(`Model entry has an unknown type: ${providerId}/${model.id} (${JSON.stringify(model.type)})`);
+				throw new Error(
+					`Model entry has an unknown type: ${providerId}/${model.id} (${JSON.stringify(model.type)})`,
+				);
 			}
 			const identity = `${model.type}:${model.id}`;
 			if (identities.has(identity)) throw new Error(`Duplicate model entry: ${providerId}/${identity}`);
@@ -147,8 +143,12 @@ function validateBundle(inputDir) {
 		}
 	}
 
-	const shardFiles = readdirSync(providersDir).filter((name) => name.endsWith(".json")).sort();
-	const expectedShardFiles = providerIds.flatMap((providerId) => [`${providerId}.json`, `${providerId}.all.json`]).sort();
+	const shardFiles = readdirSync(providersDir)
+		.filter((name) => name.endsWith(".json"))
+		.sort();
+	const expectedShardFiles = providerIds
+		.flatMap((providerId) => [`${providerId}.json`, `${providerId}.all.json`])
+		.sort();
 	if (!isDeepStrictEqual(shardFiles, expectedShardFiles)) {
 		throw new Error("Provider shard files do not match providers.json");
 	}
@@ -292,9 +292,7 @@ async function main() {
 		const currentIndexPath = join(temporaryDir, "index-current.json");
 		const hasCurrentIndex = downloadIndex(options.bucket, options.endpoint, currentIndexPath);
 		const currentIndex = hasCurrentIndex ? validateIndex(readJson(currentIndexPath)) : undefined;
-		const currentEntry = currentIndex?.catalogs.find(
-			(catalog) => catalog.minimumPiVersion === MINIMUM_PI_VERSION,
-		);
+		const currentEntry = currentIndex?.catalogs.find((catalog) => catalog.minimumPiVersion === MINIMUM_PI_VERSION);
 		if (currentIndex?.defaultRevision === bundle.revision && currentEntry?.revision === bundle.revision) {
 			console.log(`Model catalog ${bundle.revision} is already current; no objects uploaded.`);
 			return;
@@ -306,8 +304,14 @@ async function main() {
 			[bundle.allModelsPath, getModelCatalogArtifactKey(revision, "models.all.json")],
 			[bundle.providerIndexPath, getModelCatalogArtifactKey(revision, "providers.json")],
 			...bundle.providerIds.flatMap((providerId) => [
-				[join(bundle.providersDir, `${providerId}.json`), getModelCatalogProviderKey(revision, providerId, "legacy")],
-				[join(bundle.providersDir, `${providerId}.all.json`), getModelCatalogProviderKey(revision, providerId, "typed")],
+				[
+					join(bundle.providersDir, `${providerId}.json`),
+					getModelCatalogProviderKey(revision, providerId, "legacy"),
+				],
+				[
+					join(bundle.providersDir, `${providerId}.all.json`),
+					getModelCatalogProviderKey(revision, providerId, "typed"),
+				],
 			]),
 		];
 		for (const [sourcePath, key] of uploads) {
