@@ -4,16 +4,16 @@ plugins {
 }
 
 android {
-	namespace = "com.zgagent.droidbridge"
+	namespace = "com.sentinel.droidbridge"
 	compileSdk = 34
 
 	defaultConfig {
-		applicationId = "com.zgagent.droidbridge"
+		applicationId = "com.sentinel.droidbridge"
 		// minSdk 26 (Android 8.0)：前台服务类型与通知渠道都按现代行为走。
 		minSdk = 26
 		targetSdk = 34
 		// 版本号是"手机上装的是哪次构建"的唯一外部标识：装机后可用
-		// `dumpsys package com.zgagent.droidbridge | grep versionName` 或系统应用信息页核对。
+		// `dumpsys package com.sentinel.droidbridge | grep versionName` 或系统应用信息页核对。
 		versionCode = 3
 		versionName = "0.1.2"
 	}

@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync, realpathSync } from "fs";
+import { accessSync, constants, existsSync, readFileSync, realpathSync, renameSync } from "fs";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { basename, dirname, join, resolve, sep, win32 } from "path";
@@ -596,6 +596,32 @@ export const APP_NAME: string = piConfigName || "pi";
 export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
 export const VERSION: string = pkg.version || "0.0.0";
+
+/**
+ * The product used to be called ZGAgent and kept everything in ~/.zgagent. Move that
+ * directory over on first run, otherwise a rebranded install looks like a fresh one:
+ * projects, sessions, the vulnerability hub, the model configuration and the gate
+ * audit all live under it. Only moves when the new directory does not exist yet, and
+ * reports a failure with the manual command instead of silently starting empty.
+ */
+function migrateLegacyConfigDir(): void {
+	const legacyName = ".zgagent";
+	if (CONFIG_DIR_NAME === legacyName) return;
+	const current = join(homedir(), CONFIG_DIR_NAME);
+	if (existsSync(current)) return;
+	const legacy = join(homedir(), legacyName);
+	if (!existsSync(legacy)) return;
+	try {
+		renameSync(legacy, current);
+		console.log(`已将数据目录 ${legacy} 迁移到 ${current}`);
+	} catch (error) {
+		console.error(
+			`数据目录迁移失败（${legacy} -> ${current}）：${String(error)}\n` + `请手动执行：mv ${legacy} ${current}`,
+		);
+	}
+}
+
+migrateLegacyConfigDir();
 
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;

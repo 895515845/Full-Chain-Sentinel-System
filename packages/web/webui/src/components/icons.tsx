@@ -242,3 +242,33 @@ export function CheckIcon(props: IconProps) {
 export function GateIcon(props: IconProps) {
 	return <ShieldCheck size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
+
+/**
+ * The product mark: a shield with a chain link inside (source: brand/icons/01-shield-link.svg).
+ *
+ * Unlike the lucide icons above it is filled rather than stroked, so it takes no stroke
+ * width; like them it inherits `currentColor`.
+ */
+export function SentinelMark({ size = 20, className }: { size?: number; className?: string }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox="0 0 64 64"
+			className={className}
+			aria-hidden="true"
+			focusable="false"
+		>
+			<path
+				fill="currentColor"
+				fillRule="evenodd"
+				d="M32 2.5 57.5 12v19.2c0 15.1-11.4 26.6-25.5 31.6C17.9 57.8 6.5 46.3 6.5 31.2V12L32 2.5Zm0 6.6L12.5 16.4v14.8c0 11.9 8.8 21.2 19.5 25.6 10.7-4.4 19.5-13.7 19.5-25.6V16.4L32 9.1Z"
+			/>
+			<path
+				fill="currentColor"
+				fillRule="evenodd"
+				d="M27 20h10a8 8 0 0 1 8 8v8a8 8 0 0 1-8 8H27a8 8 0 0 1-8-8v-8a8 8 0 0 1 8-8Zm2 7h6a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3h-6a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3Z"
+			/>
+		</svg>
+	);
+}
