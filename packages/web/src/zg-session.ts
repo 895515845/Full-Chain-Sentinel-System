@@ -1399,6 +1399,27 @@ export class ZGAgentRuntime {
 		return { enabled: this.droidOn, devices: this.droids.listDevices(), tokens: this.droids.listTokens() };
 	}
 
+	/** The persisted reverse-listener config; null until the operator enabled it. */
+	droidListenConfig(): { host: string; port: number } | null {
+		const host = this.droids.getMeta("listenHost");
+		const port = this.droids.getMeta("listenPort");
+		if (!host || !port) return null;
+		return { host, port: Number(port) };
+	}
+
+	/** Persist and (re)bind the dedicated reverse-connection listener. */
+	async droidSetListen(host: string, port: number): Promise<void> {
+		const trimmed = host.trim();
+		if (!trimmed) throw new Error("监听地址不能为空");
+		if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("端口必须在 1-65535 之间");
+		this.droids.setMeta("listenHost", trimmed);
+		this.droids.setMeta("listenPort", String(port));
+		if (!this.droidGateway) throw new Error("设备网关未启动");
+		const result = await this.droidGateway.listen(trimmed, port);
+		if (!result.ok) throw new Error(result.error ?? "监听失败");
+		this.hooks.onDroidChange();
+	}
+
 	/** Flip the toolset switch; every console session remounts its tool set. */
 	async setDroidEnabled(enabled: boolean): Promise<void> {
 		this.droidOn = enabled;

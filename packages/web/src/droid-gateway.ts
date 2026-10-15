@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage } from "node:http";
+import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import { type AddressInfo, createServer, type Socket as TcpSocket } from "node:net";
 import type { Duplex } from "node:stream";
 import type { RawData, WebSocket } from "ws";
@@ -71,6 +71,8 @@ export class DroidGateway {
 	/** reqId → deviceId, so a disconnect can fail exactly that device's calls. */
 	private readonly pendingDevices = new Map<string, string>();
 	private readonly tunnels = new Map<string, TcpTunnel>();
+	/** The dedicated reverse-connection listener (independent of the console port). */
+	private listener: { server: HttpServer; host: string; port: number } | undefined;
 	private counter = 0;
 
 	private readonly store: DroidStore;
@@ -308,6 +310,62 @@ export class DroidGateway {
 	/** Drop a device's connection (token revoked, device removed). */
 	disconnect(deviceId: string): void {
 		this.connections.get(deviceId)?.ws.close(4004, "revoked");
+	}
+
+	/**
+	 * The dedicated reverse-connection listener. Independent from the console's
+	 * own HTTP server so the bind address can be changed at runtime: the operator
+	 * picks the interface (0.0.0.0 / 127.0.0.1 / one NIC IP) on the device page
+	 * and the socket rebinds immediately.
+	 */
+	listenInfo(): { host: string; port: number } | undefined {
+		return this.listener ? { host: this.listener.host, port: this.listener.port } : undefined;
+	}
+
+	async listen(host: string, port: number): Promise<{ ok: boolean; port?: number; error?: string }> {
+		this.stopListener();
+		const server = createHttpServer();
+		server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+			// Dedicated listener: every upgrade is a device, and the same token rule
+			// applies (the path is not enforced here — the APK always uses /ws/droid).
+			const url = new URL(request.url ?? "/", "http://localhost");
+			const token = url.searchParams.get("token") ?? "";
+			const record = this.store.findToken(token);
+			if (!record) {
+				socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+				socket.destroy();
+				this.hooks.log("设备反连被拒绝：token 无效或已吊销");
+				return;
+			}
+			this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, record.id));
+		});
+		const result = new Promise<{ ok: boolean; port?: number; error?: string }>((resolve) => {
+			server.once("error", (error: Error) => {
+				if (this.listener?.server === server) this.listener = undefined;
+				resolve({ ok: false, error: `监听失败：${error.message}` });
+			});
+			server.listen(port, host === "0.0.0.0" || host === "::" ? undefined : host, () => {
+				const boundPort = (server.address() as AddressInfo).port;
+				this.listener = { server, host, port: boundPort };
+				this.hooks.log(`设备反连监听：${host}:${boundPort}`);
+				resolve({ ok: true, port: boundPort });
+			});
+		});
+		const outcome = await result;
+		if (outcome.ok) this.hooks.onDeviceChange();
+		return outcome;
+	}
+
+	stopListener(): void {
+		if (!this.listener) return;
+		const server = this.listener.server;
+		this.listener = undefined;
+		server.close();
+	}
+
+	listenerHostOf(request: IncomingMessage): string | undefined {
+		void request;
+		return this.listener?.host;
 	}
 
 	listTunnels(): Array<{ tunnelId: string; deviceId: string; port: number; targetHost: string; targetPort: number }> {

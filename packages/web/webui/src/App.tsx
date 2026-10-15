@@ -279,10 +279,20 @@ export function App() {
 	 * because the source list is broadcast as soon as the source is created. */
 	const [pocOfficialSyncing, setPocOfficialSyncing] = useState(false);
 	/** Android devices: the device page's gateway state. */
-	const [droidState, setDroidState] = useState<{ enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }>({
+	const [droidState, setDroidState] = useState<{
+		enabled: boolean;
+		devices: DroidDevice[];
+		tokens: DroidToken[];
+		listen: { host: string; port: number } | null;
+		listenConfig: { host: string; port: number } | null;
+		lanIps: string[];
+	}>({
 		enabled: false,
 		devices: [],
 		tokens: [],
+		listen: null,
+		listenConfig: null,
+		lanIps: [],
 	});
 	/** Business modeling: the runs of the active project, and the open drill-down. */
 	const [apiModels, setApiModels] = useState<ZGApiModelSummary[]>([]);
@@ -708,7 +718,14 @@ export function App() {
 					setApiModels(message.items);
 					break;
 				case "droid_state":
-					setDroidState({ enabled: message.enabled, devices: message.devices, tokens: message.tokens });
+					setDroidState({
+						enabled: message.enabled,
+						devices: message.devices,
+						tokens: message.tokens,
+						listen: message.listen,
+						listenConfig: message.listenConfig,
+						lanIps: message.lanIps,
+					});
 					break;
 				case "api_model":
 					setApiModelDetail(message.model);
@@ -1803,6 +1820,9 @@ export function App() {
 							enabled={droidState.enabled}
 							devices={droidState.devices}
 							tokens={droidState.tokens}
+							listen={droidState.listen}
+							listenConfig={droidState.listenConfig}
+							lanIps={droidState.lanIps}
 							consoleUrl={location.origin}
 							send={send}
 						/>

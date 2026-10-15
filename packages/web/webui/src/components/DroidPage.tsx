@@ -20,13 +20,22 @@ export function DroidPage({
 	enabled,
 	devices,
 	tokens,
+	listen,
+	listenConfig,
+	lanIps,
 	consoleUrl,
 	send,
 }: {
 	enabled: boolean;
 	devices: DroidDevice[];
 	tokens: DroidToken[];
-	/** The address the browser itself uses; the APK connects to the same host over WS. */
+	/** The dedicated reverse listener, when bound. */
+	listen: { host: string; port: number } | null;
+	/** What the operator picked; may differ from `listen` when binding failed. */
+	listenConfig: { host: string; port: number } | null;
+	/** Non-internal IPv4 addresses of the server, for the listen picker. */
+	lanIps: string[];
+	/** The address the browser itself uses; the fallback when no dedicated listener is bound. */
 	consoleUrl: string;
 	send(message: ZGClientMessage): void;
 }) {
@@ -34,6 +43,31 @@ export function DroidPage({
 	const [revealed, setRevealed] = useState<string | null>(null);
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 	const [loaded, setLoaded] = useState(false);
+	const [listenHost, setListenHost] = useState<string>("");
+	const [listenPort, setListenPort] = useState<string>("");
+
+	// Keep the picker aligned with what the operator last chose.
+	useEffect(() => {
+		if (listenConfig && !listenHost) {
+			setListenHost(listenConfig.host);
+			setListenPort(String(listenConfig.port));
+		}
+	}, [listenConfig, listenHost]);
+
+	/** The address the phone should dial: the dedicated listener when bound, the console origin otherwise. */
+	const reverseAddress = (() => {
+		if (listen) {
+			// 0.0.0.0 is a bind address, not something a phone can dial: substitute
+			// the machine's first LAN IPv4 and say so.
+			const host = listen.host === "0.0.0.0" ? (lanIps[0] ?? "0.0.0.0") : listen.host;
+			const note = listen.host === "0.0.0.0" && lanIps.length > 1 ? "（服务器多网卡，如不通请手改 IP）" : "";
+			return { url: `ws://${host}:${listen.port}/ws/droid`, note };
+		}
+		return {
+			url: consoleUrl.replace(/^http/, "ws").replace(/\/$/, "") + "/ws/droid",
+			note: "（未启用独立监听，随控制台地址）",
+		};
+	})();
 
 	useEffect(() => {
 		if (!loaded) {
@@ -94,6 +128,47 @@ export function DroidPage({
 							)}
 						</span>
 					</div>
+				</div>
+
+				<h3 className="api-model-section">
+					监听
+					{listen ? (
+						<span className="api-model-chip api-model-chip--done">
+							已监听 {listen.host}:{listen.port}
+						</span>
+					) : (
+						<span className="api-model-chip api-model-chip--manual">未启用独立监听</span>
+					)}
+				</h3>
+				<div className="droid-listen">
+					<select
+						className="inline-input"
+						value={listenHost}
+						onChange={(event) => setListenHost(event.target.value)}
+					>
+						<option value="0.0.0.0">0.0.0.0（所有网卡，局域网手机可连）</option>
+						<option value="127.0.0.1">127.0.0.1（仅本机）</option>
+						{lanIps.map((ip) => (
+							<option key={ip} value={ip}>
+								{ip}（网卡）
+							</option>
+						))}
+					</select>
+					<input
+						className="inline-input"
+						style={{ maxWidth: 110 }}
+						value={listenPort}
+						placeholder="端口"
+						onChange={(event) => setListenPort(event.target.value.replace(/\D/g, ""))}
+					/>
+					<button
+						type="button"
+						className="primary"
+						disabled={!listenHost || !listenPort}
+						onClick={() => send({ type: "droid_set_listen", host: listenHost, port: Number(listenPort) })}
+					>
+						应用并监听
+					</button>
 				</div>
 
 				<h3 className="api-model-section">连接令牌（{active.length} 个有效）</h3>

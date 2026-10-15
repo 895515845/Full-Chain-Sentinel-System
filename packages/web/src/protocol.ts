@@ -1138,6 +1138,7 @@ export type ZGClientMessage =
 	| { type: "droid_device_rename"; id: string; name: string }
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
+	| { type: "droid_set_listen"; host: string; port: number }
 	/** Close a record from the page, for a run whose session is no longer loaded. */
 	| { type: "end_api_model"; id: string }
 	| { type: "list_api_models"; filters?: ZGApiModelFilters }
@@ -1227,7 +1228,18 @@ export type ZGServerMessage =
 	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
 	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
-	| { type: "droid_state"; enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }
+	| {
+			type: "droid_state";
+			enabled: boolean;
+			devices: DroidDevice[];
+			tokens: DroidToken[];
+			/** The dedicated reverse listener, when it is bound. */
+			listen: { host: string; port: number } | null;
+			/** What the operator picked (may differ from `listen` when it failed to bind). */
+			listenConfig: { host: string; port: number } | null;
+			/** Non-internal IPv4 addresses of the server, for the listen picker. */
+			lanIps: string[];
+	  }
 	| { type: "error"; message: string };
 
 /**

@@ -114,9 +114,13 @@ beforeAll(async () => {
 	baseUrl = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 
-afterAll(() => {
-	for (const device of store.listDevices()) store.setDeviceOnline(device.id, false);
+afterAll(async () => {
+	// Close the listeners and every device connection first: their close handlers
+	// write "offline" back to the store, which must still be open.
+	gateway.stopListener();
+	for (const device of store.listDevices()) gateway.disconnect(device.id);
 	server.close();
+	await new Promise((resolve) => setTimeout(resolve, 50));
 	store.close();
 	rmSync(dir, { recursive: true, force: true });
 });
@@ -422,4 +426,50 @@ test("the TCP tunnel bridges a loopback connection into the device port", async 
 	expect(gateway.listTunnels()).toHaveLength(0);
 	echo.close();
 	device.close();
+});
+
+test("the dedicated listener accepts a device handshake and rebinds on demand", async () => {
+	// Bind on an ephemeral loopback port, exactly what the device page's 应用 does.
+	const bound = await gateway.listen("127.0.0.1", 0);
+	expect(bound.ok).toBe(true);
+	if (!bound.ok || !bound.port) return;
+	expect(gateway.listenInfo()?.host).toBe("127.0.0.1");
+
+	// A device dialing the dedicated listener registers like on the shared path.
+	const token = tokenOf("独立监听机");
+	const handshake = await new Promise<void>((resolve, reject) => {
+		const ws = new WebSocket(`ws://127.0.0.1:${bound.port}/ws/droid?token=${token}`);
+		ws.on("open", () => {
+			ws.send(
+				JSON.stringify({
+					t: "hello",
+					token,
+					deviceId: "dvc-9",
+					model: "OnePlus 12",
+					androidVersion: "14",
+					sdkInt: 34,
+					rooted: true,
+				}),
+			);
+		});
+		ws.on("message", (raw) => {
+			if (JSON.parse(String(raw)).t === "welcome") {
+				resolve();
+				ws.close();
+			}
+		});
+		ws.on("error", reject);
+	});
+	expect(handshake).toBeUndefined();
+	expect(store.getDevice("dvc-9")?.online).toBe(true);
+
+	// Rebinding stops the old listener: new dials there are refused.
+	const rebound = await gateway.listen("127.0.0.1", 0);
+	expect(rebound.ok).toBe(true);
+	const refused = await new Promise<string>((resolve) => {
+		const ws = new WebSocket(`ws://127.0.0.1:${bound.port}/ws/droid?token=${token}`);
+		ws.on("error", (error: Error) => resolve(error.message));
+	});
+	expect(refused).toContain("ECONNREFUSED");
+	gateway.stopListener();
 });

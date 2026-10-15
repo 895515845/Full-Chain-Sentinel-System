@@ -7,6 +7,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -365,10 +366,29 @@ export async function startZGServer(
 		broadcast({ type: "api_models", items: runtime.listApiModels() });
 	}
 
+	/** Non-internal IPv4 addresses of this host, for the listen-address picker. */
+	function lanIps(): string[] {
+		const ips: string[] = [];
+		for (const addresses of Object.values(networkInterfaces())) {
+			for (const address of addresses ?? []) {
+				if (address.family === "IPv4" && !address.internal) ips.push(address.address);
+			}
+		}
+		return ips;
+	}
+
 	/** Device gateway state, pushed whenever a device or token changes. */
 	function broadcastDroidDevices(): void {
 		const state = runtime.droidState();
-		broadcast({ type: "droid_state", enabled: state.enabled, devices: state.devices, tokens: state.tokens });
+		broadcast({
+			type: "droid_state",
+			enabled: state.enabled,
+			devices: state.devices,
+			tokens: state.tokens,
+			listen: droidGateway.listenInfo() ?? null,
+			listenConfig: runtime.droidListenConfig(),
+			lanIps: lanIps(),
+		});
 	}
 
 	/** Project list with each project's finding and gate-record counts, for the delete warning. */
@@ -521,6 +541,10 @@ export async function startZGServer(
 		log: (line: string) => console.error(`[zg-droid] ${line}`),
 	});
 	runtime.setDroidGateway(droidGateway);
+	// Restore the persisted reverse-connection listener (address the operator
+	// picked on the device page). Binding 0.0.0.0 is what lets a LAN phone dial in.
+	const listenConfig = runtime.droidListenConfig();
+	if (listenConfig) await droidGateway.listen(listenConfig.host, listenConfig.port);
 
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://localhost");
@@ -1285,6 +1309,9 @@ export async function startZGServer(
 						enabled: state.enabled,
 						devices: state.devices,
 						tokens: state.tokens,
+						listen: droidGateway.listenInfo() ?? null,
+						listenConfig: runtime.droidListenConfig(),
+						lanIps: lanIps(),
 					});
 					return;
 				}
@@ -1318,6 +1345,14 @@ export async function startZGServer(
 				}
 				case "droid_set_enabled": {
 					await runtime.setDroidEnabled(message.enabled);
+					return;
+				}
+				case "droid_set_listen": {
+					try {
+						await runtime.droidSetListen(message.host, message.port);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
 					return;
 				}
 				case "export_api_model": {

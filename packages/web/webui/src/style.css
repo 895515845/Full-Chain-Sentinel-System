@@ -8516,3 +8516,17 @@ button.link {
 	color: var(--text);
 	white-space: nowrap;
 }
+
+.droid-listen {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.droid-listen .inline-input:first-child {
+	flex: 1;
+	min-width: 220px;
+	max-width: 340px;
+}

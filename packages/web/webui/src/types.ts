@@ -959,6 +959,7 @@ export type ZGClientMessage =
 	| { type: "droid_device_rename"; id: string; name: string }
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
+	| { type: "droid_set_listen"; host: string; port: number }
 	| { type: "list_api_models"; filters?: ZGApiModelFilters }
 	| { type: "get_api_model"; id: string }
 	| { type: "delete_api_model"; id: string }
@@ -1047,7 +1048,15 @@ export type ZGServerMessage =
 	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
 	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
-	| { type: "droid_state"; enabled: boolean; devices: DroidDevice[]; tokens: DroidToken[] }
+	| {
+			type: "droid_state";
+			enabled: boolean;
+			devices: DroidDevice[];
+			tokens: DroidToken[];
+			listen: { host: string; port: number } | null;
+			listenConfig: { host: string; port: number } | null;
+			lanIps: string[];
+	  }
 	| { type: "error"; message: string };
 
 /**
