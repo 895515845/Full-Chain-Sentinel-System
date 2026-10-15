@@ -13,7 +13,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { ZG_MODES, type ZGGatekeeperConfig, type ZGMode } from "./protocol.ts";
+import { SENTINEL_MODES, type SentinelGatekeeperConfig, type SentinelMode } from "./protocol.ts";
 
 /** One judgment may take this long before it counts as a failure. */
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -28,7 +28,7 @@ export const MAX_CONCURRENCY = 64;
  * The default is the operator-approval mode: the console starts with the mode
  * that asks a human, never one that acts on its own.
  */
-const DEFAULT_CONFIG: ZGGatekeeperConfig = {
+const DEFAULT_CONFIG: SentinelGatekeeperConfig = {
 	mode: "review",
 	timeoutMs: DEFAULT_TIMEOUT_MS,
 	concurrency: DEFAULT_CONCURRENCY,
@@ -38,8 +38,8 @@ export function gatekeeperJsonPath(agentDir: string): string {
 	return `${agentDir}/gatekeeper.json`;
 }
 
-function isMode(value: unknown): value is ZGMode {
-	return typeof value === "string" && (ZG_MODES as readonly string[]).includes(value);
+function isMode(value: unknown): value is SentinelMode {
+	return typeof value === "string" && (SENTINEL_MODES as readonly string[]).includes(value);
 }
 
 /** Clamp a stored number into its usable range; a bad value reads as the default. */
@@ -52,7 +52,7 @@ function coerceNumber(value: unknown, fallback: number, min: number, max: number
 }
 
 /** Coerce an untrusted object into a usable config. */
-export function normalizeGatekeeperConfig(raw: unknown): ZGGatekeeperConfig {
+export function normalizeGatekeeperConfig(raw: unknown): SentinelGatekeeperConfig {
 	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
 	return {
 		mode: isMode(record.mode) ? record.mode : DEFAULT_CONFIG.mode,
@@ -62,7 +62,7 @@ export function normalizeGatekeeperConfig(raw: unknown): ZGGatekeeperConfig {
 }
 
 /** Read the persisted settings; a missing or corrupt file reads as the defaults. */
-export function readGatekeeperConfig(agentDir: string): ZGGatekeeperConfig {
+export function readGatekeeperConfig(agentDir: string): SentinelGatekeeperConfig {
 	const path = gatekeeperJsonPath(agentDir);
 	if (!existsSync(path)) return { ...DEFAULT_CONFIG };
 	try {
@@ -73,7 +73,7 @@ export function readGatekeeperConfig(agentDir: string): ZGGatekeeperConfig {
 	}
 }
 
-export function writeGatekeeperConfig(agentDir: string, config: ZGGatekeeperConfig): void {
+export function writeGatekeeperConfig(agentDir: string, config: SentinelGatekeeperConfig): void {
 	const path = gatekeeperJsonPath(agentDir);
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(normalizeGatekeeperConfig(config), null, "\t")}\n`, { mode: 0o600 });

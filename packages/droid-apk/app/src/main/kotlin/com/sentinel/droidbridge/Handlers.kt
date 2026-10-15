@@ -1,4 +1,4 @@
-package com.zgagent.droidbridge
+package com.sentinel.droidbridge
 
 import android.util.Base64
 import java.io.File

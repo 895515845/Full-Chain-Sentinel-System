@@ -8,7 +8,7 @@
  * command is compound (&&, ;, |, substitution) — those always require a human.
  */
 
-import type { ZGApprovalRequest } from "./protocol.ts";
+import type { SentinelApprovalRequest } from "./protocol.ts";
 
 export interface ApprovalOutcome {
 	approved: boolean;
@@ -19,7 +19,7 @@ export interface ApprovalOutcome {
 }
 
 interface PendingEntry {
-	request: ZGApprovalRequest;
+	request: SentinelApprovalRequest;
 	finalize: (outcome: ApprovalOutcome) => void;
 	abortListener: () => void;
 	signal: AbortSignal | undefined;
@@ -127,7 +127,7 @@ export class ApprovalGate {
 		return entries.length;
 	}
 
-	listPending(): ZGApprovalRequest[] {
+	listPending(): SentinelApprovalRequest[] {
 		return [...this.pending.values()].map((entry) => entry.request);
 	}
 

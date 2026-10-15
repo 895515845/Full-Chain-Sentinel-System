@@ -14,13 +14,18 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ZGVulnerability, ZGVulnFilters, ZGVulnSeverity, ZGVulnStatus } from "./protocol.ts";
+import type {
+	SentinelVulnerability,
+	SentinelVulnFilters,
+	SentinelVulnSeverity,
+	SentinelVulnStatus,
+} from "./protocol.ts";
 import {
 	isSeverityMismatch,
+	SENTINEL_VULN_SEVERITY_LABELS,
+	SENTINEL_VULN_STATUS_LABELS,
 	severityForCvss,
 	type VulnerabilityStore,
-	ZG_VULN_SEVERITY_LABELS,
-	ZG_VULN_STATUS_LABELS,
 } from "./vulnerabilities.ts";
 
 /** Longest tool output handed back to the model, so one record cannot flood the context. */
@@ -64,16 +69,16 @@ function clip(text: string, limit = MAX_TOOL_OUTPUT): string {
 	return `${text.slice(0, limit)}\n…（输出已截断，共 ${text.length} 字符）`;
 }
 
-function severityTag(severity: ZGVulnSeverity, cvss: number): string {
+function severityTag(severity: SentinelVulnSeverity, cvss: number): string {
 	const mismatch = isSeverityMismatch(severity, cvss) ? `，与 CVSS 档位（${severityForCvss(cvss)}）不一致` : "";
-	return `${severity}/${ZG_VULN_SEVERITY_LABELS[severity]} CVSS ${cvss.toFixed(1)}${mismatch}`;
+	return `${severity}/${SENTINEL_VULN_SEVERITY_LABELS[severity]} CVSS ${cvss.toFixed(1)}${mismatch}`;
 }
 
-function renderFull(vuln: ZGVulnerability): string {
+function renderFull(vuln: SentinelVulnerability): string {
 	const lines = [
 		`${vuln.label} ${vuln.title}`,
 		`等级：${severityTag(vuln.severity, vuln.cvss)}${vuln.cvssVector ? ` · 向量 ${vuln.cvssVector}` : ""}`,
-		`状态：${ZG_VULN_STATUS_LABELS[vuln.status]}`,
+		`状态：${SENTINEL_VULN_STATUS_LABELS[vuln.status]}`,
 		`目标：${vuln.target}`,
 	];
 	if (vuln.category) lines.push(`类型：${vuln.category}`);
@@ -108,8 +113,8 @@ interface SubmitDetails {
 	ok: boolean;
 	id?: string;
 	label?: string;
-	severity?: ZGVulnSeverity;
-	status?: ZGVulnStatus;
+	severity?: SentinelVulnSeverity;
+	status?: SentinelVulnStatus;
 	error?: string;
 }
 
@@ -123,7 +128,7 @@ interface GetDetails {
 	ok: boolean;
 	id?: string;
 	label?: string;
-	status?: ZGVulnStatus;
+	status?: SentinelVulnStatus;
 	error?: string;
 }
 
@@ -136,11 +141,11 @@ export interface VulnerabilityToolOptions {
 	/** Who is calling, e.g. "主代理" or "子代理 <runId>". */
 	getSource: () => string;
 	/** Called for critical/high findings so the runtime can push a notification. */
-	onHighSeverity?: (vuln: ZGVulnerability) => void;
+	onHighSeverity?: (vuln: SentinelVulnerability) => void;
 	/** Called after a record is created, so connected consoles refresh the hub page. */
 	onChange?: () => void;
 	/** Called once per created record, so a running goal can count it as its own finding. */
-	onSubmit?: (vuln: ZGVulnerability) => void;
+	onSubmit?: (vuln: SentinelVulnerability) => void;
 }
 
 const evidenceSchema = Type.Object({
@@ -330,9 +335,9 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 		parameters: listSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<ListDetails>> {
 			const project = requireProject();
-			const filters: ZGVulnFilters = {
-				...(params.status ? { status: params.status as ZGVulnStatus } : {}),
-				...(params.severity ? { severity: params.severity as ZGVulnSeverity } : {}),
+			const filters: SentinelVulnFilters = {
+				...(params.status ? { status: params.status as SentinelVulnStatus } : {}),
+				...(params.severity ? { severity: params.severity as SentinelVulnSeverity } : {}),
 				...(params.target?.trim() ? { target: params.target.trim() } : {}),
 				...(params.search?.trim() ? { search: params.search.trim() } : {}),
 			};
@@ -345,7 +350,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 			}
 			const lines = items.map(
 				(item) =>
-					`${item.label} | ${item.severity} | CVSS ${item.cvss.toFixed(1)} | ${ZG_VULN_STATUS_LABELS[item.status]} | ${item.target} | ${item.title}`,
+					`${item.label} | ${item.severity} | CVSS ${item.cvss.toFixed(1)} | ${SENTINEL_VULN_STATUS_LABELS[item.status]} | ${item.target} | ${item.title}`,
 			);
 			return {
 				content: [

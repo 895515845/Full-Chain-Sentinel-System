@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatSize } from "../transcript.ts";
-import type { ZGFileEntry, ZGFilePreview } from "../types.ts";
+import type { SentinelFileEntry, SentinelFilePreview } from "../types.ts";
 import { DirIcon, FileIcon, ParentDirIcon } from "./icons.tsx";
 
 /** Bytes of the container work directory the panel is currently showing. */
 export interface FilePanelState {
 	path: string;
-	entries: ZGFileEntry[];
-	preview: ZGFilePreview | null;
+	entries: SentinelFileEntry[];
+	preview: SentinelFilePreview | null;
 	/** True while a request for this panel is in flight. */
 	busy: boolean;
 }

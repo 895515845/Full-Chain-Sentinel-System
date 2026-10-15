@@ -1,4 +1,4 @@
-package com.zgagent.droidbridge
+package com.sentinel.droidbridge
 
 import android.Manifest
 import android.app.Activity

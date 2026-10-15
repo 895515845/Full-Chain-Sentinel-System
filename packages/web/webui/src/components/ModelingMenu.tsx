@@ -13,17 +13,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ZGApiModelSummary, ZGModelingState } from "../types.ts";
+import type { SentinelApiModelSummary, SentinelModelingState } from "../types.ts";
 import type { PresetMenuAnchor } from "./PresetMenu.tsx";
 
 export function ModelingMenu(props: {
 	anchor: PresetMenuAnchor;
 	/** The run in force for this conversation, if any: the first item ends it. */
-	modeling: ZGModelingState | null;
+	modeling: SentinelModelingState | null;
 	/** Records this conversation already carries; shown with a removal action. */
 	attached: ReadonlyArray<{ id: string; title: string }>;
 	/** The project's records, offered for attaching on a fresh conversation. */
-	records: readonly ZGApiModelSummary[];
+	records: readonly SentinelApiModelSummary[];
 	selected: readonly string[];
 	/** Attaching rides the first message, so an ongoing conversation cannot do it. */
 	canAttach: boolean;

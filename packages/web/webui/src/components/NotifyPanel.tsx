@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ZGNotifyConfig, ZGNotifyStatus, ZGTestResult } from "../types.ts";
+import type { SentinelNotifyConfig, SentinelNotifyStatus, SentinelTestResult } from "../types.ts";
 
 function formatWhen(at: number | null): string {
 	if (at === null) return "尚未发送过通知";
@@ -16,7 +16,7 @@ const KINDS = [
 ] as const;
 
 /** Every kind at the same value, for the 全选 / 全部不选 buttons. */
-function selectAll(value: boolean): ZGNotifyConfig["kinds"] {
+function selectAll(value: boolean): SentinelNotifyConfig["kinds"] {
 	return { runs: value, vulns: value, goals: value, engines: value, pocs: value };
 }
 
@@ -27,10 +27,10 @@ export function NotifyPanel({
 	onSave,
 	onTest,
 }: {
-	config: ZGNotifyConfig;
-	status: ZGNotifyStatus;
-	onSave: (config: ZGNotifyConfig) => void;
-	onTest: (config: ZGNotifyConfig) => Promise<ZGTestResult | null>;
+	config: SentinelNotifyConfig;
+	status: SentinelNotifyStatus;
+	onSave: (config: SentinelNotifyConfig) => void;
+	onTest: (config: SentinelNotifyConfig) => Promise<SentinelTestResult | null>;
 }) {
 	const [enabled, setEnabled] = useState(config.enabled);
 	const [webhook, setWebhook] = useState(config.webhook);
@@ -39,7 +39,7 @@ export function NotifyPanel({
 	const [kinds, setKinds] = useState(config.kinds);
 	const [summaryLimit, setSummaryLimit] = useState(String(config.summaryLimit));
 	const [testing, setTesting] = useState(false);
-	const [result, setResult] = useState<ZGTestResult | null>(null);
+	const [result, setResult] = useState<SentinelTestResult | null>(null);
 
 	const draft = useMemo(
 		() => ({
@@ -67,7 +67,8 @@ export function NotifyPanel({
 	return (
 		<div className="settings">
 			<p className="settings-hint">
-				任务完成后向钉钉群机器人推送一条 markdown 消息。在钉钉群「群设置 → 智能群助手 → 添加机器人 → 自定义」里拿到 webhook
+				任务完成后向钉钉群机器人推送一条 markdown 消息。在钉钉群「群设置 → 智能群助手 → 添加机器人 → 自定义」里拿到
+				webhook
 				地址；机器人若开启「加签」，把密钥填进签名密钥；若用「自定义关键词」，把关键词填进关键词字段（会拼在正文最前面）。
 			</p>
 			<label className="check-row">
@@ -98,7 +99,7 @@ export function NotifyPanel({
 				<input
 					value={keyword}
 					onChange={(event) => setKeyword(event.target.value)}
-					placeholder="ZGAgent"
+					placeholder="Full Chain Sentinel"
 					spellCheck={false}
 				/>
 			</label>
@@ -110,16 +111,10 @@ export function NotifyPanel({
 							已勾选 {KINDS.filter(([key]) => kinds[key]).length} / {KINDS.length} 项
 						</span>
 						<span className="kinds-head-ops">
-							<button
-								type="button"
-								onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(true) }))}
-							>
+							<button type="button" onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(true) }))}>
 								全选
 							</button>
-							<button
-								type="button"
-								onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(false) }))}
-							>
+							<button type="button" onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(false) }))}>
 								全部不选
 							</button>
 						</span>
@@ -150,7 +145,8 @@ export function NotifyPanel({
 					spellCheck={false}
 				/>
 				<span className="field-sub">
-					留空或填 0 = 不截断。作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」；正文超过钉钉单条
+					留空或填 0 =
+					不截断。作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」；正文超过钉钉单条
 					20000 字节时仍会被硬截断并注明。
 				</span>
 			</label>

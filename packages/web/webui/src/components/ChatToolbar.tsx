@@ -10,8 +10,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { ZGMode, ZGSessionPresetView, ZGSessionStatus, ZGThinkingLevel } from "../types.ts";
-import { ZG_MODES, ZG_MODE_LABELS } from "../types.ts";
+import type { SentinelMode, SentinelSessionPresetView, SentinelSessionStatus, SentinelThinkingLevel } from "../types.ts";
+import { SENTINEL_MODE_LABELS, SENTINEL_MODES } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
 import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
@@ -25,7 +25,7 @@ function compactionElapsed(startedAt: number | null, now: number): string {
 	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
 }
 
-const THINKING_LABELS: Record<ZGThinkingLevel, string> = {
+const THINKING_LABELS: Record<SentinelThinkingLevel, string> = {
 	off: "关闭",
 	minimal: "最低",
 	low: "低",
@@ -63,28 +63,28 @@ export function ChatToolbar({
 	onAllowPrefix,
 	onRemoveAllowedPrefix,
 }: {
-	mode: ZGMode;
+	mode: SentinelMode;
 	/** The active session's own choice; null means it follows the global default. */
-	sessionOverride: ZGMode | null;
-	globalMode: ZGMode;
+	sessionOverride: SentinelMode | null;
+	globalMode: SentinelMode;
 	streaming: boolean;
 	pendingApprovals: number;
 	subagentRunning: number;
-	thinkingLevel: ZGThinkingLevel;
-	availableThinkingLevels: ZGThinkingLevel[];
+	thinkingLevel: SentinelThinkingLevel;
+	availableThinkingLevels: SentinelThinkingLevel[];
 	branchOpen: boolean;
 	filesOpen: boolean;
 	subagentsOpen: boolean;
 	allowedPrefixes: string[];
 	/** The active session's operator status, shown as a chip at the right end. */
-	sessionStatus: ZGSessionStatus | null;
+	sessionStatus: SentinelSessionStatus | null;
 	/** The preset agent the active session was created with; null means the default agent. */
-	preset: ZGSessionPresetView | null;
-	onSetSessionStatus: (status: ZGSessionStatus | null) => void;
+	preset: SentinelSessionPresetView | null;
+	onSetSessionStatus: (status: SentinelSessionStatus | null) => void;
 	onToggleFiles: () => void;
 	onToggleSubagents: () => void;
-	onSetMode: (mode: ZGMode | null) => void;
-	onSetThinkingLevel: (level: ZGThinkingLevel) => void;
+	onSetMode: (mode: SentinelMode | null) => void;
+	onSetThinkingLevel: (level: SentinelThinkingLevel) => void;
 	onToggleBranch: () => void;
 	onCompact: () => void;
 	onAbortCompaction: () => void;
@@ -116,21 +116,16 @@ export function ChatToolbar({
 					"自动执行：不做任何拦截。切换只影响本会话"
 				}
 			>
-				{ZG_MODES.map((item) => (
-					<button
-						key={item}
-						type="button"
-						className={mode === item ? "on" : ""}
-						onClick={() => onSetMode(item)}
-					>
-						{ZG_MODE_LABELS[item]}
+				{SENTINEL_MODES.map((item) => (
+					<button key={item} type="button" className={mode === item ? "on" : ""} onClick={() => onSetMode(item)}>
+						{SENTINEL_MODE_LABELS[item]}
 					</button>
 				))}
 			</div>
 			{sessionOverride === null ? (
 				<span
 					className="mode-scope"
-					title={`本会话跟随全局默认（${ZG_MODE_LABELS[globalMode]}）。点任一模式可为本会话单独设定`}
+					title={`本会话跟随全局默认（${SENTINEL_MODE_LABELS[globalMode]}）。点任一模式可为本会话单独设定`}
 				>
 					跟随全局
 				</span>
@@ -139,7 +134,7 @@ export function ChatToolbar({
 					type="button"
 					className="ghost small"
 					onClick={() => onSetMode(null)}
-					title={`清除本会话的单独设定，重新跟随全局默认（${ZG_MODE_LABELS[globalMode]}）`}
+					title={`清除本会话的单独设定，重新跟随全局默认（${SENTINEL_MODE_LABELS[globalMode]}）`}
 				>
 					跟随全局
 				</button>
@@ -149,7 +144,7 @@ export function ChatToolbar({
 				<select
 					value={thinkingLevel}
 					disabled={thinkingDisabled}
-					onChange={(event) => onSetThinkingLevel(event.target.value as ZGThinkingLevel)}
+					onChange={(event) => onSetThinkingLevel(event.target.value as SentinelThinkingLevel)}
 				>
 					{(availableThinkingLevels.length > 0 ? availableThinkingLevels : [thinkingLevel]).map((level) => (
 						<option key={level} value={level}>

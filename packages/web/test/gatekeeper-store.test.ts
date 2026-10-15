@@ -13,7 +13,7 @@ let root = "";
 let store: GatekeeperStore;
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "zgagent-gate-store-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-gate-store-"));
 	store = new GatekeeperStore(join(root, "gatekeeper.db"));
 });
 

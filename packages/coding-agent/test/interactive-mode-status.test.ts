@@ -629,21 +629,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 	function createExtensionFixtures(): ExtensionFixture[] {
 		return [
 			{
-				path: "/tmp/project/.zgagent/extensions/answer.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.zgagent/extensions/answer.ts", {
+				path: "/tmp/project/.sentinel/extensions/answer.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.sentinel/extensions/answer.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.zgagent/extensions",
+					baseDir: "/tmp/project/.sentinel/extensions",
 				}),
 			},
 			{
-				path: "/tmp/project/.zgagent/extensions/local-index/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.zgagent/extensions/local-index/index.ts", {
+				path: "/tmp/project/.sentinel/extensions/local-index/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.sentinel/extensions/local-index/index.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.zgagent/extensions",
+					baseDir: "/tmp/project/.sentinel/extensions",
 				}),
 			},
 			{
@@ -656,50 +656,50 @@ describe("InteractiveMode.showLoadedResources", () => {
 				}),
 			},
 			{
-				path: "/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+				path: "/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+					"/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 					{
 						source: "npm:pi-markdown-preview",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview",
+						baseDir: "/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview",
 					},
 				),
 			},
 			{
-				path: "/tmp/project/.zgagent/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
+				path: "/tmp/project/.sentinel/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.zgagent/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
+					"/tmp/project/.sentinel/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
 					{
 						source: "npm:@scope/pi-scoped",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.zgagent/npm/node_modules/@scope/pi-scoped",
+						baseDir: "/tmp/project/.sentinel/npm/node_modules/@scope/pi-scoped",
 					},
 				),
 			},
 			{
-				path: "/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+				path: "/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+					"/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
 					{
 						source: "git:github.com/HazAT/pi-interactive-subagents",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents",
 					},
 				),
 			},
 			{
-				path: "/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+				path: "/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+					"/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
 					{
 						source: "git:github.com/HazAT/pi-interactive-subagents",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.zgagent/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.sentinel/git/github.com/HazAT/pi-interactive-subagents",
 					},
 				),
 			},
@@ -1042,14 +1042,14 @@ describe("InteractiveMode.showLoadedResources", () => {
 	test("package extensions still strip index.ts correctly (regression guard)", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+				path: "/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+					"/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 					{
 						source: "npm:pi-markdown-preview",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.zgagent/npm/node_modules/pi-markdown-preview",
+						baseDir: "/tmp/project/.sentinel/npm/node_modules/pi-markdown-preview",
 					},
 				),
 			},
@@ -1073,21 +1073,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 	test("labels npm sibling extensions relative to the declaring package", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.zgagent/npm/node_modules/primary-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.zgagent/npm/node_modules/primary-package/index.ts", {
+				path: "/tmp/project/.sentinel/npm/node_modules/primary-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.sentinel/npm/node_modules/primary-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.zgagent/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.sentinel/npm/node_modules/primary-package",
 				}),
 			},
 			{
-				path: "/tmp/project/.zgagent/npm/node_modules/sibling-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.zgagent/npm/node_modules/sibling-package/index.ts", {
+				path: "/tmp/project/.sentinel/npm/node_modules/sibling-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.sentinel/npm/node_modules/sibling-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.zgagent/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.sentinel/npm/node_modules/primary-package",
 				}),
 			},
 		];
@@ -1162,8 +1162,8 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
   project
-    /tmp/project/.zgagent/extensions/answer.ts
-    /tmp/project/.zgagent/extensions/local-index
+    /tmp/project/.sentinel/extensions/answer.ts
+    /tmp/project/.sentinel/extensions/local-index
     git:github.com/HazAT/pi-interactive-subagents
       extensions
       extensions/subagents
@@ -1184,7 +1184,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			quietStartup: false,
 			cwd,
 			contextFiles: [
-				{ path: path.join(home, ".zgagent", "agent", "AGENTS.md") },
+				{ path: path.join(home, ".sentinel", "agent", "AGENTS.md") },
 				{ path: path.join(cwd, "AGENTS.md") },
 			],
 		});
@@ -1195,7 +1195,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.zgagent/agent/AGENTS.md, AGENTS.md");
+		expect(output).toContain("~/.sentinel/agent/AGENTS.md, AGENTS.md");
 		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
 	});
 
@@ -1204,8 +1204,8 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			systemPromptSource: { path: path.join(cwd, ".zgagent", "SYSTEM.md") },
-			appendSystemPromptSources: [{ path: path.join(cwd, ".zgagent", "APPEND_SYSTEM.md") }],
+			systemPromptSource: { path: path.join(cwd, ".sentinel", "SYSTEM.md") },
+			appendSystemPromptSources: [{ path: path.join(cwd, ".sentinel", "APPEND_SYSTEM.md") }],
 			contextFiles: [{ path: path.join(cwd, "AGENTS.md") }],
 		});
 
@@ -1215,7 +1215,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain(".zgagent/SYSTEM.md, .zgagent/APPEND_SYSTEM.md, AGENTS.md");
+		expect(output).toContain(".sentinel/SYSTEM.md, .sentinel/APPEND_SYSTEM.md, AGENTS.md");
 	});
 
 	test("shows full context paths when expanded", () => {
@@ -1226,7 +1226,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			toolOutputExpanded: true,
 			cwd,
 			contextFiles: [
-				{ path: path.join(home, ".zgagent", "agent", "AGENTS.md") },
+				{ path: path.join(home, ".sentinel", "agent", "AGENTS.md") },
 				{ path: path.join(cwd, "AGENTS.md") },
 			],
 		});
@@ -1237,9 +1237,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.zgagent/agent/AGENTS.md");
+		expect(output).toContain("~/.sentinel/agent/AGENTS.md");
 		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
-		expect(output).not.toContain("~/.zgagent/agent/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain("~/.sentinel/agent/AGENTS.md, AGENTS.md");
 	});
 
 	test("does not show verbose listing on quiet startup during reload", () => {

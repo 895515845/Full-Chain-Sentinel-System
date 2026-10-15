@@ -1,11 +1,11 @@
 /**
- * Endpoint probing for the ZGAgent model configuration screen.
+ * Endpoint probing for the Full Chain Sentinel model configuration screen.
  *
  * Sends a minimal OpenAI-compatible chat request against a candidate config
  * (without saving it) and turns failures into actionable Chinese diagnostics.
  */
 
-import type { ZGModelConfig, ZGTestResult } from "./protocol.ts";
+import type { SentinelModelConfig, SentinelTestResult } from "./protocol.ts";
 
 const PROBE_TIMEOUT_MS = 10000;
 
@@ -13,7 +13,7 @@ function chatUrl(baseUrl: string): string {
 	return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
-export async function testModelConfig(config: ZGModelConfig): Promise<ZGTestResult> {
+export async function testModelConfig(config: SentinelModelConfig): Promise<SentinelTestResult> {
 	if (!config.baseUrl.trim() || !config.modelId.trim()) {
 		return { ok: false, message: "Base URL 和模型 ID 不能为空" };
 	}

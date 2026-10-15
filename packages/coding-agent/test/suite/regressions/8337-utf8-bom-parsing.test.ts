@@ -29,12 +29,12 @@ describe("issue #8337 UTF-8 BOM parsing", () => {
 
 		const agentDir = join(testDir, "agent");
 		const projectDir = join(testDir, "project");
-		mkdirSync(join(projectDir, ".zgagent"), { recursive: true });
+		mkdirSync(join(projectDir, ".sentinel"), { recursive: true });
 		mkdirSync(agentDir, { recursive: true });
 		const globalSettingsPath = join(agentDir, "settings.json");
 		writeFileSync(globalSettingsPath, `\uFEFF${JSON.stringify({ defaultModel: "global-model" })}`);
 		writeFileSync(
-			join(projectDir, ".zgagent", "settings.json"),
+			join(projectDir, ".sentinel", "settings.json"),
 			`\uFEFF${JSON.stringify({ defaultProvider: "project-provider" })}`,
 		);
 

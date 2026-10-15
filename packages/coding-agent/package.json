@@ -4,11 +4,11 @@
 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
 	"type": "module",
 	"piConfig": {
-		"name": "zgagent",
-		"configDir": ".zgagent"
+		"name": "sentinel",
+		"configDir": ".sentinel"
 	},
 	"bin": {
-		"zgagent": "dist/bundle/cli.js"
+		"sentinel": "dist/bundle/cli.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",

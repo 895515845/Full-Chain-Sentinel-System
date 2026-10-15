@@ -15,10 +15,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import type { ZGSubagentEvent, ZGSubagentRun } from "../types.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun } from "../types.ts";
 import { SubagentPanel } from "./SubagentPanel.tsx";
 
-function run(overrides: Partial<ZGSubagentRun> = {}): ZGSubagentRun {
+function run(overrides: Partial<SentinelSubagentRun> = {}): SentinelSubagentRun {
 	return {
 		id: "run-1",
 		sessionId: "session-1",
@@ -30,7 +30,7 @@ function run(overrides: Partial<ZGSubagentRun> = {}): ZGSubagentRun {
 	};
 }
 
-function render(runs: ZGSubagentRun[], transcripts: Record<string, ZGSubagentEvent[]>): string {
+function render(runs: SentinelSubagentRun[], transcripts: Record<string, SentinelSubagentEvent[]>): string {
 	return renderToStaticMarkup(
 		createElement(SubagentPanel, {
 			runs,
@@ -43,7 +43,7 @@ function render(runs: ZGSubagentRun[], transcripts: Record<string, ZGSubagentEve
 }
 
 test("a live run renders its turns, tool rows and the step being executed", () => {
-	const events: ZGSubagentEvent[] = [
+	const events: SentinelSubagentEvent[] = [
 		{ seq: 1, kind: "status", at: 100, status: "running", note: "子代理启动" },
 		{ seq: 2, kind: "thinking", at: 200, text: "先看端口" },
 		{ seq: 20, kind: "text", at: 250, text: "- 先记录目标\n- 再看端口" },
@@ -114,7 +114,7 @@ test("a live run renders its turns, tool rows and the step being executed", () =
 });
 
 test("a finished run opens on its result, and the process is one tab away", () => {
-	const events: ZGSubagentEvent[] = [
+	const events: SentinelSubagentEvent[] = [
 		{ seq: 1, kind: "tool_start", at: 100, toolName: "bash", toolCallId: "a", args: { command: "id" } },
 		{
 			seq: 2,

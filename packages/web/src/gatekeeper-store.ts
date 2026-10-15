@@ -17,7 +17,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZGGateDecision, ZGGateDecisionKind, ZGGateFilter, ZGGatePage, ZGGateStats } from "./protocol.ts";
+import type {
+	SentinelGateDecision,
+	SentinelGateDecisionKind,
+	SentinelGateFilter,
+	SentinelGatePage,
+	SentinelGateStats,
+} from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase, type SqliteValue } from "./sqlite.ts";
 
 /** Longest command stored verbatim; a command line can carry a whole payload. */
@@ -85,7 +91,7 @@ export interface GateDecisionInput {
 	tool: string;
 	command: string;
 	cwd?: string | null;
-	decision: ZGGateDecisionKind;
+	decision: SentinelGateDecisionKind;
 	reason?: string;
 	latencyMs: number;
 	model?: string;
@@ -107,7 +113,7 @@ function truncate(value: string | undefined, max: number): { text: string | unde
 	return { text: `${value.slice(0, max)}\n…（已截断）`, cut: true };
 }
 
-function toDecision(row: DecisionRow): ZGGateDecision {
+function toDecision(row: DecisionRow): SentinelGateDecision {
 	return {
 		id: row.id,
 		at: row.at,
@@ -119,7 +125,7 @@ function toDecision(row: DecisionRow): ZGGateDecision {
 		command: row.command,
 		...(row.command_truncated ? { commandTruncated: true } : {}),
 		cwd: row.cwd,
-		decision: row.decision as ZGGateDecisionKind,
+		decision: row.decision as SentinelGateDecisionKind,
 		...(row.reason ? { reason: row.reason } : {}),
 		latencyMs: row.latency_ms,
 		...(row.model ? { model: row.model } : {}),
@@ -132,7 +138,7 @@ function toDecision(row: DecisionRow): ZGGateDecision {
 }
 
 /** The WHERE fragment and its bindings for one filter. */
-function whereFor(filter: ZGGateFilter | undefined): { sql: string; params: SqliteValue[] } {
+function whereFor(filter: SentinelGateFilter | undefined): { sql: string; params: SqliteValue[] } {
 	const conditions: string[] = [];
 	const params: SqliteValue[] = [];
 	if (filter?.decision) {
@@ -175,7 +181,7 @@ export class GatekeeperStore {
 	}
 
 	/** Append one judgment and return the stored record. */
-	record(input: GateDecisionInput): ZGGateDecision {
+	record(input: GateDecisionInput): SentinelGateDecision {
 		const id = `gate-${randomUUID()}`;
 		const command = truncate(input.command, MAX_COMMAND_CHARS);
 		const reason = truncate(input.reason, MAX_TEXT_CHARS);
@@ -232,7 +238,7 @@ export class GatekeeperStore {
 	}
 
 	/** Newest first. `page` is 1-based. */
-	list(filter: ZGGateFilter | undefined, page = 1, pageSize = 50): ZGGatePage {
+	list(filter: SentinelGateFilter | undefined, page = 1, pageSize = 50): SentinelGatePage {
 		const size = Math.min(Math.max(Math.round(pageSize), 1), 200);
 		const index = Math.max(Math.round(page), 1);
 		const where = whereFor(filter);
@@ -246,12 +252,12 @@ export class GatekeeperStore {
 	}
 
 	/** Counts and cost figures; the filter narrows every number in the result. */
-	stats(filter?: ZGGateFilter): ZGGateStats {
+	stats(filter?: SentinelGateFilter): SentinelGateStats {
 		const where = whereFor(filter);
 		const rows = this.db
 			.prepare(`SELECT decision, COUNT(*) AS n FROM gate_decisions ${where.sql} GROUP BY decision`)
 			.all(...where.params) as unknown as Array<{ decision: string; n: number }>;
-		const byDecision: Record<ZGGateDecisionKind, number> = { allow: 0, block: 0, failed: 0 };
+		const byDecision: Record<SentinelGateDecisionKind, number> = { allow: 0, block: 0, failed: 0 };
 		for (const row of rows) {
 			if (row.decision === "allow" || row.decision === "block" || row.decision === "failed") {
 				byDecision[row.decision] = Number(row.n);

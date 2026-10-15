@@ -20,8 +20,8 @@
  */
 
 import { useState } from "react";
-import type { ZGPocSource, ZGPocSourceSave } from "../types.ts";
-import { ZG_OFFICIAL_POC_SOURCE_ID } from "../types.ts";
+import type { SentinelPocSource, SentinelPocSourceSave } from "../types.ts";
+import { SENTINEL_OFFICIAL_POC_SOURCE_ID } from "../types.ts";
 
 /** Editing state of the form; a source being edited fills every field. */
 interface Draft {
@@ -60,7 +60,7 @@ function formatWhen(value: string | null): string {
 	return value.slice(0, 19).replace("T", " ");
 }
 
-function resultLine(source: ZGPocSource): string {
+function resultLine(source: SentinelPocSource): string {
 	const last = source.lastResult;
 	if (!last) return "暂无同步记录";
 	const base = `${last.ok ? "成功" : "失败"} · 新增 ${last.imported} · 覆盖 ${last.replaced} · 跳过 ${last.skipped} · ${(last.durationMs / 1000).toFixed(1)}s`;
@@ -68,7 +68,7 @@ function resultLine(source: ZGPocSource): string {
 }
 
 /** Grey pill before the first sync, then green for ok and red for a failure. */
-function statusTag(source: ZGPocSource): { className: string; label: string } {
+function statusTag(source: SentinelPocSource): { className: string; label: string } {
 	if (!source.lastResult) return { className: "tag tag-aborted", label: "未同步" };
 	return source.lastResult.ok
 		? { className: "tag tag-done", label: "正常" }
@@ -85,10 +85,10 @@ export function PocSourcesPanel({
 	officialSyncing,
 	onSyncOfficial,
 }: {
-	sources: ZGPocSource[];
+	sources: SentinelPocSource[];
 	/** Id currently syncing, so its row shows the wait instead of a second click. */
 	syncing: string | null;
-	onSave(source: ZGPocSourceSave): void;
+	onSave(source: SentinelPocSourceSave): void;
 	onDelete(id: string): void;
 	onSync(id: string): void;
 	onRefresh(): void;
@@ -102,7 +102,7 @@ export function PocSourcesPanel({
 
 	const set = (patch: Partial<Draft>): void => setDraft((prev) => ({ ...prev, ...patch }));
 
-	const edit = (source: ZGPocSource): void => {
+	const edit = (source: SentinelPocSource): void => {
 		setDraft({
 			id: source.id,
 			name: source.name,
@@ -259,13 +259,15 @@ export function PocSourcesPanel({
 							const tag = statusTag(source);
 							// The official sync starts before its source exists in this
 							// list, so its busy state is not keyed on the id alone.
-							const busy =
-								syncing === source.id || (officialSyncing && source.id === ZG_OFFICIAL_POC_SOURCE_ID);
+							const busy = syncing === source.id || (officialSyncing && source.id === SENTINEL_OFFICIAL_POC_SOURCE_ID);
 							return (
 								<div className="data-row" key={source.id}>
 									<span className="data-name">
 										{source.name}
-										<span className={tag.className} title={source.enabled ? "已启用" : "已停用，不会自动同步"}>
+										<span
+											className={tag.className}
+											title={source.enabled ? "已启用" : "已停用，不会自动同步"}
+										>
 											{source.enabled ? tag.label : `${tag.label} · 已停用`}
 										</span>
 									</span>
@@ -314,8 +316,9 @@ export function PocSourcesPanel({
 											) : (
 												source.history.map((record) => (
 													<div key={record.at} className={record.ok ? "" : "err-text"}>
-														{formatWhen(record.at)} · {record.ok ? "成功" : "失败"} · 新增 {record.imported} · 覆盖{" "}
-														{record.replaced} · 跳过 {record.skipped} · {(record.durationMs / 1000).toFixed(1)}s ·{" "}
+														{formatWhen(record.at)} · {record.ok ? "成功" : "失败"} · 新增{" "}
+														{record.imported} · 覆盖 {record.replaced} · 跳过 {record.skipped} ·{" "}
+														{(record.durationMs / 1000).toFixed(1)}s ·{" "}
 														{record.trigger === "auto" ? "自动" : "手动"}
 														{record.error ? ` · ${record.error}` : ""}
 													</div>

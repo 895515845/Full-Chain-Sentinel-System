@@ -1,8 +1,8 @@
 /**
- * ZGAgent web console server.
+ * Full Chain Sentinel web console server.
  *
  * Serves the built browser UI over HTTP and exposes a JSON WebSocket protocol
- * (see protocol.ts) that drives one ZGAgent runtime. Designed for a single
+ * (see protocol.ts) that drives one Full Chain Sentinel runtime. Designed for a single
  * local operator; every connected console receives the same event stream.
  */
 
@@ -49,11 +49,17 @@ import {
 	addProject,
 	ensureProjectReady,
 	listProjects,
+	recreateProject,
 	removeProject,
 	resolveStartupProject,
 	setLastActiveProject,
 } from "./projects.ts";
-import type { ZGClientMessage, ZGEnvReport, ZGProjectInfo, ZGServerMessage } from "./protocol.ts";
+import type {
+	SentinelClientMessage,
+	SentinelEnvReport,
+	SentinelProjectInfo,
+	SentinelServerMessage,
+} from "./protocol.ts";
 import { VulnReviewer } from "./reviewer.ts";
 import type { WorkerSession } from "./worker.ts";
 
@@ -62,9 +68,24 @@ interface AcquiredTaskSession {
 	manager: SessionManager;
 }
 
+import {
+	CONSENT_TEXT,
+	CONSENT_VERSION,
+	type ConsentStatus,
+	consentStatus,
+	isConsentExemptPath,
+	writeConsentRecord,
+} from "./consent.ts";
+import {
+	DEFAULT_CONTAINER_NETWORK,
+	normalizeContainerNetwork,
+	readContainerNetwork,
+	writeContainerNetwork,
+} from "./container-network.ts";
+import { gateCookieHeader, generateGateToken, hasValidGate, isGateEntry, sendGateNotFound } from "./gate.ts";
+import { SentinelRuntime } from "./sentinel-session.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { storeUpload } from "./upload.ts";
-import { ZGAgentRuntime } from "./zg-session.ts";
 
 const MIME_TYPES: Record<string, string> = {
 	".html": "text/html; charset=utf-8",
@@ -79,15 +100,15 @@ const MIME_TYPES: Record<string, string> = {
 
 const FALLBACK_PAGE = `<!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>ZGAgent</title></head>
+<head><meta charset="utf-8"><title>全链哨兵 控制台</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
 <body style="background:#111418;color:#d7dde4;font-family:system-ui;padding:48px;line-height:1.7">
-<h1>ZGAgent Web 控制台</h1>
+<h1>全链哨兵 Web 控制台</h1>
 <p>前端资源尚未构建。请在仓库根目录执行：</p>
 <pre style="background:#1b2027;padding:12px;border-radius:8px">npm --prefix packages/web run build</pre>
 <p>构建完成后刷新本页。</p>
 </body></html>`;
 
-export interface ZGServerOptions {
+export interface SentinelServerOptions {
 	cwd?: string;
 	agentDir?: string;
 	host?: string;
@@ -97,6 +118,21 @@ export interface ZGServerOptions {
 	 * the credential file is created on first visit.
 	 */
 	auth?: boolean;
+	/**
+	 * Secret entry URL (default: on exactly when authentication is). Opening
+	 * `/<token>` sets a cookie and redirects to `/`; every other request without
+	 * that cookie is answered with a plain 404, so a console bound to a public
+	 * address cannot be fingerprinted or indexed. Off means `/` is the console.
+	 */
+	gate?: boolean;
+	/** A fixed entry token; by default a fresh one is generated on every start. */
+	gateToken?: string;
+	/**
+	 * First-visit authorization promise (default: on exactly when authentication
+	 * is). Until the operator accepts the statement, `/api` and the WebSocket
+	 * answer 403 and only the statement itself is served.
+	 */
+	consent?: boolean;
 }
 
 export function webuiDistDir(): string {
@@ -131,7 +167,7 @@ function textField(body: Record<string, unknown>, key: string): string {
 	return typeof value === "string" ? value : "";
 }
 
-function sendTo(socket: WebSocket, message: ZGServerMessage): void {
+function sendTo(socket: WebSocket, message: SentinelServerMessage): void {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
@@ -194,14 +230,22 @@ function serveStatic(distDir: string, requestPath: string, response: ServerRespo
 	sendFile(response, index, "index.html");
 }
 
-export async function startZGServer(
-	options: ZGServerOptions = {},
-): Promise<{ close: () => void; url: string; environment: Promise<ZGEnvReport> }> {
+export async function startSentinelServer(
+	options: SentinelServerOptions = {},
+): Promise<{ close: () => void; url: string; environment: Promise<SentinelEnvReport> }> {
 	const startupCwd = resolve(options.cwd ?? process.cwd());
 	const clients = new Set<WebSocket>();
 	const agentDir = options.agentDir;
+	// The gate follows authentication by default: a console with no password to
+	// protect (the automated tests) is not the deployment this guards, and one that
+	// has a password should not be visible before its login page.
+	const gateEnabled = options.gate ?? (options.auth !== false && Boolean(agentDir));
+	const gateToken = gateEnabled ? (options.gateToken ?? generateGateToken()) : "";
+	// The authorization promise follows authentication too: it is tied to the
+	// account that accepts it, so a console with no account has nothing to record.
+	const consentEnabled = options.consent ?? (options.auth !== false && Boolean(agentDir));
 	const startup = agentDir ? await resolveStartupProject(agentDir) : {};
-	const runtime = new ZGAgentRuntime({
+	const runtime = new SentinelRuntime({
 		cwd: startup.project?.workDir ?? startupCwd,
 		agentDir,
 		activeProject: startup.project
@@ -237,8 +281,8 @@ export async function startZGServer(
 	 * prompt waits for it, because a run without a working container backend can
 	 * only fail. `imageBuild` is set while a `docker build` is streaming.
 	 */
-	let envReport: ZGEnvReport | undefined;
-	let envCheck: Promise<ZGEnvReport> | undefined;
+	let envReport: SentinelEnvReport | undefined;
+	let envCheck: Promise<SentinelEnvReport> | undefined;
 	let imageBuild: AbortController | undefined;
 
 	/**
@@ -287,7 +331,7 @@ export async function startZGServer(
 
 	function broadcastEngines(socket?: WebSocket): void {
 		if (!engines) return;
-		const view = { type: "engines", engines: engines.listEngines() } satisfies ZGServerMessage;
+		const view = { type: "engines", engines: engines.listEngines() } satisfies SentinelServerMessage;
 		if (socket) sendTo(socket, view);
 		else broadcast(view);
 	}
@@ -298,11 +342,14 @@ export async function startZGServer(
 		const boundHost = options.host ?? "127.0.0.1";
 		// A wildcard bind is not a browser address.
 		const shownHost = boundHost === "0.0.0.0" || boundHost === "::" || boundHost === "[::]" ? "127.0.0.1" : boundHost;
-		return `http://${shownHost}:${boundPort}`;
+		// With the gate on, the console address is the entry URL: it is the only one
+		// that works, so this is what the environment page shows and what the startup
+		// log prints.
+		return `http://${shownHost}:${boundPort}${gateEnabled ? `/${gateToken}` : ""}`;
 	}
 
 	/** The current report, running the check first if there is none or `force` is set. */
-	async function ensureEnvironment(force = false): Promise<ZGEnvReport> {
+	async function ensureEnvironment(force = false): Promise<SentinelEnvReport> {
 		if (!force && envReport) return envReport;
 		if (!force && envCheck) return await envCheck;
 		const run = (async () => {
@@ -324,18 +371,18 @@ export async function startZGServer(
 	}
 
 	/** Why a run cannot start, phrased for the operator. */
-	function blockedReason(report: ZGEnvReport): string {
+	function blockedReason(report: SentinelEnvReport): string {
 		const blocker = report.items.find((entry) => entry.blocking && entry.status !== "ok");
 		const detail = blocker ? `${blocker.label}：${blocker.detail}` : "环境检查未通过";
 		return `Docker 环境不可用（${detail}）。请在「设置 → 环境」中修复后复检。`;
 	}
 
-	function broadcast(message: ZGServerMessage): void {
+	function broadcast(message: SentinelServerMessage): void {
 		let data: string;
 		try {
 			data = JSON.stringify(message);
 		} catch (error) {
-			console.error("[zg-server] broadcast serialization failed:", error);
+			console.error("[sentinel-server] broadcast serialization failed:", error);
 			return;
 		}
 		for (const client of clients) {
@@ -393,7 +440,7 @@ export async function startZGServer(
 	}
 
 	/** Project list with each project's finding and gate-record counts, for the delete warning. */
-	function projectInfos(): ZGProjectInfo[] {
+	function projectInfos(): SentinelProjectInfo[] {
 		if (!agentDir) return [];
 		return listProjects(agentDir).projects.map(({ id, name, workDir, container }) => ({
 			id,
@@ -418,7 +465,7 @@ export async function startZGServer(
 
 	async function broadcastSessions(socket?: WebSocket): Promise<void> {
 		const sessions = await sessionViews();
-		const view = { type: "sessions", sessions } satisfies ZGServerMessage;
+		const view = { type: "sessions", sessions } satisfies SentinelServerMessage;
 		if (socket) sendTo(socket, view);
 		else broadcast(view);
 	}
@@ -439,6 +486,11 @@ export async function startZGServer(
 	const authEnabled = options.auth !== false && Boolean(agentDir);
 	const currentAuth = (): StoredAuth | null => (authEnabled && agentDir ? readStoredAuth(agentDir) : null);
 	const limiter = createLoginLimiter();
+	/** The promise state for the account this request belongs to. */
+	const consentFor = (username: string | null): ConsentStatus =>
+		consentEnabled
+			? consentStatus(agentDir, username)
+			: { required: false, acceptedAt: null, version: CONSENT_VERSION };
 
 	async function handleSetup(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		if (!agentDir) {
@@ -535,6 +587,28 @@ export async function startZGServer(
 	}
 
 	/**
+	 * Records the promise for this account. The body has to say `accepted: true`:
+	 * the checkbox is the point, so an empty POST must not be enough.
+	 */
+	async function handleConsentAccept(
+		request: IncomingMessage,
+		response: ServerResponse,
+		username: string,
+	): Promise<void> {
+		if (!agentDir) {
+			sendJson(response, { error: "缺少配置目录，无法记录承诺" }, 500);
+			return;
+		}
+		const body = await readJsonBody(request);
+		if (body?.accepted !== true) {
+			sendJson(response, { error: "必须勾选承诺才能记录" }, 400);
+			return;
+		}
+		const record = writeConsentRecord(agentDir, username);
+		sendJson(response, { ok: true, acceptedAt: record.acceptedAt, version: CONSENT_VERSION });
+	}
+
+	/**
 	 * One chat attachment: the raw request body is the file, `name` says what to
 	 * call it. It is streamed into the project's uploads directory (see upload.ts)
 	 * and the answer carries the absolute path the message will hand the model.
@@ -554,7 +628,7 @@ export async function startZGServer(
 	// events into the console broadcasts and the server log.
 	const droidGateway = new DroidGateway(runtime.droidRegistry, {
 		onDeviceChange: () => broadcastDroidDevices(),
-		log: (line: string) => console.error(`[zg-droid] ${line}`),
+		log: (line: string) => console.error(`[sentinel-droid] ${line}`),
 	});
 	runtime.setDroidGateway(droidGateway);
 	// Restore the persisted reverse-connection listener (address the operator
@@ -565,6 +639,20 @@ export async function startZGServer(
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
+		// The gate answers before anything else — before the auth endpoints too, so a
+		// scanner that does not know the entry URL never learns that a console, or its
+		// first-run setup flow, is here at all.
+		if (gateEnabled) {
+			if (isGateEntry(path, gateToken)) {
+				response.writeHead(302, { location: "/", "set-cookie": gateCookieHeader(gateToken) });
+				response.end();
+				return;
+			}
+			if (!hasValidGate(request, gateToken)) {
+				sendGateNotFound(response);
+				return;
+			}
+		}
 		const auth = currentAuth();
 		if (authEnabled) {
 			if (path === "/api/auth/state") {
@@ -590,12 +678,21 @@ export async function startZGServer(
 		}
 		const authorized = authEnabled ? hasValidSession(auth, request) : true;
 		if (authorized) {
+			// The promise comes before every other route: until it is recorded, the
+			// console answers 403 and only the statement itself, the promise that
+			// records it, and the session status stay reachable. The WebSocket is
+			// closed separately in the upgrade handler.
+			if (path.startsWith("/api/") && !isConsentExemptPath(path) && consentFor(auth?.username ?? null).required) {
+				sendJson(response, { error: "consent_required" }, 403);
+				return;
+			}
 			if (path === "/api/health") {
 				sendJson(response, { ok: true, sessionId: runtime.currentSessionId, mode: runtime.currentMode });
 				return;
 			}
 			if (path === "/api/auth/session") {
-				sendJson(response, { ok: true, username: auth?.username ?? null });
+				const username = auth?.username ?? null;
+				sendJson(response, { ok: true, username, consent: consentFor(username) });
 				return;
 			}
 			if (path === "/api/auth/change-password" && request.method === "POST") {
@@ -618,6 +715,21 @@ export async function startZGServer(
 				void handleUpload(request, response, active.cwd);
 				return;
 			}
+			// The statement and the promise that records it. Both stay reachable
+			// before the promise: the page has to be able to show the text, and the
+			// operator has to be able to accept it.
+			if (path === "/api/consent") {
+				sendJson(response, { ...consentFor(auth?.username ?? null), text: CONSENT_TEXT });
+				return;
+			}
+			if (path === "/api/consent/accept" && request.method === "POST") {
+				if (!agentDir || !auth) {
+					sendJson(response, { error: "缺少账号或配置目录，无法记录承诺" }, 500);
+					return;
+				}
+				void handleConsentAccept(request, response, auth.username);
+				return;
+			}
 		} else if (path.startsWith("/api/")) {
 			sendJson(response, { error: "未登录" }, 401);
 			return;
@@ -632,8 +744,23 @@ export async function startZGServer(
 		// The DroidBridge APK authenticates with its own device token, not the
 		// console session, and must reach the gateway before the console's checks.
 		if (droidGateway.handleUpgrade(request, socket, head)) return;
+		// The console's own socket sits behind the same gate as its page: without the
+		// entry cookie there is nothing here to talk to. The device gateway above is
+		// exempt on purpose — the APK carries its own token and its URL is fixed in
+		// the app, so it cannot be asked to present a browser cookie.
+		if (gateEnabled && !hasValidGate(request, gateToken)) {
+			socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+			socket.destroy();
+			return;
+		}
 		if (url.pathname !== "/ws" || (authEnabled && !hasValidSession(currentAuth(), request))) {
 			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+			socket.destroy();
+			return;
+		}
+		// A live console socket is the agent itself, so it waits for the promise.
+		if (consentFor(currentAuth()?.username ?? null).required) {
+			socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
 			socket.destroy();
 			return;
 		}
@@ -641,13 +768,13 @@ export async function startZGServer(
 	});
 	wss.on("connection", (socket) => {
 		clients.add(socket);
-		socket.send(JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies ZGServerMessage));
+		socket.send(JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies SentinelServerMessage));
 		socket.send(
 			JSON.stringify({
 				type: "projects",
 				projects: projectInfos(),
 				activeProjectId: runtime.snapshot().project?.id ?? null,
-			} satisfies ZGServerMessage),
+			} satisfies SentinelServerMessage),
 		);
 		socket.on("message", (data) => {
 			void handleClientMessage(socket, data.toString());
@@ -664,9 +791,9 @@ export async function startZGServer(
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
 		console.error(`[srv-recv] ${raw.slice(0, 70)}`);
-		let message: ZGClientMessage;
+		let message: SentinelClientMessage;
 		try {
-			message = JSON.parse(raw) as ZGClientMessage;
+			message = JSON.parse(raw) as SentinelClientMessage;
 		} catch {
 			sendError(socket, "无法解析的消息格式");
 			return;
@@ -825,12 +952,12 @@ export async function startZGServer(
 				}
 				case "get_tree": {
 					const { tree, leafId, forkPoints } = runtime.getTree();
-					socket.send(JSON.stringify({ type: "tree", tree, leafId, forkPoints } satisfies ZGServerMessage));
+					socket.send(JSON.stringify({ type: "tree", tree, leafId, forkPoints } satisfies SentinelServerMessage));
 					return;
 				}
 				case "get_state":
 					socket.send(
-						JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies ZGServerMessage),
+						JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies SentinelServerMessage),
 					);
 					return;
 				case "get_model_library":
@@ -873,7 +1000,7 @@ export async function startZGServer(
 							effectiveSubagent: view.effectiveSubagent,
 							presets: [...view.presets],
 							tools: view.tools,
-						} satisfies ZGServerMessage),
+						} satisfies SentinelServerMessage),
 					);
 					return;
 				}
@@ -900,7 +1027,7 @@ export async function startZGServer(
 							type: "notify_config",
 							config: runtime.getNotifyConfig(),
 							status: runtime.getNotifyStatus(),
-						} satisfies ZGServerMessage),
+						} satisfies SentinelServerMessage),
 					);
 					return;
 				case "save_notify_config":
@@ -910,12 +1037,12 @@ export async function startZGServer(
 							type: "notify_config",
 							config: runtime.getNotifyConfig(),
 							status: runtime.getNotifyStatus(),
-						} satisfies ZGServerMessage),
+						} satisfies SentinelServerMessage),
 					);
 					return;
 				case "test_notify": {
 					const result = await runtime.testNotify(message.config);
-					socket.send(JSON.stringify({ type: "notify_test_result", result } satisfies ZGServerMessage));
+					socket.send(JSON.stringify({ type: "notify_test_result", result } satisfies SentinelServerMessage));
 					return;
 				}
 				case "get_environment":
@@ -975,17 +1102,40 @@ export async function startZGServer(
 							type: "sources_saved",
 							sources: readSources(agentDir),
 							error: error instanceof Error ? error.message : String(error),
-						} satisfies ZGServerMessage);
+						} satisfies SentinelServerMessage);
 						return;
 					}
-					sendTo(socket, { type: "sources_saved", sources } satisfies ZGServerMessage);
+					sendTo(socket, { type: "sources_saved", sources } satisfies SentinelServerMessage);
+					await ensureEnvironment(true);
+					broadcastEnvironment();
+					return;
+				}
+				case "set_container_network": {
+					if (!agentDir) {
+						sendError(socket, "未配置配置目录，无法保存容器网络");
+						return;
+					}
+					// Only the next container creation reads this: existing containers keep
+					// the network they were created with until the operator rebuilds them.
+					const network = normalizeContainerNetwork(message.network);
+					try {
+						writeContainerNetwork(agentDir, network);
+					} catch (error) {
+						sendTo(socket, {
+							type: "container_network_saved",
+							network: readContainerNetwork(agentDir),
+							error: error instanceof Error ? error.message : String(error),
+						} satisfies SentinelServerMessage);
+						return;
+					}
+					sendTo(socket, { type: "container_network_saved", network } satisfies SentinelServerMessage);
 					await ensureEnvironment(true);
 					broadcastEnvironment();
 					return;
 				}
 				case "get_stats": {
 					const stats = runtime.getStats();
-					if (stats) socket.send(JSON.stringify({ type: "stats", stats } satisfies ZGServerMessage));
+					if (stats) socket.send(JSON.stringify({ type: "stats", stats } satisfies SentinelServerMessage));
 					return;
 				}
 				case "list_projects": {
@@ -1037,13 +1187,32 @@ export async function startZGServer(
 					const purgedModels = runtime.purgeProjectApiModels(message.id);
 					const purgedCaptures = runtime.purgeProjectCaptures(message.id);
 					console.error(
-						`[zg-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型`,
+						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录`,
 					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.
 					if (wasActive) await runtime.detachProject(target.workDir);
 					broadcastProjects();
 					broadcastSnapshot();
+					return;
+				}
+				case "recreate_project": {
+					if (!agentDir) {
+						sendError(socket, "内部错误：agentDir 未初始化");
+						return;
+					}
+					// Settings that shape a container (the network mode, the mounts) are read
+					// when it is created, and Docker cannot change them afterwards, so
+					// applying them means replacing the container. The project keeps its id,
+					// name and work directory; in-flight commands in its container fail.
+					const recreated = await recreateProject(agentDir, message.id);
+					if (recreated.error) {
+						sendError(socket, recreated.error);
+						return;
+					}
+					broadcastProjects();
+					await ensureEnvironment(true);
+					broadcastEnvironment();
 					return;
 				}
 				case "switch_project": {
@@ -1135,7 +1304,7 @@ export async function startZGServer(
 							id: message.id,
 							ok: false,
 							error: "该漏洞记录不存在（可能属于其他项目，或已被删除）",
-						} satisfies ZGServerMessage);
+						} satisfies SentinelServerMessage);
 						return;
 					}
 					sendTo(socket, { type: "vuln", vuln: updated });
@@ -1731,7 +1900,7 @@ export async function startZGServer(
 
 	function sendError(socket: WebSocket, messageText: string): void {
 		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(JSON.stringify({ type: "error", message: messageText } satisfies ZGServerMessage));
+			socket.send(JSON.stringify({ type: "error", message: messageText } satisfies SentinelServerMessage));
 		}
 	}
 
@@ -1741,14 +1910,6 @@ export async function startZGServer(
 		const port = options.port ?? 7777;
 		const host = options.host ?? "127.0.0.1";
 		server.listen(port, host, () => {
-			// A wildcard bind is not a browser address: Chrome answers
-			// ERR_ADDRESS_INVALID for http://0.0.0.0:<port>, so print the loopback
-			// address an operator can actually open.
-			const shownHost = host === "0.0.0.0" || host === "::" || host === "[::]" ? "127.0.0.1" : host;
-			const shownPort =
-				server.address() && typeof server.address() === "object"
-					? (server.address() as { port: number }).port
-					: port;
 			// The check reports the console address, so it starts once the port is known.
 			const environment = ensureEnvironment().then(
 				(report) => {
@@ -1756,7 +1917,7 @@ export async function startZGServer(
 					return report;
 				},
 				(error: unknown) => {
-					console.error("[zg-server] 环境检查失败:", error);
+					console.error("[sentinel-server] 环境检查失败:", error);
 					return {
 						at: new Date().toISOString(),
 						ok: false,
@@ -1770,13 +1931,14 @@ export async function startZGServer(
 								blocking: true,
 							},
 						],
-						url: `http://${shownHost}:${shownPort}`,
+						url: consoleUrl(),
 						sources: { ...EMPTY_SOURCES },
+						containerNetwork: agentDir ? readContainerNetwork(agentDir) : DEFAULT_CONTAINER_NETWORK,
 					};
 				},
 			);
 			resolvePromise({
-				url: `http://${shownHost}:${shownPort}`,
+				url: consoleUrl(),
 				environment,
 				close: () => {
 					engines?.dispose();

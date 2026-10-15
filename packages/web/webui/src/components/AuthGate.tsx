@@ -7,8 +7,9 @@
  * the right. The left panel carries the animated skyline backdrop (see
  * LoginBackdrop) with the brand mark over it.
  */
-import { useState, type FormEvent } from "react";
+import { type FormEvent, useState } from "react";
 
+import { SentinelMark } from "./icons.tsx";
 import { LoginBackdrop } from "./LoginBackdrop.tsx";
 
 export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: () => void }) {
@@ -52,8 +53,10 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 			<div className="auth-visual">
 				<LoginBackdrop />
 				<div className="auth-brand">
-					<span className="auth-brand-badge">ZG</span>
-					<span className="auth-brand-name">ZGAgent</span>
+					<span className="auth-brand-badge">
+						<SentinelMark size={26} />
+					</span>
+					<span className="auth-brand-name">全链哨兵</span>
 				</div>
 				<div className="auth-tagline">授权渗透测试工作台</div>
 			</div>
@@ -95,7 +98,11 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 					) : null}
 					{mode === "login" ? (
 						<label className="auth-remember">
-							<input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+							<input
+								type="checkbox"
+								checked={remember}
+								onChange={(event) => setRemember(event.target.checked)}
+							/>
 							记住登录 30 天
 						</label>
 					) : null}
@@ -103,7 +110,7 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 					<button type="submit" className="auth-submit" disabled={busy || !username.trim() || !password}>
 						{busy ? "请稍候…" : mode === "setup" ? "创建并登录" : "登录"}
 					</button>
-					<p className="auth-foot">ZGAgent 本地控制台 · 密码只以哈希存在本机</p>
+					<p className="auth-foot">全链哨兵 本地控制台 · 密码只以哈希存在本机</p>
 				</form>
 			</div>
 		</div>

@@ -33,12 +33,12 @@ import {
 	savePreset,
 	setPresetEnabled,
 } from "../src/presets.ts";
-import type { ZGPreset } from "../src/protocol.ts";
+import type { SentinelPreset } from "../src/protocol.ts";
 
 let root = "";
 
 function freshAgentDir(): string {
-	root = mkdtempSync(join(tmpdir(), "zgagent-presets-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-presets-"));
 	return root;
 }
 
@@ -328,7 +328,7 @@ describe("estimateTokens", () => {
 });
 
 describe("commander brief", () => {
-	const preset = (over: Partial<ZGPreset>): ZGPreset => ({
+	const preset = (over: Partial<SentinelPreset>): SentinelPreset => ({
 		id: "web-recon",
 		name: "Web 侦察",
 		description: "先指纹后目录",

@@ -23,14 +23,14 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { excludeToolsFor, type ZGPermissionSet } from "./permissions.ts";
+import { excludeToolsFor, type SentinelPermissionSet } from "./permissions.ts";
 import type { SubagentRegistry } from "./subagents.ts";
 
 /** Turn budget before a sub-agent is aborted. */
 const DEFAULT_MAX_TURNS = 15;
 
 const SUBAGENT_APPEND_PROMPT = [
-	"You are running as a sub-agent of ZGAgent. You were spawned to complete one delegated task.",
+	"You are running as a sub-agent of Full Chain Sentinel. You were spawned to complete one delegated task.",
 	"Work autonomously, keep output focused on the task, and finish with a concise result summary the parent agent can use directly.",
 	"Do not ask the operator questions; state assumptions instead.",
 ];
@@ -67,7 +67,7 @@ export interface SubagentToolOptions {
 	/** Project the run belongs to, for the retained record. */
 	getProjectId: () => string | undefined;
 	/** What this sub-agent is allowed to mount; always a subset of the parent. */
-	permissions: ZGPermissionSet;
+	permissions: SentinelPermissionSet;
 	maxTurns?: number;
 }
 

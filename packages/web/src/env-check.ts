@@ -15,10 +15,11 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { runDocker, ZG_IMAGE } from "./docker.ts";
+import { DEFAULT_CONTAINER_NETWORK, readContainerNetwork } from "./container-network.ts";
+import { runDocker, SENTINEL_IMAGE } from "./docker.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { listProjects } from "./projects.ts";
-import type { ZGEnvItem, ZGEnvReport } from "./protocol.ts";
+import type { SentinelEnvItem, SentinelEnvReport } from "./protocol.ts";
 import { DEFAULT_BASE_IMAGE, EMPTY_SOURCES, effectiveSources, readSources } from "./sources.ts";
 
 const GROUP_RUNTIME = "Docker 运行时";
@@ -62,19 +63,19 @@ function runCommand(file: string, args: string[], timeoutMs: number): Promise<Co
 	});
 }
 
-function passed(id: string, group: string, label: string, detail: string, blocking = false): ZGEnvItem {
+function passed(id: string, group: string, label: string, detail: string, blocking = false): SentinelEnvItem {
 	return { id, group, label, status: "ok", detail, blocking };
 }
 
-function failed(id: string, group: string, label: string, detail: string, hint: string): ZGEnvItem {
+function failed(id: string, group: string, label: string, detail: string, hint: string): SentinelEnvItem {
 	return { id, group, label, status: "fail", detail, hint, blocking: true };
 }
 
-function warned(id: string, group: string, label: string, detail: string, hint?: string): ZGEnvItem {
+function warned(id: string, group: string, label: string, detail: string, hint?: string): SentinelEnvItem {
 	return { id, group, label, status: "warn", detail, hint, blocking: false };
 }
 
-function skipped(id: string, group: string, label: string, detail: string, blocking = false): ZGEnvItem {
+function skipped(id: string, group: string, label: string, detail: string, blocking = false): SentinelEnvItem {
 	return { id, group, label, status: "skipped", detail, blocking };
 }
 
@@ -90,7 +91,7 @@ function normalizeArch(arch: string): string {
 function checkWritable(dir: string): { ok: boolean; error?: string } {
 	try {
 		mkdirSync(dir, { recursive: true });
-		const probe = join(dir, ".zgagent-write-probe");
+		const probe = join(dir, ".sentinel-write-probe");
 		writeFileSync(probe, "");
 		unlinkSync(probe);
 		return { ok: true };
@@ -120,11 +121,11 @@ async function freeDiskBytes(path: string): Promise<number | undefined> {
 }
 
 function projectsRoot(): string {
-	return process.env.ZG_PROJECTS_DIR ?? join(homedir(), ".zgagent", "projects");
+	return process.env.SENTINEL_PROJECTS_DIR ?? join(homedir(), ".sentinel", "projects");
 }
 
 interface RuntimeProbe {
-	item: ZGEnvItem;
+	item: SentinelEnvItem;
 	/** `linux/arm64`-style host platform, when the daemon reported one. */
 	hostPlatform?: string;
 }
@@ -171,9 +172,9 @@ async function checkDockerRuntime(): Promise<RuntimeProbe> {
 	};
 }
 
-async function checkImage(hostPlatform: string | undefined): Promise<ZGEnvItem[]> {
+async function checkImage(hostPlatform: string | undefined): Promise<SentinelEnvItem[]> {
 	const inspect = await runDocker(
-		["image", "inspect", ZG_IMAGE, "--format", "{{.Os}}/{{.Architecture}}|{{.Size}}|{{.Created}}"],
+		["image", "inspect", SENTINEL_IMAGE, "--format", "{{.Os}}/{{.Architecture}}|{{.Size}}|{{.Created}}"],
 		{ timeoutMs: 20000 },
 	);
 	if (inspect.code !== 0) {
@@ -181,7 +182,7 @@ async function checkImage(hostPlatform: string | undefined): Promise<ZGEnvItem[]
 			failed(
 				"image-present",
 				GROUP_IMAGE,
-				`工具镜像 ${ZG_IMAGE}`,
+				`工具镜像 ${SENTINEL_IMAGE}`,
 				"本地不存在该镜像",
 				"点下方「构建镜像」（需要网络下载 Kali 软件包）；也可在能联网的机器上 docker build 后导入镜像",
 			),
@@ -192,7 +193,7 @@ async function checkImage(hostPlatform: string | undefined): Promise<ZGEnvItem[]
 		passed(
 			"image-present",
 			GROUP_IMAGE,
-			`工具镜像 ${ZG_IMAGE}`,
+			`工具镜像 ${SENTINEL_IMAGE}`,
 			`${platform || "平台未知"} · ${formatBytes(Number(size))} · 构建于 ${formatTimestamp(created ?? "")}`,
 			true,
 		),
@@ -217,11 +218,22 @@ async function checkImage(hostPlatform: string | undefined): Promise<ZGEnvItem[]
 	return items;
 }
 
-async function checkContainerRun(): Promise<ZGEnvItem> {
+async function checkContainerRun(): Promise<SentinelEnvItem> {
 	// Exit code is the signal: it is non-zero when the image cannot start at all.
 	// `--pull=never` keeps a missing image from turning into a registry download.
 	const result = await runDocker(
-		["run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "sh", ZG_IMAGE, "-c", "echo zgagent-env-ok"],
+		[
+			"run",
+			"--rm",
+			"--pull=never",
+			"--network",
+			"none",
+			"--entrypoint",
+			"sh",
+			SENTINEL_IMAGE,
+			"-c",
+			"echo sentinel-env-ok",
+		],
 		{ timeoutMs: 120000 },
 	);
 	if (result.code !== 0) {
@@ -233,7 +245,7 @@ async function checkContainerRun(): Promise<ZGEnvItem> {
 			"检查 Docker 资源（内存、磁盘）与镜像完整性；必要时删除镜像后重新构建",
 		);
 	}
-	const echoed = result.stdout.includes("zgagent-env-ok");
+	const echoed = result.stdout.includes("sentinel-env-ok");
 	return passed(
 		"container-run",
 		GROUP_CONTAINER,
@@ -243,7 +255,7 @@ async function checkContainerRun(): Promise<ZGEnvItem> {
 	);
 }
 
-async function checkProjectContainers(agentDir: string | undefined): Promise<ZGEnvItem> {
+async function checkProjectContainers(agentDir: string | undefined): Promise<SentinelEnvItem> {
 	if (!agentDir) {
 		return skipped("project-containers", GROUP_CONTAINER, "项目容器", "未配置配置目录");
 	}
@@ -251,21 +263,48 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<ZGE
 	if (projects.length === 0) {
 		return passed("project-containers", GROUP_CONTAINER, "项目容器", "尚未创建项目");
 	}
+	// The network mode only reaches a container when it is created, so report what
+	// the running containers actually use: without this, changing the setting and
+	// forgetting to rebuild looks exactly like the setting having no effect.
+	const wanted = readContainerNetwork(agentDir);
 	const stale: string[] = [];
+	const wrongNetwork: string[] = [];
 	for (const project of projects) {
-		const inspect = await runDocker(["inspect", "-f", "{{.State.Status}}", project.container], { timeoutMs: 15000 });
-		const status = inspect.code === 0 ? inspect.stdout.trim() || "未知" : "已丢失";
+		const inspect = await runDocker(
+			["inspect", "-f", "{{.State.Status}} {{.HostConfig.NetworkMode}}", project.container],
+			{ timeoutMs: 15000 },
+		);
+		const [status = "", mode = ""] = inspect.stdout.trim().split(/\s+/);
+		if (inspect.code !== 0 || !status) {
+			stale.push(`${project.name}（已丢失）`);
+			continue;
+		}
 		if (status !== "running") stale.push(`${project.name}（${status}）`);
+		// `default` is how Docker reports a container that took the default bridge.
+		const actual = mode === "host" ? "host" : mode === "bridge" || mode === "default" ? "bridge" : "";
+		if (actual && actual !== wanted) wrongNetwork.push(project.name);
 	}
-	if (stale.length === 0) {
-		return passed("project-containers", GROUP_CONTAINER, "项目容器", `全部运行中（${projects.length} 个）`);
+	if (stale.length > 0 || wrongNetwork.length > 0) {
+		// Both can be true at once (a stopped project and a container built under the
+		// old network), and each has its own fix, so report them together.
+		const parts: string[] = [];
+		const hints: string[] = [];
+		if (stale.length > 0) {
+			parts.push(`${stale.length}/${projects.length} 个未运行：${stale.join("、")}`);
+			hints.push("在「项目」页重新创建或启动这些项目");
+		}
+		if (wrongNetwork.length > 0) {
+			const other = wanted === "host" ? "bridge" : "host";
+			parts.push(`${wrongNetwork.length}/${projects.length} 个容器仍在 ${other} 网络（设置是 ${wanted}）`);
+			hints.push("在「项目」页点「重建容器」切换网络，容器内 /work 之外的文件会丢、工作目录不受影响");
+		}
+		return warned("project-containers", GROUP_CONTAINER, "项目容器", parts.join("；"), hints.join("；"));
 	}
-	return warned(
+	return passed(
 		"project-containers",
 		GROUP_CONTAINER,
 		"项目容器",
-		`${stale.length}/${projects.length} 个未运行：${stale.join("、")}`,
-		"在「项目」页重新创建或启动这些项目；容器已丢失时重新创建即可",
+		`全部运行中（${projects.length} 个，网络 ${wanted}）`,
 	);
 }
 
@@ -275,7 +314,7 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<ZGE
  * writes into the container's own layer: the file never reaches the host, the file
  * tools and the file panel cannot see it, and recreating the container loses it.
  */
-async function checkProjectMounts(agentDir: string | undefined): Promise<ZGEnvItem> {
+async function checkProjectMounts(agentDir: string | undefined): Promise<SentinelEnvItem> {
 	if (!agentDir) {
 		return skipped("project-mounts", GROUP_CONTAINER, "工作目录挂载", "未配置配置目录");
 	}
@@ -323,7 +362,7 @@ async function checkProjectMounts(agentDir: string | undefined): Promise<ZGEnvIt
  * Report the sources the next image build will use. Informational: a mirror is a
  * choice, not a requirement, so this item never blocks.
  */
-function checkBuildSources(agentDir: string | undefined): ZGEnvItem {
+function checkBuildSources(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
 		return skipped("build-sources", GROUP_IMAGE, "构建源", "未配置配置目录");
 	}
@@ -347,7 +386,7 @@ function checkBuildSources(agentDir: string | undefined): ZGEnvItem {
 	return passed("build-sources", GROUP_IMAGE, "构建源", parts.join(" · "));
 }
 
-function checkProjectsDir(): ZGEnvItem {
+function checkProjectsDir(): SentinelEnvItem {
 	const root = projectsRoot();
 	const result = checkWritable(root);
 	if (!result.ok) {
@@ -356,13 +395,13 @@ function checkProjectsDir(): ZGEnvItem {
 			GROUP_HOST,
 			"项目目录可写",
 			`${root}：${result.error ?? "不可写"}`,
-			"修正目录权限，或用 ZG_PROJECTS_DIR 指向一个可写目录",
+			"修正目录权限，或用 SENTINEL_PROJECTS_DIR 指向一个可写目录",
 		);
 	}
 	return passed("projects-dir", GROUP_HOST, "项目目录可写", root, true);
 }
 
-function checkAgentDir(agentDir: string | undefined): ZGEnvItem {
+function checkAgentDir(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
 		return skipped("agent-dir", GROUP_HOST, "配置目录可写", "未配置配置目录");
 	}
@@ -373,13 +412,13 @@ function checkAgentDir(agentDir: string | undefined): ZGEnvItem {
 			GROUP_HOST,
 			"配置目录可写",
 			`${agentDir}：${result.error ?? "不可写"}`,
-			"修正目录权限，或用 ZGAGENT_CODING_AGENT_DIR 指向一个可写目录",
+			"修正目录权限，或用 SENTINEL_CODING_AGENT_DIR 指向一个可写目录",
 		);
 	}
 	return passed("agent-dir", GROUP_HOST, "配置目录可写", agentDir, true);
 }
 
-async function checkDisk(): Promise<ZGEnvItem> {
+async function checkDisk(): Promise<SentinelEnvItem> {
 	const root = projectsRoot();
 	const free = await freeDiskBytes(existsSync(root) ? root : homedir());
 	if (free === undefined) {
@@ -397,7 +436,7 @@ async function checkDisk(): Promise<ZGEnvItem> {
 	return passed("disk-space", GROUP_HOST, "可用磁盘空间", `剩余 ${formatBytes(free)}`);
 }
 
-function checkModelConfig(agentDir: string | undefined): ZGEnvItem {
+function checkModelConfig(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
 		return skipped("model-config", GROUP_HOST, "模型端点", "未配置配置目录");
 	}
@@ -430,15 +469,15 @@ export interface EnvCheckOptions {
 }
 
 /** Run every check. Never throws: a failing check becomes a report item. */
-export async function checkEnvironment(options: EnvCheckOptions): Promise<ZGEnvReport> {
+export async function checkEnvironment(options: EnvCheckOptions): Promise<SentinelEnvReport> {
 	const runtime = await checkDockerRuntime();
 	const dockerReady = runtime.item.status === "ok";
-	const items: ZGEnvItem[] = [runtime.item];
+	const items: SentinelEnvItem[] = [runtime.item];
 
 	const imageItems = dockerReady
 		? await checkImage(runtime.hostPlatform)
 		: [
-				skipped("image-present", GROUP_IMAGE, `工具镜像 ${ZG_IMAGE}`, "Docker 不可用", true),
+				skipped("image-present", GROUP_IMAGE, `工具镜像 ${SENTINEL_IMAGE}`, "Docker 不可用", true),
 				skipped("image-platform", GROUP_IMAGE, "镜像与宿主架构", "Docker 不可用"),
 			];
 	items.push(
@@ -472,5 +511,6 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<ZGEnvR
 		items,
 		url: options.url,
 		sources: options.agentDir ? readSources(options.agentDir) : { ...EMPTY_SOURCES },
+		containerNetwork: options.agentDir ? readContainerNetwork(options.agentDir) : DEFAULT_CONTAINER_NETWORK,
 	};
 }

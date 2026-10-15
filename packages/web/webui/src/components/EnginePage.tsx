@@ -11,18 +11,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
-	ZGDoctrineView,
-	ZGEngine,
-	ZGEngineGateMode,
-	ZGEngineLimits,
-	ZGEngineTask,
-	ZGEngineTaskStatus,
-	ZGModelConfig,
-	ZGPresetView,
-	ZGSubagentEvent,
+	SentinelDoctrineView,
+	SentinelEngine,
+	SentinelEngineGateMode,
+	SentinelEngineLimits,
+	SentinelEngineTask,
+	SentinelEngineTaskStatus,
+	SentinelModelConfig,
+	SentinelPresetView,
+	SentinelSubagentEvent,
 } from "../types.ts";
 
-const TASK_STATUS_LABELS: Record<ZGEngineTaskStatus, string> = {
+const TASK_STATUS_LABELS: Record<SentinelEngineTaskStatus, string> = {
 	queued: "排队中",
 	running: "运行中",
 	done: "已完成",
@@ -32,7 +32,7 @@ const TASK_STATUS_LABELS: Record<ZGEngineTaskStatus, string> = {
 	paused: "已暂停",
 };
 
-const TASK_STATUS_CLASS: Record<ZGEngineTaskStatus, string> = {
+const TASK_STATUS_CLASS: Record<SentinelEngineTaskStatus, string> = {
 	queued: "tag-queued",
 	running: "tag-running",
 	done: "tag-done",
@@ -42,14 +42,14 @@ const TASK_STATUS_CLASS: Record<ZGEngineTaskStatus, string> = {
 	paused: "tag-paused",
 };
 
-const ENGINE_STATUS_LABELS: Record<ZGEngine["status"], string> = {
+const ENGINE_STATUS_LABELS: Record<SentinelEngine["status"], string> = {
 	running: "运行中",
 	paused: "已暂停",
 	completed: "已完成",
 	stopped: "已终止",
 };
 
-const ENGINE_STATUS_CLASS: Record<ZGEngine["status"], string> = {
+const ENGINE_STATUS_CLASS: Record<SentinelEngine["status"], string> = {
 	running: "tag-running",
 	paused: "tag-paused",
 	completed: "tag-done",
@@ -74,15 +74,15 @@ function formatClock(at: number): string {
 }
 
 export interface EnginePageProps {
-	engines: ZGEngine[];
-	doctrines: ZGDoctrineView[];
+	engines: SentinelEngine[];
+	doctrines: SentinelDoctrineView[];
 	/** Enabled presets the commander may dispatch with, for the whitelist controls. */
-	presets: ZGPresetView[];
-	commanderConfig: ZGModelConfig | null;
+	presets: SentinelPresetView[];
+	commanderConfig: SentinelModelConfig | null;
 	onSend: (message: unknown) => void;
 	onError: (message: string) => void;
-	commanderEvents: Record<string, ZGSubagentEvent[]>;
-	taskEvents: Record<string, ZGSubagentEvent[]>;
+	commanderEvents: Record<string, SentinelSubagentEvent[]>;
+	taskEvents: Record<string, SentinelSubagentEvent[]>;
 	onOpenTaskEvents: (taskId: string) => void;
 	onOpenCommanderEvents: (engineId: string) => void;
 	hasProject: boolean;
@@ -98,10 +98,7 @@ export function EnginePage(props: EnginePageProps) {
 	const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 	const [report, setReport] = useState<{ markdown: string; filename: string } | null>(null);
 
-	const board = useMemo(
-		() => props.engines.find((engine) => engine.id === boardId) ?? null,
-		[props.engines, boardId],
-	);
+	const board = useMemo(() => props.engines.find((engine) => engine.id === boardId) ?? null, [props.engines, boardId]);
 
 	const openBoard = (id: string) => {
 		setBoardId(id);
@@ -163,7 +160,9 @@ export function EnginePage(props: EnginePageProps) {
 							← 返回
 						</button>
 						{board.name}
-						<span className={`tag ${ENGINE_STATUS_CLASS[board.status]}`}>{ENGINE_STATUS_LABELS[board.status]}</span>
+						<span className={`tag ${ENGINE_STATUS_CLASS[board.status]}`}>
+							{ENGINE_STATUS_LABELS[board.status]}
+						</span>
 						<span className="ws-panel__sub">
 							{board.projectName} · 创建于 {new Date(board.createdAt).toLocaleString("zh-CN", { hour12: false })}
 							{board.endedAt
@@ -178,7 +177,10 @@ export function EnginePage(props: EnginePageProps) {
 							进度快照
 						</button>
 						{board.report ? (
-							<button type="button" onClick={() => setReport({ markdown: board.report ?? "", filename: `${board.name}-总报告.md` })}>
+							<button
+								type="button"
+								onClick={() => setReport({ markdown: board.report ?? "", filename: `${board.name}-总报告.md` })}
+							>
 								查看总报告
 							</button>
 						) : null}
@@ -188,7 +190,11 @@ export function EnginePage(props: EnginePageProps) {
 							</button>
 						) : null}
 						{board.status === "paused" ? (
-							<button type="button" className="primary" onClick={() => send({ type: "engine_resume", id: board.id })}>
+							<button
+								type="button"
+								className="primary"
+								onClick={() => send({ type: "engine_resume", id: board.id })}
+							>
 								继续
 							</button>
 						) : null}
@@ -221,9 +227,7 @@ export function EnginePage(props: EnginePageProps) {
 						engine={board}
 						presets={props.presets}
 						onChange={(presetIds) => send({ type: "engine_set_presets", id: board.id, presetIds })}
-						onChangeOptional={(optional) =>
-							send({ type: "engine_set_preset_optional", id: board.id, optional })
-						}
+						onChangeOptional={(optional) => send({ type: "engine_set_preset_optional", id: board.id, optional })}
 					/>
 					{(board.status === "running" || board.status === "paused") && (
 						<SteerBox engineId={board.id} running={board.status === "running"} onSend={send} />
@@ -281,7 +285,9 @@ export function EnginePage(props: EnginePageProps) {
 				<div className="ws-panel__title">
 					工程
 					<span className="ws-panel__sub">
-						{props.hasProject ? `${props.engines[0]?.projectName ?? ""} · ${props.engines.length} 个工程` : "请先选择项目"}
+						{props.hasProject
+							? `${props.engines[0]?.projectName ?? ""} · ${props.engines.length} 个工程`
+							: "请先选择项目"}
 					</span>
 				</div>
 				<div className="ws-panel__actions">
@@ -325,7 +331,9 @@ export function EnginePage(props: EnginePageProps) {
 								queued > 0 ? `${queued} 排队` : "",
 								failed > 0 ? `${failed} 失败` : "",
 							].filter(Boolean);
-							const elapsed = (engine.endedAt ?? (engine.status === "running" ? Date.now() : engine.createdAt)) - engine.createdAt;
+							const elapsed =
+								(engine.endedAt ?? (engine.status === "running" ? Date.now() : engine.createdAt)) -
+								engine.createdAt;
 							return (
 								<div
 									key={engine.id}
@@ -339,7 +347,9 @@ export function EnginePage(props: EnginePageProps) {
 								>
 									<span className="data-name">{engine.name}</span>
 									<span>
-										<span className={`tag ${ENGINE_STATUS_CLASS[engine.status]}`}>{ENGINE_STATUS_LABELS[engine.status]}</span>
+										<span className={`tag ${ENGINE_STATUS_CLASS[engine.status]}`}>
+											{ENGINE_STATUS_LABELS[engine.status]}
+										</span>
 									</span>
 									<span className="data-mono">
 										{engine.targets.length} / {engine.tasks.length}
@@ -347,7 +357,9 @@ export function EnginePage(props: EnginePageProps) {
 									<span>{parts.join(" · ") || "—"}</span>
 									<span>{engine.tasks.reduce((sum, task) => sum + task.vulns, 0)} 条</span>
 									<span>{formatDuration(elapsed)}</span>
-									<span className="data-mono">{new Date(engine.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+									<span className="data-mono">
+										{new Date(engine.createdAt).toLocaleString("zh-CN", { hour12: false })}
+									</span>
 								</div>
 							);
 						})}
@@ -363,11 +375,11 @@ function EngineStats({
 	judgeAvailable,
 	onSetGateMode,
 }: {
-	engine: ZGEngine;
+	engine: SentinelEngine;
 	judgeAvailable: boolean;
-	onSetGateMode: (mode: ZGEngineGateMode) => void;
+	onSetGateMode: (mode: SentinelEngineGateMode) => void;
 }) {
-	const count = (status: ZGEngineTaskStatus) => engine.tasks.filter((task) => task.status === status).length;
+	const count = (status: SentinelEngineTaskStatus) => engine.tasks.filter((task) => task.status === status).length;
 	const vulns = engine.tasks.reduce((sum, task) => sum + task.vulns, 0);
 	// The server refuses a change while a worker is in flight, because each task
 	// session captures its gate when it is created.
@@ -437,14 +449,15 @@ function EnginePresetWhitelist({
 	onChange,
 	onChangeOptional,
 }: {
-	engine: ZGEngine;
-	presets: ZGPresetView[];
+	engine: SentinelEngine;
+	presets: SentinelPresetView[];
 	onChange(presetIds: string[]): void;
 	onChangeOptional(optional: boolean): void;
 }) {
 	const enabled = presets.filter((preset) => preset.enabled);
 	const selected = engine.presetIds;
-	const allowed = selected.length === 0 ? enabled.length : selected.filter((id) => enabled.some((p) => p.id === id)).length;
+	const allowed =
+		selected.length === 0 ? enabled.length : selected.filter((id) => enabled.some((p) => p.id === id)).length;
 	// A required preset with nothing to pick from cannot dispatch at all: the
 	// commander would be refused on every attempt.
 	const stuck = !engine.presetOptional && allowed === 0;
@@ -489,9 +502,7 @@ function EnginePresetWhitelist({
 					checked={engine.presetOptional}
 					onChange={(event) => onChangeOptional(event.target.checked)}
 				/>
-				<span>
-					允许任务不指定预设（没有合适预设时，指挥官可以省略 preset，让任务用默认 Agent 执行）
-				</span>
+				<span>允许任务不指定预设（没有合适预设时，指挥官可以省略 preset，让任务用默认 Agent 执行）</span>
 			</label>
 			<p className={`form-hint${stuck ? " is-warn" : ""}`}>
 				{engine.presetOptional
@@ -504,7 +515,15 @@ function EnginePresetWhitelist({
 	);
 }
 
-function SteerBox({ engineId, running, onSend }: { engineId: string; running: boolean; onSend: (message: unknown) => void }) {
+function SteerBox({
+	engineId,
+	running,
+	onSend,
+}: {
+	engineId: string;
+	running: boolean;
+	onSend: (message: unknown) => void;
+}) {
 	const [steerText, setSteerText] = useState("");
 	const [appendText, setAppendText] = useState("");
 	const sendSteer = () => {
@@ -546,11 +565,7 @@ function SteerBox({ engineId, running, onSend }: { engineId: string; running: bo
 	);
 }
 
-function TaskBoard(props: {
-	engine: ZGEngine;
-	onOpenTask(taskId: string): void;
-	onAbortTask(taskId: string): void;
-}) {
+function TaskBoard(props: { engine: SentinelEngine; onOpenTask(taskId: string): void; onAbortTask(taskId: string): void }) {
 	const tasks = props.engine.tasks;
 	return (
 		<div className="board-col">
@@ -584,7 +599,9 @@ function TaskBoard(props: {
 								}}
 							>
 								<span>
-									<span className={`tag ${TASK_STATUS_CLASS[task.status]}`}>{TASK_STATUS_LABELS[task.status]}</span>
+									<span className={`tag ${TASK_STATUS_CLASS[task.status]}`}>
+										{TASK_STATUS_LABELS[task.status]}
+									</span>
 								</span>
 								<span className="data-name">
 									<span className="task-name-text">{task.title}</span>
@@ -623,7 +640,7 @@ function TaskBoard(props: {
 }
 
 /** Tool-call summary for one feed row: name plus the most useful argument. */
-function toolArgSummary(event: ZGSubagentEvent): string {
+function toolArgSummary(event: SentinelSubagentEvent): string {
 	const args = (event.args ?? {}) as Record<string, unknown>;
 	for (const key of ["title", "task_id", "instruction", "reason"]) {
 		const value = args[key];
@@ -633,7 +650,7 @@ function toolArgSummary(event: ZGSubagentEvent): string {
 	return text === "{}" ? "" : text;
 }
 
-function CommanderFeed({ events }: { events: ZGSubagentEvent[] }) {
+function CommanderFeed({ events }: { events: SentinelSubagentEvent[] }) {
 	const [openThinking, setOpenThinking] = useState<Set<number>>(new Set());
 	const containerRef = useState<{ current: HTMLDivElement | null }>({ current: null })[0];
 	useEffect(() => {
@@ -719,8 +736,8 @@ function CommanderFeed({ events }: { events: ZGSubagentEvent[] }) {
 }
 
 function TaskModal(props: {
-	task: ZGEngineTask | null;
-	events: ZGSubagentEvent[];
+	task: SentinelEngineTask | null;
+	events: SentinelSubagentEvent[];
 	onClose(): void;
 	onAbort(taskId: string): void;
 	onOpenInChat(taskId: string): void;
@@ -817,8 +834,8 @@ function TaskModal(props: {
 }
 
 function CreateEngineForm(props: {
-	doctrines: ZGDoctrineView[];
-	presets: ZGPresetView[];
+	doctrines: SentinelDoctrineView[];
+	presets: SentinelPresetView[];
 	hasProject: boolean;
 	/** Whether a judge endpoint resolves; `ai` is only offered when it does. */
 	judgeAvailable: boolean;
@@ -829,8 +846,8 @@ function CreateEngineForm(props: {
 		doctrines: string[];
 		presetIds: string[];
 		presetOptional: boolean;
-		limits: ZGEngineLimits;
-		gateMode: ZGEngineGateMode;
+		limits: SentinelEngineLimits;
+		gateMode: SentinelEngineGateMode;
 	}): void;
 }) {
 	const [name, setName] = useState("");
@@ -845,7 +862,7 @@ function CreateEngineForm(props: {
 	const [maxRetries, setMaxRetries] = useState(1);
 	const [tokenLimit, setTokenLimit] = useState("");
 	const [timeLimitMin, setTimeLimitMin] = useState("");
-	const [gateMode, setGateMode] = useState<ZGEngineGateMode>("auto");
+	const [gateMode, setGateMode] = useState<SentinelEngineGateMode>("auto");
 
 	const targetCount = targets.split("\n").filter((line) => line.trim()).length;
 
@@ -890,7 +907,12 @@ function CreateEngineForm(props: {
 				<div className="form-grid">
 					<div className="form-field">
 						<label>工程名称</label>
-						<input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="如：内网一批 Web 目标" />
+						<input
+							type="text"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+							placeholder="如：内网一批 Web 目标"
+						/>
 					</div>
 					<div className="form-field">
 						<label>
@@ -914,7 +936,9 @@ function CreateEngineForm(props: {
 										checked={selected.includes(doctrine.id)}
 										onChange={(event) =>
 											setSelected((prev) =>
-												event.target.checked ? [...prev, doctrine.id] : prev.filter((id) => id !== doctrine.id),
+												event.target.checked
+													? [...prev, doctrine.id]
+													: prev.filter((id) => id !== doctrine.id),
 											)
 										}
 									/>
@@ -932,8 +956,8 @@ function CreateEngineForm(props: {
 						<div className="check-group">
 							{props.presets.filter((preset) => preset.enabled).length === 0 ? (
 								<span className="engine-presets__empty">
-									还没有启用的预设 Agent：保持全不勾选即为不限制，指挥官用默认 Agent 派发任务；
-									也可以先到 设置 → 预设 Agent 创建。
+									还没有启用的预设 Agent：保持全不勾选即为不限制，指挥官用默认 Agent 派发任务； 也可以先到 设置
+									→ 预设 Agent 创建。
 								</span>
 							) : (
 								props.presets
@@ -978,23 +1002,53 @@ function CreateEngineForm(props: {
 						<div className="limit-grid">
 							<div className="form-field">
 								<label>最大并发</label>
-								<input type="number" min={1} max={20} value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))} />
+								<input
+									type="number"
+									min={1}
+									max={20}
+									value={concurrency}
+									onChange={(event) => setConcurrency(Number(event.target.value))}
+								/>
 							</div>
 							<div className="form-field">
 								<label>单任务轮数上限</label>
-								<input type="number" min={1} max={99} value={roundLimit} onChange={(event) => setRoundLimit(Number(event.target.value))} />
+								<input
+									type="number"
+									min={1}
+									max={99}
+									value={roundLimit}
+									onChange={(event) => setRoundLimit(Number(event.target.value))}
+								/>
 							</div>
 							<div className="form-field">
 								<label>重试上限（每目标）</label>
-								<input type="number" min={0} max={10} value={maxRetries} onChange={(event) => setMaxRetries(Number(event.target.value))} />
+								<input
+									type="number"
+									min={0}
+									max={10}
+									value={maxRetries}
+									onChange={(event) => setMaxRetries(Number(event.target.value))}
+								/>
 							</div>
 							<div className="form-field">
 								<label>token 上限（留空不限）</label>
-								<input type="number" min={0} value={tokenLimit} onChange={(event) => setTokenLimit(event.target.value)} placeholder="如 2000000" />
+								<input
+									type="number"
+									min={0}
+									value={tokenLimit}
+									onChange={(event) => setTokenLimit(event.target.value)}
+									placeholder="如 2000000"
+								/>
 							</div>
 							<div className="form-field">
 								<label>时间上限分钟（留空不限）</label>
-								<input type="number" min={1} value={timeLimitMin} onChange={(event) => setTimeLimitMin(event.target.value)} placeholder="如 60" />
+								<input
+									type="number"
+									min={1}
+									value={timeLimitMin}
+									onChange={(event) => setTimeLimitMin(event.target.value)}
+									placeholder="如 60"
+								/>
 							</div>
 						</div>
 					</div>
@@ -1038,7 +1092,7 @@ function CreateEngineForm(props: {
 }
 
 function DoctrineManager(props: {
-	doctrines: ZGDoctrineView[];
+	doctrines: SentinelDoctrineView[];
 	onClose(): void;
 	onSave(input: { id?: string; name: string; text: string }): void;
 	onDelete(id: string): void;
@@ -1081,7 +1135,12 @@ function DoctrineManager(props: {
 				<div className="doctrine-new">
 					<div className="form-field">
 						<label>新增思路</label>
-						<input type="text" placeholder="思路名称" value={name} onChange={(event) => setName(event.target.value)} />
+						<input
+							type="text"
+							placeholder="思路名称"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+						/>
 					</div>
 					<div className="form-field">
 						<label>思路内容（纯文本，注入指挥官系统指令）</label>
@@ -1108,9 +1167,9 @@ function DoctrineManager(props: {
 }
 
 function CommanderConfigPanel(props: {
-	config: ZGModelConfig | null;
+	config: SentinelModelConfig | null;
 	onClose(): void;
-	onSave(config: ZGModelConfig | null): void;
+	onSave(config: SentinelModelConfig | null): void;
 }) {
 	const [baseUrl, setBaseUrl] = useState(props.config?.baseUrl ?? "");
 	const [apiKey, setApiKey] = useState(props.config?.apiKey ?? "");
@@ -1120,7 +1179,9 @@ function CommanderConfigPanel(props: {
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					指挥官端点
-					<span className="ws-panel__sub">{props.config ? "当前：已配置专用端点" : "当前：使用主 Agent 端点"}</span>
+					<span className="ws-panel__sub">
+						{props.config ? "当前：已配置专用端点" : "当前：使用主 Agent 端点"}
+					</span>
 				</div>
 				<div className="ws-panel__actions">
 					<button type="button" onClick={props.onClose}>
@@ -1148,7 +1209,12 @@ function CommanderConfigPanel(props: {
 				<div className="form-grid">
 					<div className="form-field">
 						<label>Base URL</label>
-						<input type="text" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:8000/v1" />
+						<input
+							type="text"
+							value={baseUrl}
+							onChange={(event) => setBaseUrl(event.target.value)}
+							placeholder="http://127.0.0.1:8000/v1"
+						/>
 					</div>
 					<div className="form-field">
 						<label>API Key（本地端点可留空）</label>

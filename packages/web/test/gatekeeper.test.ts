@@ -26,7 +26,7 @@ let agentDir = "";
 let store: GatekeeperStore;
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "zgagent-gatekeeper-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-gatekeeper-"));
 	agentDir = join(root, "agent");
 	store = new GatekeeperStore(join(root, "gatekeeper.db"));
 });
@@ -131,7 +131,7 @@ describe("resolveJudgeEndpoint", () => {
 		writeCommanderModelConfig(agentDir, { baseUrl: "http://cmdr/v1", apiKey: "", modelId: "cmdr" });
 		expect(resolveJudgeEndpoint(agentDir)).toEqual({
 			// An unauthenticated endpoint is stored with the placeholder bearer.
-			config: { baseUrl: "http://main/v1", apiKey: "zgagent-no-auth", modelId: "main" },
+			config: { baseUrl: "http://main/v1", apiKey: "sentinel-no-auth", modelId: "main" },
 			from: "main",
 			followedMain: true,
 		});

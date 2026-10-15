@@ -12,15 +12,15 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
-	ZGEngine,
-	ZGEngineEvent,
-	ZGEngineGateMode,
-	ZGEngineLimits,
-	ZGEngineStatus,
-	ZGEngineTarget,
-	ZGEngineTask,
-	ZGEngineTaskStatus,
-	ZGGoalUsage,
+	SentinelEngine,
+	SentinelEngineEvent,
+	SentinelEngineGateMode,
+	SentinelEngineLimits,
+	SentinelEngineStatus,
+	SentinelEngineTarget,
+	SentinelEngineTask,
+	SentinelEngineTaskStatus,
+	SentinelGoalUsage,
 } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
@@ -176,16 +176,16 @@ export class EngineStore {
 		projectId: string;
 		projectName: string;
 		name: string;
-		targets: ZGEngineTarget[];
+		targets: SentinelEngineTarget[];
 		doctrines: string[];
 		/** Preset whitelist; omitted means no restriction. */
 		presetIds?: string[];
 		/** Whether a task may run without a preset; omitted means it may. */
 		presetOptional?: boolean;
-		limits: ZGEngineLimits;
-		gateMode: ZGEngineGateMode;
-	}): ZGEngine {
-		const engine: ZGEngine = {
+		limits: SentinelEngineLimits;
+		gateMode: SentinelEngineGateMode;
+	}): SentinelEngine {
+		const engine: SentinelEngine = {
 			id: `engine-${randomUUID()}`,
 			projectId: input.projectId,
 			projectName: input.projectName,
@@ -225,7 +225,7 @@ export class EngineStore {
 		return engine;
 	}
 
-	getEngine(id: string): ZGEngine | undefined {
+	getEngine(id: string): SentinelEngine | undefined {
 		const row = this.db.prepare("SELECT * FROM engines WHERE id = ?").get(id) as unknown as EngineRow | undefined;
 		if (!row) return undefined;
 		const tasks = this.db
@@ -234,7 +234,7 @@ export class EngineStore {
 		return engineFromRow(row, tasks.map(taskFromRow));
 	}
 
-	listEngines(projectId?: string): ZGEngine[] {
+	listEngines(projectId?: string): SentinelEngine[] {
 		const rows = (projectId
 			? this.db.prepare("SELECT * FROM engines WHERE project_id = ? ORDER BY created_at DESC").all(projectId)
 			: this.db.prepare("SELECT * FROM engines ORDER BY created_at DESC").all()) as unknown as EngineRow[];
@@ -242,7 +242,7 @@ export class EngineStore {
 		return rows.map((row) => engineFromRow(row, (statement.all(row.id) as unknown as TaskRow[]).map(taskFromRow)));
 	}
 
-	setEngineStatus(id: string, status: ZGEngineStatus, pauseNote: string | null, endedAt: number | null): void {
+	setEngineStatus(id: string, status: SentinelEngineStatus, pauseNote: string | null, endedAt: number | null): void {
 		this.db
 			.prepare("UPDATE engines SET status = ?, pause_note = ?, ended_at = ? WHERE id = ?")
 			.run(status, pauseNote, endedAt, id);
@@ -253,7 +253,7 @@ export class EngineStore {
 	}
 
 	/** Change how this engine's workers are gated; the manager refuses while it runs. */
-	setEngineGateMode(id: string, gateMode: ZGEngineGateMode): void {
+	setEngineGateMode(id: string, gateMode: SentinelEngineGateMode): void {
 		this.db.prepare("UPDATE engines SET gate_mode = ? WHERE id = ?").run(gateMode, id);
 	}
 
@@ -287,7 +287,7 @@ export class EngineStore {
 		this.db.prepare("DELETE FROM engines WHERE id = ?").run(id);
 	}
 
-	addTargets(id: string, targets: ZGEngineTarget[]): void {
+	addTargets(id: string, targets: SentinelEngineTarget[]): void {
 		const engine = this.getEngine(id);
 		if (!engine) return;
 		const merged = [...engine.targets];
@@ -309,7 +309,7 @@ export class EngineStore {
 		/** The preset agent this task runs as; null means the default agent. */
 		presetId?: string | null;
 		presetName?: string | null;
-	}): ZGEngineTask {
+	}): SentinelEngineTask {
 		const engine = this.getEngine(input.engineId);
 		const seq = engine ? engine.tasks.length : 0;
 		// The task list is bounded so a runaway commander cannot grow the row
@@ -318,7 +318,7 @@ export class EngineStore {
 			const removable = engine.tasks.filter((task) => task.status === "done").slice(0, 10);
 			for (const task of removable) this.db.prepare("DELETE FROM engine_tasks WHERE id = ?").run(task.id);
 		}
-		const task: ZGEngineTask = {
+		const task: SentinelEngineTask = {
 			id: `task-${randomUUID()}`,
 			engineId: input.engineId,
 			title: input.title,
@@ -362,7 +362,7 @@ export class EngineStore {
 		return task;
 	}
 
-	updateTask(id: string, patch: Partial<Omit<ZGEngineTask, "id" | "engineId">>): void {
+	updateTask(id: string, patch: Partial<Omit<SentinelEngineTask, "id" | "engineId">>): void {
 		const current = this.getTask(id);
 		if (!current) return;
 		const next = { ...current, ...patch };
@@ -390,13 +390,13 @@ export class EngineStore {
 			);
 	}
 
-	getTask(id: string): ZGEngineTask | undefined {
+	getTask(id: string): SentinelEngineTask | undefined {
 		const row = this.db.prepare("SELECT * FROM engine_tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
 		return row ? taskFromRow(row) : undefined;
 	}
 
 	/** Append one event to an owner (engine id for the commander, task id for a worker). */
-	appendEvent(ownerId: string, event: ZGEngineEvent): void {
+	appendEvent(ownerId: string, event: SentinelEngineEvent): void {
 		let payload = JSON.stringify(event);
 		if (payload.length > MAX_EVENT_BYTES) {
 			payload = JSON.stringify({ ...event, text: undefined, output: truncate(event.output), truncated: true });
@@ -406,14 +406,14 @@ export class EngineStore {
 			.run(ownerId, event.seq, event.kind, event.at, payload);
 	}
 
-	listEvents(ownerId: string): ZGEngineEvent[] {
+	listEvents(ownerId: string): SentinelEngineEvent[] {
 		const rows = this.db
 			.prepare("SELECT payload FROM engine_events WHERE owner_id = ? ORDER BY seq ASC")
 			.all(ownerId) as unknown as { payload: string }[];
-		const events: ZGEngineEvent[] = [];
+		const events: SentinelEngineEvent[] = [];
 		for (const row of rows) {
 			try {
-				events.push(JSON.parse(row.payload) as ZGEngineEvent);
+				events.push(JSON.parse(row.payload) as SentinelEngineEvent);
 			} catch {
 				// A corrupt row must not hide the rest of the log.
 			}
@@ -434,22 +434,22 @@ export class EngineStore {
 	}
 }
 
-function engineFromRow(row: EngineRow, tasks: ZGEngineTask[]): ZGEngine {
+function engineFromRow(row: EngineRow, tasks: SentinelEngineTask[]): SentinelEngine {
 	return {
 		id: row.id,
 		projectId: row.project_id,
 		projectName: row.project_name,
 		name: row.name,
-		status: row.status as ZGEngineStatus,
+		status: row.status as SentinelEngineStatus,
 		pauseNote: row.pause_note,
-		targets: parseJson(row.targets, []) as ZGEngineTarget[],
+		targets: parseJson(row.targets, []) as SentinelEngineTarget[],
 		doctrines: parseJson(row.doctrines, []) as string[],
 		// A row written before the column existed reads as no restriction, which is
 		// how it ran.
 		presetIds: parseJson(row.preset_ids, []) as string[],
 		// A row written before the column existed reads as optional, which is how it ran.
 		presetOptional: row.preset_optional !== 0,
-		limits: parseJson(row.limits, null) as unknown as ZGEngineLimits,
+		limits: parseJson(row.limits, null) as unknown as SentinelEngineLimits,
 		// A row written before the column existed reads as `auto`, which is how it ran.
 		gateMode: row.gate_mode === "ai" ? "ai" : "auto",
 		createdAt: row.created_at,
@@ -459,7 +459,7 @@ function engineFromRow(row: EngineRow, tasks: ZGEngineTask[]): ZGEngine {
 	};
 }
 
-function taskFromRow(row: TaskRow): ZGEngineTask {
+function taskFromRow(row: TaskRow): SentinelEngineTask {
 	return {
 		id: row.id,
 		engineId: row.engine_id,
@@ -467,7 +467,7 @@ function taskFromRow(row: TaskRow): ZGEngineTask {
 		objective: row.objective,
 		target: row.target,
 		workspace: row.workspace,
-		status: row.status as ZGEngineTaskStatus,
+		status: row.status as SentinelEngineTaskStatus,
 		attempt: row.attempt,
 		roundLimit: row.round_limit,
 		criteria: parseJson(row.criteria, []) as string[],
@@ -478,7 +478,7 @@ function taskFromRow(row: TaskRow): ZGEngineTask {
 		endedAt: row.ended_at,
 		summary: row.summary,
 		error: row.error,
-		usage: row.usage ? (parseJson(row.usage, null) as unknown as ZGGoalUsage | null) : null,
+		usage: row.usage ? (parseJson(row.usage, null) as unknown as SentinelGoalUsage | null) : null,
 		vulns: row.vulns,
 	};
 }

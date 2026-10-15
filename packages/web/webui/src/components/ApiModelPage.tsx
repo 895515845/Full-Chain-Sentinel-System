@@ -15,19 +15,13 @@
  * Swagger UI has no notion of.
  */
 
-import swaggerUiBundle from "swagger-ui-dist/swagger-ui-bundle.js?url";
-import swaggerUiCss from "swagger-ui-dist/swagger-ui.css?url";
 import { useEffect, useMemo, useState } from "react";
-import type {
-	ZGApiModel,
-	ZGApiModelEntity,
-	ZGApiModelEvent,
-	ZGApiModelStatus,
-	ZGApiModelSummary,
-} from "../types.ts";
-import { ZG_API_MODEL_STATUS_LABELS } from "../types.ts";
+import swaggerUiCss from "swagger-ui-dist/swagger-ui.css?url";
+import swaggerUiBundle from "swagger-ui-dist/swagger-ui-bundle.js?url";
+import type { SentinelApiModel, SentinelApiModelEntity, SentinelApiModelEvent, SentinelApiModelStatus, SentinelApiModelSummary } from "../types.ts";
+import { SENTINEL_API_MODEL_STATUS_LABELS } from "../types.ts";
 
-const STATUS_FILTERS: { value: ZGApiModelStatus | ""; label: string }[] = [
+const STATUS_FILTERS: { value: SentinelApiModelStatus | ""; label: string }[] = [
 	{ value: "", label: "全部" },
 	{ value: "modeling", label: "建模中" },
 	{ value: "done", label: "已完成" },
@@ -57,9 +51,9 @@ const DETAIL_PANES: { value: DetailPane; label: string }[] = [
 function swaggerDocumentHtml(openapi: Record<string, unknown>): string {
 	const spec = JSON.stringify(openapi).replace(/</g, "\\u003c");
 	return [
-		"<!doctype html><html><head><meta charset=\"utf-8\">",
+		'<!doctype html><html><head><meta charset="utf-8">',
 		`<link rel="stylesheet" href="${swaggerUiCss}">`,
-		"</head><body><div id=\"swagger-ui\"></div>",
+		'</head><body><div id="swagger-ui"></div>',
 		`<script src="${swaggerUiBundle}"></script>`,
 		"<script>window.onload=function(){SwaggerUIBundle({",
 		`spec:${spec},`,
@@ -74,7 +68,7 @@ function formatTime(iso: string | null): string {
 }
 
 /** Human line for one audit entry. */
-function eventLabel(event: ZGApiModelEvent): string {
+function eventLabel(event: SentinelApiModelEvent): string {
 	switch (event.kind) {
 		case "created":
 			return "建模开始";
@@ -89,11 +83,11 @@ function eventLabel(event: ZGApiModelEvent): string {
 	}
 }
 
-function StatusChip({ status }: { status: ZGApiModelStatus }) {
-	return <span className={`api-model-chip api-model-chip--${status}`}>{ZG_API_MODEL_STATUS_LABELS[status]}</span>;
+function StatusChip({ status }: { status: SentinelApiModelStatus }) {
+	return <span className={`api-model-chip api-model-chip--${status}`}>{SENTINEL_API_MODEL_STATUS_LABELS[status]}</span>;
 }
 
-function EntityCard({ entity }: { entity: ZGApiModelEntity }) {
+function EntityCard({ entity }: { entity: SentinelApiModelEntity }) {
 	return (
 		<div className="api-model-entity">
 			<div className="api-model-entity__head">
@@ -149,10 +143,10 @@ export function ApiModelPage({
 	onExport,
 	onOpenSession,
 }: {
-	items: ZGApiModelSummary[];
+	items: SentinelApiModelSummary[];
 	/** The run whose drill-down is open; null shows the list. */
-	detail: ZGApiModel | null;
-	events: ZGApiModelEvent[];
+	detail: SentinelApiModel | null;
+	events: SentinelApiModelEvent[];
 	projectName: string | null;
 	hasProject: boolean;
 	onRefresh(): void;
@@ -165,7 +159,7 @@ export function ApiModelPage({
 	onOpenSession(path: string): void;
 }) {
 	const [search, setSearch] = useState("");
-	const [status, setStatus] = useState<ZGApiModelStatus | "">("");
+	const [status, setStatus] = useState<SentinelApiModelStatus | "">("");
 	const [pane, setPane] = useState<DetailPane>("doc");
 
 	// Opening another record lands on its document, not on the pane the previous
@@ -251,7 +245,11 @@ export function ApiModelPage({
 					<span>开始 {formatTime(detail.createdAt)}</span>
 					<span>更新 {formatTime(detail.updatedAt)}</span>
 					{detail.sessionPath ? (
-						<button type="button" className="link-button" onClick={() => onOpenSession(detail.sessionPath as string)}>
+						<button
+							type="button"
+							className="link-button"
+							onClick={() => onOpenSession(detail.sessionPath as string)}
+						>
 							打开发起它的会话
 						</button>
 					) : null}
@@ -260,7 +258,11 @@ export function ApiModelPage({
 				<div className="api-model-tabs">
 					{DETAIL_PANES.map((entry) => {
 						const count =
-							entry.value === "entities" ? detail.entities.length : entry.value === "timeline" ? events.length : undefined;
+							entry.value === "entities"
+								? detail.entities.length
+								: entry.value === "timeline"
+									? events.length
+									: undefined;
 						return (
 							<button
 								key={entry.value}
@@ -323,7 +325,9 @@ export function ApiModelPage({
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					业务建模
-					<span className="ws-panel__sub">{projectName ? `${projectName} · 共 ${items.length} 份` : `共 ${items.length} 份`}</span>
+					<span className="ws-panel__sub">
+						{projectName ? `${projectName} · 共 ${items.length} 份` : `共 ${items.length} 份`}
+					</span>
 				</div>
 				<div className="ws-panel__actions">
 					<input
@@ -335,7 +339,7 @@ export function ApiModelPage({
 					<select
 						className="inline-input"
 						value={status}
-						onChange={(event) => setStatus(event.target.value as ZGApiModelStatus | "")}
+						onChange={(event) => setStatus(event.target.value as SentinelApiModelStatus | "")}
 					>
 						{STATUS_FILTERS.map((entry) => (
 							<option key={entry.value} value={entry.value}>
@@ -350,7 +354,8 @@ export function ApiModelPage({
 			</div>
 			<div className="ws-panel__body">
 				<p className="ws-hint">
-					在对话页输入框上方点「业务建模」即可开始：Agent 会在当前会话里临时拿到两个建模工具，把还原出来的接口与业务实体提交到这里。平时它看不到这两个工具。
+					在对话页输入框上方点「业务建模」即可开始：Agent
+					会在当前会话里临时拿到两个建模工具，把还原出来的接口与业务实体提交到这里。平时它看不到这两个工具。
 				</p>
 				{visible.length === 0 ? (
 					<div className="ws-empty">

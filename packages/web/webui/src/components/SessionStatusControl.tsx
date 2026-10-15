@@ -15,11 +15,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { ZGSessionStatus } from "../types.ts";
+import type { SentinelSessionStatus } from "../types.ts";
 
-export const SESSION_STATUSES: readonly ZGSessionStatus[] = ["todo", "active", "done", "ignored"];
+export const SESSION_STATUSES: readonly SentinelSessionStatus[] = ["todo", "active", "done", "ignored"];
 
-export const SESSION_STATUS_LABELS: Record<ZGSessionStatus, string> = {
+export const SESSION_STATUS_LABELS: Record<SentinelSessionStatus, string> = {
 	todo: "待跟进",
 	active: "进行中",
 	done: "已完成",
@@ -27,7 +27,7 @@ export const SESSION_STATUS_LABELS: Record<ZGSessionStatus, string> = {
 };
 
 /** Amber asks for attention, blue is running, green is finished, grey is parked. */
-export const SESSION_STATUS_COLORS: Record<ZGSessionStatus, string> = {
+export const SESSION_STATUS_COLORS: Record<SentinelSessionStatus, string> = {
 	todo: "#e6a23c",
 	active: "#409eff",
 	done: "#52c41a",
@@ -44,12 +44,12 @@ const PICKER_WIDTH = 168;
 const PICKER_HEIGHT = 5 * 30 + 10 + 2;
 const VIEWPORT_MARGIN = 8;
 
-function chipClass(status: ZGSessionStatus | null | undefined): string {
+function chipClass(status: SentinelSessionStatus | null | undefined): string {
 	return `session-status-chip ${status ?? "none"}`;
 }
 
 /** The status as a small colored label, or a muted one when it is unset. */
-export function SessionStatusChip({ status }: { status?: ZGSessionStatus }) {
+export function SessionStatusChip({ status }: { status?: SentinelSessionStatus }) {
 	return <span className={chipClass(status)}>{status ? SESSION_STATUS_LABELS[status] : "无状态"}</span>;
 }
 
@@ -63,7 +63,7 @@ export function SessionStatusChip({ status }: { status?: ZGSessionStatus }) {
  * so those two also carry the label; 待跟进/进行中 stay label-free because the
  * rail is the attention cue there and the list stays compact.
  */
-export function SessionStatusRail({ status }: { status?: ZGSessionStatus | null }) {
+export function SessionStatusRail({ status }: { status?: SentinelSessionStatus | null }) {
 	if (!status) return null;
 	const terminal = status === "done" || status === "ignored";
 	return (
@@ -84,9 +84,9 @@ export function SessionStatusControl({
 	onPick,
 	onOpenChange,
 }: {
-	status?: ZGSessionStatus | null;
+	status?: SentinelSessionStatus | null;
 	variant: "chip" | "toolbar";
-	onPick: (status: ZGSessionStatus | null) => void;
+	onPick: (status: SentinelSessionStatus | null) => void;
 	/**
 	 * Whether the picker is open. A host that hides itself when the pointer
 	 * leaves (the session list's hover card) uses this to stay alive while the
@@ -137,7 +137,7 @@ export function SessionStatusControl({
 		setAnchor({ top, left });
 	};
 
-	const pick = (next: ZGSessionStatus | null) => {
+	const pick = (next: SentinelSessionStatus | null) => {
 		setAnchor(null);
 		onPick(next);
 	};
@@ -187,7 +187,12 @@ export function SessionStatusControl({
 						{status ? null : <span className="session-status-tick">✓</span>}
 					</button>
 					{SESSION_STATUSES.map((value) => (
-						<button key={value} type="button" className={status === value ? "on" : ""} onClick={() => pick(value)}>
+						<button
+							key={value}
+							type="button"
+							className={status === value ? "on" : ""}
+							onClick={() => pick(value)}
+						>
 							<span className="session-status-dot" style={{ background: SESSION_STATUS_COLORS[value] }} />
 							{SESSION_STATUS_LABELS[value]}
 							{status === value ? <span className="session-status-tick">✓</span> : null}

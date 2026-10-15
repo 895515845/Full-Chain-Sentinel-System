@@ -11,7 +11,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { expect, test } from "vitest";
 import { blockGoal, createGoal, finishRound, recordBlocker, startRound } from "../src/goal.ts";
 import { createGoalTools, type GoalPort } from "../src/goal-tool.ts";
-import type { ZGGoal, ZGGoalCompletion, ZGGoalProgress } from "../src/protocol.ts";
+import type { SentinelGoal, SentinelGoalCompletion, SentinelGoalProgress } from "../src/protocol.ts";
 
 interface CallResult {
 	content: { type?: string; text?: string }[];
@@ -25,10 +25,10 @@ type CallableTool = {
 };
 
 interface FakeState {
-	goal: ZGGoal | undefined;
+	goal: SentinelGoal | undefined;
 	submitted: number;
-	progress: ZGGoalProgress[];
-	completions: ZGGoalCompletion[];
+	progress: SentinelGoalProgress[];
+	completions: SentinelGoalCompletion[];
 	blockers: { reason: string; evidence: string[] }[];
 }
 
@@ -37,7 +37,7 @@ interface FakeState {
  * driver, so the fake only has to do what the runtime does — hand the change to
  * the state machine and remember it.
  */
-function fakePort(goal: ZGGoal | undefined): { state: FakeState; tools: ToolDefinition[] } {
+function fakePort(goal: SentinelGoal | undefined): { state: FakeState; tools: ToolDefinition[] } {
 	const state: FakeState = { goal, submitted: 0, progress: [], completions: [], blockers: [] };
 	const port: GoalPort = {
 		current: () => state.goal,
@@ -62,7 +62,7 @@ function fakePort(goal: ZGGoal | undefined): { state: FakeState; tools: ToolDefi
 	return { state, tools: createGoalTools(port) };
 }
 
-function liveGoal(criteria: string[] = []): ZGGoal {
+function liveGoal(criteria: string[] = []): SentinelGoal {
 	return startRound(
 		createGoal({
 			id: "goal-live",
@@ -296,7 +296,7 @@ test("the goal tools stop working once the goal is completed", async () => {
 		evidence: ["nmap 输出"],
 		findings: { submitted: 0, note: "无发现" },
 	});
-	state.goal = { ...(state.goal as ZGGoal), status: "completed" };
+	state.goal = { ...(state.goal as SentinelGoal), status: "completed" };
 	const result = await call(tools, "goal_progress", { done: ["x"], todo: [] });
 	expect(result.isError).toBe(true);
 	expect(textOf(result)).toContain("已完成");

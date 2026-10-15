@@ -9,8 +9,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { SessionInfoView, ZGEngine, ZGMode, ZGPageId, ZGSessionStatus } from "../types.ts";
-import { ZG_MODE_LABELS } from "../types.ts";
+import type { SessionInfoView, SentinelEngine, SentinelMode, SentinelPageId, SentinelSessionStatus } from "../types.ts";
+import { SENTINEL_MODE_LABELS } from "../types.ts";
 import {
 	AboutIcon,
 	ApiModelIcon,
@@ -30,6 +30,7 @@ import {
 	ProjectsIcon,
 	RefreshIcon,
 	RenameIcon,
+	SentinelMark,
 	SettingsIcon,
 	ShieldIcon,
 	SubagentIcon,
@@ -40,7 +41,7 @@ import { SESSION_STATUS_LABELS, SessionStatusControl, SessionStatusRail } from "
 type MenuIcon = React.ComponentType<{ size?: number }>;
 
 interface MenuEntry {
-	page: ZGPageId;
+	page: SentinelPageId;
 	label: string;
 	icon: MenuIcon;
 }
@@ -122,13 +123,13 @@ export function AppSider({
 }: {
 	collapsed: boolean;
 	onToggleCollapse: () => void;
-	activePage: ZGPageId;
-	onNavigate: (page: ZGPageId) => void;
+	activePage: SentinelPageId;
+	onNavigate: (page: SentinelPageId) => void;
 	connected: boolean;
-	mode: ZGMode;
+	mode: SentinelMode;
 	modelConfigured: boolean;
 	sessions: SessionInfoView[];
-	engines: ZGEngine[];
+	engines: SentinelEngine[];
 	activeSessionId: string | null;
 	/** Session ids with a background run. */
 	runningSessions: string[];
@@ -139,7 +140,7 @@ export function AppSider({
 	onSwitchSession: (path: string) => void;
 	onRenameSession: (path: string, name: string) => void;
 	onDeleteSession: (path: string) => void;
-	onSetSessionStatus: (path: string, status: ZGSessionStatus | null) => void;
+	onSetSessionStatus: (path: string, status: SentinelSessionStatus | null) => void;
 	projectSlot: React.ReactNode;
 	onRefresh: () => void;
 	/** The logged-in administrator; null hides the logout button. */
@@ -163,16 +164,16 @@ export function AppSider({
 	 *   badged with the engine's name so a batch run never drowns the rest.
 	 */
 	const [statusFilter, setStatusFilter] = useState<"all" | "open">(() =>
-		localStorage.getItem("zg-session-filter") === "open" ? "open" : "all",
+		localStorage.getItem("sentinel-session-filter") === "open" ? "open" : "all",
 	);
 	const [sourceFilter, setSourceFilter] = useState<"all" | "chat" | "engine">(() => {
-		const stored = localStorage.getItem("zg-session-source");
+		const stored = localStorage.getItem("sentinel-session-source");
 		return stored === "chat" || stored === "engine" ? stored : "all";
 	});
 	/** Collapsed per-engine groups; the sidebar starts expanded. */
 	const [collapsedEngines, setCollapsedEngines] = useState<Set<string>>(() => {
 		try {
-			const stored = localStorage.getItem("zg-engine-groups-collapsed");
+			const stored = localStorage.getItem("sentinel-engine-groups-collapsed");
 			return new Set(stored ? (JSON.parse(stored) as string[]) : []);
 		} catch {
 			return new Set();
@@ -184,7 +185,7 @@ export function AppSider({
 			const next = new Set(prev);
 			if (next.has(engineId)) next.delete(engineId);
 			else next.add(engineId);
-			localStorage.setItem("zg-engine-groups-collapsed", JSON.stringify([...next]));
+			localStorage.setItem("sentinel-engine-groups-collapsed", JSON.stringify([...next]));
 			return next;
 		});
 	};
@@ -272,12 +273,12 @@ export function AppSider({
 	const cardSession = hoverCard ? sessions.find((session) => session.path === hoverCard.path) : undefined;
 
 	const setStatus = (next: "all" | "open") => {
-		localStorage.setItem("zg-session-filter", next);
+		localStorage.setItem("sentinel-session-filter", next);
 		setStatusFilter(next);
 	};
 
 	const setSource = (next: "all" | "chat" | "engine") => {
-		localStorage.setItem("zg-session-source", next);
+		localStorage.setItem("sentinel-session-source", next);
 		setSourceFilter(next);
 	};
 
@@ -461,9 +462,15 @@ export function AppSider({
 
 	return (
 		<aside className={`sider ${collapsed ? "collapsed" : ""}`}>
-			<div className="sider-brand" onClick={onToggleCollapse} title="ZGAgent">
-				<div className="sider-logo">ZG</div>
-				<span className="sider-title">ZGAgent</span>
+			<div
+				className="sider-brand"
+				onClick={onToggleCollapse}
+				title="全链哨兵 Full Chain Sentinel System"
+			>
+				<div className="sider-logo">
+					<SentinelMark size={18} />
+				</div>
+				<span className="sider-title">全链哨兵</span>
 				<button
 					type="button"
 					className="sider-collapse"
@@ -555,7 +562,7 @@ export function AppSider({
 			<div className="sider-footer">
 				<span className="sider-foot-status">
 					<span className={`dot ${connected ? "ok" : ""}`} />
-					{connected ? ZG_MODE_LABELS[mode] : "已断开"}
+					{connected ? SENTINEL_MODE_LABELS[mode] : "已断开"}
 				</span>
 				{authUser ? (
 					<>
@@ -610,9 +617,9 @@ function SessionHoverCard({
 	onPickerOpenChange,
 }: {
 	data: { session: SessionInfoView; top: number; left: number };
-	engines: ZGEngine[];
+	engines: SentinelEngine[];
 	onRename(session: SessionInfoView): void;
-	onSetStatus(path: string, status: ZGSessionStatus | null): void;
+	onSetStatus(path: string, status: SentinelSessionStatus | null): void;
 	onDelete(path: string): void;
 	onEnter(): void;
 	onLeave(): void;

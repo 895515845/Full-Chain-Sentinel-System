@@ -8,7 +8,7 @@ export default mergeConfig(
 			globals: true,
 			environment: "node",
 			testTimeout: 60000,
-			env: { PI_OFFLINE: "1", ZG_ALLOW_HOST_SESSIONS: "1" },
+			env: { PI_OFFLINE: "1", SENTINEL_ALLOW_HOST_SESSIONS: "1" },
 			unstubEnvs: true,
 			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
 			silent: "passed-only",

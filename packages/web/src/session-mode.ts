@@ -12,17 +12,17 @@
  * absent one behave identically.
  */
 
-import type { ZGMode } from "./protocol.ts";
-import { ZG_MODES } from "./protocol.ts";
+import type { SentinelMode } from "./protocol.ts";
+import { SENTINEL_MODES } from "./protocol.ts";
 
 export const SESSION_MODE_CUSTOM_TYPE = "zg-mode";
 
-export function isSessionMode(value: unknown): value is ZGMode {
-	return typeof value === "string" && (ZG_MODES as readonly string[]).includes(value);
+export function isSessionMode(value: unknown): value is SentinelMode {
+	return typeof value === "string" && (SENTINEL_MODES as readonly string[]).includes(value);
 }
 
 /** The override one `zg-mode` entry carries; `null` clears it. */
-export function sessionModeFromEntry(data: unknown): ZGMode | null | undefined {
+export function sessionModeFromEntry(data: unknown): SentinelMode | null | undefined {
 	if (data === null) return null;
 	if (typeof data !== "object") return undefined;
 	const mode = (data as { mode?: unknown }).mode;
@@ -30,8 +30,8 @@ export function sessionModeFromEntry(data: unknown): ZGMode | null | undefined {
 }
 
 /** The override set by the last `zg-mode` entry on a branch; null means follow the default. */
-export function readSessionMode(entries: readonly unknown[]): ZGMode | null {
-	let found: ZGMode | null = null;
+export function readSessionMode(entries: readonly unknown[]): SentinelMode | null {
+	let found: SentinelMode | null = null;
 	for (const entry of entries) {
 		const value = entry as { type?: string; customType?: string; data?: unknown };
 		if (value.type !== "custom" || value.customType !== SESSION_MODE_CUSTOM_TYPE) continue;

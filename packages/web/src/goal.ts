@@ -22,13 +22,13 @@
  */
 
 import type {
-	ZGGoal,
-	ZGGoalCompletion,
-	ZGGoalPauseReason,
-	ZGGoalProgress,
-	ZGGoalRound,
-	ZGGoalRoundOutcome,
-	ZGGoalUsage,
+	SentinelGoal,
+	SentinelGoalCompletion,
+	SentinelGoalPauseReason,
+	SentinelGoalProgress,
+	SentinelGoalRound,
+	SentinelGoalRoundOutcome,
+	SentinelGoalUsage,
 } from "./protocol.ts";
 
 /** Session entry type of the goal state. State entries never enter the model context. */
@@ -67,12 +67,12 @@ export function parseCriteria(text: string | undefined): string[] {
 	return criteria.slice(0, 20);
 }
 
-export function emptyUsage(): ZGGoalUsage {
+export function emptyUsage(): SentinelGoalUsage {
 	return { input: 0, output: 0, total: 0, cost: null };
 }
 
 /** Usage since the goal started. A branch switch can lower the counters; never go negative. */
-export function diffUsage(current: ZGGoalUsage | undefined, baseline: ZGGoalUsage): ZGGoalUsage {
+export function diffUsage(current: SentinelGoalUsage | undefined, baseline: SentinelGoalUsage): SentinelGoalUsage {
 	if (!current) return emptyUsage();
 	const cost =
 		typeof current.cost === "number" && typeof baseline.cost === "number"
@@ -91,9 +91,9 @@ export function createGoal(input: {
 	objective: string;
 	criteria: string[];
 	roundLimit: number;
-	baseline: ZGGoalUsage;
+	baseline: SentinelGoalUsage;
 	at: number;
-}): ZGGoal {
+}): SentinelGoal {
 	return {
 		id: input.id,
 		objective: input.objective.trim(),
@@ -117,9 +117,9 @@ export function createGoal(input: {
  * Read the goal back from a session branch. Only the shape is validated: the
  * file is ours, but a truncated or hand-edited entry must not crash the console.
  */
-export function normalizeGoal(raw: unknown): ZGGoal | null {
+export function normalizeGoal(raw: unknown): SentinelGoal | null {
 	if (typeof raw !== "object" || raw === null) return null;
-	const value = raw as Partial<ZGGoal>;
+	const value = raw as Partial<SentinelGoal>;
 	if (typeof value.id !== "string" || typeof value.objective !== "string") return null;
 	if (
 		value.status !== "active" &&
@@ -148,7 +148,7 @@ export function normalizeGoal(raw: unknown): ZGGoal | null {
 			todo: Array.isArray(value.progress?.todo) ? value.progress.todo : [],
 			blockers: Array.isArray(value.progress?.blockers) ? value.progress.blockers : [],
 		},
-		rounds: value.rounds.filter((round): round is ZGGoalRound => typeof round === "object" && round !== null),
+		rounds: value.rounds.filter((round): round is SentinelGoalRound => typeof round === "object" && round !== null),
 		...(typeof value.lastBlocker === "string" ? { lastBlocker: value.lastBlocker } : {}),
 		...(value.completion ? { completion: value.completion } : {}),
 		...(value.blocked ? { blocked: value.blocked } : {}),
@@ -160,8 +160,8 @@ export function normalizeGoal(raw: unknown): ZGGoal | null {
 }
 
 /** Open a round. Continuations consume the operator's budget; the initial run does not. */
-export function startRound(goal: ZGGoal, kind: "initial" | "continue", at: number): ZGGoal {
-	const round: ZGGoalRound = { index: goal.rounds.length, kind, startedAt: at, toolCalls: 0 };
+export function startRound(goal: SentinelGoal, kind: "initial" | "continue", at: number): SentinelGoal {
+	const round: SentinelGoalRound = { index: goal.rounds.length, kind, startedAt: at, toolCalls: 0 };
 	return {
 		...goal,
 		rounds: [...goal.rounds, round].slice(-MAX_ROUNDS_KEPT),
@@ -176,17 +176,17 @@ export function startRound(goal: ZGGoal, kind: "initial" | "continue", at: numbe
  * a row is enough to stop paying for it.
  */
 export function finishRound(
-	goal: ZGGoal,
+	goal: SentinelGoal,
 	patch: {
 		at: number;
 		toolCalls: number;
-		usage: ZGGoalUsage;
+		usage: SentinelGoalUsage;
 		summary?: string;
 		summaryFromTool?: boolean;
-		outcome: ZGGoalRoundOutcome;
+		outcome: SentinelGoalRoundOutcome;
 		blockerReason?: string;
 	},
-): ZGGoal {
+): SentinelGoal {
 	const rounds = [...goal.rounds];
 	const last = rounds[rounds.length - 1];
 	if (last) {
@@ -209,7 +209,7 @@ export function finishRound(
 	};
 }
 
-export function recordProgress(goal: ZGGoal, progress: ZGGoalProgress): ZGGoal {
+export function recordProgress(goal: SentinelGoal, progress: SentinelGoalProgress): SentinelGoal {
 	return {
 		...goal,
 		progress: {
@@ -222,7 +222,7 @@ export function recordProgress(goal: ZGGoal, progress: ZGGoalProgress): ZGGoal {
 }
 
 /** One line per non-empty list, for the round summary and the next round's prompt. */
-export function formatProgressSummary(progress: ZGGoalProgress): string {
+export function formatProgressSummary(progress: SentinelGoalProgress): string {
 	const part = (label: string, items: readonly string[]): string =>
 		items.length > 0 ? `${label}：${items.join("；")}` : "";
 	return [part("已完成", progress.done), part("待办", progress.todo), part("阻塞", progress.blockers)]
@@ -235,7 +235,7 @@ export function formatProgressSummary(progress: ZGGoalProgress): string {
  * next round is built from what the model itself listed, and a round that ends
  * with an explicit progress list should not be re-summarized from its prose.
  */
-export function recordRoundProgress(goal: ZGGoal, progress: ZGGoalProgress, at: number): ZGGoal {
+export function recordRoundProgress(goal: SentinelGoal, progress: SentinelGoalProgress, at: number): SentinelGoal {
 	const withProgress = recordProgress(goal, progress);
 	const rounds = [...withProgress.rounds];
 	const last = rounds[rounds.length - 1];
@@ -253,8 +253,8 @@ export function recordRoundProgress(goal: ZGGoal, progress: ZGGoalProgress, at: 
  * The goal stored in a session branch: the last state entry wins, and a state
  * entry holding null means the operator cleared the goal.
  */
-export function readGoalState(entries: readonly unknown[]): ZGGoal | null {
-	let found: ZGGoal | null = null;
+export function readGoalState(entries: readonly unknown[]): SentinelGoal | null {
+	let found: SentinelGoal | null = null;
 	for (const entry of entries) {
 		const value = entry as { type?: string; customType?: string; data?: unknown };
 		if (value.type !== "custom" || value.customType !== GOAL_STATE_CUSTOM_TYPE) continue;
@@ -264,7 +264,7 @@ export function readGoalState(entries: readonly unknown[]): ZGGoal | null {
 }
 
 /** One finding reached the hub while this goal was running. */
-export function recordSubmission(goal: ZGGoal, at: number): ZGGoal {
+export function recordSubmission(goal: SentinelGoal, at: number): SentinelGoal {
 	return { ...goal, submitted: goal.submitted + 1, updatedAt: at };
 }
 
@@ -274,10 +274,10 @@ export function recordSubmission(goal: ZGGoal, at: number): ZGGoal {
  * and the transition happens only once the same blocker has held for three.
  */
 export function recordBlocker(
-	goal: ZGGoal,
+	goal: SentinelGoal,
 	reason: string,
 	at: number,
-): { goal: ZGGoal; streak: number; accepted: boolean; repeatedInRound: boolean } {
+): { goal: SentinelGoal; streak: number; accepted: boolean; repeatedInRound: boolean } {
 	const normalized = reason.trim();
 	const rounds = [...goal.rounds];
 	const last = rounds[rounds.length - 1];
@@ -287,7 +287,7 @@ export function recordBlocker(
 	if (last && !repeatedInRound) {
 		rounds[rounds.length - 1] = { ...last, blockerReason: normalized };
 	}
-	const next: ZGGoal = {
+	const next: SentinelGoal = {
 		...goal,
 		rounds,
 		blockerStreak: streak,
@@ -297,7 +297,7 @@ export function recordBlocker(
 	return { goal: next, streak, accepted: streak >= BLOCKED_STREAK_LIMIT, repeatedInRound };
 }
 
-export function completeGoal(goal: ZGGoal, completion: ZGGoalCompletion): ZGGoal {
+export function completeGoal(goal: SentinelGoal, completion: SentinelGoalCompletion): SentinelGoal {
 	return {
 		...goal,
 		status: "completed",
@@ -308,7 +308,13 @@ export function completeGoal(goal: ZGGoal, completion: ZGGoalCompletion): ZGGoal
 	};
 }
 
-export function blockGoal(goal: ZGGoal, reason: string, evidence: string[], streak: number, at: number): ZGGoal {
+export function blockGoal(
+	goal: SentinelGoal,
+	reason: string,
+	evidence: string[],
+	streak: number,
+	at: number,
+): SentinelGoal {
 	return {
 		...goal,
 		status: "blocked",
@@ -318,7 +324,12 @@ export function blockGoal(goal: ZGGoal, reason: string, evidence: string[], stre
 	};
 }
 
-export function pauseGoal(goal: ZGGoal, reason: ZGGoalPauseReason, note: string | undefined, at: number): ZGGoal {
+export function pauseGoal(
+	goal: SentinelGoal,
+	reason: SentinelGoalPauseReason,
+	note: string | undefined,
+	at: number,
+): SentinelGoal {
 	return {
 		...goal,
 		status: "paused",
@@ -333,7 +344,7 @@ export function pauseGoal(goal: ZGGoal, reason: ZGGoalPauseReason, note: string 
 }
 
 /** Resume a paused goal with more rounds. The no-progress fuse starts over. */
-export function resumeGoal(goal: ZGGoal, extraRounds: number, at: number): ZGGoal {
+export function resumeGoal(goal: SentinelGoal, extraRounds: number, at: number): SentinelGoal {
 	const { endedAt: _endedAt, ...rest } = goal;
 	return {
 		...rest,
@@ -350,7 +361,7 @@ export function resumeGoal(goal: ZGGoal, extraRounds: number, at: number): ZGGoa
  * Give one round back. The loop-guard aborted the attempt before it produced
  * anything (stuttering output), so the operator's budget must not pay for it.
  */
-export function refundRound(goal: ZGGoal, at: number): ZGGoal {
+export function refundRound(goal: SentinelGoal, at: number): SentinelGoal {
 	return { ...goal, roundsUsed: Math.max(0, goal.roundsUsed - 1), updatedAt: at };
 }
 
@@ -358,7 +369,7 @@ export function refundRound(goal: ZGGoal, at: number): ZGGoal {
  * Decide what follows a settled round. The budget is checked before the fuse, so
  * a goal that ran out of rounds reports the limit rather than a fuse it also hit.
  */
-export function advanceGoal(goal: ZGGoal, at: number): { goal: ZGGoal; action: "continue" | "stop" } {
+export function advanceGoal(goal: SentinelGoal, at: number): { goal: SentinelGoal; action: "continue" | "stop" } {
 	if (goal.status !== "active") return { goal, action: "stop" };
 	if (goal.roundsUsed >= goal.roundLimit) {
 		return {
@@ -375,14 +386,14 @@ export function advanceGoal(goal: ZGGoal, at: number): { goal: ZGGoal; action: "
 	return { goal, action: "continue" };
 }
 
-export function goalStatusLabel(goal: ZGGoal): string {
+export function goalStatusLabel(goal: SentinelGoal): string {
 	if (goal.status === "active") return "进行中";
 	if (goal.status === "completed") return "已完成";
 	if (goal.status === "blocked") return "已阻塞";
 	return `已暂停（${goalPauseLabel(goal.pauseReason)}）`;
 }
 
-export function goalPauseLabel(reason: ZGGoalPauseReason | undefined): string {
+export function goalPauseLabel(reason: SentinelGoalPauseReason | undefined): string {
 	switch (reason) {
 		case "limit":
 			return "轮数上限";
@@ -416,7 +427,7 @@ function listOrNone(items: readonly string[], empty: string): string {
  * far. The objective and the recorded progress are quoted as data: they come from
  * the operator and from earlier model turns, not from a fresh instruction source.
  */
-export function buildGoalContract(goal: ZGGoal, kind: "initial" | "continue"): string {
+export function buildGoalContract(goal: SentinelGoal, kind: "initial" | "continue"): string {
 	const criteria =
 		goal.criteria.length > 0
 			? goal.criteria.map((item, index) => `  ${index + 1}. ${item}`).join("\n")

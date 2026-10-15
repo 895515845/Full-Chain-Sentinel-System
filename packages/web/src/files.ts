@@ -16,7 +16,7 @@
 import { lstatSync, readdirSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 import { execInContainer } from "./docker.ts";
-import type { ZGFileEntry, ZGFilePreview } from "./protocol.ts";
+import type { SentinelFileEntry, SentinelFilePreview } from "./protocol.ts";
 
 /** Mount point of the project work directory inside the container. */
 export const WORK_ROOT = "/work";
@@ -107,7 +107,7 @@ export async function listFiles(
 	workDir: string,
 	path: string,
 	options: { container?: string | null; signal?: AbortSignal } = {},
-): Promise<{ path: string; entries: ZGFileEntry[] }> {
+): Promise<{ path: string; entries: SentinelFileEntry[] }> {
 	const target = resolveWorkPath(path);
 	try {
 		return { path: target, entries: readHostDirectory(hostPathOf(workDir, target), target) };
@@ -135,7 +135,7 @@ function describeListError(error: unknown): Error {
 	return error instanceof Error ? error : new Error(String(error));
 }
 
-function readHostDirectory(hostDir: string, target: string): ZGFileEntry[] {
+function readHostDirectory(hostDir: string, target: string): SentinelFileEntry[] {
 	const entries = readdirSync(hostDir, { withFileTypes: true }).map((dirent) =>
 		describeEntry(hostDir, target, dirent.name),
 	);
@@ -147,9 +147,9 @@ function readHostDirectory(hostDir: string, target: string): ZGFileEntry[] {
  * One entry's metadata. stat(2) follows symlinks, which is what the container's
  * `[ -d ]` test did; a dangling symlink is still part of the listing.
  */
-function describeEntry(hostDir: string, target: string, name: string): ZGFileEntry {
+function describeEntry(hostDir: string, target: string, name: string): SentinelFileEntry {
 	const full = join(hostDir, name);
-	let type: ZGFileEntry["type"] = "file";
+	let type: SentinelFileEntry["type"] = "file";
 	let size = 0;
 	let mtime = 0;
 	try {
@@ -169,7 +169,7 @@ function describeEntry(hostDir: string, target: string, name: string): ZGFileEnt
 	return { name, path: posix.join(target, name), type, size, mtime };
 }
 
-function byTypeThenName(a: ZGFileEntry, b: ZGFileEntry): number {
+function byTypeThenName(a: SentinelFileEntry, b: SentinelFileEntry): number {
 	return a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1;
 }
 
@@ -195,14 +195,14 @@ export async function listFilesInContainer(
 	container: string,
 	path: string,
 	signal?: AbortSignal,
-): Promise<{ path: string; entries: ZGFileEntry[] }> {
+): Promise<{ path: string; entries: SentinelFileEntry[] }> {
 	const target = resolveWorkPath(path);
 	const result = await execInContainer(container, LIST_SCRIPT, [target], { signal, timeoutMs: 30000 });
 	if (result.code !== 0) {
 		if (result.code === 2) throw new Error("目录不存在或不可读");
 		fail("读取目录", result.code, result.stderr);
 	}
-	const entries: ZGFileEntry[] = [];
+	const entries: SentinelFileEntry[] = [];
 	for (const line of result.stdout.split("\n")) {
 		if (!line) continue;
 		const [kind, size, mtime, ...rest] = line.split("\t");
@@ -226,7 +226,11 @@ const PREVIEW_SCRIPT = ['size=$(wc -c < "$1" 2>/dev/null) || exit 2', 'echo "$si
 );
 
 /** Read a bounded preview: text inline, images as base64, anything else flagged binary. */
-export async function readFilePreview(container: string, path: string, signal?: AbortSignal): Promise<ZGFilePreview> {
+export async function readFilePreview(
+	container: string,
+	path: string,
+	signal?: AbortSignal,
+): Promise<SentinelFilePreview> {
 	const target = resolveWorkPath(path);
 	const result = await execInContainer(container, PREVIEW_SCRIPT, [target, String(PREVIEW_MAX_BYTES + 1)], {
 		signal,

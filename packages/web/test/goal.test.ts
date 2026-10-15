@@ -35,11 +35,11 @@ import {
 	resumeGoal,
 	startRound,
 } from "../src/goal.ts";
-import type { ZGGoal, ZGGoalUsage } from "../src/protocol.ts";
+import type { SentinelGoal, SentinelGoalUsage } from "../src/protocol.ts";
 
-const USAGE: ZGGoalUsage = { input: 100, output: 50, total: 150, cost: 0.01 };
+const USAGE: SentinelGoalUsage = { input: 100, output: 50, total: 150, cost: 0.01 };
 
-function newGoal(roundLimit = DEFAULT_ROUND_LIMIT): ZGGoal {
+function newGoal(roundLimit = DEFAULT_ROUND_LIMIT): SentinelGoal {
 	return createGoal({
 		id: "goal-1",
 		objective: "对 10.10.10.5 完成侦察",
@@ -51,7 +51,7 @@ function newGoal(roundLimit = DEFAULT_ROUND_LIMIT): ZGGoal {
 }
 
 /** A round that ran and closed, the way the runtime closes one on every settle. */
-function closeRound(goal: ZGGoal, at: number, toolCalls = 2): ZGGoal {
+function closeRound(goal: SentinelGoal, at: number, toolCalls = 2): SentinelGoal {
 	return finishRound(goal, { at, toolCalls, usage: USAGE, outcome: "continued" });
 }
 

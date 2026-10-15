@@ -17,16 +17,16 @@ import {
 	PERMISSION_PRESETS,
 	readPermissionsConfig,
 } from "../src/permissions.ts";
-import type { ZGVulnerability } from "../src/protocol.ts";
+import type { SentinelVulnerability } from "../src/protocol.ts";
 import { createVulnerabilityTools, MAX_VULN_TITLE_CHARS, normalizeVulnTitle } from "../src/vuln-tool.ts";
 import {
 	isSeverityMismatch,
+	type SentinelVulnCreateInput,
 	severityForCvss,
 	VulnerabilityStore,
 	vulnerabilityDbPath,
 	vulnLabel,
 	vulnPrefix,
-	type ZGVulnCreateInput,
 } from "../src/vulnerabilities.ts";
 import { buildVulnReport } from "../src/vulnerability-markdown.ts";
 
@@ -34,7 +34,7 @@ const roots: string[] = [];
 const stores: VulnerabilityStore[] = [];
 
 function openStore(): VulnerabilityStore {
-	const root = mkdtempSync(join(tmpdir(), "zgagent-vuln-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-vuln-"));
 	roots.push(root);
 	const store = new VulnerabilityStore(vulnerabilityDbPath(root));
 	stores.push(store);
@@ -52,7 +52,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function input(overrides: Partial<ZGVulnCreateInput> = {}): ZGVulnCreateInput {
+function input(overrides: Partial<SentinelVulnCreateInput> = {}): SentinelVulnCreateInput {
 	return {
 		projectId: "project-a",
 		projectName: "e2e-project",
@@ -220,7 +220,7 @@ test("the Markdown report orders by severity and keeps the raw packet fenced", (
 	const critical = store.create(input({ title: "命令注入", severity: "critical", cvss: 9.8 }));
 	store.update(low.id, { status: "confirmed", note: "已确认" });
 
-	const vulns = store.list("project-a").map((summary) => store.get(summary.id) as ZGVulnerability);
+	const vulns = store.list("project-a").map((summary) => store.get(summary.id) as SentinelVulnerability);
 	const report = buildVulnReport({
 		projectId: "project-a",
 		projectName: "e2e-project",
@@ -257,7 +257,7 @@ function mountTools(
 	store: VulnerabilityStore,
 	options: {
 		project?: { id: string; name: string } | undefined;
-		onHighSeverity?: (vuln: ZGVulnerability) => void;
+		onHighSeverity?: (vuln: SentinelVulnerability) => void;
 	} = {},
 ) {
 	const changes: number[] = [];
@@ -287,7 +287,7 @@ function mountTools(
 
 test("vuln_submit records the finding and reports its label", async () => {
 	const store = openStore();
-	const high: ZGVulnerability[] = [];
+	const high: SentinelVulnerability[] = [];
 	const { call, changes } = mountTools(store, { onHighSeverity: (vuln) => high.push(vuln) });
 
 	const result = await call("vuln_submit", {
@@ -379,7 +379,7 @@ test("vuln_submit rejects an out-of-range CVSS score", async () => {
 
 test("a medium finding does not trigger the immediate notification", async () => {
 	const store = openStore();
-	const high: ZGVulnerability[] = [];
+	const high: SentinelVulnerability[] = [];
 	const { call } = mountTools(store, { onHighSeverity: (vuln) => high.push(vuln) });
 	await call("vuln_submit", {
 		title: "信息泄露",
@@ -443,7 +443,7 @@ test("a stored permissions file without the hub switches reads them as off", () 
 });
 
 test("a fresh install still gets every tool, and the read-only preset cannot submit", () => {
-	const root = mkdtempSync(join(tmpdir(), "zgagent-perms-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-perms-"));
 	roots.push(root);
 	const fresh = readPermissionsConfig(root);
 	expect(fresh.main).toEqual(defaultPermissions().main);

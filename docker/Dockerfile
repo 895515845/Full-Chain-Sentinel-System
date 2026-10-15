@@ -1,11 +1,11 @@
-# ZGAgent pentest toolbox image.
-# Build: docker build -t zgagent:latest docker/
+# Full Chain Sentinel pentest toolbox image.
+# Build: docker build -t sentinel:latest docker/
 #
 # Base image and package sources are configurable, so the build can run behind a
 # Chinese mirror or an internal registry. The console sets these from
 # 设置 → 环境 → 构建源; the same values work on the command line:
 #
-#   docker build -t zgagent:latest \
+#   docker build -t sentinel:latest \
 #     --build-arg BASE_IMAGE=docker.m.daocloud.io/kalilinux/kali-rolling:latest \
 #     --build-arg APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/kali \
 #     --build-arg PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -33,7 +33,7 @@ ENV http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY=
 # the build continues and only https mirrors are affected (http mirrors, which is
 # what the official Kali sources use, keep working).
 RUN (apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*) \
-	|| echo "[zgagent] ca-certificates preinstall skipped (original source unreachable)"
+	|| echo "[sentinel] ca-certificates preinstall skipped (original source unreachable)"
 
 # Point apt at the configured mirror. Kali rolling ships deb822 sources in
 # /etc/apt/sources.list.d/kali.sources with URIs on http.kali.org or kali.download;
@@ -44,7 +44,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 			[ -f "$f" ] || continue; \
 			sed -i "s|http://http.kali.org/kali|$APT_MIRROR|g; s|https://http.kali.org/kali|$APT_MIRROR|g; s|http://kali.download/kali|$APT_MIRROR|g; s|https://kali.download/kali|$APT_MIRROR|g" "$f"; \
 		done; \
-		echo "[zgagent] apt mirror: $APT_MIRROR"; \
+		echo "[sentinel] apt mirror: $APT_MIRROR"; \
 	fi
 
 # Core toolchain: recon/enumeration, web exploitation, brute force / intranet.
@@ -90,7 +90,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends \
 		responder \
 		chisel \
-	|| echo "[zgagent] extended tools partially unavailable (ok)" \
+	|| echo "[sentinel] extended tools partially unavailable (ok)" \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Package sources for installs made inside the running container: pip reads
@@ -99,18 +99,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN if [ -n "$PIP_INDEX" ]; then \
 		host=$(echo "$PIP_INDEX" | sed -E 's|^https?://([^/:]+).*|\1|'); \
 		printf '[global]\nindex-url = %s\ntrusted-host = %s\n' "$PIP_INDEX" "$host" > /etc/pip.conf; \
-		echo "[zgagent] pip index: $PIP_INDEX"; \
+		echo "[sentinel] pip index: $PIP_INDEX"; \
 	fi; \
 	if [ -n "$NPM_REGISTRY" ]; then \
 		mkdir -p /usr/etc; \
 		printf 'registry=%s\n' "$NPM_REGISTRY" > /root/.npmrc; \
 		printf 'registry=%s\n' "$NPM_REGISTRY" > /usr/etc/npmrc; \
-		echo "[zgagent] npm registry: $NPM_REGISTRY"; \
+		echo "[sentinel] npm registry: $NPM_REGISTRY"; \
 	fi; \
 	if [ -n "$GO_PROXY" ]; then \
 		mkdir -p /root/.config/go; \
 		printf 'GOPROXY=%s\n' "$GO_PROXY" > /root/.config/go/env; \
-		echo "[zgagent] go proxy: $GO_PROXY"; \
+		echo "[sentinel] go proxy: $GO_PROXY"; \
 	fi
 
 WORKDIR /work
@@ -126,7 +126,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& (pip3 install --break-system-packages frida-tools 2>/dev/null \
 		|| pip3 install frida-tools 2>/dev/null \
-		|| echo "[zgagent] frida-tools install skipped (ok)")
+		|| echo "[sentinel] frida-tools install skipped (ok)")
 
-# Long-running idle entrypoint; ZGAgent drives it with docker exec.
+# Long-running idle entrypoint; Full Chain Sentinel drives it with docker exec.
 CMD ["sleep", "infinity"]

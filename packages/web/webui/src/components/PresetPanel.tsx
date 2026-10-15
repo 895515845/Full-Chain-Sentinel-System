@@ -8,7 +8,7 @@
  */
 
 import { useRef, useState } from "react";
-import type { ZGClientMessage, ZGPresetView } from "../types.ts";
+import type { SentinelClientMessage, SentinelPresetView } from "../types.ts";
 
 /** Body-size thresholds at which the token figure turns yellow, then red. */
 const TOKEN_WARN = 2000;
@@ -20,7 +20,7 @@ export interface PresetImportNotice {
 	skipped: { name: string; reason: string }[];
 }
 
-type SavePresetInput = Extract<ZGClientMessage, { type: "save_preset" }>["input"];
+type SavePresetInput = Extract<SentinelClientMessage, { type: "save_preset" }>["input"];
 
 interface Draft {
 	/** Set when editing an existing preset; absent when creating one. */
@@ -34,7 +34,7 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { name: "", description: "", tags: "", placeholder: "", text: "" };
 
-function draftOf(preset: ZGPresetView): Draft {
+function draftOf(preset: SentinelPresetView): Draft {
 	return {
 		id: preset.id,
 		name: preset.name,
@@ -60,7 +60,7 @@ export function PresetPanel({
 	onExport,
 	onImport,
 }: {
-	presets: ZGPresetView[] | null;
+	presets: SentinelPresetView[] | null;
 	importNotice: PresetImportNotice | null;
 	onSave: (input: SavePresetInput) => void;
 	onDelete: (id: string) => void;

@@ -12,10 +12,10 @@
 
 import { useEffect, useState } from "react";
 import { formatTokens } from "../transcript.ts";
-import type { ZGGoalRound, ZGGoalView } from "../types.ts";
+import type { SentinelGoalRound, SentinelGoalView } from "../types.ts";
 
 /** Status chip text. Mirrors the server's labels, including the pause reason. */
-function statusLabel(goal: ZGGoalView): string {
+function statusLabel(goal: SentinelGoalView): string {
 	if (goal.status === "active") return goal.running ? "运行中" : "进行中";
 	if (goal.status === "completed") return "已完成";
 	if (goal.status === "blocked") return "已阻塞";
@@ -42,7 +42,7 @@ function formatElapsed(ms: number): string {
 	return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-function roundLabel(round: ZGGoalRound): string {
+function roundLabel(round: SentinelGoalRound): string {
 	const kind = round.kind === "initial" ? "初始运行" : "自动续跑";
 	const outcome =
 		round.outcome === "completed"
@@ -59,7 +59,7 @@ function roundLabel(round: ZGGoalRound): string {
 	return `第 ${round.index} 轮 · ${kind}${outcome}`;
 }
 
-function RoundEntry({ round }: { round: ZGGoalRound }) {
+function RoundEntry({ round }: { round: SentinelGoalRound }) {
 	const duration =
 		typeof round.endedAt === "number" && round.endedAt > round.startedAt
 			? formatElapsed(round.endedAt - round.startedAt)
@@ -108,7 +108,7 @@ function GoalDetail({
 	onClear,
 	onClose,
 }: {
-	goal: ZGGoalView;
+	goal: SentinelGoalView;
 	elapsed: number;
 	active: boolean;
 	onPause: () => void;
@@ -159,10 +159,7 @@ function GoalDetail({
 						</div>
 					) : null}
 					{goal.criteria.length > 0 ? (
-						<GoalList
-							label="验收标准"
-							items={goal.criteria.map((item, index) => `${index + 1}. ${item}`)}
-						/>
+						<GoalList label="验收标准" items={goal.criteria.map((item, index) => `${index + 1}. ${item}`)} />
 					) : null}
 					<div className="goal-drawer__group">
 						<div className="goal-drawer__label">进度</div>
@@ -206,11 +203,7 @@ function GoalDetail({
 							暂停
 						</button>
 					) : goal.status === "completed" ? null : (
-						<button
-							type="button"
-							onClick={onResume}
-							title="再给 3 轮自动续跑并立即开始"
-						>
+						<button type="button" onClick={onResume} title="再给 3 轮自动续跑并立即开始">
 							继续 +3 轮
 						</button>
 					)}
@@ -230,7 +223,7 @@ export function GoalBar({
 	onResume,
 	onClear,
 }: {
-	goal: ZGGoalView;
+	goal: SentinelGoalView;
 	streaming: boolean;
 	onPause: () => void;
 	onResume: () => void;
@@ -308,11 +301,7 @@ export function GoalBar({
 							暂停
 						</button>
 					) : goal.status === "completed" ? null : (
-						<button
-							type="button"
-							onClick={onResume}
-							title="再给 3 轮自动续跑并立即开始"
-						>
+						<button type="button" onClick={onResume} title="再给 3 轮自动续跑并立即开始">
 							继续 +3 轮
 						</button>
 					)}

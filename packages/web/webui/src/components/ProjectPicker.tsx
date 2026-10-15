@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ZGProjectInfo } from "../types.ts";
+import type { SentinelProjectInfo } from "../types.ts";
 import { CaretDownIcon, CaretUpIcon, CloseIcon } from "./icons.tsx";
 
 export function ProjectPicker({
@@ -10,8 +10,8 @@ export function ProjectPicker({
 	onAdd,
 	onRemove,
 }: {
-	projects: ZGProjectInfo[];
-	activeProject: ZGProjectInfo | null;
+	projects: SentinelProjectInfo[];
+	activeProject: SentinelProjectInfo | null;
 	streaming: boolean;
 	onSwitch: (id: string) => void;
 	onAdd: (name: string) => Promise<string | null>;
@@ -21,7 +21,7 @@ export function ProjectPicker({
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 	const [formError, setFormError] = useState<string | null>(null);
-	const [removing, setRemoving] = useState<ZGProjectInfo | null>(null);
+	const [removing, setRemoving] = useState<SentinelProjectInfo | null>(null);
 	const [confirmName, setConfirmName] = useState("");
 	const [busy, setBusy] = useState(false);
 	const rootRef = useRef<HTMLDivElement | null>(null);
@@ -129,7 +129,9 @@ export function ProjectPicker({
 					{creating ? (
 						<div className="project-form">
 							<div className="project-form-title">新建容器项目</div>
-						<div className="project-warn">将创建独立 Docker 容器与工作目录（~/.zgagent/projects/），工具全部在容器内执行。</div>
+							<div className="project-warn">
+								将创建独立 Docker 容器与工作目录（~/.sentinel/projects/），工具全部在容器内执行。
+							</div>
 							<input
 								value={name}
 								onChange={(event) => setName(event.target.value)}
@@ -138,7 +140,12 @@ export function ProjectPicker({
 							/>
 							{formError ? <div className="project-error">{formError}</div> : null}
 							<div className="project-form-actions">
-								<button type="button" className="primary" disabled={busy || !name.trim()} onClick={submitCreate}>
+								<button
+									type="button"
+									className="primary"
+									disabled={busy || !name.trim()}
+									onClick={submitCreate}
+								>
 									{busy ? "创建中…" : "创建并进入"}
 								</button>
 								<button type="button" onClick={() => setCreating(false)}>
@@ -162,7 +169,12 @@ export function ProjectPicker({
 							/>
 							{formError ? <div className="project-error">{formError}</div> : null}
 							<div className="project-form-actions">
-								<button type="button" className="danger" disabled={busy || confirmName !== removing.name} onClick={submitRemove}>
+								<button
+									type="button"
+									className="danger"
+									disabled={busy || confirmName !== removing.name}
+									onClick={submitRemove}
+								>
 									{busy ? "删除中…" : "确认删除"}
 								</button>
 								<button type="button" onClick={() => setRemoving(null)}>

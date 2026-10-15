@@ -30,10 +30,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type CommanderPort, createCommanderTools, formatTaskBoard, retryDecision } from "./commander-tools.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
-import { listDoctrines, resolveDoctrines, type ZGDoctrine } from "./doctrines.ts";
+import { listDoctrines, resolveDoctrines, type SentinelDoctrine } from "./doctrines.ts";
 import { EngineStore } from "./engine-store.ts";
 import { resolveJudgeEndpoint } from "./gatekeeper.ts";
-import { modelsJsonPath, readCommanderModelConfig, ZG_COMMANDER_PROVIDER_ID } from "./model-config.ts";
+import { modelsJsonPath, readCommanderModelConfig, SENTINEL_COMMANDER_PROVIDER_ID } from "./model-config.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { sendDingTalk } from "./notify.ts";
 import { readNotifyConfig } from "./notify-config.ts";
@@ -41,14 +41,15 @@ import { readPermissionsConfig } from "./permissions.ts";
 import { findPreset, listEnabledPresets, listPresets, presetBriefLines } from "./presets.ts";
 import { listProjects } from "./projects.ts";
 import type {
-	ZGEngine,
-	ZGEngineCreateInput,
-	ZGEngineEvent,
-	ZGEngineGateMode,
-	ZGGoalUsage,
-	ZGPreset,
-	ZGProjectInfo,
+	SentinelEngine,
+	SentinelEngineCreateInput,
+	SentinelEngineEvent,
+	SentinelEngineGateMode,
+	SentinelGoalUsage,
+	SentinelPreset,
+	SentinelProjectInfo,
 } from "./protocol.ts";
+import type { TaskSessionOptions } from "./sentinel-session.ts";
 import {
 	EngineWorker,
 	errorText,
@@ -58,7 +59,6 @@ import {
 	type WorkerOutcome,
 	type WorkerSession,
 } from "./worker.ts";
-import type { TaskSessionOptions } from "./zg-session.ts";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
@@ -97,16 +97,16 @@ const COMMANDER_BASH_DENYLIST: RegExp[] = [
 
 export interface EngineHooks {
 	/** An engine's stored state changed; consoles refresh the board. */
-	onChange(engine: ZGEngine): void;
+	onChange(engine: SentinelEngine): void;
 	/** One commander decision-log step, live. */
-	onCommanderEvent(engineId: string, event: ZGEngineEvent): void;
+	onCommanderEvent(engineId: string, event: SentinelEngineEvent): void;
 	/** One worker process step, live. */
-	onTaskEvent(taskId: string, event: ZGEngineEvent): void;
+	onTaskEvent(taskId: string, event: SentinelEngineEvent): void;
 }
 
 /**
  * What the engine asks the host runtime for when a task needs its session
- * (ZGAgentRuntime.acquireTaskSession). The runtime creates the session in the
+ * (SentinelRuntime.acquireTaskSession). The runtime creates the session in the
  * project's normal session directory, so the task conversation is a
  * first-class citizen of the 对话 list.
  */
@@ -115,7 +115,7 @@ export type RuntimeAcquireTaskSession = (
 ) => Promise<{ session: WorkerSession; manager: SessionManager }>;
 
 interface EngineLive {
-	engine: ZGEngine;
+	engine: SentinelEngine;
 	commander?: LiveSession;
 	commanderUnsubscribe: () => void;
 	workers: Map<string, EngineWorker>;
@@ -163,22 +163,22 @@ export class EngineManager {
 		}
 	}
 
-	listEngines(projectId?: string): ZGEngine[] {
+	listEngines(projectId?: string): SentinelEngine[] {
 		if (this.disposed) return [];
 		return this.store.listEngines(projectId).map((engine) => this.withLiveCounters(engine));
 	}
 
-	getEngine(id: string): ZGEngine | undefined {
+	getEngine(id: string): SentinelEngine | undefined {
 		if (this.disposed) return undefined;
 		const engine = this.store.getEngine(id);
 		return engine ? this.withLiveCounters(engine) : undefined;
 	}
 
-	commanderEvents(engineId: string): ZGEngineEvent[] {
+	commanderEvents(engineId: string): SentinelEngineEvent[] {
 		return this.store.listEvents(engineId);
 	}
 
-	taskEvents(taskId: string): ZGEngineEvent[] {
+	taskEvents(taskId: string): SentinelEngineEvent[] {
 		return this.store.listEvents(taskId);
 	}
 
@@ -205,7 +205,7 @@ export class EngineManager {
 	}
 
 	/** Doctrine list for the create form. */
-	doctrines(): ZGDoctrine[] {
+	doctrines(): SentinelDoctrine[] {
 		return listDoctrines(this.agentDir);
 	}
 
@@ -215,7 +215,7 @@ export class EngineManager {
 	 * are never offered, because a dispatch naming one is refused — the list and
 	 * the refusal have to agree or the commander would keep retrying a lost cause.
 	 */
-	private commanderPresets(engine: ZGEngine): ZGPreset[] {
+	private commanderPresets(engine: SentinelEngine): SentinelPreset[] {
 		return allowedPresets(this.agentDir, engine);
 	}
 
@@ -223,7 +223,7 @@ export class EngineManager {
 	 * Create an engine and start its commander. The project must have a usable
 	 * container; the caller (server) checks the environment before this.
 	 */
-	async createEngine(project: ZGProjectInfo, input: ZGEngineCreateInput): Promise<ZGEngine> {
+	async createEngine(project: SentinelProjectInfo, input: SentinelEngineCreateInput): Promise<SentinelEngine> {
 		const name = input.name.trim();
 		if (!name) throw new Error("工程名称不能为空");
 		const targets = parseTargetLines(input.targets);
@@ -233,7 +233,7 @@ export class EngineManager {
 		if (doctrines.length === 0) throw new Error("请至少选择一个指挥思路");
 		// An engine that judges its commands needs somewhere to send them; refusing
 		// here beats creating an engine whose gate silently fails open on every task.
-		const gateMode: ZGEngineGateMode = input.gateMode === "ai" ? "ai" : "auto";
+		const gateMode: SentinelEngineGateMode = input.gateMode === "ai" ? "ai" : "auto";
 		if (gateMode === "ai" && !this.judgeAvailable()) {
 			throw new Error(
 				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
@@ -310,7 +310,7 @@ export class EngineManager {
 	 * gate when it is created, so saving mid-flight would leave the board showing
 	 * one mode while half the workers used another.
 	 */
-	setGateMode(id: string, gateMode: ZGEngineGateMode): void {
+	setGateMode(id: string, gateMode: SentinelEngineGateMode): void {
 		const entry = this.live.get(id);
 		if (!entry) throw new Error("工程不存在");
 		if (entry.engine.gateMode === gateMode) return;
@@ -744,7 +744,7 @@ export class EngineManager {
 				if (slots <= 0) break;
 				if (task.status !== "queued") continue;
 				void this.startTask(entry, task.id).catch((error: unknown) => {
-					console.error(`[zg-engine] 任务 ${task.id} 启动失败：`, error);
+					console.error(`[sentinel-engine] 任务 ${task.id} 启动失败：`, error);
 				});
 				slots -= 1;
 			}
@@ -788,7 +788,7 @@ export class EngineManager {
 				onEvent: (event) => {
 					const seq = (entry.taskSeq.get(taskId) ?? 0) + 1;
 					entry.taskSeq.set(taskId, seq);
-					const withSeq = { ...event, seq } as ZGEngineEvent;
+					const withSeq = { ...event, seq } as SentinelEngineEvent;
 					this.store.appendEvent(taskId, withSeq);
 					this.hooks.onTaskEvent(taskId, withSeq);
 				},
@@ -879,7 +879,7 @@ export class EngineManager {
 
 	// --- helpers -----------------------------------------------------------
 
-	private emptyLive(engine: ZGEngine): EngineLive {
+	private emptyLive(engine: SentinelEngine): EngineLive {
 		return {
 			engine,
 			commanderUnsubscribe: () => {},
@@ -894,14 +894,14 @@ export class EngineManager {
 		};
 	}
 
-	private pushCommanderEvent(entry: EngineLive, step: Omit<ZGEngineEvent, "seq" | "at">): void {
+	private pushCommanderEvent(entry: EngineLive, step: Omit<SentinelEngineEvent, "seq" | "at">): void {
 		entry.commanderSeq += 1;
 		const event = { ...step, seq: entry.commanderSeq, at: Date.now() };
 		this.store.appendEvent(entry.engine.id, event);
 		this.hooks.onCommanderEvent(entry.engine.id, event);
 	}
 
-	private withLiveCounters(engine: ZGEngine): ZGEngine {
+	private withLiveCounters(engine: SentinelEngine): SentinelEngine {
 		// The store already holds everything the board shows; live counters would
 		// duplicate it. Kept as the single shaping point for future live fields.
 		return engine;
@@ -911,7 +911,7 @@ export class EngineManager {
 		return this.projectOf(entry.engine).container ?? "";
 	}
 
-	private projectOf(engine: ZGEngine): ZGProjectInfo {
+	private projectOf(engine: SentinelEngine): SentinelProjectInfo {
 		const project = listProjects(this.agentDir).projects.find((item) => item.id === engine.projectId);
 		if (!project) throw new Error(`工程所属项目「${engine.projectName}」已不存在，无法继续执行`);
 		return { id: project.id, name: project.name, cwd: project.workDir, container: project.container };
@@ -938,10 +938,10 @@ export class EngineManager {
 		const config = own ?? main?.config;
 		if (!config) return undefined;
 		const runtime = await this.ensureModelRuntime();
-		return runtime.getModel(own ? ZG_COMMANDER_PROVIDER_ID : (main?.entryId ?? ""), config.modelId);
+		return runtime.getModel(own ? SENTINEL_COMMANDER_PROVIDER_ID : (main?.entryId ?? ""), config.modelId);
 	}
 
-	private notifyEngineDone(engine: ZGEngine): void {
+	private notifyEngineDone(engine: SentinelEngine): void {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim() || !config.kinds.engines) return;
 		const done = engine.tasks.filter((task) => task.status === "done").length;
@@ -965,7 +965,7 @@ function workerRefDispose(worker: EngineWorker): void {
 	setTimeout(() => worker.dispose(), 1000);
 }
 
-function normalizeLimits(limits: ZGEngineCreateInput["limits"]): ZGEngineCreateInput["limits"] {
+function normalizeLimits(limits: SentinelEngineCreateInput["limits"]): SentinelEngineCreateInput["limits"] {
 	const concurrency = Math.min(20, Math.max(1, Math.round(limits.concurrency) || 1));
 	const roundLimit = Math.min(99, Math.max(1, Math.round(limits.roundLimit) || 3));
 	const maxRetries = Math.min(10, Math.max(0, Math.round(limits.maxRetries)));
@@ -998,7 +998,7 @@ function workspaceSlug(title: string, attempt: number): string {
  * behaves, and reading it as an empty choice would silently disable the feature
  * for them.
  */
-export function allowedPresets(agentDir: string, engine: Pick<ZGEngine, "presetIds">): ZGPreset[] {
+export function allowedPresets(agentDir: string, engine: Pick<SentinelEngine, "presetIds">): SentinelPreset[] {
 	const enabled = listEnabledPresets(agentDir);
 	if (engine.presetIds.length === 0) return enabled;
 	const allowed = new Set(engine.presetIds);
@@ -1010,7 +1010,10 @@ export function allowedPresets(agentDir: string, engine: Pick<ZGEngine, "presetI
  * nothing available the hint has to say what to do instead, and that depends on
  * whether the engine still accepts a task with no preset at all.
  */
-export function presetChoiceHint(agentDir: string, engine: Pick<ZGEngine, "presetIds" | "presetOptional">): string {
+export function presetChoiceHint(
+	agentDir: string,
+	engine: Pick<SentinelEngine, "presetIds" | "presetOptional">,
+): string {
 	const presets = allowedPresets(agentDir, engine);
 	if (presets.length === 0) {
 		return engine.presetOptional
@@ -1048,9 +1051,9 @@ export function normalizePresetIds(agentDir: string, ids: readonly string[] | un
  */
 export function resolveDispatchPreset(
 	agentDir: string,
-	engine: Pick<ZGEngine, "presetIds" | "presetOptional">,
+	engine: Pick<SentinelEngine, "presetIds" | "presetOptional">,
 	presetId: string | null,
-): { preset: ZGPreset | null; error?: string } {
+): { preset: SentinelPreset | null; error?: string } {
 	if (!presetId) {
 		// Omitting the preset is the commander's way of saying "no identity fits".
 		// An engine that requires one turns that into a refusal the commander can
@@ -1083,9 +1086,9 @@ export function resolveDispatchPreset(
  * of the switch, and the wording differs per engine.
  */
 export function buildCommanderBrief(
-	engine: ZGEngine,
-	doctrines: ZGDoctrine[],
-	presets: readonly ZGPreset[],
+	engine: SentinelEngine,
+	doctrines: SentinelDoctrine[],
+	presets: readonly SentinelPreset[],
 	kind: "initial" | "resume",
 	permissions: { bash: boolean; read: boolean },
 ): string {
@@ -1105,7 +1108,7 @@ export function buildCommanderBrief(
 			? "（本工程没有可用预设，所有任务都使用默认 Agent，省略 preset 参数）"
 			: "（本工程没有可用预设，但本工程要求每个任务都必须指定预设：不要派发无预设的任务，先让操作员启用或授权预设）");
 	return [
-		"你是 ZGAgent 工程模式的主指挥官。你只负责分配与调度，绝不亲自执行任何侦察、命令或利用——你没有任何执行工具，也不要尝试扮演执行者。",
+		"你是 全链哨兵 工程模式的主指挥官。你只负责分配与调度，绝不亲自执行任何侦察、命令或利用——你没有任何执行工具，也不要尝试扮演执行者。",
 		"",
 		`工程：${engine.name}（项目：${engine.projectName}）${kind === "resume" ? "（本次为恢复运行）" : ""}`,
 		"",
@@ -1152,7 +1155,7 @@ export function buildCommanderBrief(
 	].join("\n");
 }
 
-function buildSnapshotReport(engine: ZGEngine): { filename: string; markdown: string } {
+function buildSnapshotReport(engine: SentinelEngine): { filename: string; markdown: string } {
 	const statusLabels: Record<string, string> = {
 		queued: "排队中",
 		running: "运行中",
@@ -1206,6 +1209,6 @@ function toolResultText(result: unknown): string {
 		.join("\n");
 }
 
-function emptyUsage(): ZGGoalUsage {
+function emptyUsage(): SentinelGoalUsage {
 	return { input: 0, output: 0, total: 0, cost: null };
 }

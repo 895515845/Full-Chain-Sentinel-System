@@ -36,7 +36,7 @@ function runEntry(entry: string, experimental: boolean) {
 				...process.env,
 				HOME: directory,
 				USERPROFILE: directory,
-				ZGAGENT_CODING_AGENT_DIR: join(directory, "agent"),
+				SENTINEL_CODING_AGENT_DIR: join(directory, "agent"),
 				PI_OFFLINE: "1",
 				PI_EXPERIMENTAL: experimental ? "1" : "0",
 			},

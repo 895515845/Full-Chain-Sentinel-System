@@ -8,7 +8,7 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ZGEngineTask, ZGEngineTaskStatus } from "./protocol.ts";
+import type { SentinelEngineTask, SentinelEngineTaskStatus } from "./protocol.ts";
 
 /** Dispatch outcome the commander sees as the tool result. */
 interface DispatchDetails {
@@ -37,18 +37,18 @@ export interface CommanderPort {
 		roundLimit: number | null;
 		/** Preset agent id to run the task as; null uses the default agent. */
 		presetId: string | null;
-	}): { task?: ZGEngineTask; position?: number; error?: string };
+	}): { task?: SentinelEngineTask; position?: number; error?: string };
 	/** Stop one task (queued or running) with a reason. */
 	abortTask(taskId: string, reason: string): MaybePromise<{ ok: boolean; error?: string }>;
 	/** Queue an instruction into a running task (intel injection, mid-course correction). */
 	steerTask(taskId: string, instruction: string): MaybePromise<{ ok: boolean; error?: string }>;
 	/** The task board right now, for `list_tasks`. */
-	board(): ZGEngineTask[];
+	board(): SentinelEngineTask[];
 	/** Declare the engine finished; refused while work is outstanding. */
 	finish(report: string): { ok: boolean; error?: string };
 }
 
-const TASK_STATUS_LABELS: Record<ZGEngineTaskStatus, string> = {
+const TASK_STATUS_LABELS: Record<SentinelEngineTaskStatus, string> = {
 	queued: "排队中",
 	running: "运行中",
 	done: "已完成",
@@ -59,7 +59,7 @@ const TASK_STATUS_LABELS: Record<ZGEngineTaskStatus, string> = {
 };
 
 /** Render the board compactly: the commander reads this, not the console. */
-export function formatTaskBoard(tasks: readonly ZGEngineTask[]): string {
+export function formatTaskBoard(tasks: readonly SentinelEngineTask[]): string {
 	if (tasks.length === 0) return "（当前没有任务）";
 	return tasks
 		.map(

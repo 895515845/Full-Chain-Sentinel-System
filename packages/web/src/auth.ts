@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 const REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Name of the session cookie. */
-export const SESSION_COOKIE = "zgauth";
+export const SESSION_COOKIE = "sentinel-auth";
 
 /** Minimum accepted password length; this account can run commands. */
 export const MIN_PASSWORD_CHARS = 8;

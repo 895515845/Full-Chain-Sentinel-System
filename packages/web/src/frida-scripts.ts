@@ -42,7 +42,7 @@ export const FRIDA_SCRIPTS: Record<string, FridaScript> = {
   var X509TrustManager = Java.use("javax.net.ssl.X509TrustManager");
   var SSLContext = Java.use("javax.net.ssl.SSLContext");
   var TrustManager = Java.registerClass({
-    name: "com.zgagent.TrustAll",
+    name: "com.sentinel.TrustAll",
     implements: [X509TrustManager],
     methods: {
       checkClientTrusted: function () {},
@@ -57,7 +57,7 @@ export const FRIDA_SCRIPTS: Record<string, FridaScript> = {
     };
   var HostnameVerifier = Java.use("javax.net.ssl.HostnameVerifier");
   var VerifyAll = Java.registerClass({
-    name: "com.zgagent.VerifyAll",
+    name: "com.sentinel.VerifyAll",
     implements: [HostnameVerifier],
     methods: { verify: function () { return true; } },
   });

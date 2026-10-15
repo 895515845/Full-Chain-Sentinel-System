@@ -1,18 +1,18 @@
 import { useState } from "react";
-import type { ZGModelEntryView, ZGModelLibraryView, ZGModelRoleName, ZGTestResult } from "../types.ts";
+import type { SentinelModelEntryView, SentinelModelLibraryView, SentinelModelRoleName, SentinelTestResult } from "../types.ts";
 
 /** Which roles can follow 主模型 instead of naming their own entry. */
 const FOLLOW_MAIN = "follow-main";
 
-const ROLE_HINTS: Record<ZGModelRoleName, string> = {
+const ROLE_HINTS: Record<SentinelModelRoleName, string> = {
 	main: "对话页的主代理；改完下次发送时生效，不打断正在跑的会话",
 	judge: "AI 审批逐条判定 bash 命令；改完立即生效",
 	reviewer: "提交漏洞后自动校准等级与 CVSS；改完立即生效",
 };
 
-const ROLE_ORDER: ZGModelRoleName[] = ["main", "judge", "reviewer"];
+const ROLE_ORDER: SentinelModelRoleName[] = ["main", "judge", "reviewer"];
 
-const ROLE_LABELS: Record<ZGModelRoleName, string> = {
+const ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
@@ -31,8 +31,15 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { name: "", baseUrl: "", apiKey: "", modelId: "", clearKey: false };
 
-function draftOf(entry: ZGModelEntryView): Draft {
-	return { id: entry.id, name: entry.name, baseUrl: entry.baseUrl, apiKey: "", modelId: entry.modelId, clearKey: false };
+function draftOf(entry: SentinelModelEntryView): Draft {
+	return {
+		id: entry.id,
+		name: entry.name,
+		baseUrl: entry.baseUrl,
+		apiKey: "",
+		modelId: entry.modelId,
+		clearKey: false,
+	};
 }
 
 /**
@@ -50,18 +57,18 @@ export function SettingsPanel({
 	onSetReviewerAuto,
 	onTestEntry,
 }: {
-	library: ZGModelLibraryView | null;
+	library: SentinelModelLibraryView | null;
 	onSaveEntry: (entry: { id?: string; name: string; baseUrl: string; apiKey: string | null; modelId: string }) => void;
 	onRemoveEntry: (id: string) => void;
 	onDuplicateEntry: (id: string) => void;
-	onSetRole: (role: ZGModelRoleName, target: string | null) => void;
+	onSetRole: (role: SentinelModelRoleName, target: string | null) => void;
 	onSetReviewerAuto: (enabled: boolean) => void;
-	onTestEntry: (id: string) => Promise<ZGTestResult | null>;
+	onTestEntry: (id: string) => Promise<SentinelTestResult | null>;
 }) {
 	const [draft, setDraft] = useState<Draft | null>(null);
 	const [testing, setTesting] = useState<string | null>(null);
 	/** Test results live in this component only: a stored "usable" goes stale. */
-	const [results, setResults] = useState<Record<string, ZGTestResult | null>>({});
+	const [results, setResults] = useState<Record<string, SentinelTestResult | null>>({});
 
 	if (!library) {
 		return (
@@ -194,7 +201,10 @@ export function SettingsPanel({
 									</span>
 									<span>
 										{result ? (
-											<span className={`tag ${result.ok ? "tag-ok" : "tag-bad"}`} title={result.detail ?? ""}>
+											<span
+												className={`tag ${result.ok ? "tag-ok" : "tag-bad"}`}
+												title={result.detail ?? ""}
+											>
 												{result.ok ? "可用" : "失败"}
 											</span>
 										) : (
@@ -213,7 +223,11 @@ export function SettingsPanel({
 										)}
 									</span>
 									<span className="data-actions">
-										<button type="button" disabled={testing === entry.id} onClick={() => void runTest(entry.id)}>
+										<button
+											type="button"
+											disabled={testing === entry.id}
+											onClick={() => void runTest(entry.id)}
+										>
 											{testing === entry.id ? "测试中…" : "测试"}
 										</button>
 										<button type="button" onClick={() => setDraft(draftOf(entry))}>

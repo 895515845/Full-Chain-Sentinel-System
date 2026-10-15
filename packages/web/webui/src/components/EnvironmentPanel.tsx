@@ -11,11 +11,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { ZGEnvItem, ZGEnvReport, ZGSources } from "../types.ts";
+import type { SentinelContainerNetwork, SentinelEnvItem, SentinelEnvReport, SentinelSources } from "../types.ts";
 import { RefreshIcon } from "./icons.tsx";
 
 /** One-click Chinese mirrors; the server normalizes whatever is saved. */
-const CHINA_SOURCES: ZGSources = {
+const CHINA_SOURCES: SentinelSources = {
 	baseImage: "docker.m.daocloud.io/kalilinux/kali-rolling:latest",
 	aptMirror: "http://mirrors.tuna.tsinghua.edu.cn/kali",
 	pipIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
@@ -23,7 +23,7 @@ const CHINA_SOURCES: ZGSources = {
 	goProxy: "https://goproxy.cn,direct",
 };
 
-const EMPTY_SOURCES: ZGSources = {
+const EMPTY_SOURCES: SentinelSources = {
 	baseImage: "",
 	aptMirror: "",
 	pipIndex: "",
@@ -31,8 +31,12 @@ const EMPTY_SOURCES: ZGSources = {
 	goProxy: "",
 };
 
-const SOURCE_FIELDS: Array<{ key: keyof ZGSources; label: string; placeholder: string }> = [
-	{ key: "baseImage", label: "基础镜像", placeholder: "kalilinux/kali-rolling:latest（可只填 registry，如 docker.m.daocloud.io）" },
+const SOURCE_FIELDS: Array<{ key: keyof SentinelSources; label: string; placeholder: string }> = [
+	{
+		key: "baseImage",
+		label: "基础镜像",
+		placeholder: "kalilinux/kali-rolling:latest（可只填 registry，如 docker.m.daocloud.io）",
+	},
 	{ key: "aptMirror", label: "apt 源", placeholder: "http://http.kali.org/kali（官方）" },
 	{ key: "pipIndex", label: "pip 源", placeholder: "https://pypi.org/simple（官方）" },
 	{ key: "npmRegistry", label: "npm 源", placeholder: "https://registry.npmjs.org（官方）" },
@@ -50,14 +54,14 @@ function SourcesForm({
 	busy,
 	onSave,
 }: {
-	initial: ZGSources;
+	initial: SentinelSources;
 	savedAt: number | null;
 	busy: boolean;
-	onSave: (sources: ZGSources) => void;
+	onSave: (sources: SentinelSources) => void;
 }) {
-	const [draft, setDraft] = useState<ZGSources>(initial);
+	const [draft, setDraft] = useState<SentinelSources>(initial);
 	const dirty = SOURCE_FIELDS.some((field) => draft[field.key] !== initial[field.key]);
-	const set = (key: keyof ZGSources, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+	const set = (key: keyof SentinelSources, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
 	return (
 		<section className="env-sources">
@@ -68,7 +72,8 @@ function SourcesForm({
 				{dirty ? <span className="env-note">有未保存的修改</span> : null}
 			</div>
 			<p className="settings-hint">
-				这些值会烘焙进工具镜像，所以保存后需要重建镜像；pip / npm / go 三项在容器内运行时（pip install、npm install、go install）同样生效。留空表示使用官方源。
+				这些值会烘焙进工具镜像，所以保存后需要重建镜像；pip / npm / go 三项在容器内运行时（pip install、npm
+				install、go install）同样生效。留空表示使用官方源。
 			</p>
 			<div className="env-source-grid">
 				{SOURCE_FIELDS.map((field) => (
@@ -99,7 +104,82 @@ function SourcesForm({
 	);
 }
 
-const STATUS_LABEL: Record<ZGEnvItem["status"], string> = {
+/**
+ * Container network: whether a project container shares the host's network stack
+ * or keeps Docker's own. Host is the default because it is what makes a listener
+ * inside the container reachable from the target, and because a real LAN, VPN and
+ * internal DNS are what the tools need to see.
+ */
+const NETWORK_OPTIONS: Array<{ value: SentinelContainerNetwork; label: string; detail: string }> = [
+	{
+		value: "host",
+		label: "host（默认）",
+		detail:
+			"容器直接用宿主机的网络：里面起的监听端口（反向 shell、payload 服务、handler）目标机器能连回来，127.0.0.1 就是宿主机（Burp、本地靶场），内网、VPN 与内网 DNS 都是真实的。代价是与宿主机抢端口，且不再有 Docker 的网络隔离。",
+	},
+	{
+		value: "bridge",
+		label: "bridge（Docker 默认隔离）",
+		detail:
+			"容器有自己的地址，只能通过 host.docker.internal 访问宿主机，且不对外发布任何端口——目标机器连不回容器里的监听。需要隔离、也不需要反弹时用它。",
+	},
+];
+
+/**
+ * Network mode for new and rebuilt containers. Mounted with a key derived from the
+ * saved value, like the sources form, so a save or a refresh re-seeds the choice.
+ */
+function NetworkForm({
+	initial,
+	savedAt,
+	busy,
+	onSave,
+}: {
+	initial: SentinelContainerNetwork;
+	savedAt: number | null;
+	busy: boolean;
+	onSave: (network: SentinelContainerNetwork) => void;
+}) {
+	const [draft, setDraft] = useState<SentinelContainerNetwork>(initial);
+	const dirty = draft !== initial;
+
+	return (
+		<section className="env-sources">
+			<div className="env-sources-head">
+				<h3>容器网络</h3>
+				<span className="composer-spacer" />
+				{!dirty && savedAt !== null ? <span className="env-note">已保存，重建容器后生效</span> : null}
+				{dirty ? <span className="env-note">有未保存的修改</span> : null}
+			</div>
+			<p className="settings-hint">
+				新建项目和重建的容器用这个模式；已经在跑的容器保持原样，要到「项目」页点「重建容器」才会切换（上面「项目容器」那一项会写明它们现在用的是哪个）。
+			</p>
+			<div className="env-network-options">
+				{NETWORK_OPTIONS.map((option) => (
+					<label key={option.value} className={draft === option.value ? "selected" : undefined}>
+						<input
+							type="radio"
+							name="container-network"
+							checked={draft === option.value}
+							onChange={() => setDraft(option.value)}
+							disabled={busy}
+						/>
+						<span className="env-network-label">{option.label}</span>
+						<span className="env-network-detail">{option.detail}</span>
+					</label>
+				))}
+			</div>
+			<div className="env-source-actions">
+				<span className="composer-spacer" />
+				<button type="button" className="primary" onClick={() => onSave(draft)} disabled={busy || !dirty}>
+					保存
+				</button>
+			</div>
+		</section>
+	);
+}
+
+const STATUS_LABEL: Record<SentinelEnvItem["status"], string> = {
 	ok: "通过",
 	warn: "警告",
 	fail: "失败",
@@ -109,16 +189,16 @@ const STATUS_LABEL: Record<ZGEnvItem["status"], string> = {
 /** Stable group order, independent of the order the server emitted items in. */
 const GROUP_ORDER = ["Docker 运行时", "工具镜像", "容器能力", "宿主环境"];
 
-function grouped(items: ZGEnvItem[]): { group: string; items: ZGEnvItem[] }[] {
+function grouped(items: SentinelEnvItem[]): { group: string; items: SentinelEnvItem[] }[] {
 	const names = [...new Set([...GROUP_ORDER, ...items.map((item) => item.group)])];
 	return names
 		.map((group) => ({ group, items: items.filter((item) => item.group === group) }))
 		.filter((entry) => entry.items.length > 0);
 }
 
-function diagnostics(report: ZGEnvReport): string {
+function diagnostics(report: SentinelEnvReport): string {
 	const lines = [
-		`ZGAgent 环境诊断`,
+		`全链哨兵 环境诊断`,
 		`时间: ${new Date(report.at).toLocaleString("zh-CN")}`,
 		`地址: ${report.url}`,
 		`结论: ${report.ok ? "通过" : "未通过"}`,
@@ -143,15 +223,19 @@ export function EnvironmentPanel({
 	onAbortBuild,
 	onSaveSources,
 	sourcesSavedAt,
+	onSaveContainerNetwork,
+	containerNetworkSavedAt,
 }: {
-	report: ZGEnvReport | null;
+	report: SentinelEnvReport | null;
 	building: boolean;
 	buildLog: string[];
 	onRefresh: () => void;
 	onBuild: () => void;
 	onAbortBuild: () => void;
-	onSaveSources: (sources: ZGSources) => void;
+	onSaveSources: (sources: SentinelSources) => void;
 	sourcesSavedAt: number | null;
+	onSaveContainerNetwork: (network: SentinelContainerNetwork) => void;
+	containerNetworkSavedAt: number | null;
 }) {
 	const [confirming, setConfirming] = useState(false);
 	const [copyNote, setCopyNote] = useState<string | null>(null);
@@ -231,7 +315,7 @@ export function EnvironmentPanel({
 						type="button"
 						className="primary"
 						onClick={() => setConfirming(true)}
-						title="用内置的 Dockerfile 构建 zgagent:latest"
+						title="用内置的 Dockerfile 构建 sentinel:latest"
 					>
 						构建镜像
 					</button>
@@ -258,6 +342,14 @@ export function EnvironmentPanel({
 				savedAt={sourcesSavedAt}
 				busy={building}
 				onSave={onSaveSources}
+			/>
+
+			<NetworkForm
+				key={report.containerNetwork}
+				initial={report.containerNetwork}
+				savedAt={containerNetworkSavedAt}
+				busy={building}
+				onSave={onSaveContainerNetwork}
 			/>
 
 			{building || buildLog.length > 0 ? (
@@ -289,9 +381,7 @@ export function EnvironmentPanel({
 			))}
 
 			{warnings.length > 0 ? (
-				<p className="settings-hint">
-					警告项不影响运行，但可能让工具变慢或缺少能力，建议一并处理。
-				</p>
+				<p className="settings-hint">警告项不影响运行，但可能让工具变慢或缺少能力，建议一并处理。</p>
 			) : null}
 
 			{fallback ? (

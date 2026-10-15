@@ -2,7 +2,7 @@
  * One engine task's worker: drives a persistent goal on a console-owned agent
  * session, fully unattended inside the project container.
  *
- * The session itself is created by ZGAgentRuntime.acquireTaskSession, in the
+ * The session itself is created by SentinelRuntime.acquireTaskSession, in the
  * project's normal session directory: the task conversation appears in the 对话
  * list like any other, can be watched live while it runs, and stays available
  * after the task ends. This driver owns only the goal machinery — the same pure
@@ -33,7 +33,7 @@ import {
 	startRound,
 } from "./goal.ts";
 import type { GoalPort } from "./goal-tool.ts";
-import type { ZGEngineEvent, ZGEngineTask, ZGGoal, ZGGoalUsage } from "./protocol.ts";
+import type { SentinelEngineEvent, SentinelEngineTask, SentinelGoal, SentinelGoalUsage } from "./protocol.ts";
 import { messageText } from "./transcript.ts";
 
 export interface WorkerSession {
@@ -58,11 +58,11 @@ export type AcquireTaskSession = (input: {
 export interface WorkerOutcome {
 	status: "done" | "failed" | "blocked" | "aborted";
 	summary: string;
-	usage: ZGGoalUsage;
+	usage: SentinelGoalUsage;
 }
 
 /** A step before the engine assigns its sequence number. */
-export type WorkerEventStep = Omit<ZGEngineEvent, "seq">;
+export type WorkerEventStep = Omit<SentinelEngineEvent, "seq">;
 
 export interface WorkerHooks {
 	/** The session exists; its id is durable, so resume can find the file. */
@@ -77,20 +77,20 @@ export interface WorkerHooks {
 
 /** Appended to the system prompt so the worker knows its engineering role. */
 export const WORKER_APPEND_PROMPT = [
-	"You are running as the worker agent of a ZGAgent engineering run. Your instructions come from the commanding agent, not from the operator directly.",
+	"You are running as the worker agent of a Full Chain Sentinel engineering run. Your instructions come from the commanding agent, not from the operator directly.",
 	"Work autonomously inside the assigned working directory, keep every command inside the target scope stated in the objective, and finish with a concise, evidence-backed conclusion the commander can act on.",
 	"Do not ask questions; state assumptions instead and keep going. Submit every validated finding to the vulnerability hub with vuln_submit before finishing.",
 ].join("\n");
 
 export class EngineWorker {
-	readonly task: ZGEngineTask;
+	readonly task: SentinelEngineTask;
 	private readonly acquire: AcquireTaskSession;
 	private readonly hooks: WorkerHooks;
 	private session: WorkerSession | undefined;
 	private manager: SessionManager | undefined;
 	private unsubscribeWorker: () => void = () => {};
-	private goal: ZGGoal | undefined;
-	private roundUsageStart: ZGGoalUsage = emptyUsage();
+	private goal: SentinelGoal | undefined;
+	private roundUsageStart: SentinelGoalUsage = emptyUsage();
 	private roundToolCalls = 0;
 	private submitted = 0;
 	private settled = false;
@@ -99,7 +99,7 @@ export class EngineWorker {
 	private readonly limits: { tokenLimit: number | null; timeLimitMin: number | null };
 
 	constructor(
-		task: ZGEngineTask,
+		task: SentinelEngineTask,
 		acquire: AcquireTaskSession,
 		hooks: WorkerHooks,
 		limits: { tokenLimit: number | null; timeLimitMin: number | null },
@@ -119,7 +119,7 @@ export class EngineWorker {
 	}
 
 	/** Usage of the worker session so far, relative to the task goal baseline when present. */
-	currentUsage(): ZGGoalUsage {
+	currentUsage(): SentinelGoalUsage {
 		if (!this.session) return this.task.usage ?? emptyUsage();
 		const usage = usageOf(this.session.getSessionStats());
 		return this.goal ? diffUsage(usage, this.goal.baseline) : usage;
@@ -384,7 +384,7 @@ export class EngineWorker {
 		return this.limits.tokenLimit !== null && this.currentUsage().total > this.limits.tokenLimit;
 	}
 
-	private settle(status: WorkerOutcome["status"], summary: string, usage: ZGGoalUsage): void {
+	private settle(status: WorkerOutcome["status"], summary: string, usage: SentinelGoalUsage): void {
 		if (this.settled) return;
 		this.settled = true;
 		if (this.timeLimitTimer) clearTimeout(this.timeLimitTimer);
@@ -405,13 +405,13 @@ export class EngineWorker {
 		return this.session;
 	}
 
-	private push(step: Omit<ZGEngineEvent, "seq" | "at">): void {
+	private push(step: Omit<SentinelEngineEvent, "seq" | "at">): void {
 		this.hooks.onEvent({ ...step, at: Date.now() });
 	}
 }
 
 /** Token and cost counters of a session, in the shape a goal stores them. */
-function usageOf(stats: ReturnType<WorkerSession["getSessionStats"]> | undefined): ZGGoalUsage {
+function usageOf(stats: ReturnType<WorkerSession["getSessionStats"]> | undefined): SentinelGoalUsage {
 	if (!stats) return emptyUsage();
 	return {
 		input: stats.tokens.input,

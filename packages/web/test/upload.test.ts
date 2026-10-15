@@ -19,8 +19,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
 import { addProject, setLastActiveProject } from "../src/projects.ts";
-import type { ZGServerMessage, ZGStateSnapshot } from "../src/protocol.ts";
-import { startZGServer } from "../src/server.ts";
+import type { SentinelServerMessage, SentinelStateSnapshot } from "../src/protocol.ts";
+import { startSentinelServer } from "../src/server.ts";
 import { safeFileName, storeUpload, suffixedName, UPLOAD_MAX_BYTES, uploadsDirFor } from "../src/upload.ts";
 import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
 import { writeTestModel } from "./model-fixtures.ts";
@@ -51,12 +51,12 @@ async function* chunks(...buffers: Buffer[]): AsyncGenerator<Buffer> {
 }
 
 /** The first snapshot the console pushes, which states the active project. */
-function firstSnapshot(url: string): Promise<ZGStateSnapshot> {
+function firstSnapshot(url: string): Promise<SentinelStateSnapshot> {
 	return new Promise((resolve, reject) => {
 		const ws = new WebSocket(url.replace("http://", "ws://").concat("/ws"));
 		socket = ws;
 		ws.on("message", (data) => {
-			const message = JSON.parse(String(data)) as ZGServerMessage;
+			const message = JSON.parse(String(data)) as SentinelServerMessage;
 			if (message.type === "snapshot") resolve(message.snapshot);
 		});
 		ws.on("error", reject);
@@ -64,16 +64,16 @@ function firstSnapshot(url: string): Promise<ZGStateSnapshot> {
 }
 
 beforeAll(async () => {
-	tempRoot = mkdtempSync(join(tmpdir(), "zgagent-web-upload-"));
+	tempRoot = mkdtempSync(join(tmpdir(), "sentinel-web-upload-"));
 	const agentDir = join(tempRoot, "agent");
 	const cwd = join(tempRoot, "workspace");
 	mkdirSync(cwd, { recursive: true });
-	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "zg-unused-model" });
+	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "sentinel-unused-model" });
 	fakeDocker = installFakeDocker(tempRoot, join(tempRoot, "projects", projectSlug("upload-test")));
 	const created = await addProject(agentDir, { name: "upload-test" });
 	if (!created.project) throw new Error(`项目创建失败：${created.error ?? "未知原因"}`);
 	setLastActiveProject(agentDir, created.project.id);
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
+	const started = await startSentinelServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	baseUrl = started.url;
 	closeServer = started.close;
 	workDir = created.project.workDir;
@@ -172,8 +172,8 @@ test("the route refuses while no project is selected", async () => {
 	const agentDir = join(tempRoot, "agent-noproject");
 	const cwd = join(tempRoot, "empty");
 	mkdirSync(cwd, { recursive: true });
-	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "zg-unused-model" });
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
+	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "sentinel-unused-model" });
+	const started = await startSentinelServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	try {
 		const response = await fetch(`${started.url}/api/upload?name=x.txt`, { method: "POST", body: "x" });
 		expect(response.status).toBe(409);

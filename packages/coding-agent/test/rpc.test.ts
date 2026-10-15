@@ -20,7 +20,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_OAUTH_T
 		client = new RpcClient({
 			cliPath: join(__dirname, "..", "dist", "cli.js"),
 			cwd: join(__dirname, ".."),
-			env: { ZGAGENT_CODING_AGENT_DIR: sessionDir },
+			env: { SENTINEL_CODING_AGENT_DIR: sessionDir },
 			provider: "anthropic",
 			model: "claude-sonnet-4-5",
 		});

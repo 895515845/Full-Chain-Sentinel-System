@@ -11,21 +11,21 @@
 
 import { useEffect, useState } from "react";
 import type {
-	ZGVulnEvidence,
-	ZGVulnFilters,
-	ZGVulnReview,
-	ZGVulnSeverity,
-	ZGVulnStats,
-	ZGVulnStatus,
-	ZGVulnSummary,
-	ZGVulnUpdate,
-	ZGVulnerability,
+	SentinelFilePreview,
+	SentinelVulnEvidence,
+	SentinelVulnerability,
+	SentinelVulnFilters,
+	SentinelVulnReview,
+	SentinelVulnSeverity,
+	SentinelVulnStats,
+	SentinelVulnStatus,
+	SentinelVulnSummary,
+	SentinelVulnUpdate,
 } from "../types.ts";
-import { ZG_VULN_SEVERITIES, ZG_VULN_SEVERITY_LABELS, ZG_VULN_STATUS_LABELS } from "../types.ts";
-import type { ZGFilePreview } from "../types.ts";
+import { SENTINEL_VULN_SEVERITIES, SENTINEL_VULN_SEVERITY_LABELS, SENTINEL_VULN_STATUS_LABELS } from "../types.ts";
 import { CloseIcon, DeleteIcon, DownloadIcon } from "./icons.tsx";
 
-const STATUSES: readonly ZGVulnStatus[] = ["pending", "confirmed", "false_positive", "fixed"];
+const STATUSES: readonly SentinelVulnStatus[] = ["pending", "confirmed", "false_positive", "fixed"];
 
 function formatWhen(value: string): string {
 	const date = new Date(value);
@@ -38,26 +38,42 @@ function formatWhen(value: string): string {
 }
 
 /** Small state chip next to the severity: the reviewer's calibration status. */
-function ReviewChip({ review }: { review?: ZGVulnReview }) {
+function ReviewChip({ review }: { review?: SentinelVulnReview }) {
 	if (!review || review.state === "skipped") return null;
 	if (review.state === "queued") {
-		return <span className="review-chip review-queued" title="评审 LLM 排队中">…评</span>;
+		return (
+			<span className="review-chip review-queued" title="评审 LLM 排队中">
+				…评
+			</span>
+		);
 	}
 	if (review.state === "failed") {
-		return <span className="review-chip review-failed" title={`评审失败：${review.error ?? ""}`}>未评</span>;
+		return (
+			<span className="review-chip review-failed" title={`评审失败：${review.error ?? ""}`}>
+				未评
+			</span>
+		);
 	}
 	if (review.verdict === "dubious") {
-		return <span className="review-chip review-dubious" title={`评审存疑：${review.reason ?? ""}`}>⚠存疑</span>;
+		return (
+			<span className="review-chip review-dubious" title={`评审存疑：${review.reason ?? ""}`}>
+				⚠存疑
+			</span>
+		);
 	}
-	return <span className="review-chip review-done" title={`已评审（${review.model ?? ""}）：${review.reason ?? ""}`}>✓评</span>;
+	return (
+		<span className="review-chip review-done" title={`已评审（${review.model ?? ""}）：${review.reason ?? ""}`}>
+			✓评
+		</span>
+	);
 }
 
-function severityClass(severity: ZGVulnSeverity): string {
+function severityClass(severity: SentinelVulnSeverity): string {
 	return `vuln-sev vuln-sev-${severity}`;
 }
 
 /** The severity bucket a CVSS base score maps to; used for the mismatch hint. */
-function severityForScore(score: number): ZGVulnSeverity {
+function severityForScore(score: number): SentinelVulnSeverity {
 	if (score >= 9) return "critical";
 	if (score >= 7) return "high";
 	if (score >= 4) return "medium";
@@ -99,14 +115,14 @@ export function VulnPage({
 	onRetryReview,
 	onReviewAllPending,
 }: {
-	items: ZGVulnSummary[];
-	stats: ZGVulnStats;
-	filters: ZGVulnFilters;
+	items: SentinelVulnSummary[];
+	stats: SentinelVulnStats;
+	filters: SentinelVulnFilters;
 	projectName: string | null;
 	hasProject: boolean;
-	onFiltersChange: (filters: ZGVulnFilters) => void;
+	onFiltersChange: (filters: SentinelVulnFilters) => void;
 	onOpen: (id: string) => void;
-	onExport: (filters: ZGVulnFilters) => void;
+	onExport: (filters: SentinelVulnFilters) => void;
 	onRetryReview: (id: string, force: boolean) => void;
 	onReviewAllPending: () => void;
 }) {
@@ -154,14 +170,14 @@ export function VulnPage({
 						重新评审待确认
 					</button>
 					<button
-					type="button"
-					className={`ghost small ${filters.dubious ? "primary" : ""}`}
-					title="只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论"
-					onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
-				>
-					⚠ 存疑
-				</button>
-				<input
+						type="button"
+						className={`ghost small ${filters.dubious ? "primary" : ""}`}
+						title="只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论"
+						onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
+					>
+						⚠ 存疑
+					</button>
+					<input
 						className="inline-input"
 						value={search}
 						placeholder="搜索编号 / 标题 / 类型 / 描述"
@@ -177,14 +193,14 @@ export function VulnPage({
 						onChange={(event) =>
 							onFiltersChange({
 								...filters,
-								severity: (event.target.value || undefined) as ZGVulnSeverity | undefined,
+								severity: (event.target.value || undefined) as SentinelVulnSeverity | undefined,
 							})
 						}
 					>
 						<option value="">全部等级</option>
-						{ZG_VULN_SEVERITIES.map((severity) => (
+						{SENTINEL_VULN_SEVERITIES.map((severity) => (
 							<option key={severity} value={severity}>
-								{ZG_VULN_SEVERITY_LABELS[severity]}
+								{SENTINEL_VULN_SEVERITY_LABELS[severity]}
 							</option>
 						))}
 					</select>
@@ -194,14 +210,14 @@ export function VulnPage({
 						onChange={(event) =>
 							onFiltersChange({
 								...filters,
-								status: (event.target.value || undefined) as ZGVulnStatus | undefined,
+								status: (event.target.value || undefined) as SentinelVulnStatus | undefined,
 							})
 						}
 					>
 						<option value="">全部状态</option>
 						{STATUSES.map((status) => (
 							<option key={status} value={status}>
-								{ZG_VULN_STATUS_LABELS[status]}
+								{SENTINEL_VULN_STATUS_LABELS[status]}
 							</option>
 						))}
 					</select>
@@ -216,9 +232,9 @@ export function VulnPage({
 			</div>
 			<div className="ws-panel__body">
 				<div className="vuln-stats">
-					{ZG_VULN_SEVERITIES.map((severity) => (
+					{SENTINEL_VULN_SEVERITIES.map((severity) => (
 						<span key={severity} className={severityClass(severity)}>
-							{ZG_VULN_SEVERITY_LABELS[severity]} {stats.bySeverity[severity]}
+							{SENTINEL_VULN_SEVERITY_LABELS[severity]} {stats.bySeverity[severity]}
 						</span>
 					))}
 					<span className="vuln-stat-status">待确认 {stats.byStatus.pending}</span>
@@ -259,7 +275,9 @@ export function VulnPage({
 							>
 								<span className="data-mono">{item.label}</span>
 								<span>
-									<span className={severityClass(item.severity)}>{ZG_VULN_SEVERITY_LABELS[item.severity]}</span>
+									<span className={severityClass(item.severity)}>
+										{SENTINEL_VULN_SEVERITY_LABELS[item.severity]}
+									</span>
 									<span className="vuln-cvss">{item.cvss.toFixed(1)}</span>
 									<ReviewChip review={item.review} />
 									{item.severityMismatch ? (
@@ -270,7 +288,7 @@ export function VulnPage({
 								</span>
 								<span>
 									<span className={`vuln-status-tag vuln-status-${item.status}`}>
-										{ZG_VULN_STATUS_LABELS[item.status]}
+										{SENTINEL_VULN_STATUS_LABELS[item.status]}
 									</span>
 								</span>
 								<span className="data-mono" title={item.target}>
@@ -301,9 +319,9 @@ function EvidenceBlock({
 	preview,
 	onPreview,
 }: {
-	item: ZGVulnEvidence;
+	item: SentinelVulnEvidence;
 	index: number;
-	preview: ZGFilePreview | null;
+	preview: SentinelFilePreview | null;
 	onPreview: (path: string) => void;
 }) {
 	return (
@@ -351,16 +369,16 @@ export function VulnDetail({
 	onPreview,
 	onRetryReview,
 }: {
-	vuln: ZGVulnerability;
+	vuln: SentinelVulnerability;
 	/** Preview of a file referenced by this record's evidence, when one was requested. */
-	preview: ZGFilePreview | null;
+	preview: SentinelFilePreview | null;
 	onClose: () => void;
-	onUpdate: (id: string, patch: ZGVulnUpdate) => void;
+	onUpdate: (id: string, patch: SentinelVulnUpdate) => void;
 	onDelete: (id: string) => void;
 	onPreview: (path: string) => void;
 	onRetryReview: (id: string, force: boolean) => void;
 }) {
-	const [severity, setSeverity] = useState<ZGVulnSeverity>(vuln.severity);
+	const [severity, setSeverity] = useState<SentinelVulnSeverity>(vuln.severity);
 	const [cvss, setCvss] = useState(String(vuln.cvss));
 	const [note, setNote] = useState("");
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -382,12 +400,12 @@ export function VulnDetail({
 	// Every action below saves immediately: the server records one timeline
 	// entry per change, so piecemeal updates make a readable audit trail
 	// instead of one merged blob.
-	const apply = (patch: ZGVulnUpdate) => {
+	const apply = (patch: SentinelVulnUpdate) => {
 		onUpdate(vuln.id, patch);
 		setSavedAt(new Date());
 	};
 
-	const transition = (next: ZGVulnStatus) => {
+	const transition = (next: SentinelVulnStatus) => {
 		if (next === vuln.status) return;
 		apply({ status: next });
 	};
@@ -414,10 +432,10 @@ export function VulnDetail({
 							{vuln.title}
 						</div>
 						<div className="vuln-detail__meta">
-							<span className={severityClass(vuln.severity)}>{ZG_VULN_SEVERITY_LABELS[vuln.severity]}</span>
+							<span className={severityClass(vuln.severity)}>{SENTINEL_VULN_SEVERITY_LABELS[vuln.severity]}</span>
 							<span className="vuln-cvss">CVSS {vuln.cvss.toFixed(1)}</span>
 							{vuln.cvssVector ? <span className="data-mono">{vuln.cvssVector}</span> : null}
-							<span>{ZG_VULN_STATUS_LABELS[vuln.status]}</span>
+							<span>{SENTINEL_VULN_STATUS_LABELS[vuln.status]}</span>
 							{vuln.severityMismatch ? (
 								<span className="vuln-warn" title="等级与 CVSS 分数不一致">
 									等级与分数不一致
@@ -458,67 +476,75 @@ export function VulnDetail({
 								<code>{vuln.sessionId}</code>
 							</div>
 						) : null}
-					<div>
-						<span>评审</span>
-						<span>
-							<ReviewChip review={vuln.review} />
-							{vuln.review.state === "done" && vuln.review.model ? ` ${vuln.review.model}` : ""}
-							{vuln.review.at
-								? ` · ${new Date(vuln.review.at).toLocaleString("zh-CN", { hour12: false })}`
-								: ""}
-							{vuln.review.state === "failed" ? (
-								<button
-									type="button"
-									className="ghost small"
-									style={{ marginLeft: 8 }}
-									onClick={() => onRetryReview(vuln.id, false)}
-								>
-									重试评审
-								</button>
-							) : vuln.review.state === "queued" ? (
-								<button type="button" className="ghost small" style={{ marginLeft: 8 }} disabled>
-									评审中…
-								</button>
-							) : (
-								<button
-									type="button"
-									className="ghost small"
-									style={{ marginLeft: 8 }}
-									title="按 CVSS 3.1 指标重新计算等级与分数。这条如果已被手动改过等级（或状态），也会一并覆盖，时间线里会记录"
-									onClick={() => onRetryReview(vuln.id, true)}
-								>
-									重新评审
-								</button>
-							)}
-						</span>
-					</div>
-					{vuln.review.state === "done" && vuln.review.reason ? (
-						<div style={{ gridColumn: "1 / -1" }}>
-							<span>评审意见</span>
+						<div>
+							<span>评审</span>
 							<span>
-								{vuln.review.verdict === "dubious" ? "⚠ 存疑：" : ""}
-								{vuln.review.reason}
+								<ReviewChip review={vuln.review} />
+								{vuln.review.state === "done" && vuln.review.model ? ` ${vuln.review.model}` : ""}
+								{vuln.review.at
+									? ` · ${new Date(vuln.review.at).toLocaleString("zh-CN", { hour12: false })}`
+									: ""}
+								{vuln.review.state === "failed" ? (
+									<button
+										type="button"
+										className="ghost small"
+										style={{ marginLeft: 8 }}
+										onClick={() => onRetryReview(vuln.id, false)}
+									>
+										重试评审
+									</button>
+								) : vuln.review.state === "queued" ? (
+									<button type="button" className="ghost small" style={{ marginLeft: 8 }} disabled>
+										评审中…
+									</button>
+								) : (
+									<button
+										type="button"
+										className="ghost small"
+										style={{ marginLeft: 8 }}
+										title="按 CVSS 3.1 指标重新计算等级与分数。这条如果已被手动改过等级（或状态），也会一并覆盖，时间线里会记录"
+										onClick={() => onRetryReview(vuln.id, true)}
+									>
+										重新评审
+									</button>
+								)}
 							</span>
 						</div>
-					) : null}
-					{vuln.review.state === "failed" ? (
-						<div style={{ gridColumn: "1 / -1" }}>
-							<span>评审失败原因</span>
-							<span>{vuln.review.error ?? "未知错误"}</span>
-						</div>
-					) : null}
+						{vuln.review.state === "done" && vuln.review.reason ? (
+							<div style={{ gridColumn: "1 / -1" }}>
+								<span>评审意见</span>
+								<span>
+									{vuln.review.verdict === "dubious" ? "⚠ 存疑：" : ""}
+									{vuln.review.reason}
+								</span>
+							</div>
+						) : null}
+						{vuln.review.state === "failed" ? (
+							<div style={{ gridColumn: "1 / -1" }}>
+								<span>评审失败原因</span>
+								<span>{vuln.review.error ?? "未知错误"}</span>
+							</div>
+						) : null}
 					</div>
 
 					<div className="vuln-action-band">
 						<span className={`vuln-state-big vuln-state-${vuln.status}`}>
-							{ZG_VULN_STATUS_LABELS[vuln.status]}
+							{SENTINEL_VULN_STATUS_LABELS[vuln.status]}
 						</span>
 						{vuln.status === "pending" ? (
 							<>
-								<button type="button" className="vuln-transition confirm" onClick={() => transition("confirmed")}>
+								<button
+									type="button"
+									className="vuln-transition confirm"
+									onClick={() => transition("confirmed")}
+								>
 									✓ 确认
 								</button>
-								<button type="button" className="vuln-transition false" onClick={() => transition("false_positive")}>
+								<button
+									type="button"
+									className="vuln-transition false"
+									onClick={() => transition("false_positive")}
+								>
 									✕ 标误报
 								</button>
 							</>
@@ -535,19 +561,21 @@ export function VulnDetail({
 						) : null}
 						<span className="vuln-action-spacer" />
 						{savedAt ? (
-							<span className="vuln-saved-hint">已保存 {savedAt.toLocaleTimeString("zh-CN", { hour12: false })}</span>
+							<span className="vuln-saved-hint">
+								已保存 {savedAt.toLocaleTimeString("zh-CN", { hour12: false })}
+							</span>
 						) : null}
 					</div>
 					<div className="vuln-action-band vuln-action-band--rating">
 						<span className="vuln-action-label">等级</span>
 						<select
 							value={severity}
-							onChange={(event) => setSeverity(event.target.value as ZGVulnSeverity)}
+							onChange={(event) => setSeverity(event.target.value as SentinelVulnSeverity)}
 							onBlur={commitRating}
 						>
-							{ZG_VULN_SEVERITIES.map((candidate) => (
+							{SENTINEL_VULN_SEVERITIES.map((candidate) => (
 								<option key={candidate} value={candidate}>
-									{ZG_VULN_SEVERITY_LABELS[candidate]}
+									{SENTINEL_VULN_SEVERITY_LABELS[candidate]}
 								</option>
 							))}
 						</select>
@@ -564,7 +592,9 @@ export function VulnDetail({
 						/>
 						{!cvssValid ? <span className="page-error">CVSS 需要 0.0-10.0</span> : null}
 						{cvssValid && severityForScore(parsedCvss) !== severity ? (
-							<span className="vuln-warn">分数对应「{ZG_VULN_SEVERITY_LABELS[severityForScore(parsedCvss)]}」，与所选等级不一致</span>
+							<span className="vuln-warn">
+								分数对应「{SENTINEL_VULN_SEVERITY_LABELS[severityForScore(parsedCvss)]}」，与所选等级不一致
+							</span>
 						) : null}
 						<span className="vuln-action-spacer" />
 						{confirmDelete ? (

@@ -12,7 +12,7 @@ import {
 let root = "";
 
 function freshAgentDir(): string {
-	root = mkdtempSync(join(tmpdir(), "zgagent-model-config-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-model-config-"));
 	return root;
 }
 
@@ -92,7 +92,7 @@ describe("provider model configuration", () => {
 			apiKey: "",
 			modelId: "local",
 		});
-		expect(readProviderModelConfig(agentDir, "zg-model-2")?.apiKey).toBe("zgagent-no-auth");
+		expect(readProviderModelConfig(agentDir, "zg-model-2")?.apiKey).toBe("sentinel-no-auth");
 	});
 
 	test("removes one provider and leaves the others alone", () => {

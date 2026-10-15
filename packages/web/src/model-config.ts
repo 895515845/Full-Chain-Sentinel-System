@@ -14,17 +14,17 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZGModelConfig } from "./protocol.ts";
+import type { SentinelModelConfig } from "./protocol.ts";
 
 /** Legacy main-endpoint provider id. */
-export const ZG_PROVIDER_ID = "zg-endpoint";
+export const SENTINEL_PROVIDER_ID = "zg-endpoint";
 /** The engineering commander's own endpoint; may point at a cheaper model. */
-export const ZG_COMMANDER_PROVIDER_ID = "zg-commander";
+export const SENTINEL_COMMANDER_PROVIDER_ID = "zg-commander";
 /** Legacy judge provider id. */
-export const ZG_JUDGE_PROVIDER_ID = "zg-judge";
+export const SENTINEL_JUDGE_PROVIDER_ID = "zg-judge";
 
 /** Bearer placeholder for unauthenticated endpoints; written so Pi treats the provider as credentialed. */
-export const NO_AUTH_PLACEHOLDER_KEY = "zgagent-no-auth";
+export const NO_AUTH_PLACEHOLDER_KEY = "sentinel-no-auth";
 
 const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_MAX_TOKENS = 16384;
@@ -58,21 +58,21 @@ export function modelsJsonPath(agentDir: string): string {
 }
 
 /** The commander's endpoint. When none is configured the engine falls back to the main role. */
-export function readCommanderModelConfig(agentDir: string): ZGModelConfig | null {
-	return readProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
+export function readCommanderModelConfig(agentDir: string): SentinelModelConfig | null {
+	return readProviderModelConfig(agentDir, SENTINEL_COMMANDER_PROVIDER_ID);
 }
 
-export function writeCommanderModelConfig(agentDir: string, config: ZGModelConfig | null): void {
+export function writeCommanderModelConfig(agentDir: string, config: SentinelModelConfig | null): void {
 	// null removes the commander entry, which restores the fallback to the main role.
 	if (config === null) {
-		removeProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID);
+		removeProviderModelConfig(agentDir, SENTINEL_COMMANDER_PROVIDER_ID);
 		return;
 	}
-	writeProviderModelConfig(agentDir, ZG_COMMANDER_PROVIDER_ID, "ZGAgent Commander", config);
+	writeProviderModelConfig(agentDir, SENTINEL_COMMANDER_PROVIDER_ID, "Full Chain Sentinel Commander", config);
 }
 
 /** One provider entry, or null when it is missing or incomplete. */
-export function readProviderModelConfig(agentDir: string, providerId: string): ZGModelConfig | null {
+export function readProviderModelConfig(agentDir: string, providerId: string): SentinelModelConfig | null {
 	const path = modelsJsonPath(agentDir);
 	if (!existsSync(path)) return null;
 	let parsed: ModelsJson;
@@ -96,7 +96,7 @@ export function writeProviderModelConfig(
 	agentDir: string,
 	providerId: string,
 	name: string,
-	config: ZGModelConfig,
+	config: SentinelModelConfig,
 ): void {
 	const path = modelsJsonPath(agentDir);
 	let parsed: ModelsJson = { providers: {} };

@@ -4,6 +4,7 @@ import { ApiModelPage } from "./components/ApiModelPage.tsx";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { AppSider } from "./components/AppSider.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
+import { ConsentGate } from "./components/ConsentGate.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
 import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
@@ -39,55 +40,56 @@ import type {
 	SessionEventView,
 	SessionInfoView,
 	SessionTreeNodeView,
-	ZGApiModel,
-	ZGApiModelEvent,
-	ZGApiModelFilters,
-	ZGApiModelSummary,
-	ZGClientMessage,
-	ZGDoctrineView,
-	ZGEngine,
-	ZGEnvReport,
-	ZGFileEntry,
-	ZGFilePreview,
-	ZGForkPoint,
-	ZGGateDecision,
-	ZGGateFilter,
-	ZGGatekeeperConfig,
-	ZGGateStats,
-	ZGMode,
-	ZGModelConfig,
-	ZGModelLibraryView,
-	ZGNotifyConfig,
-	ZGNotifyStatus,
-	ZGPageId,
-	ZGPermissionPreset,
-	ZGPermissionSet,
-	ZGPermissionsConfig,
-	ZGPoc,
-	ZGPocFilters,
-	ZGPocImportFile,
-	ZGPocImportOutcome,
-	ZGPocSource,
-	ZGPocSourceSave,
-	ZGPocStats,
-	ZGPocSummary,
-	ZGPresetView,
-	ZGProjectInfo,
-	ZGServerMessage,
-	ZGStateSnapshot,
-	ZGStatsView,
-	ZGSubagentEvent,
-	ZGSubagentRun,
-	ZGTestResult,
-	ZGToolInfo,
-	ZGVulnerability,
-	ZGVulnFilters,
-	ZGVulnStats,
-	ZGVulnSummary,
-	ZGVulnUpdate,
+	SentinelApiModel,
+	SentinelApiModelEvent,
+	SentinelApiModelFilters,
+	SentinelApiModelSummary,
+	SentinelClientMessage,
+	SentinelDoctrineView,
+	SentinelEngine,
+	SentinelEnvReport,
+	SentinelFileEntry,
+	SentinelFilePreview,
+	SentinelForkPoint,
+	SentinelGateDecision,
+	SentinelGateFilter,
+	SentinelGatekeeperConfig,
+	SentinelGateStats,
+	SentinelMode,
+	SentinelModelConfig,
+	SentinelModelLibraryView,
+	SentinelNotifyConfig,
+	SentinelNotifyStatus,
+	SentinelPageId,
+	SentinelPermissionPreset,
+	SentinelPermissionSet,
+	SentinelPermissionsConfig,
+	SentinelPoc,
+	SentinelPocFilters,
+	SentinelPocImportFile,
+	SentinelPocImportOutcome,
+	SentinelPocSource,
+	SentinelPocSourceSave,
+	SentinelPocStats,
+	SentinelPocSummary,
+	SentinelPresetView,
+	SentinelProjectInfo,
+	SentinelServerMessage,
+	SentinelStateSnapshot,
+	SentinelStatsView,
+	SentinelSubagentEvent,
+	SentinelSubagentRun,
+	SentinelTestResult,
+	SentinelToolInfo,
+	SentinelVulnerability,
+	SentinelVulnFilters,
+	SentinelVulnStats,
+	SentinelVulnSummary,
+	SentinelVulnUpdate,
 } from "./types.ts";
-import { ZG_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
-import { ZGConnection } from "./ws.ts";
+import { SENTINEL_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
+import { ProjectAction } from "./project-actions.ts";
+import { SentinelConnection } from "./ws.ts";
 
 interface LiveTool {
 	id: string;
@@ -172,9 +174,9 @@ function hasVisibleAssistantContent(message: AgentMessageView): boolean {
 }
 
 export function App() {
-	const [snapshot, setSnapshot] = useState<ZGStateSnapshot | null>(null);
+	const [snapshot, setSnapshot] = useState<SentinelStateSnapshot | null>(null);
 	const [sessions, setSessions] = useState<SessionInfoView[]>([]);
-	const [notifyConfig, setNotifyConfig] = useState<ZGNotifyConfig>({
+	const [notifyConfig, setNotifyConfig] = useState<SentinelNotifyConfig>({
 		enabled: false,
 		webhook: "",
 		secret: "",
@@ -182,18 +184,18 @@ export function App() {
 		kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 		summaryLimit: 2000,
 	});
-	const [notifyStatus, setNotifyStatus] = useState<ZGNotifyStatus>({ at: null, ok: true });
-	const [permissions, setPermissions] = useState<ZGPermissionsConfig | null>(null);
-	const [permissionPresets, setPermissionPresets] = useState<ZGPermissionPreset[]>([]);
-	const [permissionTools, setPermissionTools] = useState<ZGToolInfo[]>([]);
-	const [permissionEffective, setPermissionEffective] = useState<ZGPermissionSet | null>(null);
+	const [notifyStatus, setNotifyStatus] = useState<SentinelNotifyStatus>({ at: null, ok: true });
+	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
+	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
+	const [permissionTools, setPermissionTools] = useState<SentinelToolInfo[]>([]);
+	const [permissionEffective, setPermissionEffective] = useState<SentinelPermissionSet | null>(null);
 	const [permissionBusy, setPermissionBusy] = useState(false);
 	/**
 	 * Composer choice for the next run: true/false once the operator toggles the
 	 * pill, null while it simply follows the global switch.
 	 */
 	const [notifyRun, setNotifyRun] = useState<boolean | null>(null);
-	const [stats, setStats] = useState<ZGStatsView | null>(null);
+	const [stats, setStats] = useState<SentinelStatsView | null>(null);
 	const [liveText, setLiveText] = useState("");
 	const [liveThinking, setLiveThinking] = useState("");
 	const [liveTools, setLiveTools] = useState<LiveTool[]>([]);
@@ -208,25 +210,25 @@ export function App() {
 	const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
 	const [errors, setErrors] = useState<string[]>([]);
 	/** The one page the content area shows; navigation lives in the sider. */
-	const [page, setPage] = useState<ZGPageId>("chat");
+	const [page, setPage] = useState<SentinelPageId>("chat");
 	/**
 	 * Console authentication: the console renders only once the session is
 	 * confirmed; otherwise the login (or first-run setup) screen replaces it.
 	 */
-	const [authState, setAuthState] = useState<"checking" | "ready" | "setup" | "login">("checking");
+	const [authState, setAuthState] = useState<"checking" | "ready" | "setup" | "login" | "consent">("checking");
 	const [authUser, setAuthUser] = useState<string | null>(null);
 	/** Overlays opened from the chat toolbar. */
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [subagentsOpen, setSubagentsOpen] = useState(false);
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("zg-sidebar-collapsed") === "1");
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sentinel-sidebar-collapsed") === "1");
 	// The branch tree is a modal now, so it starts closed.
-	const [branchOpen, setBranchOpen] = useState(() => localStorage.getItem("zg-branch-open") === "1");
-	const [projects, setProjects] = useState<ZGProjectInfo[]>([]);
-	const [activeProject, setActiveProject] = useState<ZGProjectInfo | null>(null);
-	const projectErrorRef = useRef<((message: string | null) => void) | null>(null);
+	const [branchOpen, setBranchOpen] = useState(() => localStorage.getItem("sentinel-branch-open") === "1");
+	const [projects, setProjects] = useState<SentinelProjectInfo[]>([]);
+	const [activeProject, setActiveProject] = useState<SentinelProjectInfo | null>(null);
+	const [projectAction] = useState(() => new ProjectAction());
 	const [tree, setTree] = useState<SessionTreeNodeView[]>([]);
 	const [leafId, setLeafId] = useState<string | null>(null);
-	const [forkPoints, setForkPoints] = useState<ZGForkPoint[]>([]);
+	const [forkPoints, setForkPoints] = useState<SentinelForkPoint[]>([]);
 	const [viewer, setViewer] = useState<{ title: string; output: string } | null>(null);
 	/** The persistent-goal start dialog. It is only reachable in auto mode. */
 	const [goalOpen, setGoalOpen] = useState(false);
@@ -238,10 +240,11 @@ export function App() {
 	 */
 	const [runActive, setRunActive] = useState(false);
 	/** Docker environment report: the console is locked while it is missing or failing. */
-	const [envReport, setEnvReport] = useState<ZGEnvReport | null>(null);
+	const [envReport, setEnvReport] = useState<SentinelEnvReport | null>(null);
 	const [imageBuilding, setImageBuilding] = useState(false);
 	const [buildLog, setBuildLog] = useState<string[]>([]);
 	const [sourcesSavedAt, setSourcesSavedAt] = useState<number | null>(null);
+	const [containerNetworkSavedAt, setContainerNetworkSavedAt] = useState<number | null>(null);
 	/** Messages sent from this console, shown optimistically until the snapshot absorbs them. */
 	const [optimisticUserMessages, setOptimisticUserMessages] = useState<
 		{ text: string; imageCount: number; userCountAtSend: number }[]
@@ -249,31 +252,31 @@ export function App() {
 	/** Queued steering/follow-up texts reported by queue_update events. */
 	const [queuedMessages, setQueuedMessages] = useState<{ kind: "steer" | "followUp"; text: string }[]>([]);
 	const [filePath, setFilePath] = useState("/work");
-	const [fileEntries, setFileEntries] = useState<ZGFileEntry[]>([]);
-	const [filePreview, setFilePreview] = useState<ZGFilePreview | null>(null);
+	const [fileEntries, setFileEntries] = useState<SentinelFileEntry[]>([]);
+	const [filePreview, setFilePreview] = useState<SentinelFilePreview | null>(null);
 	const [fileBusy, setFileBusy] = useState(false);
 	/** Loaded process steps per sub-agent run; a run absent here is not expanded. */
-	const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ZGSubagentEvent[]>>({});
+	const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, SentinelSubagentEvent[]>>({});
 	/** Vulnerability hub: the active project's findings, its counts, and the current filter. */
-	const [vulnItems, setVulnItems] = useState<ZGVulnSummary[]>([]);
-	const [vulnStats, setVulnStats] = useState<ZGVulnStats>({
+	const [vulnItems, setVulnItems] = useState<SentinelVulnSummary[]>([]);
+	const [vulnStats, setVulnStats] = useState<SentinelVulnStats>({
 		total: 0,
 		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
 		byStatus: { pending: 0, confirmed: 0, false_positive: 0, fixed: 0 },
 	});
-	const [vulnFilters, setVulnFilters] = useState<ZGVulnFilters>({});
+	const [vulnFilters, setVulnFilters] = useState<SentinelVulnFilters>({});
 	/** The record the detail overlay shows, and the evidence file it is previewing. */
-	const [vulnDetail, setVulnDetail] = useState<ZGVulnerability | null>(null);
-	const [pocItems, setPocItems] = useState<ZGPocSummary[]>([]);
-	const [pocStats, setPocStats] = useState<ZGPocStats>({
+	const [vulnDetail, setVulnDetail] = useState<SentinelVulnerability | null>(null);
+	const [pocItems, setPocItems] = useState<SentinelPocSummary[]>([]);
+	const [pocStats, setPocStats] = useState<SentinelPocStats>({
 		total: 0,
 		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
 	});
-	const [pocFilters, setPocFilters] = useState<ZGPocFilters>({});
-	const [pocDetail, setPocDetail] = useState<ZGPoc | null>(null);
+	const [pocFilters, setPocFilters] = useState<SentinelPocFilters>({});
+	const [pocDetail, setPocDetail] = useState<SentinelPoc | null>(null);
 	const [pocImporting, setPocImporting] = useState(false);
-	const [lastPocImport, setLastPocImport] = useState<ZGPocImportOutcome | null>(null);
-	const [pocSources, setPocSources] = useState<ZGPocSource[]>([]);
+	const [lastPocImport, setLastPocImport] = useState<SentinelPocImportOutcome | null>(null);
+	const [pocSources, setPocSources] = useState<SentinelPocSource[]>([]);
 	const [pocSyncing, setPocSyncing] = useState<string | null>(null);
 	/** The one-click official sync runs for minutes; it keeps its own busy flag
 	 * because the source list is broadcast as soon as the source is created. */
@@ -295,45 +298,45 @@ export function App() {
 		lanIps: [],
 	});
 	/** Business modeling: the runs of the active project, and the open drill-down. */
-	const [apiModels, setApiModels] = useState<ZGApiModelSummary[]>([]);
-	const [apiModelDetail, setApiModelDetail] = useState<ZGApiModel | null>(null);
-	const [apiModelEvents, setApiModelEvents] = useState<ZGApiModelEvent[]>([]);
-	const [vulnPreview, setVulnPreview] = useState<ZGFilePreview | null>(null);
+	const [apiModels, setApiModels] = useState<SentinelApiModelSummary[]>([]);
+	const [apiModelDetail, setApiModelDetail] = useState<SentinelApiModel | null>(null);
+	const [apiModelEvents, setApiModelEvents] = useState<SentinelApiModelEvent[]>([]);
+	const [vulnPreview, setVulnPreview] = useState<SentinelFilePreview | null>(null);
 	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
-	const [engines, setEngines] = useState<ZGEngine[]>([]);
-	const [doctrines, setDoctrines] = useState<ZGDoctrineView[]>([]);
+	const [engines, setEngines] = useState<SentinelEngine[]>([]);
+	const [doctrines, setDoctrines] = useState<SentinelDoctrineView[]>([]);
 	/** Preset agents: null until the first list arrives, which the settings page shows. */
-	const [presets, setPresets] = useState<ZGPresetView[] | null>(null);
+	const [presets, setPresets] = useState<SentinelPresetView[] | null>(null);
 	/** The last 导入 reply, kept until the next one replaces it. */
 	const [presetImport, setPresetImport] = useState<PresetImportNotice | null>(null);
-	const [commanderConfig, setCommanderConfig] = useState<ZGModelConfig | null>(null);
-	const [commanderEvents, setCommanderEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
-	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, ZGSubagentEvent[]>>({});
+	const [commanderConfig, setCommanderConfig] = useState<SentinelModelConfig | null>(null);
+	const [commanderEvents, setCommanderEvents] = useState<Record<string, SentinelSubagentEvent[]>>({});
+	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, SentinelSubagentEvent[]>>({});
 	/** Model screen: the library, the role assignments, and each role's effective endpoint. */
-	const [modelLibrary, setModelLibrary] = useState<ZGModelLibraryView | null>(null);
+	const [modelLibrary, setModelLibrary] = useState<SentinelModelLibraryView | null>(null);
 	/** Gatekeeper: its settings and the audit page's current view. */
-	const [gatekeeperConfig, setGatekeeperConfig] = useState<ZGGatekeeperConfig>({
+	const [gatekeeperConfig, setGatekeeperConfig] = useState<SentinelGatekeeperConfig>({
 		mode: "review",
 		timeoutMs: 15000,
 		concurrency: 0,
 	});
-	const [gateItems, setGateItems] = useState<ZGGateDecision[]>([]);
-	const [gateStats, setGateStats] = useState<ZGGateStats | null>(null);
+	const [gateItems, setGateItems] = useState<SentinelGateDecision[]>([]);
+	const [gateStats, setGateStats] = useState<SentinelGateStats | null>(null);
 	const [gateTotal, setGateTotal] = useState(0);
 	const [gatePage, setGatePage] = useState(1);
-	const [gateFilter, setGateFilter] = useState<ZGGateFilter>({});
+	const [gateFilter, setGateFilter] = useState<SentinelGateFilter>({});
 	/** Failure instant the operator dismissed the fail-open banner for. */
 	const [dismissedGateFailure, setDismissedGateFailure] = useState<number | null>(null);
-	const connectionRef = useRef<ZGConnection | null>(null);
+	const connectionRef = useRef<SentinelConnection | null>(null);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
 	/** Whether the transcript should chase the bottom; turned off by scrolling up. */
 	const transcriptFollowRef = useRef(true);
-	const modelTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
-	const notifyTestResolverRef = useRef<((result: ZGTestResult | null) => void) | null>(null);
-	const judgeTestResolverRef = useRef<((result: { result: ZGTestResult; raw?: string } | null) => void) | null>(null);
+	const modelTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
+	const notifyTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
+	const judgeTestResolverRef = useRef<((result: { result: SentinelTestResult; raw?: string } | null) => void) | null>(null);
 	/** The audit query on screen, so a live judgment can refresh exactly that view. */
-	const gateQueryRef = useRef<{ filter: ZGGateFilter; page: number } | null>(null);
-	const snapshotRef = useRef<ZGStateSnapshot | null>(null);
+	const gateQueryRef = useRef<{ filter: SentinelGateFilter; page: number } | null>(null);
+	const snapshotRef = useRef<SentinelStateSnapshot | null>(null);
 	/** Directory the file panel is showing; read by handlers that must re-list it. */
 	const filePathRef = useRef("/work");
 	/** Path the preview pane is showing, so a write can refresh it. */
@@ -361,7 +364,7 @@ export function App() {
 	}, []);
 
 	const handleServerMessage = useCallback(
-		(message: ZGServerMessage) => {
+		(message: SentinelServerMessage) => {
 			switch (message.type) {
 				case "snapshot": {
 					snapshotRef.current = message.snapshot;
@@ -476,6 +479,14 @@ export function App() {
 						return;
 					}
 					setSourcesSavedAt(Date.now());
+					return;
+				}
+				case "container_network_saved": {
+					if (message.error) {
+						pushError(`容器网络保存失败：${message.error}`);
+						return;
+					}
+					setContainerNetworkSavedAt(Date.now());
 					return;
 				}
 				case "image_build_log":
@@ -602,6 +613,9 @@ export function App() {
 							message.projects.find((project) => project.id === message.activeProjectId) ??
 							(message.activeProjectId === null ? null : prev),
 					);
+					// This broadcast is how create / remove / rebuild report success, so it
+					// has to release the form that is waiting for one.
+					projectAction.succeeded();
 					break;
 				case "files":
 					filePathRef.current = message.path;
@@ -758,11 +772,7 @@ export function App() {
 							? `${message.message}（服务端仍是旧版本，请重启控制台进程）`
 							: message.message,
 					);
-					if (projectErrorRef.current) {
-						const resolve = projectErrorRef.current;
-						projectErrorRef.current = null;
-						resolve(message.message);
-					}
+					projectAction.failed(message.message);
 					break;
 			}
 		},
@@ -877,9 +887,14 @@ export function App() {
 				const session = await fetch("/api/auth/session");
 				if (cancelled) return;
 				if (session.ok) {
-					const data = (await session.json().catch(() => ({}))) as { username?: unknown };
+					const data = (await session.json().catch(() => ({}))) as {
+						username?: unknown;
+						consent?: { required?: unknown };
+					};
 					setAuthUser(typeof data.username === "string" ? data.username : null);
-					setAuthState("ready");
+					// The promise comes before the console: until it is recorded the
+					// server answers 403 to the API and closes the WebSocket.
+					setAuthState(data.consent?.required === true ? "consent" : "ready");
 					return;
 				}
 				const state = (await fetch("/api/auth/state")
@@ -908,7 +923,7 @@ export function App() {
 
 	useEffect(() => {
 		if (!authReady) return;
-		const connection = new ZGConnection(
+		const connection = new SentinelConnection(
 			(message) => handleServerMessage(message),
 			(open) => {
 				setConnected(open);
@@ -942,28 +957,22 @@ export function App() {
 		};
 	}, [handleServerMessage, authReady]);
 
-	const send = useCallback((message: Parameters<ZGConnection["send"]>[0]) => {
+	const send = useCallback((message: Parameters<SentinelConnection["send"]>[0]) => {
 		connectionRef.current?.send(message);
 	}, []);
 
 	/** Create a project and resolve with the server's error message, if any. */
 	const addProject = useCallback(
-		async (name: string): Promise<string | null> => {
-			return await new Promise<string | null>((resolve) => {
-				projectErrorRef.current = resolve;
-				send({ type: "add_project", name });
-				window.setTimeout(() => {
-					if (projectErrorRef.current === resolve) {
-						projectErrorRef.current = null;
-						resolve(null);
-					}
-				}, 60000);
-			});
-		},
-		[send],
+		(name: string): Promise<string | null> => projectAction.run(() => send({ type: "add_project", name })),
+		[projectAction, send],
 	);
 
-	const openPage = useCallback((next: ZGPageId) => {
+	const recreateProject = useCallback(
+		(id: string): Promise<string | null> => projectAction.run(() => send({ type: "recreate_project", id })),
+		[projectAction, send],
+	);
+
+	const openPage = useCallback((next: SentinelPageId) => {
 		setPage(next);
 	}, []);
 
@@ -1023,7 +1032,7 @@ export function App() {
 	 * live judgment can refresh the very view on screen instead of resetting it.
 	 */
 	const loadGates = useCallback(
-		(filter: ZGGateFilter, page: number) => {
+		(filter: SentinelGateFilter, page: number) => {
 			gateQueryRef.current = { filter, page };
 			send({ type: "gate_audit_query", filter, page, pageSize: 50 });
 			send({ type: "gate_audit_stats", filter });
@@ -1133,7 +1142,7 @@ export function App() {
 
 	/** Re-read the hub under the current filter. */
 	const loadVulns = useCallback(
-		(filters: ZGVulnFilters) => {
+		(filters: SentinelVulnFilters) => {
 			setVulnFilters(filters);
 			send({ type: "list_vulns", filters });
 		},
@@ -1153,7 +1162,7 @@ export function App() {
 
 	/** Re-read the library under the current filter. */
 	const loadPocs = useCallback(
-		(filters: ZGPocFilters) => {
+		(filters: SentinelPocFilters) => {
 			setPocFilters(filters);
 			send({ type: "list_pocs", filters });
 		},
@@ -1174,7 +1183,7 @@ export function App() {
 			setPocImporting(true);
 			setLastPocImport(null);
 			try {
-				const payload: ZGPocImportFile[] = await Promise.all(
+				const payload: SentinelPocImportFile[] = await Promise.all(
 					files.map(async (file) => ({ name: file.name, data: await readFileBase64(file) })),
 				);
 				send({ type: "import_pocs", files: payload });
@@ -1211,7 +1220,7 @@ export function App() {
 		[send],
 	);
 
-	const mode: ZGMode = snapshot?.mode ?? "review";
+	const mode: SentinelMode = snapshot?.mode ?? "review";
 	const gatekeeper = snapshot?.gatekeeper ?? null;
 	const streaming = runActive;
 	const pendingApprovals = snapshot?.pendingApprovals ?? [];
@@ -1327,13 +1336,18 @@ export function App() {
 				onDone={() => {
 					void (async () => {
 						const session = await fetch("/api/auth/session").catch(() => null);
-						const data = (await session?.json().catch(() => ({}))) as { username?: unknown } | undefined;
+						const data = (await session?.json().catch(() => ({}))) as
+							| { username?: unknown; consent?: { required?: unknown } }
+							| undefined;
 						setAuthUser(typeof data?.username === "string" ? data.username : null);
-						setAuthState("ready");
+						setAuthState(data?.consent?.required === true ? "consent" : "ready");
 					})();
 				}}
 			/>
 		);
+	}
+	if (authState === "consent") {
+		return <ConsentGate onAccepted={() => setAuthState("ready")} />;
 	}
 
 	return (
@@ -1343,7 +1357,7 @@ export function App() {
 				onToggleCollapse={() => {
 					setSidebarCollapsed((prev) => {
 						const next = !prev;
-						localStorage.setItem("zg-sidebar-collapsed", next ? "1" : "0");
+						localStorage.setItem("sentinel-sidebar-collapsed", next ? "1" : "0");
 						return next;
 					});
 				}}
@@ -1385,18 +1399,9 @@ export function App() {
 						streaming={streaming}
 						onSwitch={(id) => send({ type: "switch_project", id })}
 						onAdd={addProject}
-						onRemove={async (id, confirmName) => {
-							return await new Promise<string | null>((resolve) => {
-								projectErrorRef.current = resolve;
-								send({ type: "remove_project", id, confirmName });
-								window.setTimeout(() => {
-									if (projectErrorRef.current === resolve) {
-										projectErrorRef.current = null;
-										resolve(null);
-									}
-								}, 60000);
-							});
-						}}
+						onRemove={(id, confirmName) =>
+							projectAction.run(() => send({ type: "remove_project", id, confirmName }))
+						}
 					/>
 				}
 			/>
@@ -1496,7 +1501,7 @@ export function App() {
 								onToggleBranch={() => {
 									setBranchOpen((prev) => {
 										const next = !prev;
-										localStorage.setItem("zg-branch-open", next ? "1" : "0");
+										localStorage.setItem("sentinel-branch-open", next ? "1" : "0");
 										return next;
 									});
 									send({ type: "get_tree" });
@@ -1751,18 +1756,10 @@ export function App() {
 							busy={streaming}
 							onCreate={addProject}
 							onSwitch={(id) => send({ type: "switch_project", id })}
-							onRemove={async (id, confirmName) => {
-								return await new Promise<string | null>((resolve) => {
-									projectErrorRef.current = resolve;
-									send({ type: "remove_project", id, confirmName });
-									window.setTimeout(() => {
-										if (projectErrorRef.current === resolve) {
-											projectErrorRef.current = null;
-											resolve(null);
-										}
-									}, 60000);
-								});
-							}}
+							onRecreate={recreateProject}
+							onRemove={(id, confirmName) =>
+								projectAction.run(() => send({ type: "remove_project", id, confirmName }))
+							}
 							sessionCount={sessionCount}
 						/>
 					) : page === "vulns" ? (
@@ -1792,7 +1789,7 @@ export function App() {
 							onOpen={openPoc}
 							onImport={(files) => void importPocs(files)}
 							onDelete={(id) => send({ type: "delete_poc", id })}
-							officialSource={pocSources.find((source) => source.id === ZG_OFFICIAL_POC_SOURCE_ID) ?? null}
+							officialSource={pocSources.find((source) => source.id === SENTINEL_OFFICIAL_POC_SOURCE_ID) ?? null}
 							officialSyncing={pocOfficialSyncing}
 							onSyncOfficial={syncOfficialPocs}
 						/>
@@ -1839,7 +1836,7 @@ export function App() {
 							doctrines={doctrines}
 							presets={presets ?? []}
 							commanderConfig={commanderConfig}
-							onSend={(message) => send(message as ZGClientMessage)}
+							onSend={(message) => send(message as SentinelClientMessage)}
 							onError={pushError}
 							commanderEvents={commanderEvents}
 							taskEvents={engineTaskEvents}
@@ -1883,7 +1880,7 @@ export function App() {
 									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
 									onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
 									onTestEntry={async (id) => {
-										const result = await new Promise<ZGTestResult | null>((resolve) => {
+										const result = await new Promise<SentinelTestResult | null>((resolve) => {
 											modelTestResolverRef.current = resolve;
 											connectionRef.current?.send({ type: "test_model_entry", id });
 											window.setTimeout(() => {
@@ -1901,7 +1898,7 @@ export function App() {
 									judgeResolved={modelLibrary?.resolved.judge ?? null}
 									onSave={(settings) => send({ type: "save_gatekeeper_config", config: settings })}
 									onTestJudge={async () => {
-										const result = await new Promise<{ result: ZGTestResult; raw?: string } | null>(
+										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
 											(resolve) => {
 												judgeTestResolverRef.current = resolve;
 												connectionRef.current?.send({ type: "test_judge" });
@@ -1944,7 +1941,7 @@ export function App() {
 									status={notifyStatus}
 									onSave={(next) => send({ type: "save_notify_config", config: next })}
 									onTest={async (candidate) => {
-										const result = await new Promise<ZGTestResult | null>((resolve) => {
+										const result = await new Promise<SentinelTestResult | null>((resolve) => {
 											notifyTestResolverRef.current = resolve;
 											connectionRef.current?.send({ type: "test_notify", config: candidate });
 											window.setTimeout(() => {
@@ -2012,6 +2009,8 @@ export function App() {
 									buildLog={buildLog}
 									sourcesSavedAt={sourcesSavedAt}
 									onSaveSources={(sources) => send({ type: "set_sources", sources })}
+									containerNetworkSavedAt={containerNetworkSavedAt}
+									onSaveContainerNetwork={(network) => send({ type: "set_container_network", network })}
 									onRefresh={() => send({ type: "check_environment" })}
 									onBuild={() => {
 										setBuildLog([]);
@@ -2036,7 +2035,7 @@ export function App() {
 								<PocSourcesPanel
 									sources={pocSources}
 									syncing={pocSyncing}
-									onSave={(source: ZGPocSourceSave) => send({ type: "save_poc_source", source })}
+									onSave={(source: SentinelPocSourceSave) => send({ type: "save_poc_source", source })}
 									onDelete={(id) => send({ type: "delete_poc_source", id })}
 									onSync={(id) => {
 										setPocSyncing(id);
@@ -2156,7 +2155,7 @@ export function App() {
 						setVulnDetail(null);
 						setVulnPreview(null);
 					}}
-					onUpdate={(id, patch: ZGVulnUpdate) => send({ type: "update_vuln", id, patch })}
+					onUpdate={(id, patch: SentinelVulnUpdate) => send({ type: "update_vuln", id, patch })}
 					onDelete={(id) => send({ type: "delete_vuln", id })}
 					onRetryReview={(id, force) => send({ type: "retry_vuln_review", id, ...(force ? { force: true } : {}) })}
 					onPreview={previewVulnFile}
@@ -2171,7 +2170,7 @@ export function App() {
 					onRenameBranch={(entryId, label) => send({ type: "rename_branch", entryId, label })}
 					onClose={() => {
 						setBranchOpen(false);
-						localStorage.setItem("zg-branch-open", "0");
+						localStorage.setItem("sentinel-branch-open", "0");
 					}}
 				/>
 			) : null}

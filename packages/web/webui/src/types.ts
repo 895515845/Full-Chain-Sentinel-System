@@ -1,11 +1,11 @@
-/** Client-side view of the ZGAgent wire protocol (mirrors packages/web/src/protocol.ts). */
+/** Client-side view of the Full Chain Sentinel wire protocol (mirrors packages/web/src/protocol.ts). */
 
-export type ZGMode = "review" | "ai" | "auto";
+export type SentinelMode = "review" | "ai" | "auto";
 
 /** The three modes in the order the toolbar offers them. */
-export const ZG_MODES: readonly ZGMode[] = ["review", "ai", "auto"];
+export const SENTINEL_MODES: readonly SentinelMode[] = ["review", "ai", "auto"];
 
-export const ZG_MODE_LABELS: Record<ZGMode, string> = {
+export const SENTINEL_MODE_LABELS: Record<SentinelMode, string> = {
 	review: "审批模式",
 	ai: "AI 审批",
 	auto: "自动执行",
@@ -15,7 +15,7 @@ export const ZG_MODE_LABELS: Record<ZGMode, string> = {
  * Every page the console can show in the content area. The sider navigates
  * between them; 文件 and 子代理 are overlays opened from the chat page.
  */
-export type ZGPageId =
+export type SentinelPageId =
 	| "chat"
 	| "projects"
 	| "vulns"
@@ -34,17 +34,17 @@ export type ZGPageId =
 	| "about";
 
 /** Reasoning effort levels pi accepts, ascending. */
-export type ZGThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type SentinelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Image attachment carried with a prompt (base64 payload, no data-URL prefix). */
-export interface ZGImageAttachment {
+export interface SentinelImageAttachment {
 	type: "image";
 	data: string;
 	mimeType: string;
 }
 
 /** One directory entry in the container work directory. */
-export interface ZGFileEntry {
+export interface SentinelFileEntry {
 	name: string;
 	path: string;
 	type: "dir" | "file";
@@ -54,7 +54,7 @@ export interface ZGFileEntry {
 }
 
 /** Bounded inline view of one file. */
-export interface ZGFilePreview {
+export interface SentinelFilePreview {
 	path: string;
 	kind: "text" | "image" | "binary";
 	size: number;
@@ -64,10 +64,10 @@ export interface ZGFilePreview {
 	mimeType?: string;
 }
 
-export type ZGSubagentStatus = "running" | "done" | "error" | "aborted";
+export type SentinelSubagentStatus = "running" | "done" | "error" | "aborted";
 
 /** One normalized step of a sub-agent's process. */
-export interface ZGSubagentEvent {
+export interface SentinelSubagentEvent {
 	seq: number;
 	kind: "text" | "thinking" | "tool_start" | "tool_end" | "turn" | "status";
 	at: number;
@@ -77,7 +77,7 @@ export interface ZGSubagentEvent {
 	args?: unknown;
 	output?: string;
 	isError?: boolean;
-	status?: ZGSubagentStatus;
+	status?: SentinelSubagentStatus;
 	note?: string;
 	/** How long the call ran, on `tool_end` only; lets the panel show a slow step. */
 	durationMs?: number;
@@ -85,40 +85,40 @@ export interface ZGSubagentEvent {
 	truncated?: boolean;
 }
 
-export interface ZGSubagentRun {
+export interface SentinelSubagentRun {
 	id: string;
 	sessionId: string;
 	task: string;
-	status: ZGSubagentStatus;
+	status: SentinelSubagentStatus;
 	turns: number;
 	startedAt: string;
 	endedAt?: string;
 	result?: string;
 	error?: string;
-	events?: ZGSubagentEvent[];
+	events?: SentinelSubagentEvent[];
 }
 
-export interface ZGModelConfig {
+export interface SentinelModelConfig {
 	baseUrl: string;
 	apiKey: string;
 	modelId: string;
 }
 
 /** The three jobs a model can be assigned to. */
-export type ZGModelRoleName = "main" | "judge" | "reviewer";
+export type SentinelModelRoleName = "main" | "judge" | "reviewer";
 
 /** One row of the model library. The key itself never leaves the server. */
-export interface ZGModelEntryView {
+export interface SentinelModelEntryView {
 	id: string;
 	name: string;
 	baseUrl: string;
 	modelId: string;
 	hasKey: boolean;
-	roles: ZGModelRoleName[];
+	roles: SentinelModelRoleName[];
 }
 
 /** What a role resolves to right now. */
-export interface ZGResolvedModelView {
+export interface SentinelResolvedModelView {
 	entryId: string;
 	entryName: string;
 	modelId: string;
@@ -126,8 +126,8 @@ export interface ZGResolvedModelView {
 }
 
 /** The whole model screen: library, role assignments, resolved endpoints. */
-export interface ZGModelLibraryView {
-	entries: ZGModelEntryView[];
+export interface SentinelModelLibraryView {
+	entries: SentinelModelEntryView[];
 	roles: {
 		main: string | null;
 		judge: string;
@@ -135,14 +135,14 @@ export interface ZGModelLibraryView {
 	};
 	reviewerAuto: boolean;
 	resolved: {
-		main: ZGResolvedModelView | null;
-		judge: ZGResolvedModelView | null;
-		reviewer: ZGResolvedModelView | null;
+		main: SentinelResolvedModelView | null;
+		judge: SentinelResolvedModelView | null;
+		reviewer: SentinelResolvedModelView | null;
 	};
 }
 
 /** Every tool switch the permissions screen offers. */
-export type ZGPermissionKey =
+export type SentinelPermissionKey =
 	| "read"
 	| "bash"
 	| "edit"
@@ -156,45 +156,45 @@ export type ZGPermissionKey =
 	| "poc_read";
 
 /** The switches of one agent; a missing entry means "not allowed". */
-export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
+export type SentinelPermissionSet = Record<SentinelPermissionKey, boolean>;
 
-export type ZGCommanderPermissionKey = "bash" | "read";
+export type SentinelCommanderPermissionKey = "bash" | "read";
 
-export type ZGCommanderPermissionSet = Record<ZGCommanderPermissionKey, boolean>;
+export type SentinelCommanderPermissionSet = Record<SentinelCommanderPermissionKey, boolean>;
 
-export interface ZGPermissionsConfig {
-	main: ZGPermissionSet;
-	subagent: ZGPermissionSet;
-	commander: ZGCommanderPermissionSet;
+export interface SentinelPermissionsConfig {
+	main: SentinelPermissionSet;
+	subagent: SentinelPermissionSet;
+	commander: SentinelCommanderPermissionSet;
 	/** Turn budget before one sub-agent run is aborted. */
 	subagentMaxTurns: number;
 }
 
-export interface ZGPermissionPreset {
-	commander: ZGCommanderPermissionSet;
+export interface SentinelPermissionPreset {
+	commander: SentinelCommanderPermissionSet;
 	id: string;
 	label: string;
 	hint: string;
-	main: ZGPermissionSet;
-	subagent: ZGPermissionSet;
+	main: SentinelPermissionSet;
+	subagent: SentinelPermissionSet;
 }
 
 /** One tool the live session actually mounted, for the read-only inventory. */
-export interface ZGToolInfo {
+export interface SentinelToolInfo {
 	name: string;
 	source: string;
 	/** Whether the model sees it right now, as opposed to codemode/deferred only. */
 	active: boolean;
 }
 
-export interface ZGTestResult {
+export interface SentinelTestResult {
 	ok: boolean;
 	message: string;
 	detail?: string;
 }
 
 /** DingTalk notification configuration (mirrors notifications.json). */
-export interface ZGNotifyConfig {
+export interface SentinelNotifyConfig {
 	enabled: boolean;
 	webhook: string;
 	secret: string;
@@ -206,21 +206,21 @@ export interface ZGNotifyConfig {
 }
 
 /** Outcome of the most recent notification send. */
-export interface ZGNotifyStatus {
+export interface SentinelNotifyStatus {
 	at: number | null;
 	ok: boolean;
 	error?: string;
 	subject?: string;
 }
 
-export interface ZGApprovalRequest {
+export interface SentinelApprovalRequest {
 	id: string;
 	command: string;
 	cwd: string;
 	source?: string;
 }
 
-export interface ZGProjectInfo {
+export interface SentinelProjectInfo {
 	id: string;
 	name: string;
 	cwd: string;
@@ -236,10 +236,10 @@ export interface ZGProjectInfo {
 // Gatekeeper (守门审计)
 // ---------------------------------------------------------------------------
 
-export type ZGGateDecisionKind = "allow" | "block" | "failed";
+export type SentinelGateDecisionKind = "allow" | "block" | "failed";
 
 /** One gatekeeper judgment. */
-export interface ZGGateDecision {
+export interface SentinelGateDecision {
 	id: string;
 	at: number;
 	projectId: string | null;
@@ -251,7 +251,7 @@ export interface ZGGateDecision {
 	command: string;
 	commandTruncated?: boolean;
 	cwd: string | null;
-	decision: ZGGateDecisionKind;
+	decision: SentinelGateDecisionKind;
 	reason?: string;
 	latencyMs: number;
 	model?: string;
@@ -264,8 +264,8 @@ export interface ZGGateDecision {
 }
 
 /** Audit list filters; every field is optional and they combine with AND. */
-export interface ZGGateFilter {
-	decision?: ZGGateDecisionKind;
+export interface SentinelGateFilter {
+	decision?: SentinelGateDecisionKind;
 	projectId?: string;
 	sessionId?: string;
 	source?: string;
@@ -273,9 +273,9 @@ export interface ZGGateFilter {
 	since?: number;
 }
 
-export interface ZGGateStats {
+export interface SentinelGateStats {
 	total: number;
-	byDecision: Record<ZGGateDecisionKind, number>;
+	byDecision: Record<SentinelGateDecisionKind, number>;
 	blockRate: number;
 	avgLatencyMs: number;
 	totalTokens: number;
@@ -286,26 +286,26 @@ export interface ZGGateStats {
 	lastError: string | null;
 }
 
-export interface ZGGatePage {
-	items: ZGGateDecision[];
+export interface SentinelGatePage {
+	items: SentinelGateDecision[];
 	total: number;
 	page: number;
 	pageSize: number;
 }
 
-export interface ZGGatekeeperConfig {
-	mode: ZGMode;
+export interface SentinelGatekeeperConfig {
+	mode: SentinelMode;
 	timeoutMs: number;
 	concurrency: number;
 }
 
 /** Live gatekeeper state carried in every snapshot. */
-export interface ZGGatekeeperView {
-	globalMode: ZGMode;
-	sessionMode: ZGMode;
-	sessionOverride: ZGMode | null;
+export interface SentinelGatekeeperView {
+	globalMode: SentinelMode;
+	sessionMode: SentinelMode;
+	sessionOverride: SentinelMode | null;
 	/** The endpoint the 守门模型 role resolves to; null when nothing resolves. */
-	judgeResolved: ZGResolvedModelView | null;
+	judgeResolved: SentinelResolvedModelView | null;
 	failures: number;
 	lastFailureAt: number | null;
 	/** When the judge last answered; newer than `lastFailureAt` means it recovered. */
@@ -313,21 +313,21 @@ export interface ZGGatekeeperView {
 	lastError: string | null;
 }
 
-export const ZG_GATE_DECISION_LABELS: Record<ZGGateDecisionKind, string> = {
+export const SENTINEL_GATE_DECISION_LABELS: Record<SentinelGateDecisionKind, string> = {
 	allow: "放行",
 	block: "拦截",
 	failed: "请求失败",
 };
 
 /** Severity buckets of the vulnerability hub. */
-export type ZGVulnSeverity = "critical" | "high" | "medium" | "low" | "info";
+export type SentinelVulnSeverity = "critical" | "high" | "medium" | "low" | "info";
 
 /** Lifecycle of one finding; the agent always creates `pending`. */
-export type ZGVulnStatus = "pending" | "confirmed" | "false_positive" | "fixed";
+export type SentinelVulnStatus = "pending" | "confirmed" | "false_positive" | "fixed";
 
-export const ZG_VULN_SEVERITIES: readonly ZGVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
+export const SENTINEL_VULN_SEVERITIES: readonly SentinelVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
 
-export const ZG_VULN_SEVERITY_LABELS: Record<ZGVulnSeverity, string> = {
+export const SENTINEL_VULN_SEVERITY_LABELS: Record<SentinelVulnSeverity, string> = {
 	critical: "严重",
 	high: "高危",
 	medium: "中危",
@@ -335,7 +335,7 @@ export const ZG_VULN_SEVERITY_LABELS: Record<ZGVulnSeverity, string> = {
 	info: "信息",
 };
 
-export const ZG_VULN_STATUS_LABELS: Record<ZGVulnStatus, string> = {
+export const SENTINEL_VULN_STATUS_LABELS: Record<SentinelVulnStatus, string> = {
 	pending: "待确认",
 	confirmed: "已确认",
 	false_positive: "误报",
@@ -343,7 +343,7 @@ export const ZG_VULN_STATUS_LABELS: Record<ZGVulnStatus, string> = {
 };
 
 /** One piece of supporting evidence: a command with its output, or a container file. */
-export interface ZGVulnEvidence {
+export interface SentinelVulnEvidence {
 	kind: "command" | "file";
 	command?: string;
 	output?: string;
@@ -352,17 +352,17 @@ export interface ZGVulnEvidence {
 }
 
 /** One entry of a finding's timeline. */
-export interface ZGVulnNote {
+export interface SentinelVulnNote {
 	at: string;
 	author: "agent" | "operator" | "system";
 	text: string;
-	statusFrom?: ZGVulnStatus;
-	statusTo?: ZGVulnStatus;
+	statusFrom?: SentinelVulnStatus;
+	statusTo?: SentinelVulnStatus;
 }
 
-export interface ZGVulnReview {
+export interface SentinelVulnReview {
 	state: "queued" | "done" | "failed" | "skipped";
-	severity?: ZGVulnSeverity;
+	severity?: SentinelVulnSeverity;
 	cvss?: number;
 	cvssVector?: string;
 	verdict?: "solid" | "dubious";
@@ -372,9 +372,9 @@ export interface ZGVulnReview {
 	at: number;
 }
 
-export interface ZGVulnerability {
+export interface SentinelVulnerability {
 	/** The reviewer LLM's verdict; a fresh submission starts as "queued". */
-	review: ZGVulnReview;
+	review: SentinelVulnReview;
 	id: string;
 	label: string;
 	number: number;
@@ -383,10 +383,10 @@ export interface ZGVulnerability {
 	sessionId?: string;
 	source: string;
 	title: string;
-	severity: ZGVulnSeverity;
+	severity: SentinelVulnSeverity;
 	cvss: number;
 	cvssVector?: string;
-	status: ZGVulnStatus;
+	status: SentinelVulnStatus;
 	target: string;
 	category?: string;
 	description: string;
@@ -396,44 +396,44 @@ export interface ZGVulnerability {
 	references?: string[];
 	createdAt: string;
 	updatedAt: string;
-	evidence: ZGVulnEvidence[];
-	notes: ZGVulnNote[];
+	evidence: SentinelVulnEvidence[];
+	notes: SentinelVulnNote[];
 	/** The CVSS score maps to a different bucket than `severity`. */
 	severityMismatch: boolean;
 }
 
-export type ZGVulnSummary = Omit<ZGVulnerability, "packet" | "evidence" | "notes">;
+export type SentinelVulnSummary = Omit<SentinelVulnerability, "packet" | "evidence" | "notes">;
 
-export interface ZGVulnFilters {
-	status?: ZGVulnStatus;
-	severity?: ZGVulnSeverity;
+export interface SentinelVulnFilters {
+	status?: SentinelVulnStatus;
+	severity?: SentinelVulnSeverity;
 	target?: string;
 	search?: string;
 	/** Only records the reviewer marked as dubious (hallucination suspects). */
 	dubious?: boolean;
 }
 
-export interface ZGVulnUpdate {
-	status?: ZGVulnStatus;
-	severity?: ZGVulnSeverity;
+export interface SentinelVulnUpdate {
+	status?: SentinelVulnStatus;
+	severity?: SentinelVulnSeverity;
 	cvss?: number;
 	note?: string;
 }
 
-export interface ZGVulnStats {
+export interface SentinelVulnStats {
 	total: number;
-	bySeverity: Record<ZGVulnSeverity, number>;
-	byStatus: Record<ZGVulnStatus, number>;
+	bySeverity: Record<SentinelVulnSeverity, number>;
+	byStatus: Record<SentinelVulnStatus, number>;
 }
 
 // --- POC 库（Nuclei 模板中心；对 agent 只读） ---
 
-export type ZGPocSeverity = ZGVulnSeverity;
+export type SentinelPocSeverity = SentinelVulnSeverity;
 
-export interface ZGPoc {
+export interface SentinelPoc {
 	id: string;
 	name: string;
-	severity: ZGPocSeverity;
+	severity: SentinelPocSeverity;
 	tags: string[];
 	references: string[];
 	content: string;
@@ -441,25 +441,25 @@ export interface ZGPoc {
 	importedAt: string;
 }
 
-export type ZGPocSummary = Omit<ZGPoc, "content">;
+export type SentinelPocSummary = Omit<SentinelPoc, "content">;
 
-export interface ZGPocFilters {
+export interface SentinelPocFilters {
 	search?: string;
-	severity?: ZGPocSeverity;
+	severity?: SentinelPocSeverity;
 	tag?: string;
 }
 
-export interface ZGPocStats {
+export interface SentinelPocStats {
 	total: number;
-	bySeverity: Record<ZGPocSeverity, number>;
+	bySeverity: Record<SentinelPocSeverity, number>;
 }
 
-export interface ZGPocImportFile {
+export interface SentinelPocImportFile {
 	name: string;
 	data: string;
 }
 
-export interface ZGPocImportOutcome {
+export interface SentinelPocImportOutcome {
 	imported: number;
 	replaced: number;
 	skipped: { name: string; reason: string }[];
@@ -472,9 +472,9 @@ export interface ZGPocImportOutcome {
  * `OFFICIAL_SOURCE_ID` in the server: the button compares against it to show
  * that row as busy, and the page uses it to read that source's last outcome.
  */
-export const ZG_OFFICIAL_POC_SOURCE_ID = "official";
+export const SENTINEL_OFFICIAL_POC_SOURCE_ID = "official";
 
-export interface ZGPocSource {
+export interface SentinelPocSource {
 	id: string;
 	name: string;
 	url: string;
@@ -483,12 +483,12 @@ export interface ZGPocSource {
 	intervalHours: number;
 	enabled: boolean;
 	lastSyncAt: string | null;
-	lastResult: ZGPocSyncRecord | null;
+	lastResult: SentinelPocSyncRecord | null;
 	/** Recent sync outcomes, newest first (bounded server-side). */
-	history: ZGPocSyncRecord[];
+	history: SentinelPocSyncRecord[];
 }
 
-export interface ZGPocSyncRecord {
+export interface SentinelPocSyncRecord {
 	at: string;
 	ok: boolean;
 	trigger: "manual" | "auto";
@@ -499,7 +499,7 @@ export interface ZGPocSyncRecord {
 	error?: string;
 }
 
-export interface ZGPocSourceSave {
+export interface SentinelPocSourceSave {
 	id?: string;
 	name: string;
 	url: string;
@@ -513,9 +513,9 @@ export interface ZGPocSourceSave {
 // 业务建模（Business modeling）
 // ---------------------------------------------------------------------------
 
-export type ZGApiModelStatus = "modeling" | "done" | "manual" | "failed";
+export type SentinelApiModelStatus = "modeling" | "done" | "manual" | "failed";
 
-export const ZG_API_MODEL_STATUS_LABELS: Record<ZGApiModelStatus, string> = {
+export const SENTINEL_API_MODEL_STATUS_LABELS: Record<SentinelApiModelStatus, string> = {
 	modeling: "建模中",
 	done: "已完成",
 	manual: "人工结束",
@@ -523,38 +523,38 @@ export const ZG_API_MODEL_STATUS_LABELS: Record<ZGApiModelStatus, string> = {
 };
 
 /** One field of a business entity. */
-export interface ZGApiModelField {
+export interface SentinelApiModelField {
 	name: string;
 	type?: string;
 	description?: string;
 }
 
 /** One relation between two business entities. */
-export interface ZGApiModelRelation {
+export interface SentinelApiModelRelation {
 	target: string;
 	kind?: string;
 	description?: string;
 }
 
 /** A business entity: the object the API is about, not a schema of the document. */
-export interface ZGApiModelEntity {
+export interface SentinelApiModelEntity {
 	name: string;
 	description?: string;
-	fields?: ZGApiModelField[];
-	relations?: ZGApiModelRelation[];
+	fields?: SentinelApiModelField[];
+	relations?: SentinelApiModelRelation[];
 }
 
 /** One stored modeling run. */
-export interface ZGApiModel {
+export interface SentinelApiModel {
 	id: string;
 	projectId: string | null;
 	sessionId: string | null;
 	sessionPath: string | null;
 	title: string;
 	target: string;
-	status: ZGApiModelStatus;
+	status: SentinelApiModelStatus;
 	openapi: Record<string, unknown>;
-	entities: ZGApiModelEntity[];
+	entities: SentinelApiModelEntity[];
 	pathCount: number;
 	operationCount: number;
 	submissions: number;
@@ -565,16 +565,16 @@ export interface ZGApiModel {
 }
 
 /** A run without the document body, for the list. */
-export type ZGApiModelSummary = Omit<ZGApiModel, "openapi" | "entities"> & { entityCount: number };
+export type SentinelApiModelSummary = Omit<SentinelApiModel, "openapi" | "entities"> & { entityCount: number };
 
-export interface ZGApiModelFilters {
-	status?: ZGApiModelStatus;
+export interface SentinelApiModelFilters {
+	status?: SentinelApiModelStatus;
 	projectId?: string;
 	search?: string;
 }
 
 /** One line of a run's audit trail. */
-export interface ZGApiModelEvent {
+export interface SentinelApiModelEvent {
 	at: string;
 	kind: "created" | "submitted" | "done" | "manual" | "failed";
 	note?: string;
@@ -583,7 +583,7 @@ export interface ZGApiModelEvent {
 }
 
 /** Live state of the modeling run in the viewed session. */
-export interface ZGModelingState {
+export interface SentinelModelingState {
 	runId: string;
 	title: string;
 	target: string;
@@ -620,37 +620,37 @@ export interface DroidToken {
 	lastUsedAt: string | null;
 }
 
-export interface ZGStateSnapshot {
-	mode: ZGMode;
+export interface SentinelStateSnapshot {
+	mode: SentinelMode;
 	streaming: boolean;
 	cwd: string;
-	project: ZGProjectInfo | null;
+	project: SentinelProjectInfo | null;
 	model: { provider: string; id: string } | null;
 	modelConfigured: boolean;
-	thinkingLevel: ZGThinkingLevel;
-	availableThinkingLevels: ZGThinkingLevel[];
+	thinkingLevel: SentinelThinkingLevel;
+	availableThinkingLevels: SentinelThinkingLevel[];
 	activeSessionId: string | null;
 	messages: AgentMessageView[];
-	pendingApprovals: ZGApprovalRequest[];
+	pendingApprovals: SentinelApprovalRequest[];
 	allowedPrefixes: string[];
 	/** Session ids with an active run (background included). */
 	runningSessions: string[];
 	/** Sub-agent runs of the active session, newest first, without process steps. */
-	subagents: ZGSubagentRun[];
+	subagents: SentinelSubagentRun[];
 	/** Persistent goal of the active session, with live counters; null when there is none. */
-	goal: ZGGoalView | null;
+	goal: SentinelGoalView | null;
 	/** Operator status of the active session, as a label the agent never sees. */
-	sessionStatus: ZGSessionStatus | null;
+	sessionStatus: SentinelSessionStatus | null;
 	/** Mode state and judge health, for the toolbar switch and the fail-open banner. */
-	gatekeeper: ZGGatekeeperView;
+	gatekeeper: SentinelGatekeeperView;
 	/** The preset agent the active session was created with; null means the default agent. */
-	preset: ZGSessionPresetView | null;
+	preset: SentinelSessionPresetView | null;
 	/**
 	 * The business-modeling run in force for the active session, with live
 	 * counters; null when this session is not modeling. The two modeling tools
 	 * exist only while this is set.
 	 */
-	modeling: ZGModelingState | null;
+	modeling: SentinelModelingState | null;
 	/**
 	 * Modeling records attached to the active session from the composer (带建模
 	 * 数据); empty when none. While set, api_model_read is mounted for the agent.
@@ -674,13 +674,13 @@ export interface SessionInfoView {
 	messageCount: number;
 	firstMessage: string;
 	/** Operator status, absent when the session was never labeled. */
-	status?: ZGSessionStatus;
+	status?: SentinelSessionStatus;
 	/** Present when this session is an engineering task's conversation. */
 	engine?: { engineId: string; engineName: string; taskStatus: string };
 }
 
 /** The operator's manual label for a session. The agent never sees it. */
-export type ZGSessionStatus = "todo" | "active" | "done" | "ignored";
+export type SentinelSessionStatus = "todo" | "active" | "done" | "ignored";
 
 export interface SessionTreeNodeView {
 	entry: {
@@ -695,48 +695,48 @@ export interface SessionTreeNodeView {
 	label?: string;
 }
 
-export interface ZGForkPoint {
+export interface SentinelForkPoint {
 	entryId: string;
 	text: string;
 }
 
-export interface ZGStatsView {
+export interface SentinelStatsView {
 	tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 	cost: number;
 }
 
 /** Lifecycle of the persistent goal of the viewed session. */
-export type ZGGoalStatus = "active" | "paused" | "blocked" | "completed";
-export type ZGGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted" | "loop-guard";
-export type ZGGoalRoundOutcome = "continued" | "completed" | "blocked" | "paused" | "aborted" | "error";
+export type SentinelGoalStatus = "active" | "paused" | "blocked" | "completed";
+export type SentinelGoalPauseReason = "manual" | "limit" | "no-progress" | "interrupted" | "loop-guard";
+export type SentinelGoalRoundOutcome = "continued" | "completed" | "blocked" | "paused" | "aborted" | "error";
 
-export interface ZGGoalUsage {
+export interface SentinelGoalUsage {
 	input: number;
 	output: number;
 	total: number;
 	cost: number | null;
 }
 
-export interface ZGGoalRound {
+export interface SentinelGoalRound {
 	index: number;
 	kind: "initial" | "continue";
 	startedAt: number;
 	endedAt?: number;
 	toolCalls: number;
-	usage?: ZGGoalUsage;
+	usage?: SentinelGoalUsage;
 	summary?: string;
 	summaryFromTool?: boolean;
-	outcome?: ZGGoalRoundOutcome;
+	outcome?: SentinelGoalRoundOutcome;
 	blockerReason?: string;
 }
 
-export interface ZGGoalCriterionResult {
+export interface SentinelGoalCriterionResult {
 	criterion: string;
 	met: boolean;
 	evidence: string;
 }
 
-export interface ZGGoalView {
+export interface SentinelGoalView {
 	id: string;
 	objective: string;
 	criteria: string[];
@@ -744,12 +744,12 @@ export interface ZGGoalView {
 	roundsUsed: number;
 	noProgressStreak: number;
 	blockerStreak: number;
-	status: ZGGoalStatus;
-	pauseReason?: ZGGoalPauseReason;
+	status: SentinelGoalStatus;
+	pauseReason?: SentinelGoalPauseReason;
 	pauseNote?: string;
-	baseline: ZGGoalUsage;
+	baseline: SentinelGoalUsage;
 	progress: { done: string[]; todo: string[]; blockers: string[] };
-	rounds: ZGGoalRound[];
+	rounds: SentinelGoalRound[];
 	lastBlocker?: string;
 	submitted: number;
 	completion?: {
@@ -757,7 +757,7 @@ export interface ZGGoalView {
 		evidence: string[];
 		submitted: number;
 		findingsNote: string;
-		criteria: ZGGoalCriterionResult[];
+		criteria: SentinelGoalCriterionResult[];
 		at: number;
 	};
 	blocked?: { reason: string; evidence: string[]; streak: number; at: number };
@@ -766,7 +766,7 @@ export interface ZGGoalView {
 	endedAt?: number;
 	updatedAt: number;
 	/** Main-agent usage since the goal started. */
-	usage: ZGGoalUsage;
+	usage: SentinelGoalUsage;
 	/** Sub-agent work of this goal; shown for context, it consumes no rounds. */
 	subagent: { runs: number; turns: number };
 	running: boolean;
@@ -812,12 +812,12 @@ export type ContentBlockView =
 	| { type: "image"; data: string; mimeType: string }
 	| { type: string };
 
-export type ZGClientMessage =
+export type SentinelClientMessage =
 	| {
 			type: "prompt";
 			text: string;
 			streamingBehavior?: "steer" | "followUp";
-			images?: ZGImageAttachment[];
+			images?: SentinelImageAttachment[];
 			/** Composer choice: force a notification for this run. */
 			notify?: boolean;
 			/**
@@ -833,10 +833,10 @@ export type ZGClientMessage =
 	| { type: "pause_goal" }
 	| { type: "resume_goal"; extraRounds?: number }
 	| { type: "clear_goal" }
-	| { type: "set_thinking_level"; level: ZGThinkingLevel }
+	| { type: "set_thinking_level"; level: SentinelThinkingLevel }
 	/** null makes the active session follow the console-wide default again. */
-	| { type: "set_mode"; mode: ZGMode | null }
-	| { type: "set_global_mode"; mode: ZGMode }
+	| { type: "set_mode"; mode: SentinelMode | null }
+	| { type: "set_global_mode"; mode: SentinelMode }
 	| { type: "decide"; decision: { id: string; approved: boolean; command?: string; alwaysAllowPrefix?: boolean } }
 	| { type: "decide_all"; approved: boolean }
 	| { type: "allow_prefix"; prefix: string }
@@ -846,7 +846,7 @@ export type ZGClientMessage =
 	| { type: "set_session_preset"; presetId: string | null }
 	| { type: "switch_session"; path: string }
 	| { type: "rename_session"; path: string; name: string }
-	| { type: "set_session_status"; path?: string; status: ZGSessionStatus | null }
+	| { type: "set_session_status"; path?: string; status: SentinelSessionStatus | null }
 	| { type: "delete_session"; path: string }
 	| { type: "list_sessions" }
 	| { type: "navigate"; entryId: string; summarize?: boolean }
@@ -865,18 +865,20 @@ export type ZGClientMessage =
 	  }
 	| { type: "remove_model_entry"; id: string }
 	| { type: "duplicate_model_entry"; id: string }
-	| { type: "set_model_role"; role: ZGModelRoleName; target: string | null }
+	| { type: "set_model_role"; role: SentinelModelRoleName; target: string | null }
 	| { type: "set_reviewer_auto"; enabled: boolean }
 	| { type: "test_model_entry"; id: string }
 	| { type: "get_permissions" }
-	| { type: "save_permissions"; config: ZGPermissionsConfig }
+	| { type: "save_permissions"; config: SentinelPermissionsConfig }
 	| { type: "get_notify_config" }
-	| { type: "save_notify_config"; config: ZGNotifyConfig }
-	| { type: "test_notify"; config: ZGNotifyConfig }
+	| { type: "save_notify_config"; config: SentinelNotifyConfig }
+	| { type: "test_notify"; config: SentinelNotifyConfig }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }
 	| { type: "remove_project"; id: string; confirmName: string }
+	/** Replace a project's container so changed settings (network mode) apply. */
+	| { type: "recreate_project"; id: string }
 	| { type: "switch_project"; id: string }
 	| { type: "list_files"; path: string }
 	| { type: "read_file"; path: string }
@@ -890,19 +892,19 @@ export type ZGClientMessage =
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
 	| { type: "steer_subagent"; id: string; text: string }
-	| { type: "list_vulns"; filters?: ZGVulnFilters }
+	| { type: "list_vulns"; filters?: SentinelVulnFilters }
 	| { type: "get_vuln"; id: string }
-	| { type: "update_vuln"; id: string; patch: ZGVulnUpdate }
+	| { type: "update_vuln"; id: string; patch: SentinelVulnUpdate }
 	| { type: "delete_vuln"; id: string }
-	| { type: "export_vulns"; filters?: ZGVulnFilters }
+	| { type: "export_vulns"; filters?: SentinelVulnFilters }
 	| { type: "retry_vuln_review"; id: string; force?: boolean }
 	| { type: "review_pending_vulns" }
-	| { type: "list_pocs"; filters?: ZGPocFilters }
+	| { type: "list_pocs"; filters?: SentinelPocFilters }
 	| { type: "get_poc"; id: string }
-	| { type: "import_pocs"; files: ZGPocImportFile[] }
+	| { type: "import_pocs"; files: SentinelPocImportFile[] }
 	| { type: "delete_poc"; id: string }
 	| { type: "list_poc_sources" }
-	| { type: "save_poc_source"; source: ZGPocSourceSave }
+	| { type: "save_poc_source"; source: SentinelPocSourceSave }
 	| { type: "delete_poc_source"; id: string }
 	| { type: "sync_poc_source"; id: string }
 	| { type: "sync_official_pocs" }
@@ -910,9 +912,10 @@ export type ZGClientMessage =
 	| { type: "check_environment" }
 	| { type: "build_image" }
 	| { type: "abort_image_build" }
-	| { type: "set_sources"; sources: ZGSources }
+	| { type: "set_sources"; sources: SentinelSources }
+	| { type: "set_container_network"; network: SentinelContainerNetwork }
 	| { type: "list_engines" }
-	| { type: "engine_create"; input: ZGEngineCreateInput }
+	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	| { type: "engine_pause"; id: string }
 	| { type: "engine_resume"; id: string }
 	| { type: "engine_abort"; id: string }
@@ -950,12 +953,12 @@ export type ZGClientMessage =
 	| { type: "export_presets"; ids?: string[] }
 	| { type: "import_presets"; content: string }
 	| { type: "get_commander_config" }
-	| { type: "save_commander_config"; config: ZGModelConfig | null }
+	| { type: "save_commander_config"; config: SentinelModelConfig | null }
 	| { type: "get_gatekeeper_config" }
-	| { type: "save_gatekeeper_config"; config: ZGGatekeeperConfig }
+	| { type: "save_gatekeeper_config"; config: SentinelGatekeeperConfig }
 	| { type: "test_judge" }
-	| { type: "gate_audit_query"; filter?: ZGGateFilter; page?: number; pageSize?: number }
-	| { type: "gate_audit_stats"; filter?: ZGGateFilter }
+	| { type: "gate_audit_query"; filter?: SentinelGateFilter; page?: number; pageSize?: number }
+	| { type: "gate_audit_stats"; filter?: SentinelGateFilter }
 	/** Start business modeling in the viewed session; the objective comes from the conversation. */
 	| { type: "start_modeling" }
 	| { type: "end_modeling" }
@@ -969,11 +972,11 @@ export type ZGClientMessage =
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
 	| { type: "droid_set_listen"; host: string; port: number }
-	| { type: "list_api_models"; filters?: ZGApiModelFilters }
+	| { type: "list_api_models"; filters?: SentinelApiModelFilters }
 	| { type: "get_api_model"; id: string }
 	| { type: "delete_api_model"; id: string }
 	| { type: "export_api_model"; id: string; format: "json" | "yaml" }
-	| { type: "engine_set_gate_mode"; id: string; gateMode: ZGEngineGateMode }
+	| { type: "engine_set_gate_mode"; id: string; gateMode: SentinelEngineGateMode }
 	/**
 	 * Replace this engine's preset whitelist. An empty list means "no restriction":
 	 * the commander may use any enabled preset.
@@ -986,75 +989,76 @@ export type ZGClientMessage =
 	 */
 	| { type: "engine_set_preset_optional"; id: string; optional: boolean };
 
-export type ZGServerMessage =
-	| { type: "snapshot"; snapshot: ZGStateSnapshot }
+export type SentinelServerMessage =
+	| { type: "snapshot"; snapshot: SentinelStateSnapshot }
 	| { type: "session_event"; event: SessionEventView }
 	| { type: "sessions"; sessions: SessionInfoView[] }
-	| { type: "tree"; tree: SessionTreeNodeView[]; leafId: string | null; forkPoints: ZGForkPoint[] }
-	| { type: "model_library"; library: ZGModelLibraryView }
-	| { type: "model_test_result"; result: ZGTestResult }
+	| { type: "tree"; tree: SessionTreeNodeView[]; leafId: string | null; forkPoints: SentinelForkPoint[] }
+	| { type: "model_library"; library: SentinelModelLibraryView }
+	| { type: "model_test_result"; result: SentinelTestResult }
 	| {
 			type: "permissions";
-			config: ZGPermissionsConfig;
-			effectiveSubagent: ZGPermissionSet;
-			presets: ZGPermissionPreset[];
-			tools: ZGToolInfo[];
+			config: SentinelPermissionsConfig;
+			effectiveSubagent: SentinelPermissionSet;
+			presets: SentinelPermissionPreset[];
+			tools: SentinelToolInfo[];
 	  }
-	| { type: "notify_config"; config: ZGNotifyConfig; status: ZGNotifyStatus }
-	| { type: "notify_test_result"; result: ZGTestResult }
-	| { type: "stats"; stats: ZGStatsView }
-	| { type: "projects"; projects: ZGProjectInfo[]; activeProjectId: string | null }
-	| { type: "files"; path: string; entries: ZGFileEntry[] }
-	| { type: "file_preview"; preview: ZGFilePreview }
+	| { type: "notify_config"; config: SentinelNotifyConfig; status: SentinelNotifyStatus }
+	| { type: "notify_test_result"; result: SentinelTestResult }
+	| { type: "stats"; stats: SentinelStatsView }
+	| { type: "projects"; projects: SentinelProjectInfo[]; activeProjectId: string | null }
+	| { type: "files"; path: string; entries: SentinelFileEntry[] }
+	| { type: "file_preview"; preview: SentinelFilePreview }
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
-	| { type: "subagents"; runs: ZGSubagentRun[] }
-	| { type: "subagent_run"; run: ZGSubagentRun }
-	| { type: "subagent_event"; runId: string; event: ZGSubagentEvent }
+	| { type: "subagents"; runs: SentinelSubagentRun[] }
+	| { type: "subagent_run"; run: SentinelSubagentRun }
+	| { type: "subagent_event"; runId: string; event: SentinelSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
-	| { type: "vulns"; items: ZGVulnSummary[]; stats: ZGVulnStats }
-	| { type: "vuln"; vuln: ZGVulnerability }
+	| { type: "vulns"; items: SentinelVulnSummary[]; stats: SentinelVulnStats }
+	| { type: "vuln"; vuln: SentinelVulnerability }
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
-	| { type: "pocs"; items: ZGPocSummary[]; stats: ZGPocStats }
-	| { type: "poc"; poc: ZGPoc }
+	| { type: "pocs"; items: SentinelPocSummary[]; stats: SentinelPocStats }
+	| { type: "poc"; poc: SentinelPoc }
 	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
-	| { type: "pocs_imported"; outcome: ZGPocImportOutcome }
-	| { type: "poc_sources"; sources: ZGPocSource[] }
+	| { type: "pocs_imported"; outcome: SentinelPocImportOutcome }
+	| { type: "poc_sources"; sources: SentinelPocSource[] }
 	| { type: "poc_source_result"; action: string; id?: string; ok: boolean; error?: string }
-	| { type: "environment"; report: ZGEnvReport; building: boolean }
+	| { type: "environment"; report: SentinelEnvReport; building: boolean }
 	| { type: "image_build_log"; line: string }
 	| { type: "image_build_result"; ok: boolean; error?: string }
-	| { type: "sources_saved"; sources: ZGSources; error?: string }
-	| { type: "engines"; engines: ZGEngine[] }
-	| { type: "engine_update"; engine: ZGEngine }
-	| { type: "engine_commander_event"; engineId: string; event: ZGSubagentEvent }
-	| { type: "engine_task_event"; taskId: string; event: ZGSubagentEvent }
-	| { type: "engine_task_events"; taskId: string; events: ZGSubagentEvent[] }
-	| { type: "engine_commander_events"; id: string; events: ZGSubagentEvent[] }
+	| { type: "sources_saved"; sources: SentinelSources; error?: string }
+	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
+	| { type: "engines"; engines: SentinelEngine[] }
+	| { type: "engine_update"; engine: SentinelEngine }
+	| { type: "engine_commander_event"; engineId: string; event: SentinelSubagentEvent }
+	| { type: "engine_task_event"; taskId: string; event: SentinelSubagentEvent }
+	| { type: "engine_task_events"; taskId: string; events: SentinelSubagentEvent[] }
+	| { type: "engine_commander_events"; id: string; events: SentinelSubagentEvent[] }
 	| { type: "engine_report"; id: string; markdown: string; filename: string }
-	| { type: "doctrines"; doctrines: ZGDoctrineView[] }
-	| { type: "doctrine_saved"; doctrine: ZGDoctrineView; error?: string }
+	| { type: "doctrines"; doctrines: SentinelDoctrineView[] }
+	| { type: "doctrine_saved"; doctrine: SentinelDoctrineView; error?: string }
 	| { type: "doctrine_deleted"; id: string; ok: boolean; error?: string }
-	| { type: "presets"; presets: ZGPresetView[] }
-	| { type: "preset_saved"; preset: ZGPresetView | null; error?: string }
+	| { type: "presets"; presets: SentinelPresetView[] }
+	| { type: "preset_saved"; preset: SentinelPresetView | null; error?: string }
 	| { type: "preset_deleted"; id: string; ok: boolean; error?: string }
 	| { type: "presets_export"; filename: string; content: string }
 	| {
 			type: "presets_imported";
-			imported: ZGPresetView[];
+			imported: SentinelPresetView[];
 			skipped: Array<{ name: string; reason: string }>;
 			error?: string;
 	  }
-	| { type: "commander_config"; config: ZGModelConfig | null }
-	| { type: "gatekeeper_config"; config: ZGGatekeeperConfig }
-	| { type: "judge_test_result"; result: ZGTestResult; raw?: string }
-	| { type: "gate_audit"; page: ZGGatePage }
-	| { type: "gate_audit_stats"; stats: ZGGateStats }
-	| { type: "gate_decision"; decision: ZGGateDecision }
-	| { type: "api_models"; items: ZGApiModelSummary[] }
-	| { type: "api_model"; model: ZGApiModel; events: ZGApiModelEvent[] }
+	| { type: "commander_config"; config: SentinelModelConfig | null }
+	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
+	| { type: "judge_test_result"; result: SentinelTestResult; raw?: string }
+	| { type: "gate_audit"; page: SentinelGatePage }
+	| { type: "gate_audit_stats"; stats: SentinelGateStats }
+	| { type: "gate_decision"; decision: SentinelGateDecision }
+	| { type: "api_models"; items: SentinelApiModelSummary[] }
+	| { type: "api_model"; model: SentinelApiModel; events: SentinelApiModelEvent[] }
 	| { type: "api_model_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
 	| {
@@ -1072,7 +1076,7 @@ export type ZGServerMessage =
  * One environment prerequisite. Blocking items decide whether the console runs at
  * all: every tool call is a `docker exec`, so Docker is not optional.
  */
-export interface ZGEnvItem {
+export interface SentinelEnvItem {
 	id: string;
 	group: string;
 	label: string;
@@ -1083,7 +1087,7 @@ export interface ZGEnvItem {
 }
 
 /** Base image and package mirrors the toolbox image is built with. */
-export interface ZGSources {
+export interface SentinelSources {
 	baseImage: string;
 	aptMirror: string;
 	pipIndex: string;
@@ -1091,13 +1095,22 @@ export interface ZGSources {
 	goProxy: string;
 }
 
-export interface ZGEnvReport {
+/**
+ * How project containers join the network. `host` shares the host's namespace
+ * (listeners inside the container are reachable from the target, `127.0.0.1` is
+ * the host); `bridge` keeps Docker's own address and publishes nothing.
+ */
+export type SentinelContainerNetwork = "host" | "bridge";
+
+export interface SentinelEnvReport {
 	at: string;
 	ok: boolean;
-	items: ZGEnvItem[];
+	items: SentinelEnvItem[];
 	url: string;
 	/** Build sources as configured; an empty field means the official source. */
-	sources: ZGSources;
+	sources: SentinelSources;
+	/** Network mode new and rebuilt containers are created with. */
+	containerNetwork: SentinelContainerNetwork;
 }
 
 /** Union of the session events the UI reacts to. */
@@ -1135,22 +1148,22 @@ export type SessionEventView =
 // Engineering mode (mirrors packages/web/src/protocol.ts)
 // ---------------------------------------------------------------------------
 
-export type ZGEngineStatus = "running" | "paused" | "completed" | "stopped";
+export type SentinelEngineStatus = "running" | "paused" | "completed" | "stopped";
 
 /**
  * How an engine's workers get their commands approved. Engineering mode is
  * unattended, so `review` is not offered.
  */
-export type ZGEngineGateMode = "auto" | "ai";
+export type SentinelEngineGateMode = "auto" | "ai";
 
-export type ZGEngineTaskStatus = "queued" | "running" | "done" | "failed" | "blocked" | "aborted" | "paused";
+export type SentinelEngineTaskStatus = "queued" | "running" | "done" | "failed" | "blocked" | "aborted" | "paused";
 
-export interface ZGEngineTarget {
+export interface SentinelEngineTarget {
 	target: string;
 	note?: string;
 }
 
-export interface ZGEngineLimits {
+export interface SentinelEngineLimits {
 	concurrency: number;
 	roundLimit: number;
 	tokenLimit: number | null;
@@ -1158,14 +1171,14 @@ export interface ZGEngineLimits {
 	maxRetries: number;
 }
 
-export interface ZGEngineTask {
+export interface SentinelEngineTask {
 	id: string;
 	engineId: string;
 	title: string;
 	objective: string;
 	target: string | null;
 	workspace: string;
-	status: ZGEngineTaskStatus;
+	status: SentinelEngineTaskStatus;
 	attempt: number;
 	criteria: string[];
 	roundLimit: number;
@@ -1181,18 +1194,18 @@ export interface ZGEngineTask {
 	endedAt: number | null;
 	summary: string | null;
 	error: string | null;
-	usage: ZGGoalUsage | null;
+	usage: SentinelGoalUsage | null;
 	vulns: number;
 }
 
-export interface ZGEngine {
+export interface SentinelEngine {
 	id: string;
 	projectId: string;
 	projectName: string;
 	name: string;
-	status: ZGEngineStatus;
+	status: SentinelEngineStatus;
 	pauseNote: string | null;
-	targets: ZGEngineTarget[];
+	targets: SentinelEngineTarget[];
 	doctrines: string[];
 	/**
 	 * Preset agents the commander may dispatch with. Empty means no restriction:
@@ -1207,16 +1220,16 @@ export interface ZGEngine {
 	 * worker runs under an identity the operator allowed.
 	 */
 	presetOptional: boolean;
-	limits: ZGEngineLimits;
-	/** How this engine's worker commands are gated; see ZGEngineGateMode. */
-	gateMode: ZGEngineGateMode;
+	limits: SentinelEngineLimits;
+	/** How this engine's worker commands are gated; see SentinelEngineGateMode. */
+	gateMode: SentinelEngineGateMode;
 	createdAt: number;
 	endedAt: number | null;
 	report: string | null;
-	tasks: ZGEngineTask[];
+	tasks: SentinelEngineTask[];
 }
 
-export interface ZGDoctrineView {
+export interface SentinelDoctrineView {
 	id: string;
 	name: string;
 	text: string;
@@ -1230,7 +1243,7 @@ export interface ZGDoctrineView {
  * demand, so the session list can be read without pulling every preset's text
  * into memory.
  */
-export interface ZGPreset {
+export interface SentinelPreset {
 	id: string;
 	name: string;
 	description: string;
@@ -1243,7 +1256,7 @@ export interface ZGPreset {
 }
 
 /** A preset as the settings screen needs it: metadata plus the loaded body. */
-export interface ZGPresetView extends ZGPreset {
+export interface SentinelPresetView extends SentinelPreset {
 	text: string;
 	/** The body file is gone; the entry is unusable until the operator rewrites it. */
 	textMissing: boolean;
@@ -1255,7 +1268,7 @@ export interface ZGPresetView extends ZGPreset {
  * The preset agent a session was created with, as the console shows it. `null`
  * on the snapshot means the session runs the plain default agent.
  */
-export interface ZGSessionPresetView {
+export interface SentinelSessionPresetView {
 	id: string;
 	/** The current name; falls back to the id when the preset was deleted. */
 	name: string;
@@ -1265,7 +1278,7 @@ export interface ZGSessionPresetView {
 	placeholder: string;
 }
 
-export interface ZGEngineCreateInput {
+export interface SentinelEngineCreateInput {
 	name: string;
 	targets: string;
 	doctrines: string[];
@@ -1273,6 +1286,6 @@ export interface ZGEngineCreateInput {
 	presetIds?: string[];
 	/** Whether a task may run without a preset; omitted means it may. */
 	presetOptional?: boolean;
-	limits: ZGEngineLimits;
-	gateMode?: ZGEngineGateMode;
+	limits: SentinelEngineLimits;
+	gateMode?: SentinelEngineGateMode;
 }

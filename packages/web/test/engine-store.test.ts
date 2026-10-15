@@ -11,14 +11,14 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { containerWorkPath } from "../src/docker.ts";
 import { EngineStore } from "../src/engine-store.ts";
-import type { ZGEngineLimits } from "../src/protocol.ts";
+import type { SentinelEngineLimits } from "../src/protocol.ts";
 import { openSqliteDatabase } from "../src/sqlite.ts";
 import { parseTargetLines } from "../src/worker.ts";
 
 let dir: string;
 let store: EngineStore;
 
-const limits: ZGEngineLimits = {
+const limits: SentinelEngineLimits = {
 	concurrency: 3,
 	roundLimit: 5,
 	tokenLimit: null,
@@ -27,7 +27,7 @@ const limits: ZGEngineLimits = {
 };
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-engine-store-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-engine-store-"));
 	store = new EngineStore(join(dir, "engines.db"));
 });
 
@@ -350,7 +350,7 @@ test("parseTargetLines splits target and note, drops blanks", () => {
 });
 
 test("containerWorkPath maps host dirs under the work mount to /work", () => {
-	const workDir = "/Users/x/.zgagent/projects/p";
+	const workDir = "/Users/x/.sentinel/projects/p";
 	expect(containerWorkPath(workDir, workDir)).toBe("/work");
 	expect(containerWorkPath(`${workDir}/tasks/task-a1`, workDir)).toBe("/work/tasks/task-a1");
 	expect(containerWorkPath("/somewhere/else", workDir)).toBe("/work");

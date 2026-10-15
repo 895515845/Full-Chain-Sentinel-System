@@ -17,7 +17,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { openZip } from "./poc-zip.ts";
-import type { ZGPoc, ZGPocFilters, ZGPocImportOutcome, ZGPocSeverity, ZGPocStats, ZGPocSummary } from "./protocol.ts";
+import type {
+	SentinelPoc,
+	SentinelPocFilters,
+	SentinelPocImportOutcome,
+	SentinelPocSeverity,
+	SentinelPocStats,
+	SentinelPocSummary,
+} from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 /** Largest template accepted; real nuclei templates are a few kilobytes. */
@@ -63,13 +70,13 @@ CREATE INDEX IF NOT EXISTS idx_pocs_severity_imported ON pocs(severity, imported
  */
 const SUMMARY_COLUMNS = "id, name, severity, tags, refs, source_file, imported_at";
 
-const SEVERITIES: readonly ZGPocSeverity[] = ["critical", "high", "medium", "low", "info"];
+const SEVERITIES: readonly SentinelPocSeverity[] = ["critical", "high", "medium", "low", "info"];
 
 /** A template's metadata, extracted from its yaml at import time. */
 interface ParsedTemplate {
 	id: string;
 	name: string;
-	severity: ZGPocSeverity;
+	severity: SentinelPocSeverity;
 	tags: string[];
 	references: string[];
 }
@@ -88,11 +95,11 @@ interface PocRow {
 /** A row as `list()` reads it: everything but the template body. */
 type PocSummaryRow = Omit<PocRow, "content">;
 
-function toSummary(row: PocSummaryRow): ZGPocSummary {
+function toSummary(row: PocSummaryRow): SentinelPocSummary {
 	return {
 		id: row.id,
 		name: row.name,
-		severity: row.severity as ZGPocSeverity,
+		severity: row.severity as SentinelPocSeverity,
 		tags: row.tags ? row.tags.split(",") : [],
 		references: row.refs ? row.refs.split("\n") : [],
 		sourceFile: row.source_file,
@@ -100,13 +107,13 @@ function toSummary(row: PocSummaryRow): ZGPocSummary {
 	};
 }
 
-function toPoc(row: PocRow): ZGPoc {
+function toPoc(row: PocRow): SentinelPoc {
 	return { ...toSummary(row), content: row.content };
 }
 
 /** One page of `list()` results; `hasMore` says the library held more matches. */
-export interface ZGPocListPage {
-	items: ZGPocSummary[];
+export interface SentinelPocListPage {
+	items: SentinelPocSummary[];
 	hasMore: boolean;
 }
 
@@ -175,7 +182,7 @@ export function parseNucleiTemplate(text: string): ParsedTemplate | null {
 	return {
 		id: trimmed,
 		name: name.trim() || trimmed,
-		severity: (SEVERITIES as readonly string[]).includes(severity) ? (severity as ZGPocSeverity) : "info",
+		severity: (SEVERITIES as readonly string[]).includes(severity) ? (severity as SentinelPocSeverity) : "info",
 		tags: tags
 			.split(",")
 			.map((tag) => tag.trim())
@@ -225,7 +232,7 @@ export class PocStore {
 	 * is parsed and upserted by template id. One bad file never fails the batch;
 	 * it lands in `skipped` with a reason.
 	 */
-	import(files: ImportFile[], now = new Date()): ZGPocImportOutcome {
+	import(files: ImportFile[], now = new Date()): SentinelPocImportOutcome {
 		const skipped: { name: string; reason: string }[] = [];
 		let imported = 0;
 		let replaced = 0;
@@ -330,7 +337,7 @@ export class PocStore {
 		}
 	}
 
-	list(filters: ZGPocFilters = {}): ZGPocListPage {
+	list(filters: SentinelPocFilters = {}): SentinelPocListPage {
 		const conditions: string[] = [];
 		const params: (string | number)[] = [];
 		if (filters.severity) {
@@ -353,7 +360,7 @@ export class PocStore {
 		return { items: rows.slice(0, LIST_CAP).map(toSummary), hasMore: rows.length > LIST_CAP };
 	}
 
-	get(id: string): ZGPoc | undefined {
+	get(id: string): SentinelPoc | undefined {
 		const row = this.db.prepare("SELECT * FROM pocs WHERE id = ?").get(id) as unknown as PocRow | undefined;
 		return row ? toPoc(row) : undefined;
 	}
@@ -362,7 +369,7 @@ export class PocStore {
 	 * Templates by id, in the order asked for and without duplicates. One query,
 	 * so a batched read is one trip to the database rather than one per id.
 	 */
-	getMany(ids: string[]): ZGPoc[] {
+	getMany(ids: string[]): SentinelPoc[] {
 		const unique = [...new Set(ids)];
 		if (unique.length === 0) return [];
 		const placeholders = unique.map(() => "?").join(", ");
@@ -370,7 +377,7 @@ export class PocStore {
 			.prepare(`SELECT * FROM pocs WHERE id IN (${placeholders})`)
 			.all(...unique) as unknown as PocRow[];
 		const byId = new Map(rows.map((row) => [row.id, row]));
-		const found: ZGPoc[] = [];
+		const found: SentinelPoc[] = [];
 		for (const id of unique) {
 			const row = byId.get(id);
 			if (row) found.push(toPoc(row));
@@ -387,9 +394,9 @@ export class PocStore {
 		return true;
 	}
 
-	stats(): ZGPocStats {
+	stats(): SentinelPocStats {
 		const bySeverity = Object.fromEntries(SEVERITIES.map((severity) => [severity, 0])) as Record<
-			ZGPocSeverity,
+			SentinelPocSeverity,
 			number
 		>;
 		let total = 0;
@@ -401,7 +408,7 @@ export class PocStore {
 		}[]) {
 			total += row.n;
 			if ((SEVERITIES as readonly string[]).includes(row.severity)) {
-				bySeverity[row.severity as ZGPocSeverity] = row.n;
+				bySeverity[row.severity as SentinelPocSeverity] = row.n;
 			}
 		}
 		return { total, bySeverity };

@@ -14,12 +14,12 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import type { ZGSessionStatus } from "../types.ts";
+import type { SentinelSessionStatus } from "../types.ts";
 import {
-	SESSION_STATUSES,
 	SESSION_STATUS_LABELS,
-	SessionStatusControl,
+	SESSION_STATUSES,
 	SessionStatusChip,
+	SessionStatusControl,
 	SessionStatusRail,
 } from "./SessionStatusControl.tsx";
 
@@ -48,7 +48,7 @@ test("the toolbar variant shows the status and its dot color", () => {
 
 test("the picker stays closed until it is opened, and offers every status when it is", () => {
 	const closed = renderToStaticMarkup(
-		createElement(SessionStatusControl, { variant: "chip", status: "done" as ZGSessionStatus, onPick: () => {} }),
+		createElement(SessionStatusControl, { variant: "chip", status: "done" as SentinelSessionStatus, onPick: () => {} }),
 	);
 	expect(closed).not.toContain("session-status-picker");
 	// The chip itself is the trigger in a list row.

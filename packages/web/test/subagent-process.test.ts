@@ -17,14 +17,14 @@ import {
 	type ToolStep,
 	toolSummary,
 } from "../webui/src/subagent-process.ts";
-import type { ZGSubagentEvent, ZGSubagentRun } from "../webui/src/types.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun } from "../webui/src/types.ts";
 
 function step(
 	seq: number,
 	at: number,
-	kind: ZGSubagentEvent["kind"],
-	extra: Partial<ZGSubagentEvent> = {},
-): ZGSubagentEvent {
+	kind: SentinelSubagentEvent["kind"],
+	extra: Partial<SentinelSubagentEvent> = {},
+): SentinelSubagentEvent {
 	return { seq, kind, at, ...extra };
 }
 
@@ -116,7 +116,7 @@ test("durations read in the unit that fits, and a running run has none", () => {
 	expect(formatMs(3200)).toBe("3.2s");
 	expect(formatMs(83_000)).toBe("1m23s");
 	expect(formatMs(Number.NaN)).toBe("");
-	const run: ZGSubagentRun = {
+	const run: SentinelSubagentRun = {
 		id: "r1",
 		sessionId: "s1",
 		task: "recon",

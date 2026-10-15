@@ -1,5 +1,5 @@
 /**
- * End-to-end smoke test for the ZGAgent web console.
+ * End-to-end smoke test for the Full Chain Sentinel web console.
  *
  * Drives the full stack without external services: a local fake OpenAI-compatible
  * endpoint serves scripted responses, the server runs against a temp agent dir,
@@ -17,24 +17,24 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
 import { modelsJsonPath } from "../src/model-config.ts";
 import { readStoredModelLibrary, setLibraryRole } from "../src/model-library.ts";
-import type { ZGPermissionsConfig } from "../src/permissions.ts";
+import type { SentinelPermissionsConfig } from "../src/permissions.ts";
 import type {
-	ZGClientMessage,
-	ZGEngine,
-	ZGFileEntry,
-	ZGFilePreview,
-	ZGGateFilter,
-	ZGGatePage,
-	ZGMode,
-	ZGModelLibraryView,
-	ZGPresetView,
-	ZGServerMessage,
-	ZGStateSnapshot,
-	ZGSubagentEvent,
-	ZGSubagentRun,
-	ZGVulnerability,
+	SentinelClientMessage,
+	SentinelEngine,
+	SentinelFileEntry,
+	SentinelFilePreview,
+	SentinelGateFilter,
+	SentinelGatePage,
+	SentinelMode,
+	SentinelModelLibraryView,
+	SentinelPresetView,
+	SentinelServerMessage,
+	SentinelStateSnapshot,
+	SentinelSubagentEvent,
+	SentinelSubagentRun,
+	SentinelVulnerability,
 } from "../src/protocol.ts";
-import { startZGServer } from "../src/server.ts";
+import { startSentinelServer } from "../src/server.ts";
 import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
 import { writeTestModel } from "./model-fixtures.ts";
 
@@ -49,19 +49,19 @@ type ScriptStep = {
 };
 
 const SCRIPT: ScriptStep[] = [
-	{ toolCallCommand: "echo zg-original-command" },
+	{ toolCallCommand: "echo sentinel-original-command" },
 	{ text: "REVIEW_RUN_COMPLETE" },
-	{ toolCallCommand: "echo zg-auto-command" },
+	{ toolCallCommand: "echo sentinel-auto-command" },
 	{ text: "AUTO_RUN_COMPLETE" },
-	{ toolCallCommand: "echo zg-batch-a", secondToolCallCommand: "echo zg-batch-b" },
+	{ toolCallCommand: "echo sentinel-batch-a", secondToolCallCommand: "echo sentinel-batch-b" },
 	{ text: "BATCH_COMPLETE" },
-	{ toolCallCommand: "echo zg-whitelisted-a" },
+	{ toolCallCommand: "echo sentinel-whitelisted-a" },
 	{ text: "WHITELIST_FIRST_COMPLETE" },
-	{ toolCallCommand: "echo zg-whitelisted-b" },
+	{ toolCallCommand: "echo sentinel-whitelisted-b" },
 	{ text: "WHITELIST_SECOND_COMPLETE" },
 	// Sub-agent scenario: parent spawns, the sub-agent runs bash, both finish.
 	{ spawnAgent: { task: "recon the target" } },
-	{ toolCallCommand: "echo zg-subagent-command" },
+	{ toolCallCommand: "echo sentinel-subagent-command" },
 	{ text: "SUBAGENT_DONE" },
 	{ text: "PARENT_SUMMARY" },
 	{ text: "SECOND_SESSION_PING" },
@@ -76,11 +76,11 @@ const SECOND_SCENARIO_PROMPT = "delegate a read-only recon";
 /** Task the sub-agent of that scenario receives. */
 const SECOND_SCENARIO_TASK = "recon the second target";
 /** Command the second scenario's sub-agent runs, to prove it can execute. */
-const SECOND_SCENARIO_COMMAND = "echo zg-subagent-command-2";
+const SECOND_SCENARIO_COMMAND = "echo sentinel-subagent-command-2";
 /** Output marker of that command, used to detect its tool result. */
-const SECOND_SCENARIO_OUTPUT = "zg-subagent-command-2";
+const SECOND_SCENARIO_OUTPUT = "sentinel-subagent-command-2";
 /** Marker present in every sub-agent system prompt. */
-const SUBAGENT_MARKER = "sub-agent of ZGAgent";
+const SUBAGENT_MARKER = "sub-agent of Full Chain Sentinel";
 
 /**
  * Text vuln_submit returns; only used to assert what the tool answered.
@@ -99,7 +99,7 @@ const TOOLS_PROBE_DONE = "TOOLS_PROBE_DONE";
  * never answers is exactly the case where the console must show the wait and
  * offer a cancel.
  */
-const COMPACT_FILL_PROMPT = "zg-compact-fill 写一份很长的报告";
+const COMPACT_FILL_PROMPT = "sentinel-compact-fill 写一份很长的报告";
 const COMPACT_FILL_TEXT = "COMPACT_FILL_MARKER ".repeat(2500);
 const COMPACT_FILL_DONE = "COMPACT_FILL_DONE";
 /**
@@ -220,7 +220,7 @@ const PRESET_SUBAGENT_CHILD_DONE = "PRESET_SUBAGENT_CHILD_DONE";
 const PRESET_SUBAGENT_PARENT_DONE = "PRESET_SUBAGENT_PARENT_DONE";
 
 /** Marker only the commander's own system prompt carries, used to tell it apart. */
-const COMMANDER_BRIEF_MARKER = "ZGAgent 工程模式的主指挥官";
+const COMMANDER_BRIEF_MARKER = "全链哨兵 工程模式的主指挥官";
 const ENGINE_PRESET_NAME = "AD 枚举 e2e";
 const ENGINE_PRESET_DESCRIPTION = "域内账户枚举";
 const ENGINE_PRESET_MARKER = "ENGINE_PRESET_ADDENDUM_MARKER";
@@ -280,23 +280,23 @@ let goalTools: string[] = [];
  * Gatekeeper scenarios, routed by prompt so they never consume the shared
  * script. Each runs one bash command, and the fake judge answers for it.
  */
-const GATE_ALLOW_PROMPT = "zg-gate-allow 跑一条守门放行的命令";
-const GATE_BLOCK_PROMPT = "zg-gate-block 跑一条守门拦截的命令";
-const GATE_FAIL_PROMPT = "zg-gate-fail 跑一条守门判定失败的命令";
-const GATE_PREFIX_PROMPT = "zg-gate-prefix 跑一条白名单前缀命令";
-const GATE_ALLOWED_COMMAND = "echo zg-gate-allowed";
-const GATE_BLOCKED_COMMAND = "echo zg-gate-block-ran";
-const GATE_FAILED_COMMAND = "echo zg-gate-failed";
-const GATE_PREFIXED_COMMAND = "echo zg-gate-prefixed";
+const GATE_ALLOW_PROMPT = "sentinel-gate-allow 跑一条守门放行的命令";
+const GATE_BLOCK_PROMPT = "sentinel-gate-block 跑一条守门拦截的命令";
+const GATE_FAIL_PROMPT = "sentinel-gate-fail 跑一条守门判定失败的命令";
+const GATE_PREFIX_PROMPT = "sentinel-gate-prefix 跑一条白名单前缀命令";
+const GATE_ALLOWED_COMMAND = "echo sentinel-gate-allowed";
+const GATE_BLOCKED_COMMAND = "echo sentinel-gate-block-ran";
+const GATE_FAILED_COMMAND = "echo sentinel-gate-failed";
+const GATE_PREFIXED_COMMAND = "echo sentinel-gate-prefixed";
 /**
  * What each command prints. A tool result carries the output only, never the
  * command, so "did this command run" must be asked of these, not of the command
  * text (which every transcript shows once the model proposed it).
  */
-const GATE_ALLOWED_OUTPUT = "zg-gate-allowed";
-const GATE_BLOCKED_OUTPUT = "zg-gate-block-ran";
-const GATE_FAILED_OUTPUT = "zg-gate-failed";
-const GATE_PREFIXED_OUTPUT = "zg-gate-prefixed";
+const GATE_ALLOWED_OUTPUT = "sentinel-gate-allowed";
+const GATE_BLOCKED_OUTPUT = "sentinel-gate-block-ran";
+const GATE_FAILED_OUTPUT = "sentinel-gate-failed";
+const GATE_PREFIXED_OUTPUT = "sentinel-gate-prefixed";
 /** Reason the fake judge returns for a block; distinctive so the transcript can be searched for it. */
 const GATE_BLOCK_REASON = "会破坏目标数据库可用性";
 /** Marker of the judge's own system prompt, which is how a judge call is recognized. */
@@ -808,13 +808,13 @@ let stallCompaction = false;
 let compactionRequests = 0;
 
 /** Queue of incoming server messages plus waiters. */
-const incoming: ZGServerMessage[] = [];
+const incoming: SentinelServerMessage[] = [];
 const waiters: Array<{
-	predicate: (message: ZGServerMessage) => boolean;
-	resolve: (message: ZGServerMessage) => void;
+	predicate: (message: SentinelServerMessage) => boolean;
+	resolve: (message: SentinelServerMessage) => void;
 }> = [];
 
-function dispatch(message: ZGServerMessage): void {
+function dispatch(message: SentinelServerMessage): void {
 	console.error(`[dispatch] ${message.type} waiters=${waiters.length} incoming=${incoming.length}`);
 	const index = waiters.findIndex((waiter) => waiter.predicate(message));
 	if (index >= 0) {
@@ -825,7 +825,10 @@ function dispatch(message: ZGServerMessage): void {
 	incoming.push(message);
 }
 
-function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 30000): Promise<ZGServerMessage> {
+function waitFor(
+	predicate: (message: SentinelServerMessage) => boolean,
+	timeoutMs = 30000,
+): Promise<SentinelServerMessage> {
 	const index = incoming.findIndex(predicate);
 	if (index >= 0) {
 		const [message] = incoming.splice(index, 1);
@@ -876,7 +879,7 @@ function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 3
 		}, timeoutMs);
 		const waiter = {
 			predicate,
-			resolve: (message: ZGServerMessage) => {
+			resolve: (message: SentinelServerMessage) => {
 				clearTimeout(timer);
 				resolve(message);
 			},
@@ -885,7 +888,7 @@ function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 3
 	});
 }
 
-function send(message: ZGClientMessage): void {
+function send(message: SentinelClientMessage): void {
 	ws?.send(JSON.stringify(message));
 }
 
@@ -895,11 +898,11 @@ function drainIncoming(): void {
 }
 
 function snapshotWhere(
-	predicate: (snapshot: ZGStateSnapshot) => boolean,
+	predicate: (snapshot: SentinelStateSnapshot) => boolean,
 	timeoutMs?: number,
-): Promise<ZGStateSnapshot> {
+): Promise<SentinelStateSnapshot> {
 	return waitFor((message) => message.type === "snapshot" && predicate(message.snapshot), timeoutMs).then(
-		(message) => (message as { snapshot: ZGStateSnapshot }).snapshot,
+		(message) => (message as { snapshot: SentinelStateSnapshot }).snapshot,
 	);
 }
 
@@ -927,7 +930,7 @@ function waitUntil(predicate: () => boolean, timeoutMs = 15000): Promise<void> {
 	});
 }
 
-function toolResultText(snapshot: ZGStateSnapshot): string {
+function toolResultText(snapshot: SentinelStateSnapshot): string {
 	return snapshot.messages
 		.filter((message) => (message as { role?: string }).role === "toolResult")
 		.map((message) => {
@@ -942,7 +945,7 @@ function toolResultText(snapshot: ZGStateSnapshot): string {
  * to every console, and the run then finishes. Returns the submitted record as
  * the hub read it back.
  */
-async function submitViaAgent(prompt: string, done: string): Promise<ZGVulnerability> {
+async function submitViaAgent(prompt: string, done: string): Promise<SentinelVulnerability> {
 	drainIncoming();
 	send({ type: "prompt", text: prompt });
 
@@ -969,7 +972,7 @@ async function submitViaAgent(prompt: string, done: string): Promise<ZGVulnerabi
 	drainIncoming();
 	send({ type: "get_vuln", id: first?.id ?? "" });
 	const fetched = await waitFor((message) => message.type === "vuln");
-	return (fetched as { vuln: ZGVulnerability }).vuln;
+	return (fetched as { vuln: SentinelVulnerability }).vuln;
 }
 
 beforeAll(async () => {
@@ -995,27 +998,27 @@ beforeAll(async () => {
 	const dingtalkAddress = dingtalkServer.address();
 	const dingtalkPort = typeof dingtalkAddress === "object" && dingtalkAddress ? dingtalkAddress.port : 0;
 	dingtalkUrl = `http://127.0.0.1:${dingtalkPort}/robot/send?access_token=e2e-token`;
-	tempRoot = mkdtempSync(join(tmpdir(), "zgagent-web-e2e-"));
+	tempRoot = mkdtempSync(join(tmpdir(), "sentinel-web-e2e-"));
 	agentDir = join(tempRoot, "agent");
 	const cwd = join(tempRoot, "workspace");
 	mkdirSync(cwd, { recursive: true });
 	mainEntryId = writeTestModel(agentDir, {
 		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 		apiKey: "test-key",
-		modelId: "zg-fake-model",
+		modelId: "sentinel-fake-model",
 	});
 	// The console refuses to run without a project, and projects need a container.
 	// The fake docker supplies one on PATH so the real container scripts still run.
 	workDir = join(tempRoot, "projects", projectSlug(PROJECT_NAME));
 	fakeDocker = installFakeDocker(tempRoot, workDir);
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
+	const started = await startSentinelServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	closeServer = started.close;
 	serverUrl = started.url;
 	ws = new WebSocket(serverUrl.replace("http://", "ws://").concat("/ws"));
 	ws.on("message", (data) => {
 		const text = String(data);
 		if (text.includes("sessions")) console.error(`[cli-dbg] recv ${text.length}B: ${text.slice(0, 60)}`);
-		dispatch(JSON.parse(text) as ZGServerMessage);
+		dispatch(JSON.parse(text) as SentinelServerMessage);
 	});
 	await new Promise<void>((resolve, reject) => {
 		if (!ws) throw new Error("no socket");
@@ -1050,7 +1053,7 @@ test("starts configured with review mode and the custom endpoint model", async (
 	expect(snapshot.mode).toBe("review");
 	// The provider is the library entry that 主模型 points at.
 	expect(snapshot.model?.provider).toBe(mainEntryId);
-	expect(snapshot.model?.id).toBe("zg-fake-model");
+	expect(snapshot.model?.id).toBe("sentinel-fake-model");
 });
 
 test("review mode gates bash, executes the edited command, and streams the final answer", async () => {
@@ -1058,19 +1061,19 @@ test("review mode gates bash, executes the edited command, and streams the final
 	send({ type: "prompt", text: "run the recon echo" });
 
 	const gated = await snapshotWhere((snapshot_) => snapshot_.pendingApprovals.length > 0);
-	expect(gated.pendingApprovals[0]?.command).toContain("zg-original-command");
+	expect(gated.pendingApprovals[0]?.command).toContain("sentinel-original-command");
 
 	send({
 		type: "decide",
-		decision: { id: gated.pendingApprovals[0]?.id ?? "", approved: true, command: "echo zg-edited-command" },
+		decision: { id: gated.pendingApprovals[0]?.id ?? "", approved: true, command: "echo sentinel-edited-command" },
 	});
 
 	const settled = await snapshotWhere(
 		(snapshot_) =>
 			!snapshot_.streaming && snapshot_.pendingApprovals.length === 0 && toolResultText(snapshot_).length > 0,
 	);
-	expect(toolResultText(settled)).toContain("zg-edited-command");
-	expect(toolResultText(settled)).not.toContain("zg-original-command");
+	expect(toolResultText(settled)).toContain("sentinel-edited-command");
+	expect(toolResultText(settled)).not.toContain("sentinel-original-command");
 
 	const finalText = settled.messages
 		.filter((message) => (message as { role?: string }).role === "assistant")
@@ -1124,7 +1127,7 @@ test("auto mode executes bash without approval", async () => {
 					),
 			),
 	);
-	expect(toolResultText(settled)).toContain("zg-auto-command");
+	expect(toolResultText(settled)).toContain("sentinel-auto-command");
 	// No approval was ever requested in auto mode: no request broadcast arrived
 	// while the run was active.
 	expect(settled.pendingApprovals).toEqual([]);
@@ -1143,7 +1146,7 @@ test("queued approvals show every pending command and decide_all approves them a
 
 	const gated = await snapshotWhere((snapshot_) => snapshot_.pendingApprovals.length >= 2);
 	const commands = gated.pendingApprovals.map((request) => request.command).sort();
-	expect(commands).toEqual(["echo zg-batch-a", "echo zg-batch-b"]);
+	expect(commands).toEqual(["echo sentinel-batch-a", "echo sentinel-batch-b"]);
 
 	send({ type: "decide_all", approved: true });
 
@@ -1160,8 +1163,8 @@ test("queued approvals show every pending command and decide_all approves them a
 			),
 	);
 	const text = toolResultText(settled);
-	expect(text).toContain("zg-batch-a");
-	expect(text).toContain("zg-batch-b");
+	expect(text).toContain("sentinel-batch-a");
+	expect(text).toContain("sentinel-batch-b");
 });
 
 test("alwaysAllowPrefix skips the queue for later commands with the same first word", async () => {
@@ -1175,14 +1178,14 @@ test("alwaysAllowPrefix skips the queue for later commands with the same first w
 	drainIncoming();
 	send({ type: "prompt", text: "first whitelisted run" });
 	const gated = await snapshotWhere((snapshot_) => snapshot_.pendingApprovals.length > 0);
-	expect(gated.pendingApprovals[0]?.command).toContain("zg-whitelisted-a");
+	expect(gated.pendingApprovals[0]?.command).toContain("sentinel-whitelisted-a");
 
 	send({
 		type: "decide",
 		decision: {
 			id: gated.pendingApprovals[0]?.id ?? "",
 			approved: true,
-			command: "echo zg-whitelisted-a",
+			command: "echo sentinel-whitelisted-a",
 			alwaysAllowPrefix: true,
 		},
 	});
@@ -1190,7 +1193,7 @@ test("alwaysAllowPrefix skips the queue for later commands with the same first w
 	const firstSettled = await snapshotWhere(
 		(snapshot_) => !snapshot_.streaming && snapshot_.allowedPrefixes.includes("echo"),
 	);
-	expect(toolResultText(firstSettled)).toContain("zg-whitelisted-a");
+	expect(toolResultText(firstSettled)).toContain("sentinel-whitelisted-a");
 
 	send({ type: "prompt", text: "second whitelisted run" });
 
@@ -1207,7 +1210,7 @@ test("alwaysAllowPrefix skips the queue for later commands with the same first w
 	);
 	// The second `echo` command never entered the approval queue.
 	expect(secondSettled.pendingApprovals).toEqual([]);
-	expect(toolResultText(secondSettled)).toContain("zg-whitelisted-b");
+	expect(toolResultText(secondSettled)).toContain("sentinel-whitelisted-b");
 
 	// Cleanup: drop the prefix so later flows are not affected.
 	send({ type: "remove_allowed_prefix", prefix: "echo" });
@@ -1218,7 +1221,7 @@ test("saving an entry with an empty API key keeps the model usable", async () =>
 	drainIncoming();
 	send({ type: "get_model_library" });
 	const library = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
 	const mainId = library.roles.main;
 	expect(mainId).not.toBeNull();
@@ -1231,7 +1234,7 @@ test("saving an entry with an empty API key keeps the model usable", async () =>
 		modelId: library.entries.find((entry) => entry.id === mainId)?.modelId ?? "",
 	});
 	const snapshot = await snapshotWhereFirst((snapshot_) => snapshot_.modelConfigured === true);
-	expect(snapshot.model?.id).toBe("zg-fake-model");
+	expect(snapshot.model?.id).toBe("sentinel-fake-model");
 });
 
 test("spawn_agent delegates to a sub-agent whose bash goes through the same approval gate", async () => {
@@ -1247,7 +1250,7 @@ test("spawn_agent delegates to a sub-agent whose bash goes through the same appr
 	// The sub-agent's bash command lands in the shared queue, labeled as sub-agent.
 	const gated = await snapshotWhere((snapshot_) => snapshot_.pendingApprovals.length > 0);
 	expect(gated.pendingApprovals[0]?.source).toBe("子代理");
-	expect(gated.pendingApprovals[0]?.command).toContain("zg-subagent-command");
+	expect(gated.pendingApprovals[0]?.command).toContain("sentinel-subagent-command");
 
 	send({
 		type: "decide",
@@ -1353,7 +1356,7 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 
 	// The panel is fed live, before the run finishes.
 	const live = await waitFor((message) => message.type === "subagent_event");
-	const liveEvent = (live as { event: ZGSubagentEvent }).event;
+	const liveEvent = (live as { event: SentinelSubagentEvent }).event;
 	expect(liveEvent.kind).toBeTruthy();
 	expect(liveEvent.seq).toBeGreaterThan(0);
 
@@ -1389,7 +1392,7 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 	// Expanding one run loads its recorded process.
 	send({ type: "get_subagent", id: newest.id });
 	const loaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === newest.id);
-	const events = (loaded as { run: ZGSubagentRun }).run.events ?? [];
+	const events = (loaded as { run: SentinelSubagentRun }).run.events ?? [];
 	expect(events[0]?.kind).toBe("status");
 	expect(events.some((event) => event.kind === "turn")).toBe(true);
 	// The sub-agent's command ran: the recorded process holds the bash call and
@@ -1429,16 +1432,16 @@ test("sub-agent runs stream live, keep their process, and stay readable as histo
 	expect(firstRun).toBeDefined();
 	send({ type: "get_subagent", id: firstRun?.id ?? "" });
 	const firstLoaded = await waitFor((message) => message.type === "subagent_run" && message.run.id === firstRun?.id);
-	const firstEvents = (firstLoaded as { run: ZGSubagentRun }).run.events ?? [];
+	const firstEvents = (firstLoaded as { run: SentinelSubagentRun }).run.events ?? [];
 	const started = firstEvents.find((event) => event.kind === "tool_start" && event.toolName === "bash");
 	expect(started).toBeDefined();
 	const finished = firstEvents.find((event) => event.kind === "tool_end" && event.toolCallId === started?.toolCallId);
-	expect(finished?.output ?? "").toContain("zg-subagent-command");
+	expect(finished?.output ?? "").toContain("sentinel-subagent-command");
 
 	// Reading it again returns the same steps: the record is durable, not a buffer.
 	send({ type: "get_subagent", id: firstRun?.id ?? "" });
 	const reread = await waitFor((message) => message.type === "subagent_run" && message.run.id === firstRun?.id);
-	expect(((reread as { run: ZGSubagentRun }).run.events ?? []).length).toBe(firstEvents.length);
+	expect(((reread as { run: SentinelSubagentRun }).run.events ?? []).length).toBe(firstEvents.length);
 });
 
 test("a finished sub-agent cannot be aborted or steered", async () => {
@@ -1459,15 +1462,15 @@ test("a finished sub-agent cannot be aborted or steered", async () => {
 
 test("the file panel reads and writes inside the container work directory", async () => {
 	drainIncoming();
-	const listWork = async (path: string): Promise<ZGFileEntry[]> => {
+	const listWork = async (path: string): Promise<SentinelFileEntry[]> => {
 		send({ type: "list_files", path });
 		const listed = await waitFor((message) => message.type === "files" && message.path === path);
-		return (listed as { entries: ZGFileEntry[] }).entries;
+		return (listed as { entries: SentinelFileEntry[] }).entries;
 	};
-	const preview = async (path: string): Promise<ZGFilePreview> => {
+	const preview = async (path: string): Promise<SentinelFilePreview> => {
 		send({ type: "read_file", path });
 		const read = await waitFor((message) => message.type === "file_preview" && message.preview.path === path);
-		return (read as { preview: ZGFilePreview }).preview;
+		return (read as { preview: SentinelFilePreview }).preview;
 	};
 	const expectOk = async (action: string): Promise<void> => {
 		const result = await waitFor((message) => message.type === "file_result" && message.action === action);
@@ -1532,7 +1535,7 @@ test("the file panel refuses paths outside /work", async () => {
 
 	await expectRejected(() => send({ type: "read_file", path: "/work/../etc/passwd" }));
 	await expectRejected(() => send({ type: "list_files", path: "/etc" }));
-	await expectRejected(() => send({ type: "write_file", path: "/work/../../tmp/zg-escape.txt", text: "nope" }));
+	await expectRejected(() => send({ type: "write_file", path: "/work/../../tmp/sentinel-escape.txt", text: "nope" }));
 	await expectRejected(() => send({ type: "delete_path", path: "/work" }));
 	await expectRejected(() => send({ type: "make_directory", path: "/work" }));
 });
@@ -1548,11 +1551,11 @@ test("sessions can be renamed and deleted from the sidebar", async () => {
 	drainIncoming();
 
 	// Rename.
-	send({ type: "rename_session", path: target.path, name: "zg-renamed-session" });
+	send({ type: "rename_session", path: target.path, name: "sentinel-renamed-session" });
 	const renamed = await waitFor((message) => message.type === "sessions");
 	expect(
 		(renamed as { sessions: Array<{ path: string; name?: string }> }).sessions.some(
-			(session) => session.path === target.path && session.name === "zg-renamed-session",
+			(session) => session.path === target.path && session.name === "sentinel-renamed-session",
 		),
 	).toBe(true);
 
@@ -1627,7 +1630,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 			enabled: true,
 			webhook: dingtalkUrl,
 			secret: "SECe2e",
-			keyword: "ZGAgent",
+			keyword: "Full Chain Sentinel",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
@@ -1635,7 +1638,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	const saved = await waitFor((message) => message.type === "notify_config");
 	expect((saved as { config: { enabled: boolean; keyword: string } }).config).toMatchObject({
 		enabled: true,
-		keyword: "ZGAgent",
+		keyword: "Full Chain Sentinel",
 	});
 
 	// One ordinary run. The send is fire-and-forget, so wait on the robot.
@@ -1653,9 +1656,9 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	);
 	await waitUntil(() => dingtalk.length > 0);
 	const notice = dingtalk[0];
-	expect(notice?.title).toBe("ZGAgent 任务完成");
+	expect(notice?.title).toBe("全链哨兵 任务完成");
 	// The keyword rides along for a keyword-secured robot, and the signature is added.
-	expect(notice?.text.startsWith("ZGAgent\n")).toBe(true);
+	expect(notice?.text.startsWith("Full Chain Sentinel\n")).toBe(true);
 	expect(notice?.text).toContain("**状态**：完成");
 	expect(notice?.text).toContain(`**项目**：${PROJECT_NAME}`);
 	expect(notice?.text).toContain("**耗时**：");
@@ -1667,7 +1670,7 @@ test("a finished run notifies the DingTalk group, and the composer flag can forc
 	const reported = await waitFor((message) => message.type === "notify_config" && message.status.at !== null);
 	expect((reported as { status: { ok: boolean; subject?: string } }).status).toMatchObject({
 		ok: true,
-		subject: "ZGAgent 任务完成",
+		subject: "全链哨兵 任务完成",
 	});
 
 	// An explicit opt-out wins even while the switch is on.
@@ -1739,7 +1742,7 @@ test("the agent's finding lands in the hub as pending, and the operator reviews 
 	drainIncoming();
 	send({ type: "update_vuln", id: vuln.id, patch: { status: "confirmed", cvss: 9.1, note: "已在目标上复现" } });
 	const updated = await waitFor((message) => message.type === "vuln" && message.vuln.id === vuln.id);
-	const record = (updated as { vuln: ZGVulnerability }).vuln;
+	const record = (updated as { vuln: SentinelVulnerability }).vuln;
 	expect(record.status).toBe("confirmed");
 	expect(record.cvss).toBe(9.1);
 	// The score now disagrees with the bucket: flagged, not rejected.
@@ -1777,7 +1780,7 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 			enabled: true,
 			webhook: dingtalkUrl,
 			secret: "SECe2e",
-			keyword: "ZGAgent",
+			keyword: "Full Chain Sentinel",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 2000,
 		},
@@ -1792,7 +1795,7 @@ test("a critical finding is pushed to DingTalk the moment it is submitted", asyn
 
 	await waitUntil(() => dingtalk.some((entry) => entry.title.includes("严重")));
 	const notice = dingtalk.find((entry) => entry.title.includes("严重"));
-	expect(notice?.title).toBe("ZGAgent 发现严重漏洞");
+	expect(notice?.title).toBe("全链哨兵 发现严重漏洞");
 	expect(notice?.text).toContain(vuln.label);
 	expect(notice?.text).toContain("CVSS 9.8");
 	expect(notice?.text).toContain("**原始数据包**");
@@ -1818,8 +1821,8 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 	drainIncoming();
 	send({ type: "get_permissions" });
 	const current = await waitFor((message) => message.type === "permissions");
-	const config = (current as { config: ZGPermissionsConfig }).config;
-	const relaxed: ZGPermissionsConfig = {
+	const config = (current as { config: SentinelPermissionsConfig }).config;
+	const relaxed: SentinelPermissionsConfig = {
 		main: { ...config.main, vuln_submit: false },
 		subagent: { ...config.subagent },
 		commander: { ...config.commander },
@@ -1977,7 +1980,7 @@ test("a compacted session keeps the history its summary replaced", async () => {
 });
 
 /** Goal rows of a snapshot, in transcript order. */
-function goalRows(snapshot: ZGStateSnapshot): unknown[] {
+function goalRows(snapshot: SentinelStateSnapshot): unknown[] {
 	return snapshot.messages.filter(
 		(message) =>
 			(message as { role?: string }).role === "custom" &&
@@ -2000,7 +2003,7 @@ async function freshGoalSession(): Promise<void> {
 }
 
 /** Switch modes, waiting only when the switch changes something. */
-async function setModeAndWait(mode: ZGMode): Promise<void> {
+async function setModeAndWait(mode: SentinelMode): Promise<void> {
 	drainIncoming();
 	send({ type: "get_state" });
 	const current = await snapshotWhere(() => true);
@@ -2160,7 +2163,7 @@ test("a compaction that stalls is visible, refuses prompts in Chinese, and can b
 	await freshGoalSession();
 	// Fill the context past the keep-recent threshold: pi refuses to summarize a
 	// session with nothing to summarize, and the stall is what this test is about.
-	const fillTurns = (snapshot: ZGStateSnapshot): number =>
+	const fillTurns = (snapshot: SentinelStateSnapshot): number =>
 		snapshot.messages.filter((message) =>
 			JSON.stringify((message as { content?: unknown }).content ?? "").includes(COMPACT_FILL_DONE),
 		).length;
@@ -2239,7 +2242,10 @@ test("a compaction that stalls is visible, refuses prompts in Chinese, and can b
  * the loser lives until its timeout — would swallow the message this test is
  * waiting for. Registering first makes this test's own predicate win.
  */
-function waitForFirst(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 30000): Promise<ZGServerMessage> {
+function waitForFirst(
+	predicate: (message: SentinelServerMessage) => boolean,
+	timeoutMs = 30000,
+): Promise<SentinelServerMessage> {
 	const queued = waitFor(predicate, timeoutMs);
 	const own = waiters[waiters.length - 1];
 	if (own && own.predicate === predicate) {
@@ -2251,16 +2257,16 @@ function waitForFirst(predicate: (message: ZGServerMessage) => boolean, timeoutM
 
 /** `snapshotWhere`, registered at the front of the queue for the same reason. */
 function snapshotWhereFirst(
-	predicate: (snapshot: ZGStateSnapshot) => boolean,
+	predicate: (snapshot: SentinelStateSnapshot) => boolean,
 	timeoutMs = 30000,
-): Promise<ZGStateSnapshot> {
+): Promise<SentinelStateSnapshot> {
 	return waitForFirst((message) => message.type === "snapshot" && predicate(message.snapshot), timeoutMs).then(
-		(message) => (message as { snapshot: ZGStateSnapshot }).snapshot,
+		(message) => (message as { snapshot: SentinelStateSnapshot }).snapshot,
 	);
 }
 
 /** The first audit page matching a filter, so a test can assert what was stored. */
-async function auditPage(filter: ZGGateFilter): Promise<ZGGatePage> {
+async function auditPage(filter: SentinelGateFilter): Promise<SentinelGatePage> {
 	drainIncoming();
 	send({ type: "gate_audit_query", filter, page: 1, pageSize: 50 });
 	const message = await waitForFirst((candidate) => candidate.type === "gate_audit");
@@ -2278,7 +2284,7 @@ test("a judge model is added to the library, assigned to the role, and resolves"
 		modelId: "zg-judge-model",
 	});
 	const added = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
 	const entry = added.entries.find((candidate) => candidate.modelId === "zg-judge-model");
 	expect(entry).toBeDefined();
@@ -2289,7 +2295,7 @@ test("a judge model is added to the library, assigned to the role, and resolves"
 	drainIncoming();
 	send({ type: "set_model_role", role: "judge", target: entry?.id ?? "" });
 	const assigned = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
 	expect(assigned.roles.judge).toBe(entry?.id);
 	expect(assigned.resolved.judge?.modelId).toBe("zg-judge-model");
@@ -2315,12 +2321,12 @@ test("changing 主模型 takes effect on the next send, without rebuilding the s
 		name: "备用主模型",
 		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 		apiKey: "test-key",
-		modelId: "zg-fake-model-2",
+		modelId: "sentinel-fake-model-2",
 	});
 	const added = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
-	const spare = added.entries.find((entry) => entry.modelId === "zg-fake-model-2");
+	const spare = added.entries.find((entry) => entry.modelId === "sentinel-fake-model-2");
 	expect(spare).toBeDefined();
 
 	drainIncoming();
@@ -2329,7 +2335,7 @@ test("changing 主模型 takes effect on the next send, without rebuilding the s
 
 	// The session keeps running on the old model until the operator sends again.
 	expect((await snapshotWhereFirst((snapshot) => snapshot.activeSessionId === sessionId)).model?.id).toBe(
-		"zg-fake-model",
+		"sentinel-fake-model",
 	);
 
 	drainIncoming();
@@ -2340,8 +2346,8 @@ test("changing 主模型 takes effect on the next send, without rebuilding the s
 	// Same session, new provider: nothing was torn down and rebuilt.
 	expect(settled.activeSessionId).toBe(sessionId);
 	expect(settled.model?.provider).toBe(spare?.id);
-	expect(settled.model?.id).toBe("zg-fake-model-2");
-	expect(lastRequestBody).toContain("zg-fake-model-2");
+	expect(settled.model?.id).toBe("sentinel-fake-model-2");
+	expect(lastRequestBody).toContain("sentinel-fake-model-2");
 
 	// Put 主模型 back so the rest of the suite runs on its original endpoint.
 	drainIncoming();
@@ -2545,7 +2551,7 @@ test("switching to AI 审批 is refused while no judge endpoint resolves", async
 	drainIncoming();
 	send({ type: "get_model_library" });
 	const view = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
 	expect(view.resolved.judge).toBeNull();
 
@@ -2580,7 +2586,7 @@ async function rebuildSessions(): Promise<void> {
 	drainIncoming();
 	send({ type: "get_permissions" });
 	const current = await waitForFirst((message) => message.type === "permissions");
-	const config = (current as { config: ZGPermissionsConfig }).config;
+	const config = (current as { config: SentinelPermissionsConfig }).config;
 	drainIncoming();
 	send({ type: "save_permissions", config });
 	await waitForFirst((message) => message.type === "permissions");
@@ -2593,7 +2599,7 @@ async function rebuildSessions(): Promise<void> {
  * section changes, so the current value is the sections of every system message merged
  * in order — the same replay `getCurrentSystemMessage` performs for the request.
  */
-function addendumOf(snapshot: ZGStateSnapshot): string {
+function addendumOf(snapshot: SentinelStateSnapshot): string {
 	const merged: Record<string, string | null> = {};
 	for (const message of snapshot.messages) {
 		if ((message as { role?: string }).role !== "system") continue;
@@ -2620,7 +2626,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 		},
 	});
 	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as {
-		preset: ZGPresetView | null;
+		preset: SentinelPresetView | null;
 		error?: string;
 	};
 	expect(saved.error).toBeUndefined();
@@ -2636,7 +2642,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 	// The settings screen reads the list, body included.
 	drainIncoming();
 	send({ type: "list_presets" });
-	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: ZGPresetView[] };
+	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: SentinelPresetView[] };
 	const view = listed.presets.find((item) => item.id === presetId);
 	expect(view?.text).toContain(PRESET_BODY_MARKER);
 	expect(view?.textMissing).toBe(false);
@@ -2735,7 +2741,7 @@ test("a preset is stored, injected into a new session, and re-read on every rebu
 test("deleting a preset returns its sessions to the default agent and says so", async () => {
 	drainIncoming();
 	send({ type: "list_presets" });
-	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: ZGPresetView[] };
+	const listed = (await waitForFirst((message) => message.type === "presets")) as { presets: SentinelPresetView[] };
 	const presetId = listed.presets.find((item) => item.name === PRESET_NAME)?.id ?? "";
 	expect(presetId).not.toBe("");
 
@@ -2766,7 +2772,7 @@ test("switching a live session's preset re-briefs the turns that follow", async 
 	// then after switching to B, then after switching back to the default agent.
 	// Only the request body can prove which briefing was in force, because a
 	// section changed after the first turn reaches the model as a patch.
-	const answeredBy = (done: string) => (snapshot: ZGStateSnapshot) =>
+	const answeredBy = (done: string) => (snapshot: SentinelStateSnapshot) =>
 		!snapshot.streaming &&
 		snapshot.messages.some(
 			(message) =>
@@ -2789,7 +2795,7 @@ test("switching a live session's preset re-briefs the turns that follow", async 
 		},
 	});
 	const savedA = (await waitForFirst((message) => message.type === "preset_saved")) as {
-		preset: ZGPresetView | null;
+		preset: SentinelPresetView | null;
 	};
 	const presetA = savedA.preset?.id ?? "";
 	expect(presetA).not.toBe("");
@@ -2805,7 +2811,7 @@ test("switching a live session's preset re-briefs the turns that follow", async 
 		},
 	});
 	const savedB = (await waitForFirst((message) => message.type === "preset_saved")) as {
-		preset: ZGPresetView | null;
+		preset: SentinelPresetView | null;
 	};
 	const presetB = savedB.preset?.id ?? "";
 	expect(presetB).not.toBe("");
@@ -2867,14 +2873,14 @@ test("a sub-agent inherits the preset of the session that spawned it", async () 
 	drainIncoming();
 	send({ type: "get_model_library" });
 	const library = await waitForFirst((message) => message.type === "model_library").then(
-		(message) => (message as { library: ZGModelLibraryView }).library,
+		(message) => (message as { library: SentinelModelLibraryView }).library,
 	);
 	const mainId =
 		library.roles.main ??
 		writeTestModel(agentDir, {
 			baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 			apiKey: "test-key",
-			modelId: "zg-fake-model",
+			modelId: "sentinel-fake-model",
 		});
 	send({
 		type: "save_model_entry",
@@ -2882,10 +2888,10 @@ test("a sub-agent inherits the preset of the session that spawned it", async () 
 		name: "主端点",
 		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 		apiKey: "test-key",
-		modelId: "zg-fake-model",
+		modelId: "sentinel-fake-model",
 	});
 	const restored = await snapshotWhereFirst((snapshot) => snapshot.modelConfigured === true);
-	expect(restored.model?.id).toBe("zg-fake-model");
+	expect(restored.model?.id).toBe("sentinel-fake-model");
 	expect(presetSubagentBody).toBe("");
 	// No project switch here on purpose: the test before this one already ran a
 	// session in the active project, and re-entering the project it is already in
@@ -2902,7 +2908,9 @@ test("a sub-agent inherits the preset of the session that spawned it", async () 
 			text: `你是 Web 侦察专家。\n${PRESET_SUBAGENT_MARKER}`,
 		},
 	});
-	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as { preset: ZGPresetView | null };
+	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as {
+		preset: SentinelPresetView | null;
+	};
 	const presetId = saved.preset?.id ?? "";
 	expect(presetId).not.toBe("");
 
@@ -2942,7 +2950,7 @@ test("the commander dispatches with a whitelisted preset and has an outsider ref
 	writeTestModel(agentDir, {
 		baseUrl: `http://127.0.0.1:${endpointPort}/v1`,
 		apiKey: "test-key",
-		modelId: "zg-fake-model",
+		modelId: "sentinel-fake-model",
 	});
 	// The engine runs in the project every other test uses; an earlier test may have
 	// left the console inside a project it then deleted, and switching back to the
@@ -2962,7 +2970,9 @@ test("the commander dispatches with a whitelisted preset and has an outsider ref
 			text: `你是域内账户枚举专家。\n${ENGINE_PRESET_MARKER}`,
 		},
 	});
-	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as { preset: ZGPresetView | null };
+	const saved = (await waitForFirst((message) => message.type === "preset_saved")) as {
+		preset: SentinelPresetView | null;
+	};
 	enginePresetId = saved.preset?.id ?? "";
 	expect(enginePresetId).not.toBe("");
 
@@ -2984,7 +2994,7 @@ test("the commander dispatches with a whitelisted preset and has an outsider ref
 			message.engine.status === "completed" &&
 			(message.engine.report ?? "").includes(ENGINE_REPORT_MARKER),
 		90000,
-	)) as { engine: ZGEngine };
+	)) as { engine: SentinelEngine };
 	const engine = completed.engine;
 
 	// The whitelist round-trips through the store and back to the console.
@@ -3020,12 +3030,12 @@ test("the commander dispatches with a whitelisted preset and has an outsider ref
 	send({ type: "engine_set_preset_optional", id: engine.id, optional: false });
 	const required = (await waitForFirst(
 		(message) => message.type === "engine_update" && message.engine.presetOptional === false,
-	)) as { engine: ZGEngine };
+	)) as { engine: SentinelEngine };
 	expect(required.engine.id).toBe(engine.id);
 	// Back to the default: presets stay optional unless the operator says otherwise.
 	send({ type: "engine_set_preset_optional", id: engine.id, optional: true });
 	const restored = (await waitForFirst(
 		(message) => message.type === "engine_update" && message.engine.presetOptional === true,
-	)) as { engine: ZGEngine };
+	)) as { engine: SentinelEngine };
 	expect(restored.engine.id).toBe(engine.id);
 }, 120000);

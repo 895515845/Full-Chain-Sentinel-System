@@ -17,7 +17,7 @@ import {
 let root = "";
 
 function freshAgentDir(): string {
-	root = mkdtempSync(join(tmpdir(), "zgagent-sources-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-sources-"));
 	return root;
 }
 

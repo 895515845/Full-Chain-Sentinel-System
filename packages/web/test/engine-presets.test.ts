@@ -21,12 +21,12 @@ import {
 	resolveDispatchPreset,
 } from "../src/engine.ts";
 import { savePreset, setPresetEnabled } from "../src/presets.ts";
-import type { ZGEngine, ZGEngineTask } from "../src/protocol.ts";
+import type { SentinelEngine, SentinelEngineTask } from "../src/protocol.ts";
 
 let root = "";
 
 function freshAgentDir(): string {
-	root = mkdtempSync(join(tmpdir(), "zg-engine-presets-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-engine-presets-"));
 	return root;
 }
 
@@ -38,7 +38,7 @@ afterEach(() => {
 /** Presets are optional unless a test says otherwise, which is the engine default. */
 const engine = (presetIds: string[], presetOptional = true) => ({ presetIds, presetOptional });
 
-function task(over: Partial<ZGEngineTask>): ZGEngineTask {
+function task(over: Partial<SentinelEngineTask>): SentinelEngineTask {
 	return {
 		id: "task-1",
 		engineId: "engine-1",
@@ -187,7 +187,7 @@ describe("normalizePresetIds", () => {
 });
 
 describe("buildCommanderBrief", () => {
-	const engineFixture = (presetOptional: boolean): ZGEngine => ({
+	const engineFixture = (presetOptional: boolean): SentinelEngine => ({
 		id: "engine-1",
 		projectId: "p1",
 		projectName: "P1",

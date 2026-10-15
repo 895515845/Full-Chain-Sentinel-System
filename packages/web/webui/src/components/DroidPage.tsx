@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import type { DroidDevice, DroidToken, ZGClientMessage } from "../types.ts";
+import type { DroidDevice, DroidToken, SentinelClientMessage } from "../types.ts";
 
 function formatTime(iso: string | null): string {
 	if (!iso) return "—";
@@ -35,7 +35,7 @@ export function DroidPage({
 	listenConfig: { host: string; port: number } | null;
 	lanIps: string[];
 	consoleUrl: string;
-	send(message: ZGClientMessage): void;
+	send(message: SentinelClientMessage): void;
 }) {
 	const [label, setLabel] = useState("");
 	const [revealed, setRevealed] = useState<string | null>(null);

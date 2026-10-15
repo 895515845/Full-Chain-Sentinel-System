@@ -48,7 +48,9 @@ describe("buildSystemPrompt", () => {
 				skills: [],
 			});
 
-			expect(defaultPrompt.startsWith("You are ZGAgent, an expert penetration testing agent")).toBe(true);
+			expect(defaultPrompt.startsWith("You are Full Chain Sentinel, an expert penetration testing agent")).toBe(
+				true,
+			);
 			expect(customPrompt.startsWith("You are Exact.\n\n<cwd>")).toBe(true);
 		});
 

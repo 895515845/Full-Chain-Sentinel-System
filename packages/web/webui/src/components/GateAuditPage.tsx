@@ -8,8 +8,8 @@
  */
 
 import { useState } from "react";
-import type { ZGGateDecision, ZGGateFilter, ZGGateStats, ZGProjectInfo } from "../types.ts";
-import { ZG_GATE_DECISION_LABELS } from "../types.ts";
+import type { SentinelGateDecision, SentinelGateFilter, SentinelGateStats, SentinelProjectInfo } from "../types.ts";
+import { SENTINEL_GATE_DECISION_LABELS } from "../types.ts";
 
 const PAGE_SIZE = 50;
 
@@ -65,13 +65,13 @@ export function GateAuditPage({
 	onOpenSession,
 	sessionPathOf,
 }: {
-	items: ZGGateDecision[];
-	stats: ZGGateStats | null;
+	items: SentinelGateDecision[];
+	stats: SentinelGateStats | null;
 	total: number;
 	page: number;
-	filter: ZGGateFilter;
-	projects: ZGProjectInfo[];
-	onQuery: (filter: ZGGateFilter, page: number) => void;
+	filter: SentinelGateFilter;
+	projects: SentinelProjectInfo[];
+	onQuery: (filter: SentinelGateFilter, page: number) => void;
 	onOpenSession: (path: string) => void;
 	/** Resolve a judgment's session id to a conversation file, when it is known. */
 	sessionPathOf: (sessionId: string) => string | null;
@@ -80,7 +80,7 @@ export function GateAuditPage({
 	const [windowIndex, setWindowIndex] = useState(0);
 	const [expanded, setExpanded] = useState<string | null>(null);
 
-	const apply = (patch: Partial<ZGGateFilter>, nextPage = 1) => {
+	const apply = (patch: Partial<SentinelGateFilter>, nextPage = 1) => {
 		onQuery({ ...filter, ...patch }, nextPage);
 	};
 
@@ -105,16 +105,30 @@ export function GateAuditPage({
 			</div>
 			<div className="ws-panel__body">
 				<div className="gate-summary">
-					<span>拦截 <b>{stats?.byDecision.block ?? 0}</b></span>
-					<span>放行 <b>{stats?.byDecision.allow ?? 0}</b></span>
+					<span>
+						拦截 <b>{stats?.byDecision.block ?? 0}</b>
+					</span>
+					<span>
+						放行 <b>{stats?.byDecision.allow ?? 0}</b>
+					</span>
 					<span className={(stats?.byDecision.failed ?? 0) > 0 ? "bad" : ""}>
 						失败 <b>{stats?.byDecision.failed ?? 0}</b>
 					</span>
-					<span>拦截率 <b>{stats ? percent(stats.blockRate) : "-"}</b></span>
-					<span>平均耗时 <b>{stats ? formatLatency(stats.avgLatencyMs) : "-"}</b></span>
-					<span>24 小时 <b>{stats?.last24h ?? 0}</b></span>
-					<span>tokens <b>{stats ? stats.totalTokens.toLocaleString("en-US") : 0}</b></span>
-					<span>最近成功 <b>{stats?.lastSuccessAt ? formatShort(stats.lastSuccessAt) : "从未"}</b></span>
+					<span>
+						拦截率 <b>{stats ? percent(stats.blockRate) : "-"}</b>
+					</span>
+					<span>
+						平均耗时 <b>{stats ? formatLatency(stats.avgLatencyMs) : "-"}</b>
+					</span>
+					<span>
+						24 小时 <b>{stats?.last24h ?? 0}</b>
+					</span>
+					<span>
+						tokens <b>{stats ? stats.totalTokens.toLocaleString("en-US") : 0}</b>
+					</span>
+					<span>
+						最近成功 <b>{stats?.lastSuccessAt ? formatShort(stats.lastSuccessAt) : "从未"}</b>
+					</span>
 				</div>
 
 				{stats?.lastError ? (
@@ -129,7 +143,7 @@ export function GateAuditPage({
 						<select
 							value={filter.decision ?? ""}
 							onChange={(event) =>
-								apply({ decision: (event.target.value || undefined) as ZGGateFilter["decision"] })
+								apply({ decision: (event.target.value || undefined) as SentinelGateFilter["decision"] })
 							}
 						>
 							<option value="">全部</option>
@@ -140,7 +154,10 @@ export function GateAuditPage({
 					</label>
 					<label>
 						来源
-						<select value={filter.source ?? ""} onChange={(event) => apply({ source: event.target.value || undefined })}>
+						<select
+							value={filter.source ?? ""}
+							onChange={(event) => apply({ source: event.target.value || undefined })}
+						>
 							<option value="">全部</option>
 							<option value="主代理">主代理</option>
 							<option value="子代理">子代理</option>
@@ -228,7 +245,7 @@ export function GateAuditPage({
 										<td className="gate-time">{formatClock(item.at)}</td>
 										<td>
 											<span className={`gate-badge ${item.decision}`}>
-												{ZG_GATE_DECISION_LABELS[item.decision]}
+												{SENTINEL_GATE_DECISION_LABELS[item.decision]}
 											</span>
 										</td>
 										<td className="gate-command">
@@ -245,9 +262,7 @@ export function GateAuditPage({
 														{item.modelFrom ? ` · 来源 ${item.modelFrom}` : ""}
 														{item.commandTruncated ? " · 命令已截断存储" : ""}
 													</div>
-													{item.commandTruncated ? (
-														<div>（记录里的命令超过 8 KB，已截断）</div>
-													) : null}
+													{item.commandTruncated ? <div>（记录里的命令超过 8 KB，已截断）</div> : null}
 												</div>
 											) : null}
 										</td>
@@ -268,7 +283,9 @@ export function GateAuditPage({
 											) : null}
 										</td>
 										<td className="gate-model">
-											<span className="gate-model-id" title={item.model ?? ""}>{item.model ?? "-"}</span>
+											<span className="gate-model-id" title={item.model ?? ""}>
+												{item.model ?? "-"}
+											</span>
 											{item.modelFrom ? <span className="gate-model-from">{item.modelFrom}</span> : null}
 										</td>
 										<td className="gate-latency">{formatLatency(item.latencyMs)}</td>

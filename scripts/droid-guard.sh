@@ -27,10 +27,10 @@
 # DROID_GUARD_LOG, DROID_GUARD_PKG.
 set -u
 
-PKG="${DROID_GUARD_PKG:-com.zgagent.droidbridge}"
+PKG="${DROID_GUARD_PKG:-com.sentinel.droidbridge}"
 SERVICE="$PKG/.DroidService"
-LABEL="com.zgagent.droidguard"
-LOG="${DROID_GUARD_LOG:-$HOME/Library/Logs/zgagent-droid-guard.log}"
+LABEL="com.sentinel.droidguard"
+LOG="${DROID_GUARD_LOG:-$HOME/Library/Logs/sentinel-droid-guard.log}"
 # Marks the current "deliberately not running" episode, see stand_down.
 SKIP_MARK="$LOG.stand-down"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"

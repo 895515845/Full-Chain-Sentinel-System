@@ -12,13 +12,13 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ZGSources } from "./protocol.ts";
+import type { SentinelSources } from "./protocol.ts";
 
 /** Official base image, used when the field is empty. */
 export const DEFAULT_BASE_IMAGE = "kalilinux/kali-rolling:latest";
 
 /** One-click Chinese mirrors; every value is reachable and apt-safe (http). */
-export const CHINA_SOURCES: ZGSources = {
+export const CHINA_SOURCES: SentinelSources = {
 	baseImage: "docker.m.daocloud.io/kalilinux/kali-rolling:latest",
 	aptMirror: "http://mirrors.tuna.tsinghua.edu.cn/kali",
 	pipIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
@@ -26,7 +26,7 @@ export const CHINA_SOURCES: ZGSources = {
 	goProxy: "https://goproxy.cn,direct",
 };
 
-export const EMPTY_SOURCES: ZGSources = {
+export const EMPTY_SOURCES: SentinelSources = {
 	baseImage: "",
 	aptMirror: "",
 	pipIndex: "",
@@ -84,7 +84,7 @@ function asString(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
-export function normalizeSources(input: Partial<ZGSources>): ZGSources {
+export function normalizeSources(input: Partial<SentinelSources>): SentinelSources {
 	return {
 		baseImage: normalizeImage(asString(input.baseImage)),
 		aptMirror: normalizeUrl(asString(input.aptMirror), "http"),
@@ -95,13 +95,13 @@ export function normalizeSources(input: Partial<ZGSources>): ZGSources {
 }
 
 /** Values the build actually uses: empty fields fall back to the official source. */
-export function effectiveSources(sources: ZGSources): ZGSources {
+export function effectiveSources(sources: SentinelSources): SentinelSources {
 	const normalized = normalizeSources(sources);
 	return { ...normalized, baseImage: normalized.baseImage || DEFAULT_BASE_IMAGE };
 }
 
 /** `docker build --build-arg` pairs; the base image is always passed. */
-export function buildArgs(sources: ZGSources): string[] {
+export function buildArgs(sources: SentinelSources): string[] {
 	const effective = effectiveSources(sources);
 	const args = ["--build-arg", `BASE_IMAGE=${effective.baseImage}`];
 	const mirrors: Array<[string, string]> = [
@@ -117,9 +117,9 @@ export function buildArgs(sources: ZGSources): string[] {
 }
 
 /** Read the stored sources; a missing or malformed file means "all official". */
-export function readSources(agentDir: string): ZGSources {
+export function readSources(agentDir: string): SentinelSources {
 	try {
-		const parsed = JSON.parse(readFileSync(sourcesPath(agentDir), "utf-8")) as Partial<ZGSources>;
+		const parsed = JSON.parse(readFileSync(sourcesPath(agentDir), "utf-8")) as Partial<SentinelSources>;
 		if (!parsed || typeof parsed !== "object") return { ...EMPTY_SOURCES };
 		return normalizeSources(parsed);
 	} catch {
@@ -127,7 +127,7 @@ export function readSources(agentDir: string): ZGSources {
 	}
 }
 
-export function writeSources(agentDir: string, sources: ZGSources): void {
+export function writeSources(agentDir: string, sources: SentinelSources): void {
 	const file = sourcesPath(agentDir);
 	mkdirSync(dirname(file), { recursive: true });
 	writeFileSync(file, `${JSON.stringify(normalizeSources(sources), null, "\t")}\n`);

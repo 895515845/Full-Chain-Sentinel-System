@@ -10,14 +10,14 @@
 
 import { randomUUID } from "node:crypto";
 import type { createAgentSession } from "@earendil-works/pi-coding-agent";
-import type { ZGSubagentEvent, ZGSubagentRun, ZGSubagentStatus } from "./protocol.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun, SentinelSubagentStatus } from "./protocol.ts";
 import type { SubagentStore } from "./subagent-store.ts";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
 export interface SubagentRegistryHooks {
 	/** One live step, for streaming to connected consoles. */
-	onEvent(runId: string, event: ZGSubagentEvent): void;
+	onEvent(runId: string, event: SentinelSubagentEvent): void;
 	/** A run started or finished; the snapshot's run list changed. */
 	onRunChange(): void;
 }
@@ -26,12 +26,12 @@ export interface SubagentRegistryHooks {
 export interface SubagentRunHandle {
 	id: string;
 	/** Record one step; `seq` and `at` are assigned here. */
-	push(step: Omit<ZGSubagentEvent, "seq" | "at">): void;
-	finish(input: { status: ZGSubagentStatus; result?: string; error?: string }): void;
+	push(step: Omit<SentinelSubagentEvent, "seq" | "at">): void;
+	finish(input: { status: SentinelSubagentStatus; result?: string; error?: string }): void;
 }
 
 interface LiveRun {
-	run: ZGSubagentRun;
+	run: SentinelSubagentRun;
 	session: LiveSession;
 	seq: number;
 }
@@ -58,7 +58,7 @@ export class SubagentRegistry {
 			task: input.task,
 			startedAt,
 		});
-		const run: ZGSubagentRun = {
+		const run: SentinelSubagentRun = {
 			id,
 			sessionId: input.sessionId,
 			task: input.task,
@@ -74,7 +74,7 @@ export class SubagentRegistry {
 			id,
 			push: (step) => {
 				entry.seq += 1;
-				const event: ZGSubagentEvent = { ...step, seq: entry.seq, at: Date.now() };
+				const event: SentinelSubagentEvent = { ...step, seq: entry.seq, at: Date.now() };
 				if (event.kind === "turn") run.turns += 1;
 				this.store.appendEvent(id, event);
 				this.hooks.onEvent(id, event);
@@ -103,12 +103,12 @@ export class SubagentRegistry {
 	}
 
 	/** Runs of one session, newest first, without their process steps. */
-	list(sessionId: string): ZGSubagentRun[] {
+	list(sessionId: string): SentinelSubagentRun[] {
 		return this.store.listRuns(sessionId).map((run) => this.withLiveState(run));
 	}
 
 	/** One run with its full process, from the live buffer when still running. */
-	get(id: string): ZGSubagentRun | undefined {
+	get(id: string): SentinelSubagentRun | undefined {
 		const run = this.store.getRun(id);
 		if (!run) return undefined;
 		return { ...this.withLiveState(run), events: this.store.listEvents(id) };
@@ -130,7 +130,7 @@ export class SubagentRegistry {
 		return true;
 	}
 
-	private withLiveState(run: ZGSubagentRun): ZGSubagentRun {
+	private withLiveState(run: SentinelSubagentRun): SentinelSubagentRun {
 		const entry = this.live.get(run.id);
 		return entry ? { ...run, status: "running", turns: entry.run.turns } : run;
 	}

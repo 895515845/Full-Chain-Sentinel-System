@@ -32,8 +32,8 @@ import {
 import { requestTerminalColors } from "../modes/interactive/theme/theme-controller.ts";
 
 const OFFICIAL_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
-const OFFICIAL_APP_NAME = "zgagent";
-const OFFICIAL_CONFIG_DIR_NAME = ".zgagent";
+const OFFICIAL_APP_NAME = "sentinel";
+const OFFICIAL_CONFIG_DIR_NAME = ".sentinel";
 
 interface DistributionMetadata {
 	packageName: string;

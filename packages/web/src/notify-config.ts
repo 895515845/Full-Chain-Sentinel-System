@@ -9,7 +9,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZGNotifyConfig } from "./protocol.ts";
+import type { SentinelNotifyConfig } from "./protocol.ts";
 
 /**
  * Characters of notification body kept by default. 500 was too short to read a
@@ -18,7 +18,7 @@ import type { ZGNotifyConfig } from "./protocol.ts";
 export const DEFAULT_SUMMARY_LIMIT = 2000;
 
 /** Notifications stay off until an operator configures and enables them. */
-const DEFAULT_CONFIG: ZGNotifyConfig = {
+const DEFAULT_CONFIG: SentinelNotifyConfig = {
 	enabled: false,
 	webhook: "",
 	secret: "",
@@ -28,8 +28,8 @@ const DEFAULT_CONFIG: ZGNotifyConfig = {
 };
 
 /** Every kind on unless the file says otherwise, so an old config keeps pushing. */
-function coerceKinds(value: unknown): ZGNotifyConfig["kinds"] {
-	const kinds = (value ?? {}) as Partial<ZGNotifyConfig["kinds"]>;
+function coerceKinds(value: unknown): SentinelNotifyConfig["kinds"] {
+	const kinds = (value ?? {}) as Partial<SentinelNotifyConfig["kinds"]>;
 	return {
 		runs: kinds.runs !== false,
 		vulns: kinds.vulns !== false,
@@ -55,11 +55,11 @@ function coerce(value: unknown): string {
 }
 
 /** Read the persisted notification config; missing or broken files read as defaults. */
-export function readNotifyConfig(agentDir: string): ZGNotifyConfig {
+export function readNotifyConfig(agentDir: string): SentinelNotifyConfig {
 	const path = notificationsJsonPath(agentDir);
 	if (!existsSync(path)) return { ...DEFAULT_CONFIG };
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as { dingtalk?: Partial<ZGNotifyConfig> };
+		const parsed = JSON.parse(readFileSync(path, "utf-8")) as { dingtalk?: Partial<SentinelNotifyConfig> };
 		const dingtalk = parsed.dingtalk ?? {};
 		return {
 			enabled: dingtalk.enabled === true,
@@ -75,7 +75,7 @@ export function readNotifyConfig(agentDir: string): ZGNotifyConfig {
 }
 
 /** Persist the notification config, replacing the DingTalk section. */
-export function writeNotifyConfig(agentDir: string, config: ZGNotifyConfig): void {
+export function writeNotifyConfig(agentDir: string, config: SentinelNotifyConfig): void {
 	const path = notificationsJsonPath(agentDir);
 	const payload = {
 		dingtalk: {

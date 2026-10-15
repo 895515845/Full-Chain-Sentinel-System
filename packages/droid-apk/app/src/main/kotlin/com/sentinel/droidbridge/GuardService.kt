@@ -1,4 +1,4 @@
-package com.zgagent.droidbridge
+package com.sentinel.droidbridge
 
 import android.app.ActivityManager
 import android.app.Notification
@@ -41,7 +41,7 @@ class GuardService : Service() {
 		/** 轮询间隔：被冻住后最坏这么久恢复，也是这个进程的唤醒频率。 */
 		private const val TICK_MS = 15_000L
 		/** 反连进程的进程名；守护进程自己是 `<包名>:guard`。 */
-		private const val MAIN_PROCESS = "com.zgagent.droidbridge"
+		private const val MAIN_PROCESS = "com.sentinel.droidbridge"
 		private const val TAG = "DroidGuard"
 
 		/** 启动或刷新守护进程：已经活着时只是更新主进程 pid。 */

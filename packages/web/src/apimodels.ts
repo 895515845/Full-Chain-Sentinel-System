@@ -21,14 +21,14 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stringify as toYaml } from "yaml";
 import type {
-	ZGApiModel,
-	ZGApiModelEntity,
-	ZGApiModelEvent,
-	ZGApiModelField,
-	ZGApiModelFilters,
-	ZGApiModelRelation,
-	ZGApiModelStatus,
-	ZGApiModelSummary,
+	SentinelApiModel,
+	SentinelApiModelEntity,
+	SentinelApiModelEvent,
+	SentinelApiModelField,
+	SentinelApiModelFilters,
+	SentinelApiModelRelation,
+	SentinelApiModelStatus,
+	SentinelApiModelSummary,
 } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase, type SqliteValue } from "./sqlite.ts";
 
@@ -52,7 +52,7 @@ const MAX_TITLE_LENGTH = 80;
 /** Operations per path item, per the OpenAPI specification. */
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 
-const STATUSES: readonly ZGApiModelStatus[] = ["modeling", "done", "manual", "failed"];
+const STATUSES: readonly SentinelApiModelStatus[] = ["modeling", "done", "manual", "failed"];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS api_models (
@@ -222,11 +222,11 @@ function text(value: unknown): string {
  * reported rather than dropped silently: an unnamed entity is a model mistake
  * the caller can fix, and a silently discarded one is a document that lies.
  */
-export function normalizeEntities(input: unknown): { entities: ZGApiModelEntity[]; errors: string[] } {
+export function normalizeEntities(input: unknown): { entities: SentinelApiModelEntity[]; errors: string[] } {
 	if (input === undefined) return { entities: [], errors: [] };
 	if (!Array.isArray(input)) return { entities: [], errors: ["entities 必须是数组。"] };
 	const errors: string[] = [];
-	const entities: ZGApiModelEntity[] = [];
+	const entities: SentinelApiModelEntity[] = [];
 	for (const [index, raw] of input.entries()) {
 		if (!isPlainObject(raw)) {
 			errors.push(`entities[${index}] 不是对象。`);
@@ -241,7 +241,7 @@ export function normalizeEntities(input: unknown): { entities: ZGApiModelEntity[
 			errors.push(`业务实体数量超过上限 ${MAX_ENTITIES}，多余的已忽略。`);
 			break;
 		}
-		const fields: ZGApiModelField[] = [];
+		const fields: SentinelApiModelField[] = [];
 		if (raw.fields !== undefined) {
 			if (!Array.isArray(raw.fields)) errors.push(`实体「${name}」的 fields 必须是数组。`);
 			else {
@@ -255,7 +255,7 @@ export function normalizeEntities(input: unknown): { entities: ZGApiModelEntity[
 				}
 			}
 		}
-		const relations: ZGApiModelRelation[] = [];
+		const relations: SentinelApiModelRelation[] = [];
 		if (raw.relations !== undefined) {
 			if (!Array.isArray(raw.relations)) errors.push(`实体「${name}」的 relations 必须是数组。`);
 			else {
@@ -287,7 +287,7 @@ function parseJson<T>(value: string, fallback: T): T {
 	}
 }
 
-function toModel(row: ApiModelRow): ZGApiModel {
+function toModel(row: ApiModelRow): SentinelApiModel {
 	return {
 		id: row.id,
 		projectId: row.project_id,
@@ -295,9 +295,9 @@ function toModel(row: ApiModelRow): ZGApiModel {
 		sessionPath: row.session_path,
 		title: row.title,
 		target: row.target,
-		status: (STATUSES as readonly string[]).includes(row.status) ? (row.status as ZGApiModelStatus) : "failed",
+		status: (STATUSES as readonly string[]).includes(row.status) ? (row.status as SentinelApiModelStatus) : "failed",
 		openapi: parseJson<Record<string, unknown>>(row.openapi, {}),
-		entities: parseJson<ZGApiModelEntity[]>(row.entities, []),
+		entities: parseJson<SentinelApiModelEntity[]>(row.entities, []),
 		pathCount: row.path_count,
 		operationCount: row.operation_count,
 		submissions: row.submissions,
@@ -308,7 +308,7 @@ function toModel(row: ApiModelRow): ZGApiModel {
 	};
 }
 
-function toSummary(row: ApiModelSummaryRow, entityCount: number): ZGApiModelSummary {
+function toSummary(row: ApiModelSummaryRow, entityCount: number): SentinelApiModelSummary {
 	return {
 		id: row.id,
 		projectId: row.project_id,
@@ -316,7 +316,7 @@ function toSummary(row: ApiModelSummaryRow, entityCount: number): ZGApiModelSumm
 		sessionPath: row.session_path,
 		title: row.title,
 		target: row.target,
-		status: (STATUSES as readonly string[]).includes(row.status) ? (row.status as ZGApiModelStatus) : "failed",
+		status: (STATUSES as readonly string[]).includes(row.status) ? (row.status as SentinelApiModelStatus) : "failed",
 		pathCount: row.path_count,
 		operationCount: row.operation_count,
 		submissions: row.submissions,
@@ -354,7 +354,7 @@ export interface ApiModelSubmitInput {
  * Either the stored run, or the reasons the submission was refused. `model` is
  * present whenever something was stored; `errors` is fatal only when it is not.
  */
-export type ApiModelSubmitResult = { model?: ZGApiModel; errors?: string[] };
+export type ApiModelSubmitResult = { model?: SentinelApiModel; errors?: string[] };
 
 export class ApiModelStore {
 	private readonly db: SqliteDatabase;
@@ -370,7 +370,7 @@ export class ApiModelStore {
 	}
 
 	/** Open a run. The record exists before the agent submits anything, so the page can show work in progress. */
-	beginRun(input: ApiModelBeginInput, now = new Date()): ZGApiModel {
+	beginRun(input: ApiModelBeginInput, now = new Date()): SentinelApiModel {
 		const stamp = now.toISOString();
 		const id = `api-${randomUUID()}`;
 		const title = normalizeModelTitle(input.title ?? "") || "业务建模";
@@ -391,7 +391,7 @@ export class ApiModelStore {
 				stamp,
 			);
 		this.recordEvent(id, "created", stamp);
-		return this.get(id) as ZGApiModel;
+		return this.get(id) as SentinelApiModel;
 	}
 
 	/**
@@ -474,7 +474,7 @@ export class ApiModelStore {
 		this.recordEvent(id, "submitted", stamp, input.note?.trim() || undefined);
 		// Entity problems are reported without refusing the document: the endpoints
 		// are already stored, and the model can resubmit the entity list alone.
-		const model = this.get(id) as ZGApiModel;
+		const model = this.get(id) as SentinelApiModel;
 		return entities && entities.errors.length > 0 ? { model, errors: entities.errors } : { model };
 	}
 
@@ -484,7 +484,7 @@ export class ApiModelStore {
 		status: "done" | "manual" | "failed",
 		options: { note?: string; error?: string } = {},
 		now = new Date(),
-	): ZGApiModel | undefined {
+	): SentinelApiModel | undefined {
 		const row = this.db.prepare("SELECT * FROM api_models WHERE id = ?").get(id) as unknown as
 			| ApiModelRow
 			| undefined;
@@ -502,7 +502,7 @@ export class ApiModelStore {
 		return this.get(id);
 	}
 
-	get(id: string): ZGApiModel | undefined {
+	get(id: string): SentinelApiModel | undefined {
 		const row = this.db.prepare("SELECT * FROM api_models WHERE id = ?").get(id) as unknown as
 			| ApiModelRow
 			| undefined;
@@ -513,7 +513,7 @@ export class ApiModelStore {
 	 * The requested records in the requested order, skipping ids that no longer
 	 * exist — an attachment recorded before a delete must not fail the session.
 	 */
-	getMany(ids: readonly string[]): ZGApiModel[] {
+	getMany(ids: readonly string[]): SentinelApiModel[] {
 		return ids.flatMap((id) => {
 			const model = this.get(id);
 			return model ? [model] : [];
@@ -521,7 +521,7 @@ export class ApiModelStore {
 	}
 
 	/** Runs of one project (or every project when the filter is absent), newest first. */
-	list(filters: ZGApiModelFilters = {}): ZGApiModelSummary[] {
+	list(filters: SentinelApiModelFilters = {}): SentinelApiModelSummary[] {
 		const conditions: string[] = [];
 		const params: SqliteValue[] = [];
 		if (filters.projectId) {
@@ -547,7 +547,7 @@ export class ApiModelStore {
 	}
 
 	/** The audit trail of one run, oldest first. */
-	events(id: string): ZGApiModelEvent[] {
+	events(id: string): SentinelApiModelEvent[] {
 		const rows = this.db
 			.prepare(
 				"SELECT at, kind, note, path_count, operation_count FROM api_model_events WHERE model_id = ? ORDER BY id",
@@ -555,7 +555,7 @@ export class ApiModelStore {
 			.all(id) as unknown as ApiModelEventRow[];
 		return rows.map((row) => ({
 			at: row.at,
-			kind: row.kind as ZGApiModelEvent["kind"],
+			kind: row.kind as SentinelApiModelEvent["kind"],
 			...(row.note ? { note: row.note } : {}),
 			...(row.path_count !== null ? { pathCount: row.path_count } : {}),
 			...(row.operation_count !== null ? { operationCount: row.operation_count } : {}),
@@ -588,7 +588,7 @@ export class ApiModelStore {
 		return row?.n ?? 0;
 	}
 
-	private recordEvent(modelId: string, kind: ZGApiModelEvent["kind"], at: string, note?: string): void {
+	private recordEvent(modelId: string, kind: SentinelApiModelEvent["kind"], at: string, note?: string): void {
 		const row = this.db
 			.prepare("SELECT path_count, operation_count FROM api_models WHERE id = ?")
 			.get(modelId) as unknown as { path_count: number; operation_count: number } | undefined;
@@ -601,7 +601,7 @@ export class ApiModelStore {
 }
 
 /** A file name that survives a download directory: ASCII slug plus the record id. */
-export function apiModelExportName(model: ZGApiModel, format: "json" | "yaml"): string {
+export function apiModelExportName(model: SentinelApiModel, format: "json" | "yaml"): string {
 	const slug = (model.title || model.target || "api-model")
 		.toLowerCase()
 		.replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
@@ -611,7 +611,10 @@ export function apiModelExportName(model: ZGApiModel, format: "json" | "yaml"): 
 }
 
 /** The document as a downloadable file, in the format the operator asked for. */
-export function buildApiModelExport(model: ZGApiModel, format: "json" | "yaml"): { filename: string; text: string } {
+export function buildApiModelExport(
+	model: SentinelApiModel,
+	format: "json" | "yaml",
+): { filename: string; text: string } {
 	return {
 		filename: apiModelExportName(model, format),
 		text: format === "yaml" ? toYaml(model.openapi) : `${JSON.stringify(model.openapi, null, 2)}\n`,

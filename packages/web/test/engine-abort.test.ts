@@ -18,7 +18,7 @@ let dir: string;
 let manager: EngineManager;
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-engine-abort-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-engine-abort-"));
 	// The acquire callback is never reached: every task below fails earlier.
 	manager = new EngineManager(
 		dir,

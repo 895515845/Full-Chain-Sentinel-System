@@ -21,7 +21,7 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ZGPreset, ZGPresetView } from "./protocol.ts";
+import type { SentinelPreset, SentinelPresetView } from "./protocol.ts";
 
 /** Metadata file, next to the other console config. */
 export const PRESETS_FILE = "presets.json";
@@ -53,30 +53,30 @@ export const PRESET_TOKEN_WARN = 2000;
 export const PRESET_TOKEN_DANGER = 8000;
 
 /** Format marker and version of an exported preset file. */
-export const PRESETS_EXPORT_FORMAT = "zgagent-presets";
+export const PRESETS_EXPORT_FORMAT = "sentinel-presets";
 export const PRESETS_EXPORT_VERSION = 1;
 
 /** One preset with its body, as written to and read from an export file. */
-export interface ZGPresetExportEntry extends ZGPreset {
+export interface SentinelPresetExportEntry extends SentinelPreset {
 	text: string;
 }
 
-export interface ZGPresetExport {
+export interface SentinelPresetExport {
 	format: typeof PRESETS_EXPORT_FORMAT;
 	version: number;
 	exportedAt: number;
-	presets: ZGPresetExportEntry[];
+	presets: SentinelPresetExportEntry[];
 }
 
-export interface ZGPresetImportResult {
-	imported: ZGPreset[];
+export interface SentinelPresetImportResult {
+	imported: SentinelPreset[];
 	/** Entries that could not be imported, with the reason shown to the operator. */
 	skipped: Array<{ name: string; reason: string }>;
 	/** Set when the file itself is unusable; per-entry problems go to `skipped`. */
 	error?: string;
 }
 
-export type ZGPresetTokenLevel = "ok" | "warn" | "danger";
+export type SentinelPresetTokenLevel = "ok" | "warn" | "danger";
 
 export function presetsPath(agentDir: string): string {
 	return join(agentDir, PRESETS_FILE);
@@ -117,7 +117,7 @@ export function estimateTokens(text: string): number {
 	return Math.ceil(wide + narrow / 4);
 }
 
-export function presetTokenLevel(tokens: number): ZGPresetTokenLevel {
+export function presetTokenLevel(tokens: number): SentinelPresetTokenLevel {
 	if (tokens >= PRESET_TOKEN_DANGER) return "danger";
 	if (tokens >= PRESET_TOKEN_WARN) return "warn";
 	return "ok";
@@ -141,7 +141,7 @@ function isWideCodePoint(code: number): boolean {
 }
 
 interface PresetsFile {
-	presets: ZGPreset[];
+	presets: SentinelPreset[];
 }
 
 function normalizeTags(value: unknown): string[] {
@@ -158,7 +158,7 @@ function normalizeTags(value: unknown): string[] {
 }
 
 /** Coerce one stored entry; null when it has no usable identity. */
-function normalizeStored(value: unknown): ZGPreset | null {
+function normalizeStored(value: unknown): SentinelPreset | null {
 	if (typeof value !== "object" || value === null) return null;
 	const entry = value as Record<string, unknown>;
 	if (!isPresetId(entry.id)) return null;
@@ -181,19 +181,19 @@ function normalizeStored(value: unknown): ZGPreset | null {
 	};
 }
 
-function readStored(agentDir: string): ZGPreset[] {
+function readStored(agentDir: string): SentinelPreset[] {
 	const path = presetsPath(agentDir);
 	if (!existsSync(path)) return [];
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8")) as PresetsFile;
 		if (!Array.isArray(parsed.presets)) return [];
-		return parsed.presets.map(normalizeStored).filter((entry): entry is ZGPreset => entry !== null);
+		return parsed.presets.map(normalizeStored).filter((entry): entry is SentinelPreset => entry !== null);
 	} catch {
 		return [];
 	}
 }
 
-function writeStored(agentDir: string, presets: ZGPreset[]): void {
+function writeStored(agentDir: string, presets: SentinelPreset[]): void {
 	const path = presetsPath(agentDir);
 	mkdirSync(dirname(path), { recursive: true });
 	const file: PresetsFile = { presets };
@@ -216,7 +216,7 @@ function slugify(name: string): string {
  * mostly, which is the normal case here — falls back to a random suffix, and a
  * collision gets `-2`, `-3`, … so a name can be reused without clobbering.
  */
-function uniqueId(presets: readonly ZGPreset[], name: string): string {
+function uniqueId(presets: readonly SentinelPreset[], name: string): string {
 	const base = slugify(name) || `preset-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 	const taken = new Set(presets.map((preset) => preset.id));
 	if (!taken.has(base)) return base;
@@ -228,16 +228,16 @@ function uniqueId(presets: readonly ZGPreset[], name: string): string {
 }
 
 /** Metadata of every stored preset, in file order. Bodies are not read. */
-export function listPresets(agentDir: string): ZGPreset[] {
+export function listPresets(agentDir: string): SentinelPreset[] {
 	return readStored(agentDir);
 }
 
 /** Enabled presets only: what a new session and the commander may choose from. */
-export function listEnabledPresets(agentDir: string): ZGPreset[] {
+export function listEnabledPresets(agentDir: string): SentinelPreset[] {
 	return readStored(agentDir).filter((preset) => preset.enabled);
 }
 
-export function findPreset(agentDir: string, id: string): ZGPreset | null {
+export function findPreset(agentDir: string, id: string): SentinelPreset | null {
 	if (!isPresetId(id)) return null;
 	return readStored(agentDir).find((preset) => preset.id === id) ?? null;
 }
@@ -255,17 +255,17 @@ export function readPresetText(agentDir: string, id: string): string | null {
 }
 
 /** Every preset with its body loaded, for the settings screen. */
-export function presetViews(agentDir: string): ZGPresetView[] {
+export function presetViews(agentDir: string): SentinelPresetView[] {
 	return readStored(agentDir).map((preset) => viewOf(agentDir, preset));
 }
 
 /** One preset with its body loaded, or null when it does not exist. */
-export function presetView(agentDir: string, id: string): ZGPresetView | null {
+export function presetView(agentDir: string, id: string): SentinelPresetView | null {
 	const preset = findPreset(agentDir, id);
 	return preset ? viewOf(agentDir, preset) : null;
 }
 
-function viewOf(agentDir: string, preset: ZGPreset): ZGPresetView {
+function viewOf(agentDir: string, preset: SentinelPreset): SentinelPresetView {
 	const text = readPresetText(agentDir, preset.id);
 	return {
 		...preset,
@@ -288,7 +288,7 @@ export interface SavePresetInput {
 	enabled?: boolean;
 }
 
-export function savePreset(agentDir: string, input: SavePresetInput): { preset?: ZGPreset; error?: string } {
+export function savePreset(agentDir: string, input: SavePresetInput): { preset?: SentinelPreset; error?: string } {
 	const name = input.name.trim();
 	if (!name) return { error: "预设名称不能为空" };
 	if (name.length > MAX_PRESET_NAME_CHARS) {
@@ -316,7 +316,7 @@ export function savePreset(agentDir: string, input: SavePresetInput): { preset?:
 	if (input.id && !existing) return { error: "该预设不存在" };
 
 	const now = Date.now();
-	const preset: ZGPreset = existing
+	const preset: SentinelPreset = existing
 		? {
 				...existing,
 				name,
@@ -350,11 +350,11 @@ export function setPresetEnabled(
 	agentDir: string,
 	id: string,
 	enabled: boolean,
-): { preset?: ZGPreset; error?: string } {
+): { preset?: SentinelPreset; error?: string } {
 	const presets = readStored(agentDir);
 	const existing = presets.find((preset) => preset.id === id);
 	if (!existing) return { error: "该预设不存在" };
-	const preset: ZGPreset = { ...existing, enabled, updatedAt: Date.now() };
+	const preset: SentinelPreset = { ...existing, enabled, updatedAt: Date.now() };
 	writeStored(
 		agentDir,
 		presets.map((entry) => (entry.id === id ? preset : entry)),
@@ -384,7 +384,7 @@ export function deletePreset(agentDir: string, id: string): { ok: boolean; error
 }
 
 /** Export presets, bodies included, as one self-contained JSON file. */
-export function exportPresets(agentDir: string, ids?: readonly string[]): ZGPresetExport {
+export function exportPresets(agentDir: string, ids?: readonly string[]): SentinelPresetExport {
 	const wanted = ids && ids.length > 0 ? new Set(ids) : null;
 	const presets = readStored(agentDir)
 		.filter((preset) => !wanted || wanted.has(preset.id))
@@ -399,7 +399,7 @@ export function exportPresets(agentDir: string, ids?: readonly string[]): ZGPres
 
 export function exportFileName(now: Date): string {
 	const pad = (value: number) => String(value).padStart(2, "0");
-	return `zgagent-presets-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+	return `sentinel-presets-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}.json`;
 }
 
 /**
@@ -411,27 +411,27 @@ export function exportFileName(now: Date): string {
  * preset is the more valuable of the two, and a silent overwrite is not
  * something they could notice afterwards.
  */
-export function importPresets(agentDir: string, payload: unknown): ZGPresetImportResult {
-	const skipped: ZGPresetImportResult["skipped"] = [];
+export function importPresets(agentDir: string, payload: unknown): SentinelPresetImportResult {
+	const skipped: SentinelPresetImportResult["skipped"] = [];
 	if (typeof payload !== "object" || payload === null) {
 		return { imported: [], skipped, error: "文件内容不是合法的 JSON 对象" };
 	}
-	const file = payload as Partial<ZGPresetExport>;
+	const file = payload as Partial<SentinelPresetExport>;
 	if (file.format !== PRESETS_EXPORT_FORMAT) {
-		return { imported: [], skipped, error: "不是 ZGAgent 预设导出文件" };
+		return { imported: [], skipped, error: "不是 全链哨兵 预设导出文件" };
 	}
 	if (file.version !== PRESETS_EXPORT_VERSION) {
 		return { imported: [], skipped, error: `不支持的导出版本：${String(file.version)}` };
 	}
 	if (!Array.isArray(file.presets)) return { imported: [], skipped, error: "文件里没有预设列表" };
 
-	const imported: ZGPreset[] = [];
+	const imported: SentinelPreset[] = [];
 	for (const raw of file.presets) {
 		if (typeof raw !== "object" || raw === null) {
 			skipped.push({ name: "（未命名）", reason: "条目不是对象" });
 			continue;
 		}
-		const entry = raw as Partial<ZGPresetExportEntry>;
+		const entry = raw as Partial<SentinelPresetExportEntry>;
 		const label = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "（未命名）";
 		const result = savePreset(agentDir, {
 			name: typeof entry.name === "string" ? entry.name : "",
@@ -461,7 +461,7 @@ export function briefDescription(description: string): string {
  * refused. The overflow line exists so an operator with a long list learns why
  * the commander cannot see all of it.
  */
-export function presetBriefLines(presets: readonly ZGPreset[]): string[] {
+export function presetBriefLines(presets: readonly SentinelPreset[]): string[] {
 	const enabled = presets.filter((preset) => preset.enabled);
 	const shown = enabled.slice(0, PRESET_BRIEF_MAX);
 	const lines = shown.map((preset) => {

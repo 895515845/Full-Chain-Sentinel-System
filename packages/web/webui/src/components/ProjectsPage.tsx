@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import type { ZGProjectInfo } from "../types.ts";
+import type { SentinelProjectInfo } from "../types.ts";
 import { DeleteIcon } from "./icons.tsx";
 
 function formatWhen(value: string): string {
@@ -21,14 +21,16 @@ export function ProjectsPage({
 	busy,
 	onCreate,
 	onSwitch,
+	onRecreate,
 	onRemove,
 	sessionCount,
 }: {
-	projects: ZGProjectInfo[];
-	activeProject: ZGProjectInfo | null;
+	projects: SentinelProjectInfo[];
+	activeProject: SentinelProjectInfo | null;
 	busy: boolean;
 	onCreate: (name: string) => Promise<string | null>;
 	onSwitch: (id: string) => void;
+	onRecreate: (id: string) => Promise<string | null>;
 	onRemove: (id: string, confirmName: string) => Promise<string | null>;
 	/** Sessions per project id, when the console knows them. */
 	sessionCount: Record<string, number>;
@@ -36,6 +38,7 @@ export function ProjectsPage({
 	const [name, setName] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+	const [pendingRecreate, setPendingRecreate] = useState<string | null>(null);
 	const [confirmName, setConfirmName] = useState("");
 
 	const create = async () => {
@@ -47,7 +50,7 @@ export function ProjectsPage({
 		else setName("");
 	};
 
-	const remove = async (project: ZGProjectInfo) => {
+	const remove = async (project: SentinelProjectInfo) => {
 		setError(null);
 		const message = await onRemove(project.id, confirmName);
 		if (message) setError(message);
@@ -57,14 +60,19 @@ export function ProjectsPage({
 		}
 	};
 
+	const recreate = async (project: SentinelProjectInfo) => {
+		setError(null);
+		const message = await onRecreate(project.id);
+		if (message) setError(message);
+		else setPendingRecreate(null);
+	};
+
 	return (
 		<div className="page-card">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					项目
-					<span className="ws-panel__sub">
-						{projects.length} 个 · 每个项目一个独立工作目录与容器
-					</span>
+					<span className="ws-panel__sub">{projects.length} 个 · 每个项目一个独立工作目录与容器</span>
 				</div>
 				<div className="ws-panel__actions">
 					<input
@@ -118,10 +126,22 @@ export function ProjectsPage({
 										</button>
 										<button
 											type="button"
+											disabled={busy}
+											onClick={() => {
+												setPendingRecreate(project.id);
+												setPendingDelete(null);
+											}}
+											title="删除并用当前设置重新创建容器，工作目录不受影响"
+										>
+											重建容器
+										</button>
+										<button
+											type="button"
 											className="danger"
 											disabled={busy}
 											onClick={() => {
 												setPendingDelete(project.id);
+												setPendingRecreate(null);
 												setConfirmName("");
 											}}
 										>
@@ -129,12 +149,26 @@ export function ProjectsPage({
 											删除
 										</button>
 									</span>
+									{pendingRecreate === project.id ? (
+										<div className="data-confirm">
+											<span>
+												重建会删掉并重新创建容器：容器里用 apt 装的包、<code>/work</code>{" "}
+												之外的文件会丢，正在跑的命令会失败；工作目录（<code>/work</code>）不受影响。容器的网络模式在创建时确定，
+												改完设置后需要在这里重建才会生效。
+											</span>
+											<button type="button" className="primary" disabled={busy} onClick={() => void recreate(project)}>
+												确认重建
+											</button>
+											<button type="button" onClick={() => setPendingRecreate(null)}>
+												取消
+											</button>
+										</div>
+									) : null}
 									{pendingDelete === project.id ? (
 										<div className="data-confirm">
 											<span>
 												删除项目会连带清理它的容器、
-												{project.vulnCount ? `${project.vulnCount} 条漏洞记录` : "漏洞记录"}
-												与
+												{project.vulnCount ? `${project.vulnCount} 条漏洞记录` : "漏洞记录"}与
 												{project.gateCount ? `${project.gateCount} 条守门审计记录` : "守门审计记录"}
 												（不可恢复），输入项目名确认：
 											</span>
@@ -167,8 +201,8 @@ export function ProjectsPage({
 					</div>
 				)}
 				<p className="ws-panel__hint">
-					项目工作目录挂载到容器的 <code>/work</code>，bash 与「文件」页看到的都是它。
-					删除项目不可恢复。
+					项目工作目录挂载到容器的 <code>/work</code>，bash 与「文件」页看到的都是它。 删除项目不可恢复；
+					容器的网络模式等创建期设置改完（设置 → 环境），要在这里点「重建容器」才会应用到已有项目。
 				</p>
 			</div>
 		</div>

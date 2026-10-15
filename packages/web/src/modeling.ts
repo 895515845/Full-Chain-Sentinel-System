@@ -16,7 +16,7 @@
  * fork, and never enters the model's context. Appending `null` clears it.
  */
 
-import type { ZGApiModelStatus, ZGModelingState } from "./protocol.ts";
+import type { SentinelApiModelStatus, SentinelModelingState } from "./protocol.ts";
 
 /**
  * The two run tools. They are declared in every console session — the operator
@@ -228,7 +228,7 @@ export function buildModelingBrief(
 	].join("\n");
 }
 
-const END_LABELS: Record<Exclude<ZGApiModelStatus, "modeling">, string> = {
+const END_LABELS: Record<Exclude<SentinelApiModelStatus, "modeling">, string> = {
 	done: "完成",
 	manual: "操作员结束",
 	failed: "失败",
@@ -236,7 +236,7 @@ const END_LABELS: Record<Exclude<ZGApiModelStatus, "modeling">, string> = {
 
 /** The closing marker, injected so the transcript states how the run ended. */
 export function buildModelingEndMessage(input: {
-	status: Exclude<ZGApiModelStatus, "modeling">;
+	status: Exclude<SentinelApiModelStatus, "modeling">;
 	pathCount: number;
 	operationCount: number;
 	entityCount: number;
@@ -259,7 +259,7 @@ export function modelingState(
 		operationCount: number;
 		entityCount: number;
 	},
-): ZGModelingState {
+): SentinelModelingState {
 	return {
 		runId: run.runId,
 		title: counters.title,

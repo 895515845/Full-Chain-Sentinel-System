@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import WebSocket from "ws";
-import type { ZGClientMessage, ZGServerMessage, ZGStateSnapshot } from "../src/protocol.ts";
-import { startZGServer } from "../src/server.ts";
+import type { SentinelClientMessage, SentinelServerMessage, SentinelStateSnapshot } from "../src/protocol.ts";
+import { startSentinelServer } from "../src/server.ts";
 import { type FakeDocker, installFakeDocker, projectSlug } from "./fake-docker.ts";
 import { writeTestModel } from "./model-fixtures.ts";
 
@@ -18,13 +18,13 @@ let fakeDocker: FakeDocker | undefined;
 let closeServer: (() => void) | undefined;
 let ws: WebSocket | undefined;
 
-const incoming: ZGServerMessage[] = [];
+const incoming: SentinelServerMessage[] = [];
 const waiters: Array<{
-	predicate: (message: ZGServerMessage) => boolean;
-	resolve: (message: ZGServerMessage) => void;
+	predicate: (message: SentinelServerMessage) => boolean;
+	resolve: (message: SentinelServerMessage) => void;
 }> = [];
 
-function dispatch(message: ZGServerMessage): void {
+function dispatch(message: SentinelServerMessage): void {
 	const index = waiters.findIndex((waiter) => waiter.predicate(message));
 	if (index >= 0) {
 		const [waiter] = waiters.splice(index, 1);
@@ -34,7 +34,10 @@ function dispatch(message: ZGServerMessage): void {
 	incoming.push(message);
 }
 
-function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 15000): Promise<ZGServerMessage> {
+function waitFor(
+	predicate: (message: SentinelServerMessage) => boolean,
+	timeoutMs = 15000,
+): Promise<SentinelServerMessage> {
 	const index = incoming.findIndex(predicate);
 	if (index >= 0) {
 		const [message] = incoming.splice(index, 1);
@@ -48,7 +51,7 @@ function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 1
 		}, timeoutMs);
 		const waiter = {
 			predicate,
-			resolve: (message: ZGServerMessage) => {
+			resolve: (message: SentinelServerMessage) => {
 				clearTimeout(timer);
 				resolve(message);
 			},
@@ -57,28 +60,28 @@ function waitFor(predicate: (message: ZGServerMessage) => boolean, timeoutMs = 1
 	});
 }
 
-function send(message: ZGClientMessage): void {
+function send(message: SentinelClientMessage): void {
 	ws?.send(JSON.stringify(message));
 }
 
-function snapshotWhere(predicate: (snapshot: ZGStateSnapshot) => boolean): Promise<ZGStateSnapshot> {
+function snapshotWhere(predicate: (snapshot: SentinelStateSnapshot) => boolean): Promise<SentinelStateSnapshot> {
 	return waitFor((message) => message.type === "snapshot" && predicate(message.snapshot)).then(
-		(message) => (message as { snapshot: ZGStateSnapshot }).snapshot,
+		(message) => (message as { snapshot: SentinelStateSnapshot }).snapshot,
 	);
 }
 
 beforeAll(async () => {
-	tempRoot = mkdtempSync(join(tmpdir(), "zgagent-web-noproject-"));
+	tempRoot = mkdtempSync(join(tmpdir(), "sentinel-web-noproject-"));
 	const agentDir = join(tempRoot, "agent");
 	const cwd = join(tempRoot, "workspace");
 	// A model is configured so that entering a project can build a session; no
 	// request is ever sent, so the endpoint does not need to exist.
-	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "zg-unused-model" });
+	writeTestModel(agentDir, { baseUrl: "http://127.0.0.1:9/v1", apiKey: "test-key", modelId: "sentinel-unused-model" });
 	fakeDocker = installFakeDocker(tempRoot, join(tempRoot, "projects", projectSlug("noproject-test")));
-	const started = await startZGServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
+	const started = await startSentinelServer({ cwd, agentDir, host: "127.0.0.1", port: 0, auth: false });
 	closeServer = started.close;
 	ws = new WebSocket(started.url.replace("http://", "ws://").concat("/ws"));
-	ws.on("message", (data) => dispatch(JSON.parse(String(data)) as ZGServerMessage));
+	ws.on("message", (data) => dispatch(JSON.parse(String(data)) as SentinelServerMessage));
 	await new Promise<void>((resolve, reject) => {
 		if (!ws) throw new Error("no socket");
 		ws.once("open", () => resolve());

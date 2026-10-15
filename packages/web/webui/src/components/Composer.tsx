@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import { formatSize, formatTokens } from "../transcript.ts";
 import type {
-	ZGApiModelSummary,
-	ZGImageAttachment,
-	ZGModelingState,
-	ZGPresetView,
-	ZGSessionPresetView,
-	ZGStatsView,
+	SentinelApiModelSummary,
+	SentinelImageAttachment,
+	SentinelModelingState,
+	SentinelPresetView,
+	SentinelSessionPresetView,
+	SentinelStatsView,
 } from "../types.ts";
 import { attachmentManifest, planAttachments, staleUploads, type UploadedFile, uploadFile } from "../uploads.ts";
 import { ApiModelIcon, BellIcon, DroidIcon, FilesIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
@@ -14,7 +14,7 @@ import { ModelingMenu } from "./ModelingMenu.tsx";
 import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
-async function readImage(file: File): Promise<ZGImageAttachment | null> {
+async function readImage(file: File): Promise<SentinelImageAttachment | null> {
 	const dataUrl = await new Promise<string>((resolve, reject) => {
 		const reader = new FileReader();
 		reader.onload = () => resolve(String(reader.result));
@@ -34,7 +34,7 @@ const DEFAULT_HINT = "输入目标与任务，Enter 发送，Shift+Enter 换行�
  * an operator says what this agent expects to be asked; a preset whose body went
  * missing runs the default agent, so it falls back to the default text as well.
  */
-export function composerHint(preset: ZGSessionPresetView | null): string {
+export function composerHint(preset: SentinelSessionPresetView | null): string {
 	const custom = preset && !preset.missing ? preset.placeholder.trim() : "";
 	return custom || DEFAULT_HINT;
 }
@@ -89,7 +89,7 @@ export function Composer({
 	onAbort,
 }: {
 	streaming: boolean;
-	stats: ZGStatsView | null;
+	stats: SentinelStatsView | null;
 	hasProject: boolean;
 	/** The active project's id; null while none is selected. Uploads land in its work dir. */
 	projectId: string | null;
@@ -104,7 +104,7 @@ export function Composer({
 	 * it is set the button ends the run instead of starting one, because a session
 	 * can only model one thing at a time.
 	 */
-	modeling: ZGModelingState | null;
+	modeling: SentinelModelingState | null;
 	/**
 	 * The Droid plugin's toolset switch. Off is maximally clean: no device tools
 	 * in the prompt, nothing in context.
@@ -121,13 +121,13 @@ export function Composer({
 	 * The modeling records of the active project, newest first. The picker offers
 	 * these on a fresh conversation only.
 	 */
-	apiModels: readonly ZGApiModelSummary[];
+	apiModels: readonly SentinelApiModelSummary[];
 	/** True while the conversation has no messages yet: only then can records ride the first prompt. */
 	freshConversation: boolean;
 	/** The library, for the 预设 Agent picker; disabled entries are not offered. */
-	presets: readonly ZGPresetView[];
+	presets: readonly SentinelPresetView[];
 	/** The preset the viewed session runs under; null means the default agent. */
-	preset: ZGSessionPresetView | null;
+	preset: SentinelSessionPresetView | null;
 	onToggleNotifyRun: () => void;
 	onOpenGoal: () => void;
 	onStartModeling: () => void;
@@ -138,14 +138,14 @@ export function Composer({
 	onSend: (
 		text: string,
 		behavior?: "steer" | "followUp",
-		images?: ZGImageAttachment[],
+		images?: SentinelImageAttachment[],
 		attachModelIds?: string[],
 	) => void;
 	onAbort: () => void;
 }) {
 	const [text, setText] = useState("");
 	const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
-	const [images, setImages] = useState<ZGImageAttachment[]>([]);
+	const [images, setImages] = useState<SentinelImageAttachment[]>([]);
 	/** The 预设 Agent picker, anchored under its button. */
 	const [presetMenu, setPresetMenu] = useState<PresetMenuAnchor | null>(null);
 	/** The 带建模数据 picker and what it has checked, applied to the next send. */
@@ -193,7 +193,7 @@ export function Composer({
 	};
 
 	const addImages = async (files: FileList | File[]) => {
-		const next: ZGImageAttachment[] = [];
+		const next: SentinelImageAttachment[] = [];
 		for (const file of Array.from(files)) {
 			if (!file.type.startsWith("image/")) continue;
 			const image = await readImage(file);

@@ -23,13 +23,13 @@ describe("extension crash attribution", () => {
 	test("matches stack frames beneath loaded package roots", () => {
 		const memory = packageExtension(
 			"npm:pi-observational-memory",
-			"/home/fedora/.zgagent/agent/npm/node_modules/pi-observational-memory",
+			"/home/fedora/.sentinel/agent/npm/node_modules/pi-observational-memory",
 		);
-		const unrelated = packageExtension("npm:unrelated", "/home/fedora/.zgagent/agent/npm/node_modules/unrelated");
+		const unrelated = packageExtension("npm:unrelated", "/home/fedora/.sentinel/agent/npm/node_modules/unrelated");
 		const stack =
 			"TypeError: Cannot read properties of undefined (reading 'runtime')\n" +
 			"    at streamSimple (file:///home/fedora/.local/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-CMRUVXTE.js:1093:16944)\n" +
-			"    at /home/fedora/.zgagent/agent/npm/node_modules/pi-observational-memory/src/agents/worker-stream.ts:43:45";
+			"    at /home/fedora/.sentinel/agent/npm/node_modules/pi-observational-memory/src/agents/worker-stream.ts:43:45";
 
 		expect(findExtensionStackMatches(stack, [memory, unrelated])).toEqual(["npm:pi-observational-memory"]);
 	});
@@ -71,18 +71,18 @@ describe("extension crash attribution", () => {
 
 	test("decodes frame paths independently from malformed error text", () => {
 		const extension: StackExtension = {
-			path: "/Users/reporter/.zgagent/agent/extensions/local memory/index.ts",
-			resolvedPath: "/Users/reporter/.zgagent/agent/extensions/local memory/index.ts",
+			path: "/Users/reporter/.sentinel/agent/extensions/local memory/index.ts",
+			resolvedPath: "/Users/reporter/.sentinel/agent/extensions/local memory/index.ts",
 			sourceInfo: {
-				path: "/Users/reporter/.zgagent/agent/extensions/local memory/index.ts",
+				path: "/Users/reporter/.sentinel/agent/extensions/local memory/index.ts",
 				source: "local",
 				scope: "user",
 				origin: "top-level",
-				baseDir: "/Users/reporter/.zgagent/agent/extensions",
+				baseDir: "/Users/reporter/.sentinel/agent/extensions",
 			},
 		};
 		const stack =
-			"Error: progress 100%\n    at run (file:///Users/reporter/.zgagent/agent/extensions/local%20memory/worker.ts:4:2)";
+			"Error: progress 100%\n    at run (file:///Users/reporter/.sentinel/agent/extensions/local%20memory/worker.ts:4:2)";
 
 		expect(findExtensionStackMatches(stack, [extension])).toEqual([extension.path]);
 	});

@@ -43,8 +43,6 @@ test("a repeated tool call folds under the reminder label", () => {
 });
 
 test("an unknown custom message still renders nothing", () => {
-	const html = renderToStaticMarkup(
-		createElement(MessageView, { message: custom("zg-unknown", "不应该出现的内容") }),
-	);
+	const html = renderToStaticMarkup(createElement(MessageView, { message: custom("sentinel-unknown", "不应该出现的内容") }));
 	expect(html).toBe("");
 });

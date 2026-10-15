@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img">
+	<title>全链哨兵 图标候选 8：链条环与中心盾</title>
+	<!-- 四段圆弧拼成一圈链条 -->
+	<g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round">
+		<path d="M56 32a24 24 0 0 1-15.8 22.6"/>
+		<path d="M32 56a24 24 0 0 1-22.6-15.8"/>
+		<path d="M8 32a24 24 0 0 1 15.8-22.6"/>
+		<path d="M32 8a24 24 0 0 1 22.6 15.8"/>
+	</g>
+	<!-- 中心盾 -->
+	<path fill="currentColor" d="M32 21 44 26.2v9.6c0 7.2-5.2 12.9-12 15.7-6.8-2.8-12-8.5-12-15.7v-9.6L32 21Z"/>
+</svg>

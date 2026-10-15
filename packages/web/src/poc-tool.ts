@@ -14,7 +14,7 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { PocStore } from "./pocs.ts";
-import type { ZGPocSeverity } from "./protocol.ts";
+import type { SentinelPocSeverity } from "./protocol.ts";
 
 /** Longest tool output handed back to the model. */
 const MAX_TOOL_OUTPUT = 12000;
@@ -34,7 +34,7 @@ function clip(text: string): string {
 	return `${text.slice(0, MAX_TOOL_OUTPUT)}\n…（输出已截断，共 ${text.length} 字符）`;
 }
 
-const SEVERITY_LABELS: Record<ZGPocSeverity, string> = {
+const SEVERITY_LABELS: Record<SentinelPocSeverity, string> = {
 	critical: "严重",
 	high: "高危",
 	medium: "中危",
@@ -116,7 +116,7 @@ export function createPocTools(options: PocToolOptions): ToolDefinition[] {
 		async execute(_toolCallId, params): Promise<AgentToolResult<SearchDetails>> {
 			const page = options.store.list({
 				...(params.search?.trim() ? { search: params.search.trim() } : {}),
-				...(params.severity ? { severity: params.severity as ZGPocSeverity } : {}),
+				...(params.severity ? { severity: params.severity as SentinelPocSeverity } : {}),
 				...(params.tag?.trim() ? { tag: params.tag.trim() } : {}),
 			});
 			if (page.items.length === 0) {

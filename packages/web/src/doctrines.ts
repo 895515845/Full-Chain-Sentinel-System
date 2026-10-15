@@ -11,7 +11,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-export interface ZGDoctrine {
+export interface SentinelDoctrine {
 	id: string;
 	name: string;
 	/** Prompt text merged into the commander's system prompt. */
@@ -24,7 +24,7 @@ export interface ZGDoctrine {
  * supplies their own; custom doctrines added from the engine page carry the
  * real engagement playbooks.
  */
-const BUILTIN_DOCTRINES: ZGDoctrine[] = [
+const BUILTIN_DOCTRINES: SentinelDoctrine[] = [
 	{
 		id: "standard",
 		name: "标准编排",
@@ -59,21 +59,21 @@ const BUILTIN_DOCTRINES: ZGDoctrine[] = [
 ];
 
 interface DoctrinesFile {
-	doctrines: ZGDoctrine[];
+	doctrines: SentinelDoctrine[];
 }
 
 function doctrinesPath(agentDir: string): string {
 	return `${agentDir}/doctrines.json`;
 }
 
-function readCustom(agentDir: string): ZGDoctrine[] {
+function readCustom(agentDir: string): SentinelDoctrine[] {
 	const path = doctrinesPath(agentDir);
 	if (!existsSync(path)) return [];
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8")) as DoctrinesFile;
 		if (!Array.isArray(parsed.doctrines)) return [];
 		return parsed.doctrines.filter(
-			(item): item is ZGDoctrine =>
+			(item): item is SentinelDoctrine =>
 				typeof item === "object" &&
 				item !== null &&
 				typeof item.id === "string" &&
@@ -85,21 +85,21 @@ function readCustom(agentDir: string): ZGDoctrine[] {
 	}
 }
 
-function writeCustom(agentDir: string, doctrines: ZGDoctrine[]): void {
+function writeCustom(agentDir: string, doctrines: SentinelDoctrine[]): void {
 	const path = doctrinesPath(agentDir);
 	mkdirSync(dirname(path), { recursive: true });
 	const file: DoctrinesFile = { doctrines };
 	writeFileSync(path, `${JSON.stringify(file, null, "\t")}\n`, { mode: 0o600 });
 }
 
-export function listDoctrines(agentDir: string): ZGDoctrine[] {
+export function listDoctrines(agentDir: string): SentinelDoctrine[] {
 	return [...BUILTIN_DOCTRINES, ...readCustom(agentDir)];
 }
 
 /** Resolve doctrine ids to their texts, ignoring unknown ids. */
-export function resolveDoctrines(agentDir: string, ids: readonly string[]): ZGDoctrine[] {
+export function resolveDoctrines(agentDir: string, ids: readonly string[]): SentinelDoctrine[] {
 	const byId = new Map(listDoctrines(agentDir).map((doctrine) => [doctrine.id, doctrine]));
-	const resolved: ZGDoctrine[] = [];
+	const resolved: SentinelDoctrine[] = [];
 	for (const id of ids) {
 		const doctrine = byId.get(id);
 		if (doctrine && !resolved.some((item) => item.id === doctrine.id)) resolved.push(doctrine);
@@ -110,7 +110,7 @@ export function resolveDoctrines(agentDir: string, ids: readonly string[]): ZGDo
 export function saveDoctrine(
 	agentDir: string,
 	input: { id?: string; name: string; text: string },
-): { doctrine?: ZGDoctrine; error?: string } {
+): { doctrine?: SentinelDoctrine; error?: string } {
 	const name = input.name.trim();
 	const text = input.text.trim();
 	if (!name) return { error: "思路名称不能为空" };
@@ -118,7 +118,7 @@ export function saveDoctrine(
 	const custom = readCustom(agentDir);
 	const existing = input.id ? custom.find((item) => item.id === input.id) : undefined;
 	if (input.id && !existing) return { error: "该思路不存在（内置思路不能修改）" };
-	const doctrine: ZGDoctrine = existing
+	const doctrine: SentinelDoctrine = existing
 		? { ...existing, name, text }
 		: {
 				id: `doctrine-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,

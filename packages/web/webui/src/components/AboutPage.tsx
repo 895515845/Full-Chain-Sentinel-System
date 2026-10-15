@@ -6,8 +6,8 @@
  * when something looks wrong.
  */
 
-import type { ZGProjectInfo, ZGResolvedModelView, ZGStateSnapshot, ZGStatsView } from "../types.ts";
-import { ZG_MODE_LABELS } from "../types.ts";
+import type { SentinelProjectInfo, SentinelResolvedModelView, SentinelStateSnapshot, SentinelStatsView } from "../types.ts";
+import { SENTINEL_MODE_LABELS } from "../types.ts";
 
 export function AboutPage({
 	snapshot,
@@ -16,19 +16,19 @@ export function AboutPage({
 	project,
 	connected,
 }: {
-	snapshot: ZGStateSnapshot | null;
+	snapshot: SentinelStateSnapshot | null;
 	/** What the 主模型 role resolves to. */
-	main: ZGResolvedModelView | null;
-	stats: ZGStatsView | null;
-	project: ZGProjectInfo | null;
+	main: SentinelResolvedModelView | null;
+	stats: SentinelStatsView | null;
+	project: SentinelProjectInfo | null;
 	connected: boolean;
 }) {
 	const rows: { label: string; value: string }[] = [
-		{ label: "控制台", value: "ZGAgent Web 控制台" },
+		{ label: "控制台", value: "全链哨兵 Web 控制台" },
 		{ label: "连接状态", value: connected ? "已连接" : "已断开" },
 		{ label: "主模型", value: main ? `${main.entryName}（${main.modelId}）` : "未配置" },
 		{ label: "模型", value: snapshot?.model ? `${snapshot.model.provider} / ${snapshot.model.id}` : "未配置" },
-		{ label: "执行模式", value: snapshot ? ZG_MODE_LABELS[snapshot.mode] : "—" },
+		{ label: "执行模式", value: snapshot ? SENTINEL_MODE_LABELS[snapshot.mode] : "—" },
 		{ label: "思考等级", value: snapshot?.thinkingLevel ?? "—" },
 		{ label: "当前项目", value: project ? `${project.name}（${project.container ?? "无容器"}）` : "未选择" },
 		{ label: "工作目录", value: snapshot?.cwd ?? "—" },

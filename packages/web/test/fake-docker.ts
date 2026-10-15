@@ -14,6 +14,9 @@ import { join } from "node:path";
 
 const SCRIPT = `#!/bin/sh
 # Test stand-in for docker. Only the subcommands the console issues are handled.
+# With SENTINEL_FAKE_DOCKER_LOG set, every invocation is appended, so a test can assert
+# what the console asked for (e.g. the flags a container was created with).
+[ -n "\${SENTINEL_FAKE_DOCKER_LOG:-}" ] && printf '%s\\n' "$*" >> "$SENTINEL_FAKE_DOCKER_LOG"
 cmd="$1"
 case "$cmd" in
 	image|build|run|start|rm) exit 0 ;;
@@ -28,7 +31,7 @@ case "$cmd" in
 		shift 2
 		script="$1"; shift
 		[ "$1" = "zg" ] && shift
-		root="\${ZG_FAKE_WORKDIR:-/work}"
+		root="\${SENTINEL_FAKE_WORKDIR:-/work}"
 		script=$(printf '%s' "$script" | sed "s#/work#\${root}#g")
 		# Rotate the positional parameters, rewriting each one.
 		count=$#
@@ -54,10 +57,11 @@ export interface FakeDocker {
 
 /**
  * Install the fake docker under `root` and point the project layout at `root`:
- * `ZG_PROJECTS_DIR` keeps project creation out of the operator's home, and
- * `ZG_FAKE_WORKDIR` is what the fake rewrites `/work` to.
+ * `SENTINEL_PROJECTS_DIR` keeps project creation out of the operator's home, and
+ * `SENTINEL_FAKE_WORKDIR` is what the fake rewrites `/work` to. Passing `logPath` records
+ * every invocation there, one command line per call.
  */
-export function installFakeDocker(root: string, workDir: string): FakeDocker {
+export function installFakeDocker(root: string, workDir: string, logPath?: string): FakeDocker {
 	const dir = join(root, "fake-docker");
 	mkdirSync(dir, { recursive: true });
 	const binary = join(dir, "docker");
@@ -65,21 +69,25 @@ export function installFakeDocker(root: string, workDir: string): FakeDocker {
 	chmodSync(binary, 0o755);
 
 	const previousPath = process.env.PATH;
-	const previousProjectsDir = process.env.ZG_PROJECTS_DIR;
-	const previousWorkDir = process.env.ZG_FAKE_WORKDIR;
+	const previousProjectsDir = process.env.SENTINEL_PROJECTS_DIR;
+	const previousWorkDir = process.env.SENTINEL_FAKE_WORKDIR;
+	const previousLog = process.env.SENTINEL_FAKE_DOCKER_LOG;
 	process.env.PATH = `${dir}:${previousPath ?? ""}`;
-	process.env.ZG_PROJECTS_DIR = join(root, "projects");
-	process.env.ZG_FAKE_WORKDIR = workDir;
+	process.env.SENTINEL_PROJECTS_DIR = join(root, "projects");
+	process.env.SENTINEL_FAKE_WORKDIR = workDir;
+	if (logPath) process.env.SENTINEL_FAKE_DOCKER_LOG = logPath;
 
 	return {
 		dir,
 		restore() {
 			if (previousPath === undefined) delete process.env.PATH;
 			else process.env.PATH = previousPath;
-			if (previousProjectsDir === undefined) delete process.env.ZG_PROJECTS_DIR;
-			else process.env.ZG_PROJECTS_DIR = previousProjectsDir;
-			if (previousWorkDir === undefined) delete process.env.ZG_FAKE_WORKDIR;
-			else process.env.ZG_FAKE_WORKDIR = previousWorkDir;
+			if (previousProjectsDir === undefined) delete process.env.SENTINEL_PROJECTS_DIR;
+			else process.env.SENTINEL_PROJECTS_DIR = previousProjectsDir;
+			if (previousWorkDir === undefined) delete process.env.SENTINEL_FAKE_WORKDIR;
+			else process.env.SENTINEL_FAKE_WORKDIR = previousWorkDir;
+			if (previousLog === undefined) delete process.env.SENTINEL_FAKE_DOCKER_LOG;
+			else process.env.SENTINEL_FAKE_DOCKER_LOG = previousLog;
 		},
 	};
 }

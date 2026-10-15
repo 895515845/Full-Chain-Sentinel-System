@@ -18,7 +18,7 @@ const TEMPLATE = (id: string, name = "Test template", severity = "high"): string
 
 info:
   name: ${name}
-  author: zgagent
+  author: sentinel
   severity: ${severity}
   tags: cve,rce
   classification:
@@ -45,7 +45,7 @@ let dir: string;
 let store: PocStore;
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-pocs-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-pocs-"));
 	store = new PocStore(join(dir, "pocs.db"));
 });
 
@@ -214,7 +214,7 @@ test("a batch over the output budget names what it left out instead of dropping 
 });
 
 test("a full page of matches says so instead of reading as the whole library", async () => {
-	const ownDir = mkdtempSync(join(tmpdir(), "zg-pocs-cap-"));
+	const ownDir = mkdtempSync(join(tmpdir(), "sentinel-pocs-cap-"));
 	const own = new PocStore(join(ownDir, "pocs.db"));
 	try {
 		const files = [
@@ -443,7 +443,7 @@ test("getMany returns the requested templates in order, once each", () => {
 test("an import larger than one commit chunk stays complete and countable", () => {
 	// Imports commit in chunks of 5000, so cross that boundary: every template
 	// must still land, and the second run must count replacements, not inserts.
-	const ownDir = mkdtempSync(join(tmpdir(), "zg-pocs-chunk-"));
+	const ownDir = mkdtempSync(join(tmpdir(), "sentinel-pocs-chunk-"));
 	const own = new PocStore(join(ownDir, "pocs.db"));
 	try {
 		const files = Array.from({ length: 5_001 }, (_, index) => ({

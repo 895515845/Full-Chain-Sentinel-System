@@ -26,9 +26,9 @@ import {
 	readNotifyConfig,
 	writeNotifyConfig,
 } from "../src/notify-config.ts";
-import type { ZGNotifyConfig } from "../src/protocol.ts";
+import type { SentinelNotifyConfig } from "../src/protocol.ts";
 
-const CONFIG: ZGNotifyConfig = {
+const CONFIG: SentinelNotifyConfig = {
 	enabled: true,
 	webhook: "",
 	secret: "",
@@ -96,10 +96,10 @@ test("without a secret the webhook is used as-is", () => {
 });
 
 test("a configured keyword is prepended to the markdown body", async () => {
-	const status = await sendDingTalk({ ...CONFIG, webhook: baseUrl, keyword: "ZGAgent" }, "T", "### body");
+	const status = await sendDingTalk({ ...CONFIG, webhook: baseUrl, keyword: "Full Chain Sentinel" }, "T", "### body");
 	expect(status.ok).toBe(true);
 	expect(received).toHaveLength(1);
-	expect(received[0]?.body.markdown?.text).toBe("ZGAgent\n### body");
+	expect(received[0]?.body.markdown?.text).toBe("Full Chain Sentinel\n### body");
 	expect(received[0]?.body.msgtype).toBe("markdown");
 });
 
@@ -151,7 +151,7 @@ test("the run notification reports status, project, session, duration, tokens, a
 		},
 		2000,
 	);
-	expect(title).toBe("ZGAgent 任务失败");
+	expect(title).toBe("全链哨兵 任务失败");
 	expect(markdown).toContain("**状态**：失败");
 	expect(markdown).toContain("**项目**：测试项目");
 	expect(markdown).toContain("**会话**：扫描 10.0.0.1");
@@ -234,7 +234,7 @@ test("the per-message choice overrides the global switch in both directions", ()
 });
 
 test("the notification config round-trips through notifications.json with 0600", () => {
-	const dir = mkdtempSync(join(tmpdir(), "zg-notify-"));
+	const dir = mkdtempSync(join(tmpdir(), "sentinel-notify-"));
 	try {
 		expect(readNotifyConfig(dir)).toEqual({
 			enabled: false,
@@ -269,7 +269,7 @@ test("the notification config round-trips through notifications.json with 0600",
 });
 
 test("a stored limit is normalized: missing reads as the default, negative as 0", () => {
-	const dir = mkdtempSync(join(tmpdir(), "zg-notify-limit-"));
+	const dir = mkdtempSync(join(tmpdir(), "sentinel-notify-limit-"));
 	try {
 		writeNotifyConfig(dir, {
 			enabled: true,
@@ -294,7 +294,7 @@ test("a stored limit is normalized: missing reads as the default, negative as 0"
 });
 
 test("kinds default to all on and a cleared kind survives the round trip", () => {
-	const dir = mkdtempSync(join(tmpdir(), "zg-notify-kinds-"));
+	const dir = mkdtempSync(join(tmpdir(), "sentinel-notify-kinds-"));
 	try {
 		// A file from before the checkboxes existed pushes everything, as it did.
 		writeFileSync(

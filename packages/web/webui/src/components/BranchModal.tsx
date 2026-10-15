@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { SessionTreeNodeView, ZGForkPoint } from "../types.ts";
+import type { SessionTreeNodeView, SentinelForkPoint } from "../types.ts";
 import { BranchIcon, CaretDownIcon, CaretRightIcon, CloseIcon } from "./icons.tsx";
 
 interface PathEntry {
@@ -100,7 +100,7 @@ export function BranchModal({
 }: {
 	tree: SessionTreeNodeView[];
 	leafId: string | null;
-	forkPoints: ZGForkPoint[];
+	forkPoints: SentinelForkPoint[];
 	onNavigate: (entryId: string) => void;
 	onRenameBranch: (entryId: string, label: string) => void;
 	onClose: () => void;
@@ -186,7 +186,9 @@ export function BranchModal({
 													title={branch.summary}
 												>
 													<span className="branch-dot" />
-													<span className="branch-name">{branch.label || branch.summary.slice(0, 26)}</span>
+													<span className="branch-name">
+														{branch.label || branch.summary.slice(0, 26)}
+													</span>
 													<span className="branch-meta">{branch.messageCount} 条</span>
 													{branch.active ? <span className="branch-now">当前</span> : null}
 												</button>

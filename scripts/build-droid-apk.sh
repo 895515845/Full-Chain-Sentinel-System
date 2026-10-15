@@ -2,14 +2,14 @@
 # 构建 DroidBridge APK（Mac，国内镜像）。
 #
 # 前置：JDK 17（/Library/Java/JavaVirtualMachines/jdk-17.jdk）。
-# SDK 与 Gradle 都来自腾讯镜像，脚本会在 ~/zg-tools 下就位，重复执行幂等：
+# SDK 与 Gradle 都来自腾讯镜像，脚本会在 ~/sentinel-tools 下就位，重复执行幂等：
 #   - Gradle 8.7:  mirrors.cloud.tencent.com/gradle/gradle-8.7-bin.zip
 #   - platform-34: mirrors.cloud.tencent.com/AndroidSDK/platform-34-ext7_r03.zip
 #   - build-tools: mirrors.cloud.tencent.com/AndroidSDK/build-tools_r34-macosx.zip
 # AGP/Kotlin/依赖走 settings.gradle.kts 里的阿里云 maven 镜像。
 set -euo pipefail
 
-TOOLS_DIR="${HOME}/zg-tools"
+TOOLS_DIR="${HOME}/sentinel-tools"
 SDK_DIR="${TOOLS_DIR}/sdk"
 DEFAULT_JAVA_HOME="/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home"
 # 脚本的前置是 JDK 17，但 shell 里常见的 JAVA_HOME 指向 JDK 8，而 AGP 8.5 需要 11+
@@ -18,7 +18,7 @@ DEFAULT_JAVA_HOME="/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home"
 if [ -z "${JAVA_HOME:-}" ] || ! [ -x "${JAVA_HOME}/bin/java" ]; then
 	JAVA_HOME="${DEFAULT_JAVA_HOME}"
 elif "${JAVA_HOME}/bin/java" -version 2>&1 | grep -q 'version "1\.8'; then
-	echo "[zgagent] JAVA_HOME 指向 Java 8，改用 ${DEFAULT_JAVA_HOME}" >&2
+	echo "[sentinel] JAVA_HOME 指向 Java 8，改用 ${DEFAULT_JAVA_HOME}" >&2
 	JAVA_HOME="${DEFAULT_JAVA_HOME}"
 fi
 GRADLE_BIN="${TOOLS_DIR}/gradle-8.7/bin/gradle"

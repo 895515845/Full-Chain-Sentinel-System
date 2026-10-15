@@ -25,7 +25,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MAX_ZIP_TOTAL_BYTES } from "./poc-zip.ts";
 import type { PocStore } from "./pocs.ts";
-import type { ZGPocImportOutcome, ZGPocSource, ZGPocSourceSave, ZGPocSyncRecord } from "./protocol.ts";
+import type {
+	SentinelPocImportOutcome,
+	SentinelPocSource,
+	SentinelPocSourceSave,
+	SentinelPocSyncRecord,
+} from "./protocol.ts";
 
 /**
  * Download timeout per attempt. Deliberately generous: the official
@@ -67,14 +72,14 @@ interface StoredSource {
 	intervalHours: number;
 	enabled: boolean;
 	lastSyncAt: string | null;
-	history: ZGPocSyncRecord[];
+	history: SentinelPocSyncRecord[];
 }
 
 export interface SubscriptionHooks {
 	/** A source changed (save/delete/sync finished); consoles refresh the list. */
 	onChange(): void;
 	/** A sync failed; the runtime decides whether that becomes a DingTalk push. */
-	onSyncFailure(source: ZGPocSource, record: ZGPocSyncRecord): void;
+	onSyncFailure(source: SentinelPocSource, record: SentinelPocSyncRecord): void;
 }
 
 /** Validate a source URL: http or https only, no credentials in the URL itself. */
@@ -98,14 +103,14 @@ export function clampIntervalHours(value: number): number {
 }
 
 /** Whether a source is due for an automatic sync at `now`. */
-export function isDue(source: ZGPocSource, now = Date.now()): boolean {
+export function isDue(source: SentinelPocSource, now = Date.now()): boolean {
 	if (!source.enabled || source.intervalHours <= 0) return false;
 	if (!source.lastSyncAt) return true;
 	const elapsed = now - Date.parse(source.lastSyncAt);
 	return elapsed >= source.intervalHours * 3_600_000;
 }
 
-function toView(source: StoredSource): ZGPocSource {
+function toView(source: StoredSource): SentinelPocSource {
 	return {
 		id: source.id,
 		name: source.name,
@@ -181,12 +186,12 @@ export class PocSubscriptions {
 		writeFileSync(this.path, `${JSON.stringify({ sources: this.sources }, null, "\t")}\n`, { mode: 0o600 });
 	}
 
-	private record(source: StoredSource, record: ZGPocSyncRecord): void {
+	private record(source: StoredSource, record: SentinelPocSyncRecord): void {
 		source.history.unshift(record);
 		source.history = source.history.slice(0, HISTORY_LIMIT);
 	}
 
-	list(): ZGPocSource[] {
+	list(): SentinelPocSource[] {
 		return this.sources.map(toView);
 	}
 
@@ -195,7 +200,7 @@ export class PocSubscriptions {
 	 * reused. The interval stays manual-only because the button is a click, not
 	 * a schedule; automatic syncing can be turned on afterwards like any source.
 	 */
-	ensureOfficial(): { source: ZGPocSource } {
+	ensureOfficial(): { source: SentinelPocSource } {
 		const existing = this.sources.find((item) => item.id === OFFICIAL_SOURCE_ID);
 		if (existing) return { source: toView(existing) };
 		const source: StoredSource = {
@@ -216,7 +221,7 @@ export class PocSubscriptions {
 	}
 
 	/** Create or update; returns the saved view or a rejection reason. */
-	save(input: ZGPocSourceSave): { source: ZGPocSource } | { error: string } {
+	save(input: SentinelPocSourceSave): { source: SentinelPocSource } | { error: string } {
 		const name = input.name.trim();
 		if (!name) return { error: "名称不能为空" };
 		const url = input.url.trim();
@@ -269,13 +274,13 @@ export class PocSubscriptions {
 	}
 
 	/** Sync one source now. Refuses a second concurrent sync of the same source. */
-	async sync(id: string, trigger: "manual" | "auto"): Promise<{ source: ZGPocSource } | { error: string }> {
+	async sync(id: string, trigger: "manual" | "auto"): Promise<{ source: SentinelPocSource } | { error: string }> {
 		const source = this.sources.find((item) => item.id === id);
 		if (!source) return { error: "该订阅源不存在" };
 		if (this.running.has(id)) return { error: "该订阅源正在同步" };
 		this.running.add(id);
 		const startedAt = Date.now();
-		let outcome: ZGPocImportOutcome | undefined;
+		let outcome: SentinelPocImportOutcome | undefined;
 		let failure: string | undefined;
 		try {
 			let bytes: Buffer | undefined;
@@ -296,7 +301,7 @@ export class PocSubscriptions {
 		} finally {
 			this.running.delete(id);
 		}
-		const record: ZGPocSyncRecord = {
+		const record: SentinelPocSyncRecord = {
 			at: new Date().toISOString(),
 			ok: failure === undefined,
 			trigger,

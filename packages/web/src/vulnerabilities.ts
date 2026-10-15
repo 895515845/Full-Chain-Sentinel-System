@@ -16,24 +16,29 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
-	ZGVulnEvidence,
-	ZGVulnerability,
-	ZGVulnFilters,
-	ZGVulnNote,
-	ZGVulnReview,
-	ZGVulnSeverity,
-	ZGVulnStats,
-	ZGVulnStatus,
-	ZGVulnSummary,
-	ZGVulnUpdate,
+	SentinelVulnEvidence,
+	SentinelVulnerability,
+	SentinelVulnFilters,
+	SentinelVulnNote,
+	SentinelVulnReview,
+	SentinelVulnSeverity,
+	SentinelVulnStats,
+	SentinelVulnStatus,
+	SentinelVulnSummary,
+	SentinelVulnUpdate,
 } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase, type SqliteValue } from "./sqlite.ts";
 
-export const ZG_VULN_SEVERITIES: readonly ZGVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
-export const ZG_VULN_STATUSES: readonly ZGVulnStatus[] = ["pending", "confirmed", "false_positive", "fixed"];
+export const SENTINEL_VULN_SEVERITIES: readonly SentinelVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
+export const SENTINEL_VULN_STATUSES: readonly SentinelVulnStatus[] = [
+	"pending",
+	"confirmed",
+	"false_positive",
+	"fixed",
+];
 
 /** Chinese labels, used by the Markdown export and the notification. */
-export const ZG_VULN_SEVERITY_LABELS: Record<ZGVulnSeverity, string> = {
+export const SENTINEL_VULN_SEVERITY_LABELS: Record<SentinelVulnSeverity, string> = {
 	critical: "严重",
 	high: "高危",
 	medium: "中危",
@@ -41,7 +46,7 @@ export const ZG_VULN_SEVERITY_LABELS: Record<ZGVulnSeverity, string> = {
 	info: "信息",
 };
 
-export const ZG_VULN_STATUS_LABELS: Record<ZGVulnStatus, string> = {
+export const SENTINEL_VULN_STATUS_LABELS: Record<SentinelVulnStatus, string> = {
 	pending: "待确认",
 	confirmed: "已确认",
 	false_positive: "误报",
@@ -49,15 +54,15 @@ export const ZG_VULN_STATUS_LABELS: Record<ZGVulnStatus, string> = {
 };
 
 /** Highest score first, so a report and the page agree on the order. */
-export function severityRank(severity: ZGVulnSeverity): number {
-	return ZG_VULN_SEVERITIES.length - ZG_VULN_SEVERITIES.indexOf(severity);
+export function severityRank(severity: SentinelVulnSeverity): number {
+	return SENTINEL_VULN_SEVERITIES.length - SENTINEL_VULN_SEVERITIES.indexOf(severity);
 }
 
 /**
  * The severity bucket a CVSS base score belongs to. Used to flag a record whose
  * five-level label disagrees with its own score instead of silently trusting one.
  */
-export function severityForCvss(cvss: number): ZGVulnSeverity {
+export function severityForCvss(cvss: number): SentinelVulnSeverity {
 	if (cvss >= 9) return "critical";
 	if (cvss >= 7) return "high";
 	if (cvss >= 4) return "medium";
@@ -65,7 +70,7 @@ export function severityForCvss(cvss: number): ZGVulnSeverity {
 	return "info";
 }
 
-export function isSeverityMismatch(severity: ZGVulnSeverity, cvss: number): boolean {
+export function isSeverityMismatch(severity: SentinelVulnSeverity, cvss: number): boolean {
 	return severityForCvss(cvss) !== severity;
 }
 
@@ -84,14 +89,14 @@ export function vulnLabel(prefix: string, number: number): string {
 	return `${prefix}-${String(number).padStart(4, "0")}`;
 }
 
-export interface ZGVulnCreateInput {
+export interface SentinelVulnCreateInput {
 	projectId: string;
 	projectName: string;
 	sessionId?: string;
 	/** Who submitted it, e.g. "主代理" or "子代理 <runId>". */
 	source: string;
 	title: string;
-	severity: ZGVulnSeverity;
+	severity: SentinelVulnSeverity;
 	cvss: number;
 	cvssVector?: string;
 	target: string;
@@ -102,7 +107,7 @@ export interface ZGVulnCreateInput {
 	repro?: string;
 	remediation?: string;
 	references?: string[];
-	evidence?: ZGVulnEvidence[];
+	evidence?: SentinelVulnEvidence[];
 	/** 平台：默认 Web；安卓渗透提交时标 android 并附包名/版本。 */
 	platform?: "web" | "android";
 	appPackage?: string;
@@ -233,7 +238,7 @@ export function vulnerabilityDbPath(agentDir: string): string {
 }
 
 /** Zeroed counts, used when no project is selected. */
-export function emptyVulnStats(): ZGVulnStats {
+export function emptyVulnStats(): SentinelVulnStats {
 	return {
 		total: 0,
 		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
@@ -278,7 +283,7 @@ export class VulnerabilityStore {
 		return Number(row?.last ?? 0) + 1;
 	}
 
-	create(input: ZGVulnCreateInput): ZGVulnerability {
+	create(input: SentinelVulnCreateInput): SentinelVulnerability {
 		const id = randomUUID();
 		const number = this.nextNumber(input.projectId);
 		const prefix = vulnPrefix(input.projectName);
@@ -286,7 +291,7 @@ export class VulnerabilityStore {
 		const now = new Date().toISOString();
 		// Fresh submissions start queued for the reviewer LLM; it calibrates the
 		// agent's self-assigned rating asynchronously at the hub layer.
-		const review: ZGVulnReview = { state: "queued", at: Date.now() };
+		const review: SentinelVulnReview = { state: "queued", at: Date.now() };
 		this.db
 			.prepare(
 				`INSERT INTO vulnerabilities (
@@ -347,7 +352,7 @@ export class VulnerabilityStore {
 		return created;
 	}
 
-	get(id: string): ZGVulnerability | undefined {
+	get(id: string): SentinelVulnerability | undefined {
 		const row = this.db.prepare("SELECT * FROM vulnerabilities WHERE id = ?").get(id) as unknown as
 			| VulnRow
 			| undefined;
@@ -366,7 +371,7 @@ export class VulnerabilityStore {
 	}
 
 	/** Look up by id or by the human-readable label, always inside one project. */
-	find(projectId: string, idOrLabel: string): ZGVulnerability | undefined {
+	find(projectId: string, idOrLabel: string): SentinelVulnerability | undefined {
 		const trimmed = idOrLabel.trim();
 		const byLabel = this.db
 			.prepare("SELECT id FROM vulnerabilities WHERE project_id = ? AND label = ? COLLATE NOCASE")
@@ -390,7 +395,7 @@ export class VulnerabilityStore {
 	applyReview(
 		id: string,
 		verdict: {
-			severity: ZGVulnSeverity;
+			severity: SentinelVulnSeverity;
 			cvss: number;
 			cvssVector?: string;
 			dubious: boolean;
@@ -398,12 +403,12 @@ export class VulnerabilityStore {
 			model: string;
 		},
 		force = false,
-	): ZGVulnerability | undefined {
+	): SentinelVulnerability | undefined {
 		const existing = this.get(id);
 		if (!existing) return undefined;
 		if (existing.review.state !== "queued") return existing;
 		if (existing.status !== "pending" && !force) return existing;
-		const review: ZGVulnReview = {
+		const review: SentinelVulnReview = {
 			state: "done",
 			severity: verdict.severity,
 			cvss: verdict.cvss,
@@ -426,7 +431,7 @@ export class VulnerabilityStore {
 				id,
 			);
 		const changes = [
-			`等级 ${ZG_VULN_SEVERITY_LABELS[existing.severity]} → ${ZG_VULN_SEVERITY_LABELS[verdict.severity]}`,
+			`等级 ${SENTINEL_VULN_SEVERITY_LABELS[existing.severity]} → ${SENTINEL_VULN_SEVERITY_LABELS[verdict.severity]}`,
 			`CVSS ${existing.cvss.toFixed(1)} → ${verdict.cvss.toFixed(1)}`,
 		];
 		this.appendNote(id, {
@@ -444,7 +449,7 @@ export class VulnerabilityStore {
 	markReviewFailed(id: string, error: string): void {
 		const existing = this.get(id);
 		if (!existing || existing.review.state !== "queued") return;
-		const review: ZGVulnReview = { ...existing.review, state: "failed", error, at: Date.now() };
+		const review: SentinelVulnReview = { ...existing.review, state: "failed", error, at: Date.now() };
 		this.db.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?").run(JSON.stringify(review), id);
 	}
 
@@ -463,7 +468,7 @@ export class VulnerabilityStore {
 		if (!force && existing.review.state !== "failed") return false;
 		this.db
 			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
-			.run(JSON.stringify({ ...existing.review, state: "queued", at: Date.now() } satisfies ZGVulnReview), id);
+			.run(JSON.stringify({ ...existing.review, state: "queued", at: Date.now() } satisfies SentinelVulnReview), id);
 		return true;
 	}
 
@@ -477,7 +482,7 @@ export class VulnerabilityStore {
 		if (!existing || existing.review.state !== "queued") return;
 		this.db
 			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
-			.run(JSON.stringify({ state: "skipped", at: Date.now() } satisfies ZGVulnReview), id);
+			.run(JSON.stringify({ state: "skipped", at: Date.now() } satisfies SentinelVulnReview), id);
 	}
 
 	/** Drop every queued review, so turning automatic review off clears the backlog. */
@@ -503,7 +508,7 @@ export class VulnerabilityStore {
 		return rows.map((row) => row.id);
 	}
 
-	list(projectId: string, filters: ZGVulnFilters = {}): ZGVulnSummary[] {
+	list(projectId: string, filters: SentinelVulnFilters = {}): SentinelVulnSummary[] {
 		const conditions = ["project_id = ?"];
 		const params: SqliteValue[] = [projectId];
 		if (filters.status) {
@@ -537,20 +542,20 @@ export class VulnerabilityStore {
 		});
 	}
 
-	stats(projectId: string): ZGVulnStats {
+	stats(projectId: string): SentinelVulnStats {
 		const bySeverity = emptyVulnStats().bySeverity;
 		const byStatus = emptyVulnStats().byStatus;
 		const severityRows = this.db
 			.prepare("SELECT severity, COUNT(*) AS count FROM vulnerabilities WHERE project_id = ? GROUP BY severity")
 			.all(projectId) as unknown as Array<{ severity: string; count: number }>;
 		for (const row of severityRows) {
-			if (row.severity in bySeverity) bySeverity[row.severity as ZGVulnSeverity] = Number(row.count);
+			if (row.severity in bySeverity) bySeverity[row.severity as SentinelVulnSeverity] = Number(row.count);
 		}
 		const statusRows = this.db
 			.prepare("SELECT status, COUNT(*) AS count FROM vulnerabilities WHERE project_id = ? GROUP BY status")
 			.all(projectId) as unknown as Array<{ status: string; count: number }>;
 		for (const row of statusRows) {
-			if (row.status in byStatus) byStatus[row.status as ZGVulnStatus] = Number(row.count);
+			if (row.status in byStatus) byStatus[row.status as SentinelVulnStatus] = Number(row.count);
 		}
 		return {
 			total: Object.values(byStatus).reduce((sum, count) => sum + count, 0),
@@ -563,7 +568,7 @@ export class VulnerabilityStore {
 	 * Apply an operator edit. The timeline records what actually changed, so a
 	 * record's history explains its current state without a separate audit log.
 	 */
-	update(id: string, patch: ZGVulnUpdate): ZGVulnerability | undefined {
+	update(id: string, patch: SentinelVulnUpdate): SentinelVulnerability | undefined {
 		const existing = this.get(id);
 		if (!existing) return undefined;
 		const severity = patch.severity ?? existing.severity;
@@ -571,7 +576,7 @@ export class VulnerabilityStore {
 		const status = patch.status ?? existing.status;
 		const changes: string[] = [];
 		if (status !== existing.status) {
-			changes.push(`状态 ${ZG_VULN_STATUS_LABELS[existing.status]} → ${ZG_VULN_STATUS_LABELS[status]}`);
+			changes.push(`状态 ${SENTINEL_VULN_STATUS_LABELS[existing.status]} → ${SENTINEL_VULN_STATUS_LABELS[status]}`);
 		}
 		if (severity !== existing.severity) {
 			changes.push(`等级 ${existing.severity} → ${severity}`);
@@ -609,7 +614,12 @@ export class VulnerabilityStore {
 
 	private appendNote(
 		id: string,
-		note: { author: ZGVulnNote["author"]; text: string; statusFrom?: ZGVulnStatus; statusTo?: ZGVulnStatus },
+		note: {
+			author: SentinelVulnNote["author"];
+			text: string;
+			statusFrom?: SentinelVulnStatus;
+			statusTo?: SentinelVulnStatus;
+		},
 	): void {
 		const row = this.db
 			.prepare("SELECT COALESCE(MAX(seq), 0) AS last FROM vulnerability_notes WHERE vuln_id = ?")
@@ -669,10 +679,10 @@ export class VulnerabilityStore {
 }
 
 /** The stored review JSON, defensively parsed: a corrupt value reads as skipped. */
-function normalizeReview(raw: string | null): ZGVulnReview {
+function normalizeReview(raw: string | null): SentinelVulnReview {
 	if (!raw) return { state: "skipped", at: 0 };
 	try {
-		const value = JSON.parse(raw) as Partial<ZGVulnReview>;
+		const value = JSON.parse(raw) as Partial<SentinelVulnReview>;
 		if (value.state !== "queued" && value.state !== "done" && value.state !== "failed" && value.state !== "skipped") {
 			return { state: "skipped", at: 0 };
 		}
@@ -692,8 +702,8 @@ function normalizeReview(raw: string | null): ZGVulnReview {
 	}
 }
 
-function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]): ZGVulnerability {
-	const severity = row.severity as ZGVulnSeverity;
+function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]): SentinelVulnerability {
+	const severity = row.severity as SentinelVulnSeverity;
 	const cvss = Number(row.cvss);
 	return {
 		id: row.id,
@@ -708,7 +718,7 @@ function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]
 		severity,
 		cvss,
 		...(optional(row.cvss_vector) ? { cvssVector: row.cvss_vector as string } : {}),
-		status: row.status as ZGVulnStatus,
+		status: row.status as SentinelVulnStatus,
 		target: row.target,
 		...(optional(row.category) ? { category: row.category as string } : {}),
 		platform: (row.platform as "web" | "android") ?? "web",
@@ -730,10 +740,10 @@ function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]
 		})),
 		notes: notes.map((item) => ({
 			at: item.at,
-			author: item.author as ZGVulnNote["author"],
+			author: item.author as SentinelVulnNote["author"],
 			text: item.text,
-			...(optional(item.status_from) ? { statusFrom: item.status_from as ZGVulnStatus } : {}),
-			...(optional(item.status_to) ? { statusTo: item.status_to as ZGVulnStatus } : {}),
+			...(optional(item.status_from) ? { statusFrom: item.status_from as SentinelVulnStatus } : {}),
+			...(optional(item.status_to) ? { statusTo: item.status_to as SentinelVulnStatus } : {}),
 		})),
 		severityMismatch: isSeverityMismatch(severity, cvss),
 	};

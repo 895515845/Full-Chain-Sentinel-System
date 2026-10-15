@@ -123,7 +123,7 @@ function tokenOf(label: string): string {
 }
 
 beforeAll(async () => {
-	dir = mkdtempSync(join(tmpdir(), "zg-droid-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-droid-"));
 	store = new DroidStore(droidDbPath(dir));
 	gateway = new DroidGateway(store, {
 		onDeviceChange: () => {
@@ -469,11 +469,11 @@ test("an approved device command runs through the gateway and carries the result
 });
 
 test("the running console refuses a device upgrade without a valid token", async () => {
-	const { startZGServer } = await import("../src/server.ts");
-	const tempRoot = mkdtempSync(join(tmpdir(), "zg-droid-server-"));
+	const { startSentinelServer } = await import("../src/server.ts");
+	const tempRoot = mkdtempSync(join(tmpdir(), "sentinel-droid-server-"));
 	let close: (() => void) | undefined;
 	try {
-		const started = await startZGServer({
+		const started = await startSentinelServer({
 			cwd: join(tempRoot, "workspace"),
 			agentDir: join(tempRoot, "agent"),
 			host: "127.0.0.1",

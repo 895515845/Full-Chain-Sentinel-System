@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img">
+	<title>全链哨兵 图标候选 4：链路节点</title>
+	<rect x="13" y="28" width="38" height="8" rx="4" fill="currentColor"/>
+	<circle cx="13" cy="32" r="9.5" fill="currentColor"/>
+	<circle cx="51" cy="32" r="9.5" fill="currentColor"/>
+	<!-- 中间节点：挖空的环 -->
+	<path fill="currentColor" fill-rule="evenodd" d="M32 22.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19Zm0 5.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/>
+</svg>

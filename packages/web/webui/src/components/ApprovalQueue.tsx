@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ZGApprovalRequest } from "../types.ts";
+import type { SentinelApprovalRequest } from "../types.ts";
 
 function commandPrefix(command: string): string {
 	const trimmed = command.trim();
@@ -11,7 +11,7 @@ function ApprovalRow({
 	request,
 	onDecide,
 }: {
-	request: ZGApprovalRequest;
+	request: SentinelApprovalRequest;
 	onDecide: (id: string, approved: boolean, command: string, alwaysAllowPrefix: boolean) => void;
 }) {
 	const [command, setCommand] = useState(request.command);
@@ -36,7 +36,11 @@ function ApprovalRow({
 					{edited ? "已修改（将按修改后执行）" : `在 ${request.cwd} 执行`}
 				</span>
 				<label className="behavior">
-					<input type="checkbox" checked={alwaysAllow} onChange={(event) => setAlwaysAllow(event.target.checked)} />
+					<input
+						type="checkbox"
+						checked={alwaysAllow}
+						onChange={(event) => setAlwaysAllow(event.target.checked)}
+					/>
 					本会话内自动放行 {prefix ? `「${prefix}」` : "同类"}开头的命令
 				</label>
 			</div>
@@ -57,7 +61,7 @@ export function ApprovalQueue({
 	onDecide,
 	onDecideAll,
 }: {
-	requests: ZGApprovalRequest[];
+	requests: SentinelApprovalRequest[];
 	onDecide: (id: string, approved: boolean, command: string, alwaysAllowPrefix: boolean) => void;
 	onDecideAll: (approved: boolean) => void;
 }) {

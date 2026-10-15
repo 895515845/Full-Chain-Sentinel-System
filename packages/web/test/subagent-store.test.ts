@@ -8,14 +8,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test } from "vitest";
-import type { ZGSubagentEvent } from "../src/protocol.ts";
+import type { SentinelSubagentEvent } from "../src/protocol.ts";
 import { SubagentStore, subagentDbPath } from "../src/subagent-store.ts";
 
 const roots: string[] = [];
 const stores: SubagentStore[] = [];
 
 function openStore(): { store: SubagentStore; path: string } {
-	const root = mkdtempSync(join(tmpdir(), "zgagent-subagent-store-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-subagent-store-"));
 	roots.push(root);
 	const path = subagentDbPath(root);
 	const store = new SubagentStore(path);
@@ -34,7 +34,11 @@ afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function step(seq: number, kind: ZGSubagentEvent["kind"], extra: Partial<ZGSubagentEvent> = {}): ZGSubagentEvent {
+function step(
+	seq: number,
+	kind: SentinelSubagentEvent["kind"],
+	extra: Partial<SentinelSubagentEvent> = {},
+): SentinelSubagentEvent {
 	return { seq, kind, at: 1700000000000 + seq, ...extra };
 }
 
@@ -160,7 +164,7 @@ test("oversized steps and results are truncated instead of dropped", () => {
 });
 
 test("a database with the legacy mode column still opens and loses only that column", () => {
-	const root = mkdtempSync(join(tmpdir(), "zgagent-subagent-legacy-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-subagent-legacy-"));
 	roots.push(root);
 	const path = subagentDbPath(root);
 	const legacy = new DatabaseSync(path);

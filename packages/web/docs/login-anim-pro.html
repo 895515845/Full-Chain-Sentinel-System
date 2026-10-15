@@ -74,7 +74,7 @@
 			<div class="brand">
 				<div class="brand-row">
 					<span class="brand-badge">ZG</span>
-					<span class="brand-name">ZGAgent</span>
+					<span class="brand-name">Full Chain Sentinel</span>
 				</div>
 				<div class="tagline">授权渗透测试工作台</div>
 			</div>
@@ -165,7 +165,7 @@ function isoFactory() {
 	function profileHeight(i, j) {
 		const d = Math.hypot(i - CENTER, j - CENTER);
 		const t = Math.max(0, 1 - d / R_SPAN);
-		return 3 + Math.pow(t, 1.25) * 10.5;
+		return 3 + t ** 1.25 * 10.5;
 	}
 	function buildTower(i, j, instant) {
 		const idx = i * N + j;
@@ -184,7 +184,7 @@ function isoFactory() {
 		for (let k = 0; k < quota * 3 && pendingWave.length < quota; k += 1) {
 			// 1.0 次幂：单位面积密度 ∝ 1/r，楼向中心聚成商务区，
 			// 外圈只留少量矮楼，楼与楼之间才看得到暗地形（否则立面糊成一堵墙）
-			const r = Math.pow(Math.random(), 1.1) * R_SPAN;
+			const r = Math.random() ** 1.1 * R_SPAN;
 			const a = Math.random() * Math.PI * 2;
 			const i = Math.round(CENTER + Math.cos(a) * r);
 			const j = Math.round(CENTER + Math.sin(a) * r);

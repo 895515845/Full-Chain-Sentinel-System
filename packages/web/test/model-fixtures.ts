@@ -8,10 +8,14 @@
  */
 
 import { addLibraryEntry, setLibraryRole } from "../src/model-library.ts";
-import type { ZGModelConfig, ZGModelRoleName } from "../src/protocol.ts";
+import type { SentinelModelConfig, SentinelModelRoleName } from "../src/protocol.ts";
 
 /** Write one entry and point `role` at it. Returns the new entry id. */
-export function writeTestModel(agentDir: string, config: ZGModelConfig, role: ZGModelRoleName = "main"): string {
+export function writeTestModel(
+	agentDir: string,
+	config: SentinelModelConfig,
+	role: SentinelModelRoleName = "main",
+): string {
 	const entry = addLibraryEntry(agentDir, {
 		name: config.modelId,
 		baseUrl: config.baseUrl,

@@ -32,7 +32,7 @@ const submit = (over: Record<string, unknown> = {}) =>
 	});
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-reviewer-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-reviewer-"));
 	store = new VulnerabilityStore(join(dir, "vulns.db"));
 	// The reviewer resolves its endpoint from the agent dir; a stub config
 	// keeps the real path exercised while the model call itself is stubbed.

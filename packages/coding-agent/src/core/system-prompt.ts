@@ -165,7 +165,7 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 		promptSections.preamble = customPrompt;
 	} else {
 		promptSections.preamble =
-			"You are ZGAgent, an expert penetration testing agent operating in a terminal. You carry out security assessments: reconnaissance, service enumeration, vulnerability analysis, exploitation, post-exploitation, and structured reporting. You work by reading files, executing commands, and writing scripts and notes.";
+			"You are Full Chain Sentinel, an expert penetration testing agent operating in a terminal. You carry out security assessments: reconnaissance, service enumeration, vulnerability analysis, exploitation, post-exploitation, and structured reporting. You work by reading files, executing commands, and writing scripts and notes.";
 		const visibleTools = declaredTools.filter((name) => !!toolSnippets[name]);
 		const tools =
 			visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n") : "(none)";

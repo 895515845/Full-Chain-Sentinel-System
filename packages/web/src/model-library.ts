@@ -21,17 +21,17 @@ import {
 	NO_AUTH_PLACEHOLDER_KEY,
 	readProviderModelConfig,
 	removeProviderModelConfig,
+	SENTINEL_COMMANDER_PROVIDER_ID,
+	SENTINEL_JUDGE_PROVIDER_ID,
+	SENTINEL_PROVIDER_ID,
 	writeProviderModelConfig,
-	ZG_COMMANDER_PROVIDER_ID,
-	ZG_JUDGE_PROVIDER_ID,
-	ZG_PROVIDER_ID,
 } from "./model-config.ts";
 import type {
-	ZGModelConfig,
-	ZGModelEntryView,
-	ZGModelLibraryView,
-	ZGModelRoleName,
-	ZGResolvedModelView,
+	SentinelModelConfig,
+	SentinelModelEntryView,
+	SentinelModelLibraryView,
+	SentinelModelRoleName,
+	SentinelResolvedModelView,
 } from "./protocol.ts";
 
 export const MODEL_LIBRARY_VERSION = 1;
@@ -40,43 +40,43 @@ export const NEW_ENTRY_ID_PREFIX = "zg-model-";
 /** The value a role holds when it should use whatever `main` uses. */
 export const FOLLOW_MAIN = "follow-main";
 
-export const ZG_MODEL_ROLE_NAMES: ZGModelRoleName[] = ["main", "judge", "reviewer"];
-export const ZG_MODEL_ROLE_LABELS: Record<ZGModelRoleName, string> = {
+export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = ["main", "judge", "reviewer"];
+export const SENTINEL_MODEL_ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
 };
 
-export interface ZGModelEntry {
+export interface SentinelModelEntry {
 	id: string;
 	name: string;
 }
 
 /** `main` cannot follow itself, so it is either an entry or nothing. */
-export type ZGRoleMainRef = { kind: "model"; id: string } | null;
-export type ZGRoleRef = { kind: "model"; id: string } | { kind: "follow-main" };
+export type SentinelRoleMainRef = { kind: "model"; id: string } | null;
+export type SentinelRoleRef = { kind: "model"; id: string } | { kind: "follow-main" };
 
-export interface ZGModelLibrary {
+export interface SentinelModelLibrary {
 	version: number;
-	entries: ZGModelEntry[];
+	entries: SentinelModelEntry[];
 	roles: {
-		main: ZGRoleMainRef;
-		judge: ZGRoleRef;
-		reviewer: ZGRoleRef;
+		main: SentinelRoleMainRef;
+		judge: SentinelRoleRef;
+		reviewer: SentinelRoleRef;
 	};
 	/** When off, submissions are not queued for the reviewer at all. */
 	reviewerAuto: boolean;
 }
 
-export interface ZGResolvedModel {
-	config: ZGModelConfig;
+export interface SentinelResolvedModel {
+	config: SentinelModelConfig;
 	entryId: string;
 	entryName: string;
 	/** True when the role resolved through `main` rather than its own entry. */
 	followedMain: boolean;
 }
 
-export interface ZGModelEntryInput {
+export interface SentinelModelEntryInput {
 	name: string;
 	baseUrl: string;
 	apiKey: string;
@@ -84,7 +84,7 @@ export interface ZGModelEntryInput {
 }
 
 /** `apiKey: null` keeps the stored key; "" clears it (unauthenticated endpoint). */
-export interface ZGModelEntryPatch {
+export interface SentinelModelEntryPatch {
 	name: string;
 	baseUrl: string;
 	apiKey: string | null;
@@ -107,9 +107,9 @@ function nonEmptyString(value: unknown): string | null {
  * Tolerant parse: an unreadable or hand-edited file degrades to "fewer entries",
  * never to a crash. References to entries that no longer exist are dropped.
  */
-export function normalizeModelLibrary(value: unknown): ZGModelLibrary {
+export function normalizeModelLibrary(value: unknown): SentinelModelLibrary {
 	const source = isRecord(value) ? value : {};
-	const entries: ZGModelEntry[] = [];
+	const entries: SentinelModelEntry[] = [];
 	if (Array.isArray(source.entries)) {
 		for (const raw of source.entries) {
 			if (!isRecord(raw)) continue;
@@ -119,7 +119,7 @@ export function normalizeModelLibrary(value: unknown): ZGModelLibrary {
 		}
 	}
 	const has = (id: string): boolean => entries.some((entry) => entry.id === id);
-	const roleRef = (raw: unknown, fallback: ZGRoleRef): ZGRoleRef => {
+	const roleRef = (raw: unknown, fallback: SentinelRoleRef): SentinelRoleRef => {
 		if (!isRecord(raw)) return fallback;
 		if (raw.kind === "follow-main") return { kind: "follow-main" };
 		const id = nonEmptyString(raw.id);
@@ -141,7 +141,7 @@ export function normalizeModelLibrary(value: unknown): ZGModelLibrary {
 }
 
 /** The persisted library, or null when the file does not exist yet. */
-export function readStoredModelLibrary(agentDir: string): ZGModelLibrary | null {
+export function readStoredModelLibrary(agentDir: string): SentinelModelLibrary | null {
 	const path = modelLibraryPath(agentDir);
 	if (!existsSync(path)) return null;
 	try {
@@ -156,11 +156,11 @@ export function readStoredModelLibrary(agentDir: string): ZGModelLibrary | null 
  * translated in memory, so a runtime read before the operator ever opens
  * 设置 → 模型 behaves exactly as before the upgrade.
  */
-export function readModelLibrary(agentDir: string): ZGModelLibrary {
+export function readModelLibrary(agentDir: string): SentinelModelLibrary {
 	return readStoredModelLibrary(agentDir) ?? migrateModelLibrary(agentDir);
 }
 
-export function writeModelLibrary(agentDir: string, library: ZGModelLibrary): void {
+export function writeModelLibrary(agentDir: string, library: SentinelModelLibrary): void {
 	const path = modelLibraryPath(agentDir);
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(normalizeModelLibrary(library), null, "\t")}\n`, { mode: 0o600 });
@@ -179,35 +179,35 @@ export function writeModelLibrary(agentDir: string, library: ZGModelLibrary): vo
  * assignment reproduces what the old code resolved at runtime: the reviewer used
  * `commander ?? main`, the judge used `judge ?? commander ?? main`.
  */
-export function migrateModelLibrary(agentDir: string): ZGModelLibrary {
-	const entries: ZGModelEntry[] = [];
+export function migrateModelLibrary(agentDir: string): SentinelModelLibrary {
+	const entries: SentinelModelEntry[] = [];
 	const add = (providerId: string, name: string): void => {
 		if (readProviderModelConfig(agentDir, providerId)) entries.push({ id: providerId, name });
 	};
-	add(ZG_PROVIDER_ID, "主端点");
-	add(ZG_COMMANDER_PROVIDER_ID, "指挥官端点");
-	add(ZG_JUDGE_PROVIDER_ID, "守门端点");
+	add(SENTINEL_PROVIDER_ID, "主端点");
+	add(SENTINEL_COMMANDER_PROVIDER_ID, "指挥官端点");
+	add(SENTINEL_JUDGE_PROVIDER_ID, "守门端点");
 	const has = (id: string): boolean => entries.some((entry) => entry.id === id);
-	const judge: ZGRoleRef = has(ZG_JUDGE_PROVIDER_ID)
-		? { kind: "model", id: ZG_JUDGE_PROVIDER_ID }
-		: has(ZG_COMMANDER_PROVIDER_ID)
-			? { kind: "model", id: ZG_COMMANDER_PROVIDER_ID }
+	const judge: SentinelRoleRef = has(SENTINEL_JUDGE_PROVIDER_ID)
+		? { kind: "model", id: SENTINEL_JUDGE_PROVIDER_ID }
+		: has(SENTINEL_COMMANDER_PROVIDER_ID)
+			? { kind: "model", id: SENTINEL_COMMANDER_PROVIDER_ID }
 			: { kind: "follow-main" };
-	const reviewer: ZGRoleRef = has(ZG_COMMANDER_PROVIDER_ID)
-		? { kind: "model", id: ZG_COMMANDER_PROVIDER_ID }
+	const reviewer: SentinelRoleRef = has(SENTINEL_COMMANDER_PROVIDER_ID)
+		? { kind: "model", id: SENTINEL_COMMANDER_PROVIDER_ID }
 		: { kind: "follow-main" };
 	return normalizeModelLibrary({
 		version: MODEL_LIBRARY_VERSION,
 		entries,
-		roles: { main: has(ZG_PROVIDER_ID) ? { kind: "model", id: ZG_PROVIDER_ID } : null, judge, reviewer },
+		roles: { main: has(SENTINEL_PROVIDER_ID) ? { kind: "model", id: SENTINEL_PROVIDER_ID } : null, judge, reviewer },
 		reviewerAuto: true,
 	});
 }
 
 /** Roles that currently point at this entry, for the delete guard and the table. */
-export function rolesUsing(library: ZGModelLibrary, entryId: string): ZGModelRoleName[] {
-	const roles: ZGModelRoleName[] = [];
-	for (const role of ZG_MODEL_ROLE_NAMES) {
+export function rolesUsing(library: SentinelModelLibrary, entryId: string): SentinelModelRoleName[] {
+	const roles: SentinelModelRoleName[] = [];
+	for (const role of SENTINEL_MODEL_ROLE_NAMES) {
 		const ref = library.roles[role];
 		if (ref && ref.kind === "model" && ref.id === entryId) roles.push(role);
 	}
@@ -215,7 +215,7 @@ export function rolesUsing(library: ZGModelLibrary, entryId: string): ZGModelRol
 }
 
 /** Wire form of a resolved role, for the settings screen and the snapshot. */
-export function toResolvedModelView(resolved: ZGResolvedModel | null): ZGResolvedModelView | null {
+export function toResolvedModelView(resolved: SentinelResolvedModel | null): SentinelResolvedModelView | null {
 	if (!resolved) return null;
 	return {
 		entryId: resolved.entryId,
@@ -227,10 +227,10 @@ export function toResolvedModelView(resolved: ZGResolvedModel | null): ZGResolve
 
 function resolveEntry(
 	agentDir: string,
-	library: ZGModelLibrary,
+	library: SentinelModelLibrary,
 	id: string,
 	followedMain: boolean,
-): ZGResolvedModel | null {
+): SentinelResolvedModel | null {
 	const entry = library.entries.find((candidate) => candidate.id === id);
 	if (!entry) return null;
 	const config = readProviderModelConfig(agentDir, id);
@@ -239,21 +239,21 @@ function resolveEntry(
 }
 
 /** Resolve one role to a usable endpoint, or null when nothing resolves. */
-export function resolveLibraryRole(agentDir: string, role: ZGModelRoleName): ZGResolvedModel | null {
+export function resolveLibraryRole(agentDir: string, role: SentinelModelRoleName): SentinelResolvedModel | null {
 	const library = readModelLibrary(agentDir);
 	const mainRef = library.roles.main;
 	if (role === "main") {
 		return mainRef ? resolveEntry(agentDir, library, mainRef.id, false) : null;
 	}
-	const ref: ZGRoleRef = role === "judge" ? library.roles.judge : library.roles.reviewer;
+	const ref: SentinelRoleRef = role === "judge" ? library.roles.judge : library.roles.reviewer;
 	if (ref.kind === "model") return resolveEntry(agentDir, library, ref.id, false);
 	return mainRef ? resolveEntry(agentDir, library, mainRef.id, true) : null;
 }
 
 /** The settings-page view: entries with their endpoint and role usage, never the key itself. */
-export function libraryView(agentDir: string): ZGModelLibraryView {
+export function libraryView(agentDir: string): SentinelModelLibraryView {
 	const library = readModelLibrary(agentDir);
-	const entries: ZGModelEntryView[] = library.entries.map((entry) => {
+	const entries: SentinelModelEntryView[] = library.entries.map((entry) => {
 		const config = readProviderModelConfig(agentDir, entry.id);
 		return {
 			id: entry.id,
@@ -281,7 +281,7 @@ export function libraryView(agentDir: string): ZGModelLibraryView {
 }
 
 /** Next free `zg-model-N` id. */
-export function nextEntryId(entries: ZGModelEntry[]): string {
+export function nextEntryId(entries: SentinelModelEntry[]): string {
 	let max = 0;
 	for (const entry of entries) {
 		if (!entry.id.startsWith(NEW_ENTRY_ID_PREFIX)) continue;
@@ -291,13 +291,13 @@ export function nextEntryId(entries: ZGModelEntry[]): string {
 	return `${NEW_ENTRY_ID_PREFIX}${max + 1}`;
 }
 
-function requireEntry(library: ZGModelLibrary, id: string): ZGModelEntry {
+function requireEntry(library: SentinelModelLibrary, id: string): SentinelModelEntry {
 	const entry = library.entries.find((candidate) => candidate.id === id);
 	if (!entry) throw new Error("模型不存在，可能已被删除");
 	return entry;
 }
 
-function cleanInput(input: ZGModelEntryPatch): { name: string; baseUrl: string; modelId: string } {
+function cleanInput(input: SentinelModelEntryPatch): { name: string; baseUrl: string; modelId: string } {
 	const baseUrl = input.baseUrl.trim();
 	const modelId = input.modelId.trim();
 	if (!baseUrl) throw new Error("Base URL 不能为空");
@@ -306,10 +306,10 @@ function cleanInput(input: ZGModelEntryPatch): { name: string; baseUrl: string; 
 }
 
 /** Add an entry. The first entry becomes the main model, so the app is usable at once. */
-export function addLibraryEntry(agentDir: string, input: ZGModelEntryInput): ZGModelEntry {
+export function addLibraryEntry(agentDir: string, input: SentinelModelEntryInput): SentinelModelEntry {
 	const library = readModelLibrary(agentDir);
 	const clean = cleanInput(input);
-	const entry: ZGModelEntry = { id: nextEntryId(library.entries), name: clean.name };
+	const entry: SentinelModelEntry = { id: nextEntryId(library.entries), name: clean.name };
 	writeProviderModelConfig(agentDir, entry.id, entry.name, {
 		baseUrl: clean.baseUrl,
 		apiKey: input.apiKey.trim(),
@@ -321,7 +321,7 @@ export function addLibraryEntry(agentDir: string, input: ZGModelEntryInput): ZGM
 	return entry;
 }
 
-export function updateLibraryEntry(agentDir: string, id: string, patch: ZGModelEntryPatch): ZGModelEntry {
+export function updateLibraryEntry(agentDir: string, id: string, patch: SentinelModelEntryPatch): SentinelModelEntry {
 	const library = readModelLibrary(agentDir);
 	const entry = requireEntry(library, id);
 	const clean = cleanInput(patch);
@@ -334,12 +334,12 @@ export function updateLibraryEntry(agentDir: string, id: string, patch: ZGModelE
 	return entry;
 }
 
-export function duplicateLibraryEntry(agentDir: string, id: string): ZGModelEntry {
+export function duplicateLibraryEntry(agentDir: string, id: string): SentinelModelEntry {
 	const library = readModelLibrary(agentDir);
 	const source = requireEntry(library, id);
 	const config = readProviderModelConfig(agentDir, id);
 	if (!config) throw new Error("这个模型没有可复制的端点配置");
-	const entry: ZGModelEntry = { id: nextEntryId(library.entries), name: `${source.name} 副本` };
+	const entry: SentinelModelEntry = { id: nextEntryId(library.entries), name: `${source.name} 副本` };
 	writeProviderModelConfig(agentDir, entry.id, entry.name, config);
 	library.entries.push(entry);
 	writeModelLibrary(agentDir, library);
@@ -352,7 +352,7 @@ export function removeLibraryEntry(agentDir: string, id: string): void {
 	const entry = requireEntry(library, id);
 	const used = rolesUsing(library, id);
 	if (used.length > 0) {
-		const labels = used.map((role) => ZG_MODEL_ROLE_LABELS[role]).join("、");
+		const labels = used.map((role) => SENTINEL_MODEL_ROLE_LABELS[role]).join("、");
 		throw new Error(`「${entry.name}」正被 ${labels} 使用，请先改掉这些角色再删除`);
 	}
 	library.entries = library.entries.filter((candidate) => candidate.id !== id);
@@ -361,7 +361,11 @@ export function removeLibraryEntry(agentDir: string, id: string): void {
 }
 
 /** Point a role at an entry, or at `main` for judge/reviewer. */
-export function setLibraryRole(agentDir: string, role: ZGModelRoleName, target: string | null): ZGModelLibrary {
+export function setLibraryRole(
+	agentDir: string,
+	role: SentinelModelRoleName,
+	target: string | null,
+): SentinelModelLibrary {
 	const library = readModelLibrary(agentDir);
 	if (role === "main") {
 		if (target === null) {
@@ -383,7 +387,7 @@ export function setLibraryRole(agentDir: string, role: ZGModelRoleName, target: 
 	return library;
 }
 
-export function setReviewerAuto(agentDir: string, enabled: boolean): ZGModelLibrary {
+export function setReviewerAuto(agentDir: string, enabled: boolean): SentinelModelLibrary {
 	const library = readModelLibrary(agentDir);
 	library.reviewerAuto = enabled;
 	writeModelLibrary(agentDir, library);

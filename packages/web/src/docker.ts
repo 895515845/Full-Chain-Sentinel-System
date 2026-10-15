@@ -1,8 +1,8 @@
 /**
  * Docker execution layer for container projects.
  *
- * Each project owns one long-running container built from the zgagent image
- * (docker/zgagent.Dockerfile). Every bash tool call is a `docker exec` into
+ * Each project owns one long-running container built from the sentinel image
+ * (docker/sentinel.Dockerfile). Every bash tool call is a `docker exec` into
  * that container; file tools operate on the host-side mount so reports and
  * evidence persist outside the container lifecycle.
  */
@@ -14,10 +14,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { embeddedDockerfile } from "./assets.ts";
-import type { ZGSources } from "./protocol.ts";
+import { containerNetworkFlags } from "./container-network.ts";
+import type { SentinelContainerNetwork, SentinelSources } from "./protocol.ts";
 import { buildArgs } from "./sources.ts";
 
-export const ZG_IMAGE = "zgagent:latest";
+export const SENTINEL_IMAGE = "sentinel:latest";
 
 /** Run the docker CLI, capturing output. Used by the container layer and the environment check. */
 export function runDocker(
@@ -54,9 +55,9 @@ export function runDocker(
 	});
 }
 
-/** Whether the zgagent toolbox image exists locally. */
+/** Whether the sentinel toolbox image exists locally. */
 export async function hasImage(): Promise<boolean> {
-	const result = await runDocker(["image", "inspect", ZG_IMAGE], { timeoutMs: 15000 });
+	const result = await runDocker(["image", "inspect", SENTINEL_IMAGE], { timeoutMs: 15000 });
 	return result.code === 0;
 }
 
@@ -75,7 +76,7 @@ async function imageContext(): Promise<{ dir: string; cleanup: () => Promise<voi
 	if (existsSync(join(checkout, "Dockerfile"))) return { dir: checkout, cleanup: async () => {} };
 	const dockerfile = embeddedDockerfile();
 	if (!dockerfile) throw new Error("二进制内没有内置 Dockerfile，无法构建工具镜像");
-	const dir = await mkdtemp(join(tmpdir(), "zgagent-image-"));
+	const dir = await mkdtemp(join(tmpdir(), "sentinel-image-"));
 	await writeFile(join(dir, "Dockerfile"), dockerfile, "utf8");
 	return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
 }
@@ -83,7 +84,7 @@ async function imageContext(): Promise<{ dir: string; cleanup: () => Promise<voi
 /** Build the toolbox image, streaming build output line by line. */
 export async function buildImage(
 	progress: BuildProgress,
-	sources: ZGSources,
+	sources: SentinelSources,
 ): Promise<{ ok: boolean; error?: string }> {
 	let context: { dir: string; cleanup: () => Promise<void> };
 	try {
@@ -101,10 +102,10 @@ export async function buildImage(
 function buildImageIn(
 	progress: BuildProgress,
 	contextDir: string,
-	sources: ZGSources,
+	sources: SentinelSources,
 ): Promise<{ ok: boolean; error?: string }> {
 	return new Promise((resolve) => {
-		const child = spawn("docker", ["build", "-t", ZG_IMAGE, ...buildArgs(sources), contextDir], {
+		const child = spawn("docker", ["build", "-t", SENTINEL_IMAGE, ...buildArgs(sources), contextDir], {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stderr = "";
@@ -139,7 +140,7 @@ function repoRoot(): string {
 
 /**
  * Host-side working directory for a project (mounted at /work in the container).
- * `ZG_PROJECTS_DIR` relocates the root; tests point it at a temp directory so
+ * `SENTINEL_PROJECTS_DIR` relocates the root; tests point it at a temp directory so
  * project creation never touches the operator's real projects.
  */
 export function projectWorkDir(name: string): string {
@@ -149,7 +150,7 @@ export function projectWorkDir(name: string): string {
 			.toLowerCase()
 			.replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, "-")
 			.slice(0, 40) || "project";
-	const root = process.env.ZG_PROJECTS_DIR ?? join(homedir(), ".zgagent", "projects");
+	const root = process.env.SENTINEL_PROJECTS_DIR ?? join(homedir(), ".sentinel", "projects");
 	const dir = join(root, slug);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	return dir;
@@ -205,12 +206,14 @@ export function execInContainer(
 }
 
 /**
- * Create the project container: detached, privileged for raw sockets, and the host
- * work directory mounted both at /work and at its own host path.
+ * Create the project container: detached, mounted, and joined to the network the
+ * operator picked on the environment page (host by default, so listeners inside it
+ * are reachable and the real LAN is what the tools see).
  */
 export async function createContainer(
 	containerName: string,
 	workDir: string,
+	network: SentinelContainerNetwork,
 ): Promise<{ ok: boolean; error?: string }> {
 	const mounts = ["-v", `${workDir}:/work`];
 	// The system prompt hands the model the host working directory (the session cwd),
@@ -227,15 +230,11 @@ export async function createContainer(
 		"-d",
 		"--name",
 		containerName,
-		// masscan and friends need raw sockets
-		"--cap-add",
-		"NET_RAW",
-		"--cap-add",
-		"NET_ADMIN",
+		...containerNetworkFlags(network),
 		...mounts,
 		"-w",
 		"/work",
-		ZG_IMAGE,
+		SENTINEL_IMAGE,
 	]);
 	return result.code === 0 ? { ok: true } : { ok: false, error: result.stderr.trim() };
 }
@@ -255,14 +254,14 @@ export async function removeContainer(containerName: string): Promise<void> {
 }
 
 /**
- * Container name prefix. `ZG_CONTAINER_PREFIX` relocates it, so a second
+ * Container name prefix. `SENTINEL_CONTAINER_PREFIX` relocates it, so a second
  * instance — a test run beside a live console — never lists, stops, or removes
- * the other instance's containers. Read at call time, like `ZG_PROJECTS_DIR`, so
+ * the other instance's containers. Read at call time, like `SENTINEL_PROJECTS_DIR`, so
  * a per-test environment change takes effect without reloading the module.
  */
 export function containerPrefix(): string {
-	const prefix = process.env.ZG_CONTAINER_PREFIX;
-	return prefix && prefix.length > 0 ? prefix : "zgagent-";
+	const prefix = process.env.SENTINEL_CONTAINER_PREFIX;
+	return prefix && prefix.length > 0 ? prefix : "sentinel-";
 }
 
 export function containerNameFor(projectId: string): string {

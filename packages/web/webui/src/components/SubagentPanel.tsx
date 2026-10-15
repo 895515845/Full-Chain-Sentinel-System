@@ -10,7 +10,7 @@ import {
 	type ToolStep,
 	toolStatus,
 } from "../subagent-process.ts";
-import type { ZGSubagentEvent, ZGSubagentRun } from "../types.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun } from "../types.ts";
 import { CaretDownIcon, CaretRightIcon } from "./icons.tsx";
 import { MarkdownText } from "./MessageView.tsx";
 
@@ -36,7 +36,8 @@ function ToolDetail({
 	onFullscreen?: (title: string, output: string) => void;
 }) {
 	const [copied, setCopied] = useState<"command" | "output" | null>(null);
-	const record = step.args !== null && typeof step.args === "object" ? (step.args as Record<string, unknown>) : undefined;
+	const record =
+		step.args !== null && typeof step.args === "object" ? (step.args as Record<string, unknown>) : undefined;
 	const command = record ? scalar(record.command) : undefined;
 	const entries = record ? Object.entries(record).filter(([key]) => key !== "command") : [];
 
@@ -122,7 +123,9 @@ function ToolRow({
 			>
 				<span className="sa-caret">{expanded ? <CaretDownIcon size={10} /> : <CaretRightIcon size={10} />}</span>
 				<span className="sa-tool-name">{step.name}</span>
-				{step.summary ? <span className={`sa-tool-summary ${step.running ? "live" : ""}`}>{step.summary}</span> : null}
+				{step.summary ? (
+					<span className={`sa-tool-summary ${step.running ? "live" : ""}`}>{step.summary}</span>
+				) : null}
 				<span className={`sa-tool-meta ${status}`}>
 					{status === "running" ? "运行中" : status === "error" ? "失败" : "✓"}
 					{duration ? <span className="sa-tool-duration">{duration}</span> : null}
@@ -133,15 +136,7 @@ function ToolRow({
 	);
 }
 
-function TextRow({
-	step,
-	expanded,
-	onToggle,
-}: {
-	step: TextStep;
-	expanded: boolean;
-	onToggle: () => void;
-}) {
+function TextRow({ step, expanded, onToggle }: { step: TextStep; expanded: boolean; onToggle: () => void }) {
 	return (
 		<div className={`sa-step sa-text ${expanded ? "open" : ""}`}>
 			<div
@@ -166,7 +161,7 @@ function RunList({
 	selectedId,
 	onSelect,
 }: {
-	runs: ZGSubagentRun[];
+	runs: SentinelSubagentRun[];
 	selectedId: string | undefined;
 	onSelect: (id: string) => void;
 }) {
@@ -206,8 +201,8 @@ function RunDetail({
 	onSteer,
 	onFullscreen,
 }: {
-	run: ZGSubagentRun;
-	events: ZGSubagentEvent[];
+	run: SentinelSubagentRun;
+	events: SentinelSubagentEvent[];
 	onAbort: (id: string) => void;
 	onSteer: (id: string, text: string) => void;
 	onFullscreen?: (title: string, output: string) => void;
@@ -313,7 +308,9 @@ function RunDetail({
 									setQuery("");
 									setFailuresOnly(false);
 									window.requestAnimationFrame(() =>
-										document.getElementById(`sa-tool-${firstFailure.seq}`)?.scrollIntoView({ block: "center" }),
+										document
+											.getElementById(`sa-tool-${firstFailure.seq}`)
+											?.scrollIntoView({ block: "center" }),
 									);
 								}}
 							>
@@ -345,7 +342,9 @@ function RunDetail({
 						{run.result ? (
 							<MarkdownText text={run.result} />
 						) : (
-							<div className="subagent-empty">{run.status === "running" ? "运行中，还没有产出结果" : "（没有结果）"}</div>
+							<div className="subagent-empty">
+								{run.status === "running" ? "运行中，还没有产出结果" : "（没有结果）"}
+							</div>
 						)}
 					</div>
 				) : events.length === 0 ? (
@@ -453,9 +452,9 @@ export function SubagentPanel({
 	onSteer,
 	onFullscreen,
 }: {
-	runs: ZGSubagentRun[];
+	runs: SentinelSubagentRun[];
 	/** Process steps by run id; a run absent here has not been loaded yet. */
-	transcripts: Record<string, ZGSubagentEvent[]>;
+	transcripts: Record<string, SentinelSubagentEvent[]>;
 	onLoad: (id: string) => void;
 	onAbort: (id: string) => void;
 	onSteer: (id: string, text: string) => void;

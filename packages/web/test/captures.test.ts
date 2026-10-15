@@ -54,7 +54,7 @@ const BURP = `<?xml version="1.0"?>
 </items>`;
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-captures-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-captures-"));
 	store = new CaptureStore(capturesDbPath(dir));
 	vulns = new VulnerabilityStore(vulnerabilityDbPath(dir));
 });

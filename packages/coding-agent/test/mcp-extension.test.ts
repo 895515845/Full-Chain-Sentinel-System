@@ -45,9 +45,9 @@ describe("MCP config", () => {
 		const agentDir = join(root, "agent");
 		const cwd = join(root, "project");
 		mkdirSync(agentDir, { recursive: true });
-		mkdirSync(join(cwd, ".zgagent"), { recursive: true });
+		mkdirSync(join(cwd, ".sentinel"), { recursive: true });
 		writeFileSync(join(agentDir, "mcp.json"), JSON.stringify(global));
-		writeFileSync(join(cwd, ".zgagent", "mcp.json"), JSON.stringify(project));
+		writeFileSync(join(cwd, ".sentinel", "mcp.json"), JSON.stringify(project));
 		return { agentDir, cwd };
 	}
 
@@ -92,7 +92,7 @@ describe("MCP config", () => {
 			// An override cannot change the command, which would run with the global env.
 			{ mcpServers: { tools: { enabled: false, args: ["y"] }, missing: { enabled: false } } },
 		);
-		const project = join(paths.cwd, ".zgagent", "mcp.json");
+		const project = join(paths.cwd, ".sentinel", "mcp.json");
 		const { servers, errors } = loadMcpConfig({ ...paths, projectTrusted: true });
 		expect(servers.map((server) => [server.name, server.override, server.config])).toEqual([
 			["tools", undefined, { command: "x", env: { TOKEN: "secret" } }],

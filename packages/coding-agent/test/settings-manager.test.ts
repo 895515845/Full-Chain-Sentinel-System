@@ -16,7 +16,7 @@ describe("SettingsManager", () => {
 			rmSync(testDir, { recursive: true });
 		}
 		mkdirSync(agentDir, { recursive: true });
-		mkdirSync(join(projectDir, ".zgagent"), { recursive: true });
+		mkdirSync(join(projectDir, ".sentinel"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -115,7 +115,7 @@ describe("SettingsManager", () => {
 		it("creates one global device ID and reuses it in later processes", async () => {
 			const settingsPath = join(agentDir, "settings.json");
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ deviceId: "project-device" }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ deviceId: "project-device" }));
 			const first = SettingsManager.create(projectDir, agentDir);
 
 			const deviceId = first.getOrCreateDeviceId();
@@ -237,7 +237,7 @@ describe("SettingsManager", () => {
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");
-			const projectSettingsPath = join(projectDir, ".zgagent", "settings.json");
+			const projectSettingsPath = join(projectDir, ".sentinel", "settings.json");
 			writeFileSync(globalSettingsPath, "{ invalid global json");
 			writeFileSync(projectSettingsPath, "{ invalid project json");
 
@@ -256,7 +256,7 @@ describe("SettingsManager", () => {
 	describe("project trust", () => {
 		it("should skip project settings when project is not trusted", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "global" }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ theme: "project" }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ theme: "project" }));
 
 			const manager = SettingsManager.create(projectDir, agentDir, { projectTrusted: false });
 
@@ -267,7 +267,7 @@ describe("SettingsManager", () => {
 
 		it("should reload project settings after trust changes to true", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "global" }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ theme: "project" }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ theme: "project" }));
 			const manager = SettingsManager.create(projectDir, agentDir, { projectTrusted: false });
 
 			manager.setProjectTrusted(true);
@@ -277,7 +277,7 @@ describe("SettingsManager", () => {
 		});
 
 		it("should fail project settings writes when project is not trusted", async () => {
-			const projectSettingsPath = join(projectDir, ".zgagent", "settings.json");
+			const projectSettingsPath = join(projectDir, ".sentinel", "settings.json");
 			writeFileSync(projectSettingsPath, JSON.stringify({ packages: ["npm:existing"] }));
 			const manager = SettingsManager.create(projectDir, agentDir, { projectTrusted: false });
 
@@ -292,7 +292,10 @@ describe("SettingsManager", () => {
 
 		it("should read default project trust from global settings only", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "always" }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ defaultProjectTrust: "never" }));
+			writeFileSync(
+				join(projectDir, ".sentinel", "settings.json"),
+				JSON.stringify({ defaultProjectTrust: "never" }),
+			);
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
@@ -315,13 +318,13 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
 			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".zgagent"), { recursive: true });
+			rmSync(join(projectDir, ".sentinel"), { recursive: true });
 
 			// Create SettingsManager (reads both global and project settings)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			// .pi folder should NOT have been created just from reading
-			expect(existsSync(join(projectDir, ".zgagent"))).toBe(false);
+			expect(existsSync(join(projectDir, ".sentinel"))).toBe(false);
 
 			// Settings should still be loaded from global
 			expect(manager.getTheme()).toBe("dark");
@@ -333,22 +336,22 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
 			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".zgagent"), { recursive: true });
+			rmSync(join(projectDir, ".sentinel"), { recursive: true });
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			// .pi folder should NOT exist yet
-			expect(existsSync(join(projectDir, ".zgagent"))).toBe(false);
+			expect(existsSync(join(projectDir, ".sentinel"))).toBe(false);
 
 			// Write a project-specific setting
 			manager.setProjectPackages([{ source: "npm:test-pkg" }]);
 			await manager.flush();
 
 			// Now .pi folder should exist
-			expect(existsSync(join(projectDir, ".zgagent"))).toBe(true);
+			expect(existsSync(join(projectDir, ".sentinel"))).toBe(true);
 
 			// And settings file should be created
-			expect(existsSync(join(projectDir, ".zgagent", "settings.json"))).toBe(true);
+			expect(existsSync(join(projectDir, ".sentinel", "settings.json"))).toBe(true);
 		});
 	});
 
@@ -395,7 +398,7 @@ describe("SettingsManager", () => {
 
 		it("should use merged global and project settings", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ httpIdleTimeoutMs: 300000 }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ httpIdleTimeoutMs: 0 }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ httpIdleTimeoutMs: 0 }));
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
@@ -414,7 +417,7 @@ describe("SettingsManager", () => {
 		it("defaults to streaming and ignores project settings", () => {
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("streaming");
 
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ cacheWarming: "idle" }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ cacheWarming: "idle" }));
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("streaming");
 
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ cacheWarming: "idle" }));
@@ -637,7 +640,7 @@ describe("SettingsManager", () => {
 
 			expect(SettingsManager.create(projectDir, agentDir).getDefaultTools()).toEqual(["read", "bash"]);
 
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ defaultTools: ["grep"] }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ defaultTools: ["grep"] }));
 
 			expect(SettingsManager.create(projectDir, agentDir).getDefaultTools()).toEqual(["grep"]);
 		});
@@ -666,7 +669,7 @@ describe("SettingsManager", () => {
 				JSON.stringify({ defaultTools: ["read", "bash", "+codemode"] }),
 			);
 			writeFileSync(
-				join(projectDir, ".zgagent", "settings.json"),
+				join(projectDir, ".sentinel", "settings.json"),
 				JSON.stringify({ defaultTools: ["-codemode", "+tool_search"] }),
 			);
 
@@ -678,7 +681,7 @@ describe("SettingsManager", () => {
 		});
 
 		it("applies project modifiers to the built-in defaults without a global setting", () => {
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ defaultTools: ["+codemode"] }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ defaultTools: ["+codemode"] }));
 
 			expect(SettingsManager.create(projectDir, agentDir).getDefaultTools()).toEqual([
 				"read",
@@ -705,7 +708,7 @@ describe("SettingsManager", () => {
 
 		it("should return project sessionDir, overriding global", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "/global/sessions" }));
-			writeFileSync(join(projectDir, ".zgagent", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
+			writeFileSync(join(projectDir, ".sentinel", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getSessionDir()).toBe("./sessions");
 		});

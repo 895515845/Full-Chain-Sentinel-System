@@ -1,4 +1,4 @@
-package com.zgagent.droidbridge
+package com.sentinel.droidbridge
 
 import android.os.Build
 import org.json.JSONObject

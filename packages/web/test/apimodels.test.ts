@@ -34,7 +34,7 @@ let dir: string;
 let store: ApiModelStore;
 
 beforeAll(() => {
-	dir = mkdtempSync(join(tmpdir(), "zg-apimodels-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-apimodels-"));
 	store = new ApiModelStore(apiModelsDbPath(dir));
 });
 
@@ -44,7 +44,7 @@ afterAll(() => {
 });
 
 test("the database lives in the agent directory, not the mounted work directory", () => {
-	expect(apiModelsDbPath("/home/zg/.zgagent/agent")).toBe("/home/zg/.zgagent/agent/apimodels.db");
+	expect(apiModelsDbPath("/home/zg/.sentinel/agent")).toBe("/home/zg/.sentinel/agent/apimodels.db");
 });
 
 test("countOperations counts methods, not keys", () => {

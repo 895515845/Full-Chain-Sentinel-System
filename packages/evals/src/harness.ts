@@ -80,7 +80,7 @@ export function resolveModelSelection(
 }
 
 export function applyIsolatedEnvironment(home: string, agentDir: string): () => void {
-	const overrides = { HOME: home, USERPROFILE: home, ZGAGENT_CODING_AGENT_DIR: agentDir };
+	const overrides = { HOME: home, USERPROFILE: home, SENTINEL_CODING_AGENT_DIR: agentDir };
 	const previous = new Map<string, string | undefined>();
 	for (const name of Object.keys(process.env)) {
 		if (!name.startsWith("PI_EVAL_")) continue;

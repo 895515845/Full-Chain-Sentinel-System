@@ -107,7 +107,7 @@
 			<div class="brand">
 				<div class="brand-row">
 					<span class="brand-badge">ZG</span>
-					<span class="brand-name">ZGAgent</span>
+					<span class="brand-name">Full Chain Sentinel</span>
 				</div>
 				<div class="tagline">授权渗透测试工作台</div>
 			</div>
@@ -127,7 +127,7 @@
 const canvas = document.getElementById("fx");
 const ctx = canvas.getContext("2d");
 const visual = document.querySelector(".visual");
-let raf = 0;
+const raf = 0;
 let current = "tiles";
 
 function sizeCanvas() {
@@ -295,7 +295,7 @@ function radarFactory() {
 			}
 			for (const t of targets) {
 				const ta = t.a;
-				let diff = Math.abs(((angle - ta) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2));
+				const diff = Math.abs(((angle - ta) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2));
 				if (diff < 0.35) t.heat = 1;
 				t.heat *= 0.985;
 				const x = cx + Math.cos(ta) * R * t.r;
@@ -311,7 +311,7 @@ function radarFactory() {
 
 /* ---------- G 终端日志：轮播的假扫描输出 ---------- */
 const TERM_LINES = [
-	["dim", "$ zgagent --target 10.10.10.0/24 --scope authorized"],
+	["dim", "$ sentinel --target 10.10.10.0/24 --scope authorized"],
 	["ok", "[+] host 10.10.10.5      up  (linux, nginx 1.24)"],
 	["ok", "[+] port 22/tcp           openssh 9.6"],
 	["warn", "[!] port 8080/tcp        未授权访问 /actuator/env"],

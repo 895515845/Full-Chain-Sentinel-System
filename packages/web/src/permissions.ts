@@ -17,7 +17,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Every switch the permissions screen offers. */
-export type ZGPermissionKey =
+export type SentinelPermissionKey =
 	| "read"
 	| "bash"
 	| "edit"
@@ -30,7 +30,7 @@ export type ZGPermissionKey =
 	| "vuln_read"
 	| "poc_read";
 
-export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
+export const PERMISSION_KEYS: readonly SentinelPermissionKey[] = [
 	"read",
 	"bash",
 	"edit",
@@ -45,12 +45,12 @@ export const PERMISSION_KEYS: readonly ZGPermissionKey[] = [
 ];
 
 /** Keys a sub-agent can hold at all: delegation never recurses. */
-export const SUBAGENT_PERMISSION_KEYS: readonly ZGPermissionKey[] = PERMISSION_KEYS.filter(
+export const SUBAGENT_PERMISSION_KEYS: readonly SentinelPermissionKey[] = PERMISSION_KEYS.filter(
 	(key) => key !== "spawn_agent",
 );
 
 /** The switches of one agent. Missing entries mean "not allowed". */
-export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
+export type SentinelPermissionSet = Record<SentinelPermissionKey, boolean>;
 
 /**
  * The engineering-mode commander's switches. Its scheduling tools
@@ -58,39 +58,46 @@ export type ZGPermissionSet = Record<ZGPermissionKey, boolean>;
  * operator controls is the fenced execution surface it gets for scoping
  * targets: bash (budgeted, timeout, denylisted by the engine) and read.
  */
-export type ZGCommanderPermissionKey = "bash" | "read";
+export type SentinelCommanderPermissionKey = "bash" | "read";
 
-export type ZGCommanderPermissionSet = Record<ZGCommanderPermissionKey, boolean>;
+export type SentinelCommanderPermissionSet = Record<SentinelCommanderPermissionKey, boolean>;
 
-export const COMMANDER_PERMISSION_KEYS: readonly ZGCommanderPermissionKey[] = ["bash", "read"];
+export const COMMANDER_PERMISSION_KEYS: readonly SentinelCommanderPermissionKey[] = ["bash", "read"];
 
-export const COMMANDER_PERMISSION_LABELS: Record<ZGCommanderPermissionKey, string> = {
+export const COMMANDER_PERMISSION_LABELS: Record<SentinelCommanderPermissionKey, string> = {
 	bash: "bash 执行命令（受限）",
 	read: "read 读取文件",
 };
 
-export const COMMANDER_PERMISSION_HINTS: Record<ZGCommanderPermissionKey, string> = {
+export const COMMANDER_PERMISSION_HINTS: Record<SentinelCommanderPermissionKey, string> = {
 	bash: "在项目容器内执行命令，用于拆解任务前的一次性轻量确认；受每工程 40 条预算、单条 20 秒超时、输出截断与破坏性命令拦截约束",
 	read: "读取项目工作目录中的文件（只读，不能修改）",
 };
 
-export interface ZGPermissionsConfig {
-	main: ZGPermissionSet;
-	subagent: ZGPermissionSet;
-	commander: ZGCommanderPermissionSet;
+export interface SentinelPermissionsConfig {
+	main: SentinelPermissionSet;
+	subagent: SentinelPermissionSet;
+	commander: SentinelCommanderPermissionSet;
+	/** Turn budget before one sub-agent run is aborted. */
+	subagentMaxTurns: number;
 }
 
+/** Defaults and bounds of the sub-agent turn budget. */
+export const DEFAULT_SUBAGENT_MAX_TURNS = 40;
+export const MIN_SUBAGENT_MAX_TURNS = 1;
+export const MAX_SUBAGENT_MAX_TURNS = 200;
+
 /** One-click permission bundles offered above the switches. */
-export interface ZGPermissionPreset {
+export interface SentinelPermissionPreset {
 	id: string;
 	label: string;
 	hint: string;
-	main: ZGPermissionSet;
-	subagent: ZGPermissionSet;
-	commander: ZGCommanderPermissionSet;
+	main: SentinelPermissionSet;
+	subagent: SentinelPermissionSet;
+	commander: SentinelCommanderPermissionSet;
 }
 
-export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
+export const PERMISSION_LABELS: Record<SentinelPermissionKey, string> = {
 	read: "read 读取文件",
 	bash: "bash 执行命令",
 	edit: "edit 精确编辑",
@@ -104,7 +111,7 @@ export const PERMISSION_LABELS: Record<ZGPermissionKey, string> = {
 	poc_read: "poc_search / poc_read 检索 POC 库",
 };
 
-export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
+export const PERMISSION_HINTS: Record<SentinelPermissionKey, string> = {
 	read: "读取工作目录中的文件内容",
 	bash: "在项目容器内执行命令（审批模式仍会逐条确认）",
 	edit: "对已有文件做精确文本替换",
@@ -118,7 +125,7 @@ export const PERMISSION_HINTS: Record<ZGPermissionKey, string> = {
 	poc_read: "检索操作员导入的 Nuclei POC 库（只读参考；要执行需自己写 yaml 并用 bash 跑 nuclei）",
 };
 
-function fullSet(): ZGPermissionSet {
+function fullSet(): SentinelPermissionSet {
 	return {
 		read: true,
 		bash: true,
@@ -134,7 +141,7 @@ function fullSet(): ZGPermissionSet {
 	};
 }
 
-function emptySet(): ZGPermissionSet {
+function emptySet(): SentinelPermissionSet {
 	return {
 		read: false,
 		bash: false,
@@ -155,7 +162,7 @@ function emptySet(): ZGPermissionSet {
  * run nothing and write nothing — including no new findings, because submitting
  * is a write.
  */
-function reconSet(): ZGPermissionSet {
+function reconSet(): SentinelPermissionSet {
 	return {
 		...emptySet(),
 		read: true,
@@ -168,7 +175,7 @@ function reconSet(): ZGPermissionSet {
 	};
 }
 
-export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
+export const PERMISSION_PRESETS: readonly SentinelPermissionPreset[] = [
 	{
 		id: "standard",
 		label: "标准",
@@ -195,11 +202,12 @@ export const PERMISSION_PRESETS: readonly ZGPermissionPreset[] = [
 	},
 ];
 
-export function defaultPermissions(): ZGPermissionsConfig {
+export function defaultPermissions(): SentinelPermissionsConfig {
 	return {
 		main: fullSet(),
 		subagent: { ...fullSet(), spawn_agent: false },
 		commander: { bash: true, read: true },
+		subagentMaxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
 	};
 }
 
@@ -213,10 +221,10 @@ export function defaultPermissions(): ZGPermissionsConfig {
  * must not silently widen an existing configuration. A missing or unreadable file
  * still reads as the full defaults, because that is a fresh install.
  */
-export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
+export function normalizePermissions(raw: unknown): SentinelPermissionsConfig {
 	const defaults = defaultPermissions();
 	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-	const readSet = (value: unknown, fallback: ZGPermissionSet): ZGPermissionSet => {
+	const readSet = (value: unknown, fallback: SentinelPermissionSet): SentinelPermissionSet => {
 		if (typeof value !== "object" || value === null) return { ...fallback };
 		const source = value as Record<string, unknown>;
 		const set = emptySet();
@@ -229,18 +237,32 @@ export function normalizePermissions(raw: unknown): ZGPermissionsConfig {
 	const subagent = readSet(record.subagent, defaults.subagent);
 	// The commander section follows the same rule as every other switch: a file
 	// that predates it never agreed to it, so an absent section reads as off.
-	const commander: ZGCommanderPermissionSet = { bash: false, read: false };
+	const commander: SentinelCommanderPermissionSet = { bash: false, read: false };
 	if (typeof record.commander === "object" && record.commander !== null) {
 		const source = record.commander as Record<string, unknown>;
 		for (const key of COMMANDER_PERMISSION_KEYS) {
 			commander[key] = source[key] === true;
 		}
 	}
-	return { main, subagent: effectiveSubagent({ main, subagent }), commander };
+	return {
+		main,
+		subagent: effectiveSubagent({ main, subagent }),
+		commander,
+		subagentMaxTurns: coerceTurns(record.subagentMaxTurns),
+	};
+}
+
+/** Clamp the stored turn budget into its usable range; a bad value reads as the default. */
+function coerceTurns(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SUBAGENT_MAX_TURNS;
+	const rounded = Math.round(value);
+	if (rounded < MIN_SUBAGENT_MAX_TURNS) return MIN_SUBAGENT_MAX_TURNS;
+	if (rounded > MAX_SUBAGENT_MAX_TURNS) return MAX_SUBAGENT_MAX_TURNS;
+	return rounded;
 }
 
 /** What a sub-agent actually receives: the main agent's set, minus spawn_agent. */
-export function effectiveSubagent(config: Pick<ZGPermissionsConfig, "main" | "subagent">): ZGPermissionSet {
+export function effectiveSubagent(config: Pick<SentinelPermissionsConfig, "main" | "subagent">): SentinelPermissionSet {
 	const set = emptySet();
 	for (const key of SUBAGENT_PERMISSION_KEYS) {
 		set[key] = config.main[key] && config.subagent[key];
@@ -255,7 +277,7 @@ const MCP_RESOURCE_TOOLS = ["list_mcp_resources", "list_mcp_resource_templates",
  * The denylist handed to the SDK. Patterns are supported, so one entry covers
  * every tool of every MCP server.
  */
-export function excludeToolsFor(set: ZGPermissionSet): string[] {
+export function excludeToolsFor(set: SentinelPermissionSet): string[] {
 	const excluded: string[] = [];
 	for (const key of ["read", "bash", "edit", "write", "codemode", "tool_search", "spawn_agent"] as const) {
 		if (!set[key]) excluded.push(key);
@@ -269,7 +291,7 @@ export function excludeToolsFor(set: ZGPermissionSet): string[] {
 }
 
 /** Names the console can report without knowing the full tool registry. */
-export function describePermissions(set: ZGPermissionSet): string {
+export function describePermissions(set: SentinelPermissionSet): string {
 	const off = PERMISSION_KEYS.filter((key) => !set[key]).map((key) => key);
 	return off.length === 0 ? "全部启用" : `已禁用：${off.join("、")}`;
 }
@@ -278,7 +300,7 @@ export function permissionsJsonPath(agentDir: string): string {
 	return join(agentDir, "permissions.json");
 }
 
-export function readPermissionsConfig(agentDir: string): ZGPermissionsConfig {
+export function readPermissionsConfig(agentDir: string): SentinelPermissionsConfig {
 	const path = permissionsJsonPath(agentDir);
 	if (!existsSync(path)) return defaultPermissions();
 	try {
@@ -289,7 +311,7 @@ export function readPermissionsConfig(agentDir: string): ZGPermissionsConfig {
 	}
 }
 
-export function writePermissionsConfig(agentDir: string, config: ZGPermissionsConfig): void {
+export function writePermissionsConfig(agentDir: string, config: SentinelPermissionsConfig): void {
 	const normalized = normalizePermissions(config);
 	writeFileSync(permissionsJsonPath(agentDir), `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
 }

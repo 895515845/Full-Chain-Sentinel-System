@@ -21,7 +21,7 @@ import {
 	sourceUrlError,
 } from "../src/poc-subscriptions.ts";
 import { PocStore } from "../src/pocs.ts";
-import type { ZGPocSource } from "../src/protocol.ts";
+import type { SentinelPocSource } from "../src/protocol.ts";
 
 const TEMPLATE = (id: string): string => `id: ${id}\ninfo:\n  name: Template ${id}\n  severity: high\n  tags: cve\n`;
 
@@ -70,7 +70,7 @@ let port = 0;
 let routes: Record<string, { status: number; body: Buffer; requireAuth?: string }> = {};
 
 beforeAll(async () => {
-	dir = mkdtempSync(join(tmpdir(), "zg-poc-subs-"));
+	dir = mkdtempSync(join(tmpdir(), "sentinel-poc-subs-"));
 	store = new PocStore(join(dir, "pocs.db"));
 	const hooks: SubscriptionHooks = {
 		onChange: () => {},
@@ -97,7 +97,7 @@ afterAll(() => {
 	server.close();
 });
 
-const failures: { source: ZGPocSource; record: { error?: string } }[] = [];
+const failures: { source: SentinelPocSource; record: { error?: string } }[] = [];
 
 test("URL validation and interval clamping", () => {
 	expect(sourceUrlError("http://内网/pack.zip")).toBeUndefined();
@@ -177,7 +177,7 @@ test("a failed sync records the error, fires the failure hook, and keeps the lib
 });
 
 test("interval due logic", () => {
-	const fresh: ZGPocSource = {
+	const fresh: SentinelPocSource = {
 		id: "x",
 		name: "x",
 		url: "http://x/a.zip",

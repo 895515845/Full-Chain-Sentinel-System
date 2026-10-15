@@ -1,6 +1,6 @@
-# ZGAgent Web
+# Full Chain Sentinel Web
 
-ZGAgent 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服务，以及浏览器端中文控制台界面。
+全链哨兵 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服务，以及浏览器端中文控制台界面。
 
 ## 功能
 
@@ -11,7 +11,7 @@ ZGAgent 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服�
   - **自动执行**：命令直接运行，不做拦截
   - **AI 审批**：每条 bash 命令执行前由守门员模型判一次 `ALLOW` / `BLOCK`，判定失败或超时一律放行（见下）
 - **AI 审批（守门员）**：判定只针对这一条命令的直接效果，拦截范围限定在会直接破坏目标可用性、业务数据完整性或系统配置的六类操作——改/重置密码、改服务器或服务配置（`/etc`、`nginx.conf`、`my.cnf`、防火墙、计划任务）、改用户与权限（`useradd` / `GRANT` / 放宽 shadow 权限）、删除或篡改真实业务数据（业务接口的 DELETE/PUT/PATCH、`DROP TABLE` / `TRUNCATE` / `rm` 重要文件）、停止或重启业务服务（`systemctl stop` / `kill` / `reboot`）、大规模压测（`hping3 --flood` / 高并发 `ab`）。授权渗透的正常手段即使带写动作也放行：注入类 payload、文件上传（含 webshell）、弱口令爆破、扫描枚举、通过路径遍历或 `file://` 读 `/etc/passwd` 等敏感文件。判 `BLOCK` 时命令**不执行**，理由回给模型（提示换一种不破坏目标的方式，或请操作员在审批 / 自动模式下执行），**不重放**。判定失败、超时、回复无法解析都按**放行**处理并记为「请求失败」，界面顶部是一条黄色提示条（「守门模型不可用，已放行 N 次」），不会因为守门员掉线把工作卡死。**AI 模式下命令前缀白名单失效**：每条命令都过模型，不做本地短路
-- **模型库**（设置 → 模型）：页面以「角色」为主——**主模型**、**守门模型**、**漏洞评审**三个角色各自从模型库里挑一条模型，守门模型与漏洞评审可以选「跟随主模型」，改主模型时它们一起换。下面才是模型库本身：一条模型 = 一个（Base URL + 模型 ID + API Key），可加、编辑、复制（同地址再开一条靠它）、测试连接、删除；被任何角色引用的模型**删不掉**，页面会点名是哪些角色在用。密钥明文存在 `~/.zgagent/agent/model-library.json`（0600），前端不回显（编辑时留空表示不改，另有「清除已保存的密钥」把端点改成无鉴权）。老版本的三个固定槽位（主端点 / 指挥官端点 / 守门端点）在首次打开这个页面时自动迁成模型库条目，角色指向关系按旧回落链还原
+- **模型库**（设置 → 模型）：页面以「角色」为主——**主模型**、**守门模型**、**漏洞评审**三个角色各自从模型库里挑一条模型，守门模型与漏洞评审可以选「跟随主模型」，改主模型时它们一起换。下面才是模型库本身：一条模型 = 一个（Base URL + 模型 ID + API Key），可加、编辑、复制（同地址再开一条靠它）、测试连接、删除；被任何角色引用的模型**删不掉**，页面会点名是哪些角色在用。密钥明文存在 `~/.sentinel/agent/model-library.json`（0600），前端不回显（编辑时留空表示不改，另有「清除已保存的密钥」把端点改成无鉴权）。老版本的三个固定槽位（主端点 / 指挥官端点 / 守门端点）在首次打开这个页面时自动迁成模型库条目，角色指向关系按旧回落链还原
 - **守门模型**（设置 → 模型 → 角色）：AI 审批的判定端点，默认「跟随主模型」。页面写明当前生效的是哪条模型；可设判定超时（默认 15 秒）与并发上限（默认不限，最多 64），并有「测试判定」用一条样例命令验证端点。判定调用固定 `temperature: 0`、`max_tokens: 128`，一次命令一次调用。**改完立即生效**，不会重建正在运行的会话
 - **守门审计**（侧栏「工作台 → 守门审计」）：只读的判定流水。统计块给出 拦截 / 放行 / 请求失败 / 拦截率 / 平均耗时 / 最近 24 小时 / 判定 tokens / 最近一次成功；可按判定、来源（主代理 / 子代理 / 工程任务）、时间窗口、项目、关键字过滤；表格逐条列出时间、判定、来源、命令、理由、耗时，展开一行看完整命令、cwd、模型来源与 tokens，并可直接跳到发起该命令的会话。`ALLOW` 也记录，记录存 `<配置目录>/gatekeeper.db`（SQLite）永久保留，**判定消耗的 tokens 只出现在这一页**，不计入会话或工程的用量；判定失败时页面顶部显示最近一次错误
 - **模式作用域**：模式分「全局默认」与「本会话覆盖」两层。工具条上的三态开关只改当前会话，存在会话文件的 `custom` 条目 `zg-mode` 里，重开、重建会话或 fork 都保留；设置 → 模型 里的开关改的是全局默认，新会话跟随它，已有覆盖的会话不受影响
@@ -19,13 +19,15 @@ ZGAgent 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服�
 - 审批队列：并发工具调用逐条列出，可单条批准（可编辑）、全部批准、全部拒绝；支持「本会话自动放行此前缀」与命令前缀白名单（复合命令永不白名单放行；仅审批模式有效）
 - **会话状态**（人工标记）：侧栏会话列表的每一行右侧有一个彩色标签，点它即可把会话标成 待跟进 / 进行中 / 已完成 / 已忽略（再点一次同一项或选「无状态」清除）。对话页顶部工具条有同一个入口，标的是当前会话。列表头可切 全部 / 未完成，「未完成」隐藏已完成与已忽略并显示 `N / M 个会话`。状态存在会话文件的 `custom` 条目里（`zg-status`），跟着会话走、fork 会继承、重启不丢，并且**不进模型上下文**：它只是操作员自己的备忘，模型看不到
 - **设置页**（侧栏「系统 → 设置」，点击「设置」行展开/收起，展开时进入「模型」）：分「模型」「通知」「权限」「环境」四个页面。模型分区配置 OpenAI 兼容端点，保存前一键验证，失败给出具体原因（超时 / 401 / 404 路径 / 模型不存在）与建议；空 API Key 的本地端点可直接使用
-- **Agent 权限**（设置页「权限」）：主 Agent 与子 Agent 各一组开关（read / bash / edit / write / codemode / tool_search / MCP / spawn_agent / vuln_submit / vuln_read），全局保存在 `~/.zgagent/agent/permissions.json`，另有「标准 / 只读侦察 / 全部禁用」三个预设。子代理的权限永远是主 Agent 的子集，且永远拿不到 spawn_agent——否则主 Agent 关掉 bash 后只要派一个子代理就绕过了自己的限制。保存后立即重建所有活动会话（历史保留），有运行中的会话会拒绝保存并要求先中止。禁用是通过 SDK 的 `excludeTools` 在注册阶段剔除工具实现的，因此模型看不到、tool_search 搜不到、历史记录恢复不了、codemode 也调不到；页面同时列出当前会话实际挂载的工具，便于核对。**旧配置文件里没有的开关按「关闭」读取**：文件早于该开关存在，操作员从未同意过它，新增能力不能悄悄放宽既有配置；文件缺失或损坏仍按「全部启用」处理（那是全新安装）
-- **环境页**（设置页「环境」）：进入页面或点「复检」时检查 Docker 命令行、守护进程、`zgagent:latest` 镜像、镜像与宿主架构是否一致、一次性容器能否启动、项目容器是否都在运行、项目目录与配置目录是否可写、剩余磁盘空间、模型端点是否配置、构建镜像需要的网络。每项给出状态（通过 / 警告 / 失败 / 跳过）、实测值和修复建议，「复制诊断」把整份报告复制成文本
-- **构建源**（设置页「环境」→ 构建源）：基础镜像可换成国内加速站（如 `docker.m.daocloud.io`，只填 registry 会自动补 `kalilinux/kali-rolling:latest`）或内网 registry，apt / pip / npm / go 可分别指向镜像源，另有「中国镜像源」一键预设（清华 apt、清华 pip、npmmirror、goproxy.cn）。这些值作为 `docker build --build-arg` 烘焙进镜像，所以保存后要重建镜像；pip / npm / go 三项同时写进镜像里的 `/etc/pip.conf`、`/root/.npmrc`、`/root/.config/go/env`，容器内运行时执行 `pip install` 等也走镜像源。留空即官方源，保存在 `~/.zgagent/agent/sources.json`，环境页的「构建源」检查项会列出下次构建实际使用的值
-- **构建镜像**：镜像不存在时在环境页直接点「构建镜像」构建 `zgagent:latest`（二次确认，构建输出实时滚动，可「中止构建」）。仓库里运行时用 `docker/` 目录作构建上下文；单文件二进制运行时把内嵌的 Dockerfile 写到临时目录再构建，因此不需要带任何文件
+- **Agent 权限**（设置页「权限」）：主 Agent 与子 Agent 各一组开关（read / bash / edit / write / codemode / tool_search / MCP / spawn_agent / vuln_submit / vuln_read），全局保存在 `~/.sentinel/agent/permissions.json`，另有「标准 / 只读侦察 / 全部禁用」三个预设。子代理的权限永远是主 Agent 的子集，且永远拿不到 spawn_agent——否则主 Agent 关掉 bash 后只要派一个子代理就绕过了自己的限制。保存后立即重建所有活动会话（历史保留），有运行中的会话会拒绝保存并要求先中止。禁用是通过 SDK 的 `excludeTools` 在注册阶段剔除工具实现的，因此模型看不到、tool_search 搜不到、历史记录恢复不了、codemode 也调不到；页面同时列出当前会话实际挂载的工具，便于核对。**旧配置文件里没有的开关按「关闭」读取**：文件早于该开关存在，操作员从未同意过它，新增能力不能悄悄放宽既有配置；文件缺失或损坏仍按「全部启用」处理（那是全新安装）
+- **环境页**（设置页「环境」）：进入页面或点「复检」时检查 Docker 命令行、守护进程、`sentinel:latest` 镜像、镜像与宿主架构是否一致、一次性容器能否启动、项目容器是否都在运行、项目目录与配置目录是否可写、剩余磁盘空间、模型端点是否配置、构建镜像需要的网络。每项给出状态（通过 / 警告 / 失败 / 跳过）、实测值和修复建议，「复制诊断」把整份报告复制成文本
+- **构建源**（设置页「环境」→ 构建源）：基础镜像可换成国内加速站（如 `docker.m.daocloud.io`，只填 registry 会自动补 `kalilinux/kali-rolling:latest`）或内网 registry，apt / pip / npm / go 可分别指向镜像源，另有「中国镜像源」一键预设（清华 apt、清华 pip、npmmirror、goproxy.cn）。这些值作为 `docker build --build-arg` 烘焙进镜像，所以保存后要重建镜像；pip / npm / go 三项同时写进镜像里的 `/etc/pip.conf`、`/root/.npmrc`、`/root/.config/go/env`，容器内运行时执行 `pip install` 等也走镜像源。留空即官方源，保存在 `~/.sentinel/agent/sources.json`，环境页的「构建源」检查项会列出下次构建实际使用的值
+- **容器网络**（设置页「环境」→ 容器网络）：新建与重建的项目容器用哪种网络，默认 **host**——容器直接用宿主机的网络栈，里面起的监听端口（反向 shell、payload 服务、handler）目标机器能连回来，`127.0.0.1` 就是宿主机（Burp、本地靶场、控制台本身），内网、VPN 与内网 DNS 也是真实的；代价是与宿主机抢端口，且没有 Docker 的网络隔离。可切回 **bridge**（Docker 默认隔离：容器有自己的地址、只经 `host.docker.internal` 访问宿主机、不对外发布端口，目标连不回容器里的监听）。设置存在 `~/.sentinel/agent/container-network.json`，只影响之后新建或重建的容器，环境页的「项目容器」检查项会写明运行中的容器实际用哪个网络；host 模式不再授予 `NET_ADMIN`（那在宿主机命名空间里等于能改宿主机网络），`NET_RAW` 保留
+- **重建容器**（项目页每行的「重建容器」）：Docker 不允许改已有容器的网络模式与能力，所以改完「容器网络」这类创建期设置后，已有项目要点它才会套用。重建只换容器：项目 id、名称与工作目录（`/work`）不变，容器里 apt 装的包与 `/work` 之外的文件会丢，重建期间正在跑的命令会失败
+- **构建镜像**：镜像不存在时在环境页直接点「构建镜像」构建 `sentinel:latest`（二次确认，构建输出实时滚动，可「中止构建」）。仓库里运行时用 `docker/` 目录作构建上下文；单文件二进制运行时把内嵌的 Dockerfile 写到临时目录再构建，因此不需要带任何文件
 - **Docker 门禁**：只要有阻断项没通过，控制台就拒绝 `prompt`、`compact` 和子代理 steer（服务端返回失败原因），所有页面顶部显示红色横幅，输入框锁定为「已锁定」并显示原因——与其让命令在容器里失败，不如先让人把环境修好。未选项目时引导页只替换对话页，设置页与项目页仍然可达，否则首次使用就没法进环境页构建镜像
 - **POC 订阅**（设置页「POC 订阅」）：订阅远程 zip 模板包。源 = 名称 + zip 直链 + 可选认证头 + 可选自动间隔（默认 24h）；手动「立即同步」或定时拉取，走与手动导入相同的去重覆盖路径，只增不减（同步从不删除本地模板）；下载限 512MB / 10 分钟 / 重试一次，每个源保留最近 5 次同步记录，失败可推钉钉（通知 kinds 新子项「POC 订阅失败」）。页头与 POC 库页头各有「一键同步官方 POC」：源不存在时自动创建官方 `projectdiscovery/nuclei-templates` 源（id `official`，仅手动）并同步，已存在则同步它当前的 URL（改成镜像再点即可），重复点击不会堆出重复源
-- **POC 库**（侧栏「工作台 → POC 库」）：操作员导入的 Nuclei 模板中心，全局共享（`~/.zgagent/agent/pocs.db`，不进容器）。导入支持多选 yaml 与 zip，按模板 `info.id` 去重覆盖（顶层带 `workflows:` 的 nuclei workflow 不是模板，跳过并单独说明原因）；Agent 只有 `poc_search` / `poc_read` 两个只读工具（「设置 → 权限」的 `poc_read` 开关控制，旧配置按关闭读取），`poc_search` 一次最多列 100 条元数据并明确提示「还有更多」，`poc_read` 一次可取多条模板全文（最多 8 条），模板文件永不挂进项目容器——要实际执行，Agent 必须自己写 yaml 到工作目录再用 bash 跑 nuclei
+- **POC 库**（侧栏「工作台 → POC 库」）：操作员导入的 Nuclei 模板中心，全局共享（`~/.sentinel/agent/pocs.db`，不进容器）。导入支持多选 yaml 与 zip，按模板 `info.id` 去重覆盖（顶层带 `workflows:` 的 nuclei workflow 不是模板，跳过并单独说明原因）；Agent 只有 `poc_search` / `poc_read` 两个只读工具（「设置 → 权限」的 `poc_read` 开关控制，旧配置按关闭读取），`poc_search` 一次最多列 100 条元数据并明确提示「还有更多」，`poc_read` 一次可取多条模板全文（最多 8 条），模板文件永不挂进项目容器——要实际执行，Agent 必须自己写 yaml 到工作目录再用 bash 跑 nuclei
 - **钉钉通知**（设置页「通知」）：一次运行结束（完成 / 失败 / 已中止）后向钉钉群自定义机器人推送 markdown 消息，含状态、项目、会话状态、耗时、token 用量与花费、最后回复（默认截断 2000 字，可在设置页改成任意字数，`0` 表示不截断）与失败原因。支持「加签」（secret 留空则不加签）与「自定义关键词」；字数上限同时作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」，超出钉钉单条 20000 字节时按字节硬截断并注明；「发送测试消息」可先验证机器人。输入框旁的「通知」开关按条决定本次运行是否推送，默认跟随全局开关，全局关闭时也可单条强制发送；发送失败重试 2 次，最近一次发送结果显示在设置页
 - 长输出查看：复制命令 / 复制输出 / 全屏查看 + 行过滤搜索
 - 会话分支：对话页工具栏「分支」打开分支树弹窗，任意历史用户消息处一键分叉
@@ -44,11 +46,11 @@ ZGAgent 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服�
 - **复读保护（loop-guard）**：模型陷入复读（同一行或同一小段内容连续重复，常见于压缩上下文之后）时，扩展在检测到重复的那一刻中止这次请求，把重复的尾部从消息里截掉（重复文本留在上下文里只会诱发下一轮复读），并以一条可折叠的「输出重复已中止」提示自动续跑，要求它换一种方式继续；同一个 prompt 连续 3 次复读后不再自动续跑，交给操作员处理。另外按会话统计「同工具 + 同参数」的连续调用，在第 3 / 5 / 8 次注入一条「重复工具调用提醒」（只提示，不中止）。两类提示都是 `custom_message` 条目（`customType` 为 `zg-loop-guard`），模型收到的是 user 消息，控制台里折叠成一条提示行而不是操作员的输入
 - **图片输入**：粘贴截图或选择图片文件随消息发送，会话记录中保留缩略图。注意 pi 只会把图片发给声明了 image 能力的模型，本控制台写入的端点配置默认声明 `input: ["text","image"]`；纯文本端点请在 `models.json` 中改回 `["text"]`
 - **文件上传**：拖拽或粘贴任意文件到输入框，或点输入框上方的「附件」按钮选文件（「图片」按钮仍只收图片），每个文件一个 chip（名称、大小、上传进度、可删除），上传完不自动发送——按 Enter 才随消息发出。文件写进当前项目工作目录的 `uploads/`（重名自动加 `-2`/`-3`，不覆盖已有文件），发送时在消息正文前拼一段清单「已上传文件（可用 read/bash 直接读）：- `<绝对路径>`（大小）」，模型用自己的 read/bash 去读——消息本身只多这段文本，协议不变（模型消息只支持 text 与 image 两种 part，非图片文件只能落盘给路径）。传输走 `POST /api/upload?name=…`（body 是原始字节，XHR 上报进度），服务端边收边写盘、单文件上限 64MB、文件名净化成单段（`../../evil.sh` → `uploads/evil.sh`、`/etc/passwd` → `uploads/passwd`），超限或中断会删掉半成品并回 413/400 + 中文原因，没选项目回 409。图片仍走上面那条 vision 路径、不落盘；上传后切换了项目再发送会被拦下并提示重新上传（旧项目目录没挂进容器，那个路径模型读不到）。宿主会话与容器会话都能用：文件写在挂载的宿主侧，容器里的 `/work/uploads/…` 与宿主绝对路径是同一个 inode
-- **内置扩展**：codemode（沙箱内脚本批量调工具）、tool_search 与 loop-guard（复读保护）默认启用；MCP 服务器从 `~/.zgagent/agent/mcp.json` 与项目目录的 `mcp.json` 读取，会话启动时连接
+- **内置扩展**：codemode（沙箱内脚本批量调工具）、tool_search 与 loop-guard（复读保护）默认启用；MCP 服务器从 `~/.sentinel/agent/mcp.json` 与项目目录的 `mcp.json` 读取，会话启动时连接
 - 会话管理：会话挂在侧边栏「对话」下（悬停显示重命名 / 删除）、切换、新建（JSONL 会话文件即审计日志）
 - 会话记录按控制台日志呈现：操作者输入是一行命令回显，代理输出是正文段落。一次运行的过程（思考、工具调用、中间说明）挂在正文左边缘的一条竖轨上，每次调用是轨上一个圆点：运行中蓝色、完成绿色、失败红色，行内显示工具名、命令或最新一行输出、以及结果与耗时；点开某一行才变成深色终端块（命令、完整输出、复制、全屏）。**运行一结束，整段过程自动折成一行「过程 · N 次工具调用 · N 段思考 · 耗时」，正文只留你的指令和最后的总结**，点开可完整回看；失败、中止和正在跑的运行不折叠，错误一定看得见；压缩后保留的那一段前面已经没有指令了，同样折成「过程」行。输出顺序由事件流决定：运行期间消息按到达顺序渲染，运行结束的 snapshot 再统一接管，不会出现文字消失或工具卡片堆到最后（刷新才恢复）
 - **单文件二进制**：`scripts/build-web-binaries.sh` 用 `bun build --compile` 把服务端、前端资源、Dockerfile 和 coding-agent 的包信息打进一个可执行文件（darwin-arm64 / linux-x64），目标机器上不需要 Node、npm 或 node_modules，只需要一个 Docker 守护进程
-- 模型端点配置：OpenAI 兼容端点（vLLM / one-api / new-api 等）。模型库（名称、地址、角色指向）写在 `~/.zgagent/agent/model-library.json`，SDK 读的 provider 注册表 `~/.zgagent/agent/models.json` 由它同步生成，一条模型一个 provider。**主模型的改动在下次发送时生效**（不打断正在跑的会话），守门模型与漏洞评审改完立即生效
+- 模型端点配置：OpenAI 兼容端点（vLLM / one-api / new-api 等）。模型库（名称、地址、角色指向）写在 `~/.sentinel/agent/model-library.json`，SDK 读的 provider 注册表 `~/.sentinel/agent/models.json` 由它同步生成，一条模型一个 provider。**主模型的改动在下次发送时生效**（不打断正在跑的会话），守门模型与漏洞评审改完立即生效
 
 ## 架构
 
@@ -57,7 +59,7 @@ ZGAgent 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服�
    │  WebSocket /ws（JSON 协议，见 src/protocol.ts）+ 静态资源 HTTP
 server.ts（node:http + ws）
    │  直接调用 SDK
-zg-session.ts —— createAgentSession() + baseToolsOverride(bash 包装审批门 / 守门员)
+sentinel-session.ts —— createAgentSession() + baseToolsOverride(bash 包装审批门 / 守门员)
    │        │
    │        ├── files.ts / subagent-store.ts / vulnerabilities.ts
    │        │   （docker exec 文件操作、子代理记录、漏洞中枢 SQLite）
@@ -67,17 +69,17 @@ zg-session.ts —— createAgentSession() + baseToolsOverride(bash 包装审批�
 pi coding-agent（AgentSession / SessionManager / 工具 / 压缩 / 会话树）
 ```
 
-bash 工具通过 `BashOperations.exec` 包装实现拦截，三种模式在同一个包装里分派：审批模式下命令先广播到所有已连接的控制台，等待操作员决定（批准 / 编辑后批准 / 拒绝），中止运行会取消未决审批；自动执行直接放行；AI 审批把命令交给守门员模型，`ALLOW` 放行、`BLOCK` 以理由回绝、判定失败放行并记录。模式按会话解析（本会话覆盖 → 全局默认），所以包装拿到的是一个 `() => ZGMode` 闭包而不是启动时的固定值。
+bash 工具通过 `BashOperations.exec` 包装实现拦截，三种模式在同一个包装里分派：审批模式下命令先广播到所有已连接的控制台，等待操作员决定（批准 / 编辑后批准 / 拒绝），中止运行会取消未决审批；自动执行直接放行；AI 审批把命令交给守门员模型，`ALLOW` 放行、`BLOCK` 以理由回绝、判定失败放行并记录。模式按会话解析（本会话覆盖 → 全局默认），所以包装拿到的是一个 `() => SentinelMode` 闭包而不是启动时的固定值。
 
-守门员的判定记录写在配置目录的 `gatekeeper.db`（`~/.zgagent/agent/gatekeeper.db`），与漏洞中枢同样的理由：不进容器。每条记录含来源、命令、判定、理由、耗时、模型来源与 tokens，`ALLOW` 也入库；判定失败同样入库（`failed`），因此「守门员掉线期间放行了什么」可以事后核对。
+守门员的判定记录写在配置目录的 `gatekeeper.db`（`~/.sentinel/agent/gatekeeper.db`），与漏洞中枢同样的理由：不进容器。每条记录含来源、命令、判定、理由、耗时、模型来源与 tokens，`ALLOW` 也入库；判定失败同样入库（`failed`），因此「守门员掉线期间放行了什么」可以事后核对。
 
 文件面板与子代理面板不经过审批门，但都限制在项目容器内：文件操作把路径归一化到 `/work` 之下并以位置参数传给容器脚本（不做字符串拼接），子代理只能由主代理派生且同样使用被包装的 bash。
 
-漏洞中枢的数据库在配置目录（`~/.zgagent/agent/vulnerabilities.db`），不在项目工作目录里：工作目录挂进容器，容器内的一条 `rm` 或 `sqlite3` 就能改掉或抹掉记录。代理提交时项目按「会话创建时」绑定，而不是读当前页面上的项目——切换项目后旧会话仍可能在后台跑，它提交的记录必须留在它发现漏洞的那个项目里。
+漏洞中枢的数据库在配置目录（`~/.sentinel/agent/vulnerabilities.db`），不在项目工作目录里：工作目录挂进容器，容器内的一条 `rm` 或 `sqlite3` 就能改掉或抹掉记录。代理提交时项目按「会话创建时」绑定，而不是读当前页面上的项目——切换项目后旧会话仍可能在后台跑，它提交的记录必须留在它发现漏洞的那个项目里。
 
-持续目标由 `src/goal.ts`（纯状态机：轮次、熔断、完成/阻塞判定）、`src/goal-tool.ts`（`goal_progress` / `goal_complete` / `goal_blocked`）与 `zg-session.ts` 里的驱动组成。驱动挂在会话的 `agent_settled` 事件上：结算本轮、判断是否续跑、注入下一条合约。合约与状态都用会话条目写入会话文件——合约是 `custom_message`（会话记录里一行可折叠的「目标续跑」，模型收到的是 user 消息），状态是 `custom` 状态条目（不进模型上下文）。因此分叉、压缩、重启都不会丢目标，续跑也不会污染操作员消息构成的分叉点。完成声明里的「已提交 N 条」与运行时实际计数硬校验：运行时只统计本目标开始后经 `vuln_submit` 入库的记录（含子代理提交），少报多报都会被拒绝。
+持续目标由 `src/goal.ts`（纯状态机：轮次、熔断、完成/阻塞判定）、`src/goal-tool.ts`（`goal_progress` / `goal_complete` / `goal_blocked`）与 `sentinel-session.ts` 里的驱动组成。驱动挂在会话的 `agent_settled` 事件上：结算本轮、判断是否续跑、注入下一条合约。合约与状态都用会话条目写入会话文件——合约是 `custom_message`（会话记录里一行可折叠的「目标续跑」，模型收到的是 user 消息），状态是 `custom` 状态条目（不进模型上下文）。因此分叉、压缩、重启都不会丢目标，续跑也不会污染操作员消息构成的分叉点。完成声明里的「已提交 N 条」与运行时实际计数硬校验：运行时只统计本目标开始后经 `vuln_submit` 入库的记录（含子代理提交），少报多报都会被拒绝。
 
-业务建模由 `src/modeling.ts`（简报文本、`zg-modeling-state` 状态条目、工具装载规则）、`src/apimodel-tool.ts`（`api_model_submit` / `api_model_done`）与 `src/apimodels.ts`（文档、实体、审计流水与导出）组成，驱动在 `zg-session.ts`。装载规则就是 `modelingToolLoadout(active, modeling)` 这一个函数：两个工具以 `defaultActive: false` 注册，所以任何会话初始的工具表与系统提示词里都没有它们；点按钮时用 `setActiveToolsByName` 把两个名字加进去（SDK 在下一回合重建系统提示词），结束时再减掉。运行状态写成会话条目（`custom`，不进模型上下文），所以重启、因权限变更重建会话、分叉都会把「还在建模」这件事一起带走，重建后按同一条规则还原工具表。文档存在配置目录的 `apimodels.db`：工作目录挂进容器，容器里的一条 `rm` 就能带走成果。
+业务建模由 `src/modeling.ts`（简报文本、`zg-modeling-state` 状态条目、工具装载规则）、`src/apimodel-tool.ts`（`api_model_submit` / `api_model_done`）与 `src/apimodels.ts`（文档、实体、审计流水与导出）组成，驱动在 `sentinel-session.ts`。装载规则就是 `modelingToolLoadout(active, modeling)` 这一个函数：两个工具以 `defaultActive: false` 注册，所以任何会话初始的工具表与系统提示词里都没有它们；点按钮时用 `setActiveToolsByName` 把两个名字加进去（SDK 在下一回合重建系统提示词），结束时再减掉。运行状态写成会话条目（`custom`，不进模型上下文），所以重启、因权限变更重建会话、分叉都会把「还在建模」这件事一起带走，重建后按同一条规则还原工具表。文档存在配置目录的 `apimodels.db`：工作目录挂进容器，容器里的一条 `rm` 就能带走成果。
 
 ## 使用
 
@@ -89,7 +91,9 @@ npm run build          # 构建所有包（包括本包）
 npm --prefix packages/web run start
 ```
 
-打开 http://127.0.0.1:7777 。
+打开启动日志里打印的入口地址（形如 `http://127.0.0.1:7777/K7nD1LGJfYFN`）即可使用。
+
+控制台默认监听 `0.0.0.0`，服务器上直接启动就能从外部访问（只想本机访问传 `--host 127.0.0.1`）。为避免被 FOFA 这类引擎扫到并收录，启动时会生成一个随机入口串：只有打开入口地址（会给浏览器种一个 cookie 再跳回 `/`）才能看到控制台，其余任何请求一律返回一个普通的 404。入口串每次启动都会变，需要固定用 `--gate-token`（或环境变量 `SENTINEL_GATE_TOKEN`），不要这层用 `--no-gate`；密码登录照旧生效。
 
 ### 单文件二进制
 
@@ -99,16 +103,16 @@ npm --prefix packages/web run start
 ./scripts/build-web-binaries.sh --skip-build         # 复用已有 dist
 ```
 
-产物在 `packages/web/binaries/`：`zgagent-web-<平台>.tar.gz`，解压后是一个 `zgagent-web` 可执行文件，拷到目标机器直接运行：
+产物在 `packages/web/binaries/`：`sentinel-web-<平台>.tar.gz`，解压后是一个 `sentinel-web` 可执行文件，拷到目标机器直接运行：
 
 ```bash
-./zgagent-web --check          # 只跑 Docker 环境检查，未通过时退出码 1
-./zgagent-web --port 7777      # 启动控制台
+./sentinel-web --check          # 只跑 Docker 环境检查，未通过时退出码 1
+./sentinel-web --port 7777      # 启动控制台
 ```
 
-二进制里带着前端资源和 Dockerfile，所以旁边不需要任何文件；运行时把 coding-agent 的 `package.json`、README、CHANGELOG 和 docs 解包到系统临时目录（`$TMPDIR/zgagent-web-package`）并指向它，否则 pi 会退回自己的默认值，把状态写进 `~/.pi/agent`。它仍然需要目标机器上有 Docker 守护进程和 `zgagent:latest` 镜像（环境页可以直接构建）；linux-x64 产物链接 glibc，Alpine 等 musl 发行版需要额外兼容层。
+二进制里带着前端资源和 Dockerfile，所以旁边不需要任何文件；运行时把 coding-agent 的 `package.json`、README、CHANGELOG 和 docs 解包到系统临时目录（`$TMPDIR/sentinel-web-package`）并指向它，否则 pi 会退回自己的默认值，把状态写进 `~/.pi/agent`。它仍然需要目标机器上有 Docker 守护进程和 `sentinel:latest` 镜像（环境页可以直接构建）；linux-x64 产物链接 glibc，Alpine 等 musl 发行版需要额外兼容层。
 
-首次使用先在侧栏「设置 → 模型」添加一条模型（或在 `~/.zgagent/agent/models.json` 手动配置端点），确认「主模型」角色选中了它，在「设置 → 环境」确认 Docker 与 `zgagent:latest` 镜像可用（缺失时可直接构建），然后新建一个项目：控制台没有默认目录，未选择项目时只能看到创建项目的引导页。
+首次使用先在侧栏「设置 → 模型」添加一条模型（或在 `~/.sentinel/agent/models.json` 手动配置端点），确认「主模型」角色选中了它，在「设置 → 环境」确认 Docker 与 `sentinel:latest` 镜像可用（缺失时可直接构建），然后新建一个项目：控制台没有默认目录，未选择项目时只能看到创建项目的引导页。
 
 ```json
 {
@@ -127,11 +131,11 @@ npm --prefix packages/web run start
 
 | 参数 | 说明 | 默认 |
 |---|---|---|
-| `ZG_PORT` / `--port` | 监听端口 | 7777 |
-| `ZG_HOST` / `--host` | 监听地址 | 127.0.0.1 |
-| `ZG_CWD` / `--cwd` | 未进入项目前的占位目录（不用于执行命令） | 进程当前目录 |
-| `ZGAGENT_CODING_AGENT_DIR` | 配置目录 | ~/.zgagent/agent |
-| `ZG_PROJECTS_DIR` | 项目工作目录的父目录 | ~/.zgagent/projects |
+| `SENTINEL_PORT` / `--port` | 监听端口 | 7777 |
+| `SENTINEL_HOST` / `--host` | 监听地址 | 127.0.0.1 |
+| `SENTINEL_CWD` / `--cwd` | 未进入项目前的占位目录（不用于执行命令） | 进程当前目录 |
+| `SENTINEL_CODING_AGENT_DIR` | 配置目录 | ~/.sentinel/agent |
+| `SENTINEL_PROJECTS_DIR` | 项目工作目录的父目录 | ~/.sentinel/projects |
 | `--check` | 只运行环境检查并打印结果，未通过时退出码为 1 | — |
 
 ## 安全提示

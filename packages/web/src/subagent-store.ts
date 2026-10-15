@@ -10,7 +10,7 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZGSubagentEvent, ZGSubagentRun, ZGSubagentStatus } from "./protocol.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun, SentinelSubagentStatus } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 /** Longest single step stored verbatim; larger payloads are truncated. */
@@ -56,12 +56,12 @@ interface EventRow {
 	payload: string;
 }
 
-function toRun(row: RunRow): ZGSubagentRun {
+function toRun(row: RunRow): SentinelSubagentRun {
 	return {
 		id: row.id,
 		sessionId: row.session_id,
 		task: row.task,
-		status: row.status as ZGSubagentStatus,
+		status: row.status as SentinelSubagentStatus,
 		turns: row.turns,
 		startedAt: row.started_at,
 		...(row.ended_at ? { endedAt: row.ended_at } : {}),
@@ -102,7 +102,7 @@ export class SubagentStore {
 			.run(input.id, input.sessionId, input.projectId ?? null, input.task, input.startedAt);
 	}
 
-	appendEvent(runId: string, event: ZGSubagentEvent): void {
+	appendEvent(runId: string, event: SentinelSubagentEvent): void {
 		let payload = JSON.stringify(event);
 		if (payload.length > MAX_EVENT_BYTES) {
 			payload = JSON.stringify({ ...event, text: undefined, output: truncate(event.output), truncated: true });
@@ -114,7 +114,7 @@ export class SubagentStore {
 
 	finishRun(
 		runId: string,
-		input: { status: ZGSubagentStatus; turns: number; endedAt: string; result?: string; error?: string },
+		input: { status: SentinelSubagentStatus; turns: number; endedAt: string; result?: string; error?: string },
 	): void {
 		this.db
 			.prepare("UPDATE subagent_runs SET status = ?, turns = ?, ended_at = ?, result = ?, error = ? WHERE id = ?")
@@ -129,7 +129,7 @@ export class SubagentStore {
 	}
 
 	/** Newest first, without process steps. */
-	listRuns(sessionId: string, limit = 100): ZGSubagentRun[] {
+	listRuns(sessionId: string, limit = 100): SentinelSubagentRun[] {
 		const rows = this.db
 			.prepare(
 				`SELECT id, session_id, task, status, turns, started_at, ended_at, result, error
@@ -139,7 +139,7 @@ export class SubagentStore {
 		return rows.map(toRun);
 	}
 
-	getRun(id: string): ZGSubagentRun | undefined {
+	getRun(id: string): SentinelSubagentRun | undefined {
 		const row = this.db
 			.prepare(
 				`SELECT id, session_id, task, status, turns, started_at, ended_at, result, error
@@ -149,14 +149,14 @@ export class SubagentStore {
 		return row ? toRun(row) : undefined;
 	}
 
-	listEvents(runId: string): ZGSubagentEvent[] {
+	listEvents(runId: string): SentinelSubagentEvent[] {
 		const rows = this.db
 			.prepare("SELECT payload FROM subagent_events WHERE run_id = ? ORDER BY seq ASC")
 			.all(runId) as unknown as EventRow[];
-		const events: ZGSubagentEvent[] = [];
+		const events: SentinelSubagentEvent[] = [];
 		for (const row of rows) {
 			try {
-				events.push(JSON.parse(row.payload) as ZGSubagentEvent);
+				events.push(JSON.parse(row.payload) as SentinelSubagentEvent);
 			} catch {
 				// A corrupt row should not hide the rest of the run.
 			}

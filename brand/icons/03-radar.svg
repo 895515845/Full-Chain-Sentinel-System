@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img">
+	<title>全链哨兵 图标候选 3：雷达扫描</title>
+	<circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="3.6"/>
+	<path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" d="M32 15a17 17 0 0 1 17 17"/>
+	<!-- 扫描扇面 -->
+	<path fill="currentColor" d="M32 32V6a26 26 0 0 1 22.5 13L32 32Z"/>
+	<circle cx="32" cy="32" r="4.5" fill="currentColor"/>
+</svg>

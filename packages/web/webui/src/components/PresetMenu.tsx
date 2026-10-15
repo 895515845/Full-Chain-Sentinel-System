@@ -9,7 +9,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { ZGPresetView } from "../types.ts";
+import type { SentinelPresetView } from "../types.ts";
 
 /** Where the menu hangs: below the button, or above it when there is no room. */
 export interface PresetMenuAnchor {
@@ -40,7 +40,7 @@ export function presetMenuPosition(rect: DOMRect, width = 232): PresetMenuAnchor
 
 export function PresetMenu(props: {
 	anchor: PresetMenuAnchor;
-	presets: readonly ZGPresetView[];
+	presets: readonly SentinelPresetView[];
 	/**
 	 * The preset the viewed session already runs under, marked in the list. Omitted
 	 * by the 新建会话 picker, which has no current choice to point at.

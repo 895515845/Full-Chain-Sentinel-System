@@ -18,7 +18,7 @@
 
 import { type CvssMetrics, cvssBaseScore, cvssVector, parseCvssMetrics } from "./cvss.ts";
 import { readModelLibrary, resolveLibraryRole } from "./model-library.ts";
-import type { ZGVulnerability } from "./protocol.ts";
+import type { SentinelVulnerability } from "./protocol.ts";
 import { severityForCvss, type VulnerabilityStore } from "./vulnerabilities.ts";
 
 /**
@@ -55,7 +55,7 @@ function clip(value: string | undefined, limit: number): string {
 }
 
 /** Exported for tests: the exact material the reviewer model is shown. */
-export function buildUserPrompt(vuln: ZGVulnerability): string {
+export function buildUserPrompt(vuln: SentinelVulnerability): string {
 	const evidence = vuln.evidence
 		.map(
 			(item, index) =>
@@ -95,7 +95,7 @@ export function parseVerdict(raw: string): ReviewVerdict {
 
 async function callReviewer(
 	config: { baseUrl: string; apiKey: string; modelId: string },
-	vuln: ZGVulnerability,
+	vuln: SentinelVulnerability,
 ): Promise<ReviewVerdict> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -135,7 +135,7 @@ async function callReviewer(
 
 /** Fires whenever a review settles, so consoles and notifications refresh. */
 export interface ReviewerHooks {
-	onSettled(vuln: ZGVulnerability | undefined): void;
+	onSettled(vuln: SentinelVulnerability | undefined): void;
 }
 
 export class VulnReviewer {
@@ -148,7 +148,7 @@ export class VulnReviewer {
 	/** The model call; public and mutable so tests can stub it. */
 	call: (
 		config: { baseUrl: string; apiKey: string; modelId: string },
-		vuln: ZGVulnerability,
+		vuln: SentinelVulnerability,
 	) => Promise<ReviewVerdict>;
 
 	constructor(store: VulnerabilityStore, hooks: ReviewerHooks, agentDir: string) {

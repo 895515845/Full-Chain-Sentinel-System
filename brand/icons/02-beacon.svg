@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img">
+	<title>全链哨兵 图标候选 2：哨塔与信号</title>
+	<!-- 两侧信号弧 -->
+	<path fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" d="M19.5 9.5a17.5 17.5 0 0 0 0 22M44.5 9.5a17.5 17.5 0 0 1 0 22"/>
+	<!-- 塔顶的灯 -->
+	<circle cx="32" cy="13.5" r="6" fill="currentColor"/>
+	<!-- 塔身与基座 -->
+	<path fill="currentColor" d="M26 22h12l6.5 34h-25L26 22Z"/>
+	<path fill="currentColor" d="M13.5 56h37v4.5h-37z"/>
+</svg>

@@ -40,20 +40,20 @@ describe("ProjectTrustStore", () => {
 		const originalHome = process.env.HOME;
 		process.env.HOME = tempDir;
 		try {
-			mkdirSync(join(tempDir, ".zgagent", "agent"), { recursive: true });
+			mkdirSync(join(tempDir, ".sentinel", "agent"), { recursive: true });
 			mkdirSync(join(tempDir, ".agents", "skills"), { recursive: true });
 			expect(hasTrustRequiringProjectResources(tempDir)).toBe(false);
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(false);
 
-			writeFileSync(join(tempDir, ".zgagent", "settings.json"), "{}");
+			writeFileSync(join(tempDir, ".sentinel", "settings.json"), "{}");
 			expect(hasTrustRequiringProjectResources(tempDir)).toBe(true);
-			rmSync(join(tempDir, ".zgagent", "settings.json"), { force: true });
+			rmSync(join(tempDir, ".sentinel", "settings.json"), { force: true });
 
-			mkdirSync(join(cwd, ".zgagent"), { recursive: true });
-			writeFileSync(join(cwd, ".zgagent", "settings.json"), "{}");
+			mkdirSync(join(cwd, ".sentinel"), { recursive: true });
+			writeFileSync(join(cwd, ".sentinel", "settings.json"), "{}");
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
 
-			rmSync(join(cwd, ".zgagent"), { recursive: true, force: true });
+			rmSync(join(cwd, ".sentinel"), { recursive: true, force: true });
 			mkdirSync(join(cwd, ".agents", "skills"), { recursive: true });
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
 		} finally {

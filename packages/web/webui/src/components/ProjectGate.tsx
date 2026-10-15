@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ZGProjectInfo } from "../types.ts";
+import type { SentinelProjectInfo } from "../types.ts";
 
 /**
  * Blocking onboarding shown while no project is selected. The console runs every
@@ -13,7 +13,7 @@ export function ProjectGate({
 	onSwitch,
 	onOpenSettings,
 }: {
-	projects: ZGProjectInfo[];
+	projects: SentinelProjectInfo[];
 	busy: boolean;
 	onCreate: (name: string) => Promise<string | null>;
 	onSwitch: (id: string) => void;
@@ -40,7 +40,8 @@ export function ProjectGate({
 			<div className="project-gate-card">
 				<h2>先创建一个项目</h2>
 				<p className="project-gate-lead">
-					ZGAgent 的每条命令都在项目专属的 Docker 容器里执行，文件写入该项目的工作目录。没有项目就没有可执行的环境，因此不提供默认目录。
+					全链哨兵 的每条命令都在项目专属的 Docker
+					容器里执行，文件写入该项目的工作目录。没有项目就没有可执行的环境，因此不提供默认目录。
 				</p>
 				<div className="project-gate-form">
 					<input
@@ -65,7 +66,7 @@ export function ProjectGate({
 				</div>
 				{error ? <div className="project-gate-error">{error}</div> : null}
 				<div className="project-gate-note">
-					需要先构建工具镜像（<code>docker build -t zgagent:latest docker/</code>），否则创建会失败。
+					需要先构建工具镜像（<code>docker build -t sentinel:latest docker/</code>），否则创建会失败。
 				</div>
 
 				{projects.length > 0 ? (

@@ -1,4 +1,4 @@
-package com.zgagent.droidbridge
+package com.sentinel.droidbridge
 
 import android.app.Notification
 import android.app.NotificationChannel

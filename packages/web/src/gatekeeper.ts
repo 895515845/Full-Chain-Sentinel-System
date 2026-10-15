@@ -26,7 +26,7 @@
 import { readGatekeeperConfig } from "./gatekeeper-config.ts";
 import type { GateDecisionInput, GatekeeperStore } from "./gatekeeper-store.ts";
 import { resolveLibraryRole } from "./model-library.ts";
-import type { ZGGateDecision, ZGModelConfig } from "./protocol.ts";
+import type { SentinelGateDecision, SentinelModelConfig } from "./protocol.ts";
 
 /** The tool the judge is asked about; bash is the only execution surface. */
 export const GATEKEEPER_TOOL = "bash";
@@ -114,7 +114,7 @@ export interface JudgeCallResult {
 
 /** The endpoint the 守门模型 role resolves to, and where it came from. */
 export interface ResolvedJudgeEndpoint {
-	config: ZGModelConfig | null;
+	config: SentinelModelConfig | null;
 	/** Display name of the entry that answers, e.g. "DeepSeek-V3.1". */
 	from: string | null;
 	/** True when the role follows 主模型 instead of naming its own entry. */
@@ -182,7 +182,7 @@ export function resolveJudgeEndpoint(agentDir: string): ResolvedJudgeEndpoint {
 }
 
 /** One HTTP call to the judge endpoint. `signal` carries the timeout and the abort. */
-async function callJudge(config: ZGModelConfig, input: string, signal: AbortSignal): Promise<JudgeCallResult> {
+async function callJudge(config: SentinelModelConfig, input: string, signal: AbortSignal): Promise<JudgeCallResult> {
 	const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
 		method: "POST",
 		headers: {
@@ -230,9 +230,9 @@ async function callJudge(config: ZGModelConfig, input: string, signal: AbortSign
 
 /** What one guarded command produced. */
 export type GateGuardOutcome =
-	| { kind: "allow"; record: ZGGateDecision }
-	| { kind: "block"; reason: string; message: string; record: ZGGateDecision }
-	| { kind: "failed"; error: string; record: ZGGateDecision }
+	| { kind: "allow"; record: SentinelGateDecision }
+	| { kind: "block"; reason: string; message: string; record: SentinelGateDecision }
+	| { kind: "failed"; error: string; record: SentinelGateDecision }
 	/** The run was aborted while waiting; nothing was judged and nothing runs. */
 	| { kind: "aborted" };
 
@@ -250,7 +250,7 @@ export interface GateGuardInput {
 
 export interface GatekeeperHooks {
 	/** One judgment settled; the server streams it to open audit pages. */
-	onDecision(decision: ZGGateDecision): void;
+	onDecision(decision: SentinelGateDecision): void;
 }
 
 /** The text the bash tool rejects with when the gatekeeper blocks a command. */
@@ -290,7 +290,7 @@ export class Gatekeeper {
 	 */
 	private lastSuccessAt: number | null = null;
 	/** The model call; public and mutable so tests can stub it. */
-	call: (config: ZGModelConfig, input: string, signal: AbortSignal) => Promise<JudgeCallResult>;
+	call: (config: SentinelModelConfig, input: string, signal: AbortSignal) => Promise<JudgeCallResult>;
 
 	constructor(store: GatekeeperStore, hooks: GatekeeperHooks, agentDir: string) {
 		this.store = store;

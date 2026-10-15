@@ -66,8 +66,8 @@ function environment(name: string, value: string): string[] {
 
 export function requireEvalAuthFile(provider: string): string {
 	const path = join(
-		process.env.ZGAGENT_CODING_AGENT_DIR
-			? resolve(process.env.ZGAGENT_CODING_AGENT_DIR)
+		process.env.SENTINEL_CODING_AGENT_DIR
+			? resolve(process.env.SENTINEL_CODING_AGENT_DIR)
 			: join(homedir(), ".pi", "agent"),
 		"auth.json",
 	);

@@ -1,15 +1,15 @@
 /** WebSocket client with auto-reconnect. */
 
-import type { ZGClientMessage, ZGServerMessage } from "./types.ts";
+import type { SentinelClientMessage, SentinelServerMessage } from "./types.ts";
 
-export class ZGConnection {
+export class SentinelConnection {
 	private socket: WebSocket | null = null;
 	private closed = false;
 	private reconnectDelay = 500;
-	private queue: ZGClientMessage[] = [];
+	private queue: SentinelClientMessage[] = [];
 
 	constructor(
-		private readonly onMessage: (message: ZGServerMessage) => void,
+		private readonly onMessage: (message: SentinelServerMessage) => void,
 		/** Reports every open and close, so the UI can show the real connection state. */
 		private readonly onStatus: (connected: boolean) => void = () => {},
 	) {}
@@ -30,7 +30,7 @@ export class ZGConnection {
 		};
 		socket.onmessage = (event) => {
 			try {
-				this.onMessage(JSON.parse(String(event.data)) as ZGServerMessage);
+				this.onMessage(JSON.parse(String(event.data)) as SentinelServerMessage);
 			} catch {
 				// Ignore malformed frames.
 			}
@@ -49,7 +49,7 @@ export class ZGConnection {
 		return this.socket?.readyState === WebSocket.OPEN;
 	}
 
-	send(message: ZGClientMessage): void {
+	send(message: SentinelClientMessage): void {
 		if (this.socket?.readyState === WebSocket.OPEN) {
 			this.socket.send(JSON.stringify(message));
 		} else {

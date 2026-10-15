@@ -74,7 +74,7 @@ test("guessMimeType maps images, text formats, and falls back to a blob", () => 
 });
 
 test("listFiles reads the host side of the mount and puts directories first", async () => {
-	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-files-"));
 	try {
 		mkdirSync(join(root, "reports", "sub"), { recursive: true });
 		mkdirSync(join(root, ".hidden"));
@@ -127,7 +127,7 @@ test("listFiles reads the host side of the mount and puts directories first", as
 });
 
 test("listFiles reports a missing directory", async () => {
-	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-files-"));
 	try {
 		await expect(listFiles(root, "/work/gone")).rejects.toThrow(/目录不存在或不可读/);
 		await expect(listFiles(root, "/work/notes.txt/inside")).rejects.toThrow(/目录不存在或不可读/);
@@ -142,13 +142,13 @@ test("listFiles reports a missing directory", async () => {
 const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 test.skipIf(asRoot)("listFiles asks the container when the host cannot read the directory", async () => {
-	const root = mkdtempSync(join(tmpdir(), "zg-files-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-files-"));
 	const secret = join(root, "secret");
 	mkdirSync(secret);
 	chmodSync(secret, 0o000);
 	try {
 		execInContainer.mockResolvedValue(ok("f\t1\t1700000001\tproof.txt\n"));
-		const listed = await listFiles(root, "/work/secret", { container: "zgagent-test" });
+		const listed = await listFiles(root, "/work/secret", { container: "sentinel-test" });
 		expect(execInContainer).toHaveBeenCalledTimes(1);
 		expect(listed.entries).toEqual([
 			{ name: "proof.txt", path: "/work/secret/proof.txt", type: "file", size: 1, mtime: 1700000001 },
@@ -164,7 +164,7 @@ test("listFilesInContainer parses the tab-separated listing and maps exit codes"
 		ok("f\t8\t1700000001\tmy notes.txt\nd\t0\t1700000002\treports\nf\t12\t1700000003\tz.sh\n"),
 	);
 
-	const listed = await listFilesInContainer("zgagent-test", "/work");
+	const listed = await listFilesInContainer("sentinel-test", "/work");
 	expect(listed.path).toBe("/work");
 	expect(listed.entries).toEqual([
 		{ name: "reports", path: "/work/reports", type: "dir", size: 0, mtime: 1700000002 },
@@ -174,7 +174,7 @@ test("listFilesInContainer parses the tab-separated listing and maps exit codes"
 
 	// The path is passed as a positional parameter, never interpolated.
 	const [container, script, args] = execInContainer.mock.calls[0];
-	expect(container).toBe("zgagent-test");
+	expect(container).toBe("sentinel-test");
 	expect(script).toContain('cd "$1"');
 	expect(script).not.toContain("/work");
 	expect(args).toEqual(["/work"]);

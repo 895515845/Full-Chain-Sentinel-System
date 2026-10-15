@@ -37,7 +37,7 @@ let root = "";
 let agentDir = "";
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "zgagent-model-library-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-model-library-"));
 	agentDir = join(root, "agent");
 });
 
@@ -46,13 +46,13 @@ afterEach(() => {
 });
 
 function writeLegacySlots(): void {
-	writeProviderModelConfig(agentDir, "zg-endpoint", "ZGAgent Endpoint", {
+	writeProviderModelConfig(agentDir, "zg-endpoint", "Full Chain Sentinel Endpoint", {
 		baseUrl: "http://main/v1",
 		apiKey: "main-key",
 		modelId: "main-model",
 	});
 	writeCommanderModelConfig(agentDir, { baseUrl: "http://cmdr/v1", apiKey: "cmdr-key", modelId: "cmdr-model" });
-	writeProviderModelConfig(agentDir, "zg-judge", "ZGAgent Gatekeeper", {
+	writeProviderModelConfig(agentDir, "zg-judge", "Full Chain Sentinel Gatekeeper", {
 		baseUrl: "http://judge/v1",
 		apiKey: "judge-key",
 		modelId: "judge-model",
@@ -73,7 +73,7 @@ describe("migration from the fixed slots", () => {
 	});
 
 	test("keeps the old fallbacks: judge then reviewer fall back to the commander, then to main", () => {
-		writeProviderModelConfig(agentDir, "zg-endpoint", "ZGAgent Endpoint", {
+		writeProviderModelConfig(agentDir, "zg-endpoint", "Full Chain Sentinel Endpoint", {
 			baseUrl: "http://main/v1",
 			apiKey: "",
 			modelId: "main-model",
@@ -174,7 +174,7 @@ describe("entry CRUD", () => {
 			apiKey: "",
 			modelId: "m2",
 		});
-		expect(readProviderModelConfig(agentDir, entry.id)?.apiKey).toBe("zgagent-no-auth");
+		expect(readProviderModelConfig(agentDir, entry.id)?.apiKey).toBe("sentinel-no-auth");
 	});
 
 	test("updating a missing entry is refused", () => {

@@ -17,15 +17,15 @@
 
 import { useRef, useState } from "react";
 import type {
-	ZGPoc,
-	ZGPocFilters,
-	ZGPocImportOutcome,
-	ZGPocSeverity,
-	ZGPocSource,
-	ZGPocStats,
-	ZGPocSummary,
+	SentinelPoc,
+	SentinelPocFilters,
+	SentinelPocImportOutcome,
+	SentinelPocSeverity,
+	SentinelPocSource,
+	SentinelPocStats,
+	SentinelPocSummary,
 } from "../types.ts";
-import { ZG_VULN_SEVERITIES, ZG_VULN_SEVERITY_LABELS } from "../types.ts";
+import { SENTINEL_VULN_SEVERITIES, SENTINEL_VULN_SEVERITY_LABELS } from "../types.ts";
 
 /** Sort keys the table headers offer. */
 type SortKey = "id" | "when";
@@ -52,7 +52,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** The official source's newest outcome as one dim line; failures say why. */
-function officialLine(source: ZGPocSource): string {
+function officialLine(source: SentinelPocSource): string {
 	const last = source.lastResult;
 	if (!last) return "官方同步：还没有同步过";
 	const when = last.at.slice(0, 19).replace("T", " ");
@@ -75,20 +75,20 @@ export function PocPage({
 	officialSyncing,
 	onSyncOfficial,
 }: {
-	items: ZGPocSummary[];
-	stats: ZGPocStats;
-	filters: ZGPocFilters;
-	detail: ZGPoc | null;
+	items: SentinelPocSummary[];
+	stats: SentinelPocStats;
+	filters: SentinelPocFilters;
+	detail: SentinelPoc | null;
 	importing: boolean;
 	/** Result of the last import batch, shown until the next one starts. */
-	outcome: ZGPocImportOutcome | null;
-	onFiltersChange(filters: ZGPocFilters): void;
+	outcome: SentinelPocImportOutcome | null;
+	onFiltersChange(filters: SentinelPocFilters): void;
 	/** Fetch one template's full yaml for the row being expanded. */
 	onOpen(id: string): void;
 	onImport(files: File[]): void;
 	onDelete(id: string): void;
 	/** The built-in official source, once the one-click sync created it. */
-	officialSource: ZGPocSource | null;
+	officialSource: SentinelPocSource | null;
 	/** True while that sync downloads and imports; it can take minutes. */
 	officialSyncing: boolean;
 	onSyncOfficial(): void;
@@ -100,7 +100,7 @@ export function PocPage({
 	const [sortDesc, setSortDesc] = useState(true);
 	const fileInput = useRef<HTMLInputElement | null>(null);
 
-	const apply = (patch: Partial<ZGPocFilters>): void => {
+	const apply = (patch: Partial<SentinelPocFilters>): void => {
 		onFiltersChange({
 			...(search.trim() ? { search: search.trim() } : {}),
 			...(filters.severity ? { severity: filters.severity } : {}),
@@ -124,7 +124,7 @@ export function PocPage({
 	});
 
 	/** One main row plus, when expanded, the detail row right below it. */
-	const row = (item: ZGPocSummary, zebra: boolean) => {
+	const row = (item: SentinelPocSummary, zebra: boolean) => {
 		const open = openId === item.id;
 		const expanded = open && detail?.id === item.id ? detail : null;
 		const confirmDelete = (): void => {
@@ -146,7 +146,7 @@ export function PocPage({
 				<td className="poc-caret">{open ? "▼" : "▶"}</td>
 				<td className="poc-id">{item.id}</td>
 				<td>
-					<span className={`poc-sev poc-sev-${item.severity}`}>{ZG_VULN_SEVERITY_LABELS[item.severity]}</span>
+					<span className={`poc-sev poc-sev-${item.severity}`}>{SENTINEL_VULN_SEVERITY_LABELS[item.severity]}</span>
 				</td>
 				<td className="poc-name" title={item.name}>
 					{item.name}
@@ -265,13 +265,13 @@ export function PocPage({
 					value={filters.severity ?? ""}
 					onChange={(event) => {
 						const value = event.target.value;
-						apply(value ? { severity: value as ZGPocSeverity } : { severity: undefined });
+						apply(value ? { severity: value as SentinelPocSeverity } : { severity: undefined });
 					}}
 				>
 					<option value="">全部等级</option>
-					{ZG_VULN_SEVERITIES.map((severity) => (
+					{SENTINEL_VULN_SEVERITIES.map((severity) => (
 						<option key={severity} value={severity}>
-							{ZG_VULN_SEVERITY_LABELS[severity]}
+							{SENTINEL_VULN_SEVERITY_LABELS[severity]}
 						</option>
 					))}
 				</select>
@@ -325,8 +325,8 @@ export function PocPage({
 						{sorted.length === 0 ? (
 							<tr className="poc-empty">
 								<td colSpan={8}>
-									暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用 poc_search / poc_read
-									只读检索。
+									暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用
+									poc_search / poc_read 只读检索。
 								</td>
 							</tr>
 						) : (

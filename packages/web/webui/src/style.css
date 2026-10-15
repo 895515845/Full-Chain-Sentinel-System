@@ -1,5 +1,5 @@
 /* ============================================================
-   ZGAgent console — operations console theme
+   Full Chain Sentinel console — operations console theme
 
    Layout follows a classic admin console: a fixed dark sider
    (brand row, grouped menu, footer) beside a light content area
@@ -4923,6 +4923,40 @@ button.link {
 	gap: 8px;
 }
 
+.env-network-options {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.env-network-options label {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	align-items: baseline;
+	gap: 4px 8px;
+	padding: 7px 9px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 12px;
+	color: var(--dim);
+	cursor: pointer;
+}
+
+.env-network-options label.selected {
+	border-color: var(--accent);
+	background: var(--raised);
+}
+
+.env-network-label {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.env-network-detail {
+	grid-column: 2;
+	line-height: 1.5;
+}
+
 .env-build h3,
 .env-group h3 {
 	margin: 0 0 6px;
@@ -6555,7 +6589,7 @@ button.link {
 .sdot.sd-run {
 	background: #4cc2ff;
 	box-shadow: 0 0 5px #4cc2ff;
-	animation: zg-dot-pulse 1.6s infinite;
+	animation: sentinel-dot-pulse 1.6s infinite;
 }
 
 .sdot.sd-done {
@@ -6571,7 +6605,7 @@ button.link {
 	background: var(--warn);
 }
 
-@keyframes zg-dot-pulse {
+@keyframes sentinel-dot-pulse {
 	0%,
 	100% {
 		opacity: 1;
@@ -8879,4 +8913,307 @@ button.link {
 	font-size: 11px;
 	color: var(--dim);
 	overflow-wrap: anywhere;
+}
+
+/* ---------- 首次进入授权承诺（components/ConsentGate.tsx） ----------
+   深色与登录页一致：登录 -> 承诺 -> 控制台，两步深色再到浅色主界面。 */
+.consent {
+	position: fixed;
+	inset: 0;
+	z-index: 200;
+	display: grid;
+	place-items: center;
+	padding: 26px;
+	background: #030609db;
+	backdrop-filter: blur(3px);
+}
+.consent-card {
+	width: min(720px, 100%);
+	max-height: 100%;
+	display: flex;
+	flex-direction: column;
+	background: #0d1218;
+	border: 1px solid #26313f;
+	border-radius: 14px;
+	box-shadow: 0 26px 80px #000000a6;
+	overflow: hidden;
+	color: #e8eaed;
+}
+.consent-head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 20px 24px 16px;
+	border-bottom: 1px solid #1d2733;
+}
+.consent-mark {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 42px;
+	height: 42px;
+	border-radius: 11px;
+	background: #0960bd;
+	color: #fff;
+}
+.consent-head h2 {
+	margin: 0;
+	font-size: 18px;
+	color: #fff;
+}
+.consent-head p {
+	margin: 3px 0 0;
+	color: #8b98a5;
+	font-size: 12.5px;
+}
+.consent-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 18px 24px 20px;
+}
+.consent-lead {
+	margin: 0 0 14px;
+	color: #c8d1da;
+	font-size: 13px;
+	line-height: 1.75;
+}
+/* 条款自己滚动：违法提示与 AI 风险块始终留在视口内，不被长条款顶下去 */
+.consent-terms {
+	border: 1px solid #1d2733;
+	border-radius: 10px;
+	background: #0a0e13;
+	padding: 4px 16px;
+	max-height: 270px;
+	overflow: auto;
+}
+.consent-terms ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.consent-terms li {
+	padding: 13px 0;
+	border-bottom: 1px dashed #1d2733;
+}
+.consent-terms li:last-child {
+	border-bottom: 0;
+}
+.consent-clause-title {
+	display: flex;
+	gap: 6px;
+	color: #fff;
+	font-weight: 600;
+	margin-bottom: 5px;
+}
+.consent-clause-title em {
+	color: #1668dc;
+	font-style: normal;
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.consent-terms p {
+	margin: 0;
+	color: #aeb8c3;
+	font-size: 12.5px;
+	line-height: 1.75;
+}
+.consent-illegal {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	margin: 14px 0 0;
+	padding: 12px 14px;
+	border-radius: 10px;
+	background: #2a1114;
+	border: 1px solid #7a2b33;
+}
+.consent-illegal p {
+	margin: 0;
+	color: #ffc9cd;
+	font-size: 12.5px;
+	line-height: 1.7;
+}
+.consent-bang {
+	flex: none;
+	font-family: var(--mono);
+	color: #e34d59;
+}
+.consent-ai {
+	margin-top: 16px;
+	border: 1px solid #1d2733;
+	border-radius: 10px;
+	background: #0a0e13;
+	overflow: hidden;
+}
+.consent-ai-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 11px 16px;
+	background: #121a23;
+	border-bottom: 1px solid #1d2733;
+	color: #fff;
+	font-weight: 600;
+	font-size: 12.5px;
+}
+.consent-ai-tag {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: #0b0f14;
+	background: #e6a23c;
+	border-radius: 4px;
+	padding: 1px 6px;
+}
+.consent-ai ul {
+	margin: 0;
+	padding: 12px 16px 14px 32px;
+	color: #aeb8c3;
+	font-size: 12.5px;
+	line-height: 1.75;
+}
+.consent-ai li {
+	margin: 7px 0;
+}
+.consent-lead strong,
+.consent-terms strong,
+.consent-illegal strong,
+.consent-ai strong {
+	color: #fff;
+}
+.consent-note {
+	margin: 12px 0 0;
+	color: #6b7684;
+	font-size: 12px;
+}
+.consent-error {
+	margin-top: 12px;
+	padding: 9px 12px;
+	border-radius: 8px;
+	background: #2a1114;
+	color: #ffc9cd;
+	font-size: 12.5px;
+}
+.consent-foot {
+	flex: none;
+	padding: 16px 24px 18px;
+	border-top: 1px solid #1d2733;
+	background: #0a0e13;
+}
+.consent-check {
+	display: flex;
+	gap: 11px;
+	align-items: flex-start;
+	cursor: pointer;
+	user-select: none;
+}
+.consent-check input {
+	position: absolute;
+	opacity: 0;
+	width: 0;
+	height: 0;
+}
+.consent-box {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 19px;
+	height: 19px;
+	margin-top: 1px;
+	border: 1.5px solid #3a4756;
+	border-radius: 5px;
+	background: #0a0e13;
+	transition: 0.12s;
+}
+.consent-box svg {
+	width: 12px;
+	height: 12px;
+	opacity: 0;
+	transition: 0.12s;
+}
+.consent-check input:checked + .consent-box {
+	background: #1668dc;
+	border-color: #1668dc;
+}
+.consent-check input:checked + .consent-box svg {
+	opacity: 1;
+}
+.consent-check input:focus-visible + .consent-box {
+	outline: 2px solid #3b82f6;
+	outline-offset: 2px;
+}
+.consent-label {
+	color: #dbe2e9;
+	font-size: 13px;
+}
+.consent-label b {
+	color: #fff;
+}
+.consent-ack {
+	display: block;
+	margin-top: 4px;
+	color: #8b98a5;
+	font-size: 12px;
+	line-height: 1.6;
+}
+.consent-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 16px;
+}
+.consent-enter {
+	padding: 9px 20px;
+	border-radius: 8px;
+	border: 1px solid #1668dc;
+	background: #1668dc;
+	color: #fff;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+}
+.consent-enter:disabled {
+	background: #1b2733;
+	border-color: #26313f;
+	color: #5d6a78;
+	cursor: not-allowed;
+	font-weight: 400;
+}
+.consent-reject {
+	padding: 9px 20px;
+	border-radius: 8px;
+	border: 1px solid #26313f;
+	background: transparent;
+	color: #8b98a5;
+	font-size: 13px;
+	cursor: pointer;
+}
+.consent-reject:hover {
+	border-color: #3a4756;
+	color: #c8d1da;
+}
+.consent-hint {
+	margin-left: auto;
+	color: #e6a23c;
+	font-size: 12.5px;
+}
+.consent-hint.ok {
+	color: #3fb950;
+}
+.consent-dead {
+	padding: 40px 24px;
+	text-align: center;
+}
+.consent-dead h3 {
+	margin: 0 0 8px;
+	color: #fff;
+	font-size: 16px;
+}
+.consent-dead p {
+	margin: 0 0 18px;
+	color: #8b98a5;
+	font-size: 12.5px;
+	line-height: 1.7;
 }

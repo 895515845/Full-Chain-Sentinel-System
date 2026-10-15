@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { authFilePath, readStoredAuth, SESSION_COOKIE } from "../src/auth.ts";
-import { startZGServer } from "../src/server.ts";
+import { startSentinelServer } from "../src/server.ts";
 
 const roots: string[] = [];
 const servers: Array<{ close: () => void }> = [];
@@ -23,13 +23,24 @@ afterEach(() => {
 });
 
 async function openServer(): Promise<{
-	started: Awaited<ReturnType<typeof startZGServer>>;
+	started: Awaited<ReturnType<typeof startSentinelServer>>;
 	url: string;
 	root: string;
 }> {
-	const root = mkdtempSync(join(tmpdir(), "zgagent-auth-"));
+	const root = mkdtempSync(join(tmpdir(), "sentinel-auth-"));
 	roots.push(root);
-	const started = await startZGServer({ cwd: root, agentDir: root, host: "127.0.0.1", port: 0 });
+	// The gate is off here: this file is about the password, and a gated server
+	// answers 404 to every request that has not opened the entry URL first. The
+	// authorization promise is off for the same reason — it closes the API until
+	// it is accepted, which is a separate concern with its own file (consent.test.ts).
+	const started = await startSentinelServer({
+		cwd: root,
+		agentDir: root,
+		host: "127.0.0.1",
+		port: 0,
+		gate: false,
+		consent: false,
+	});
 	servers.push(started);
 	return { started, url: started.url, root };
 }
@@ -98,7 +109,11 @@ test("a fresh install asks for setup, and setup both creates the account and log
 
 	const session = await json(url, "/api/auth/session", { cookie });
 	expect(session.status).toBe(200);
-	expect(await session.json()).toEqual({ ok: true, username: "operator" });
+	expect(await session.json()).toEqual({
+		ok: true,
+		username: "operator",
+		consent: { required: false, acceptedAt: null, version: 1 },
+	});
 
 	const health = await json(url, "/api/health", { cookie });
 	expect(health.status).toBe(200);

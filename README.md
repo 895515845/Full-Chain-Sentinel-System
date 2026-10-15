@@ -1,6 +1,6 @@
-# ZGAgent
+# 全链哨兵 Full Chain Sentinel System
 
-ZGAgent 是基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带 Web 控制台。
+全链哨兵 是基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带 Web 控制台。
 
 核心能力：
 
@@ -21,12 +21,12 @@ npm run start:web          # 打开 http://127.0.0.1:7777
 在控制台左侧「模型设置」中配置端点（Base URL / API Key / 模型 ID）后即可开始。CLI 同样可用：
 
 ```bash
-./pi-test.sh --no-env      # 从源码运行 zgagent CLI
+./pi-test.sh --no-env      # 从源码运行 sentinel CLI
 ```
 
 ## 安全边界
 
-ZGAgent 沿用 pi 的权限模型：无内建沙箱，工具以当前用户权限执行。审批模式只拦截 bash 工具。自动执行模式下模型可运行任意命令，请仅在**授权目标与隔离环境**中使用，必要时配合容器化（参见 [containerization.md](packages/coding-agent/docs/containerization.md)）。
+全链哨兵 沿用 pi 的权限模型：无内建沙箱，工具以当前用户权限执行。审批模式只拦截 bash 工具。自动执行模式下模型可运行任意命令，请仅在**授权目标与隔离环境**中使用，必要时配合容器化（参见 [containerization.md](packages/coding-agent/docs/containerization.md)）。
 
 ## 上游说明
 

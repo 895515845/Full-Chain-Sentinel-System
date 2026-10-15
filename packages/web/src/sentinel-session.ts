@@ -1,5 +1,5 @@
 /**
- * ZGAgent runtime: owns the live agent sessions, the approval gate, the
+ * Full Chain Sentinel runtime: owns the live agent sessions, the approval gate, the
  * operator mode, and model-endpoint configuration.
  *
  * Multiple sessions run in parallel: switching the view to another session
@@ -131,69 +131,69 @@ import {
 	excludeToolsFor,
 	PERMISSION_PRESETS,
 	readPermissionsConfig,
+	type SentinelPermissionPreset,
+	type SentinelPermissionSet,
+	type SentinelPermissionsConfig,
 	writePermissionsConfig,
-	type ZGPermissionPreset,
-	type ZGPermissionSet,
-	type ZGPermissionsConfig,
 } from "./permissions.ts";
 import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
 import { PocStore, pocsDbPath } from "./pocs.ts";
 import { findPreset, readPresetText } from "./presets.ts";
 import type {
-	ZGApiModel,
-	ZGApiModelEvent,
-	ZGApiModelFilters,
-	ZGApiModelStatus,
-	ZGApiModelSummary,
-	ZGFileEntry,
-	ZGFilePreview,
-	ZGForkPoint,
-	ZGGateDecision,
-	ZGGateFilter,
-	ZGGatekeeperConfig,
-	ZGGatekeeperView,
-	ZGGateStats,
-	ZGGoal,
-	ZGGoalPauseReason,
-	ZGGoalRoundOutcome,
-	ZGGoalUsage,
-	ZGGoalView,
-	ZGMode,
-	ZGModelingState,
-	ZGModelLibraryView,
-	ZGModelRoleName,
-	ZGNotifyConfig,
-	ZGNotifyStatus,
-	ZGPoc,
-	ZGPocFilters,
-	ZGPocImportFile,
-	ZGPocImportOutcome,
-	ZGPocSource,
-	ZGPocSourceSave,
-	ZGPocStats,
-	ZGPocSummary,
-	ZGPocSyncRecord,
-	ZGSessionPresetView,
-	ZGStateSnapshot,
-	ZGSubagentEvent,
-	ZGSubagentRun,
-	ZGTestResult,
-	ZGToolInfo,
-	ZGVulnerability,
-	ZGVulnFilters,
-	ZGVulnStats,
-	ZGVulnSummary,
-	ZGVulnUpdate,
+	SentinelApiModel,
+	SentinelApiModelEvent,
+	SentinelApiModelFilters,
+	SentinelApiModelStatus,
+	SentinelApiModelSummary,
+	SentinelFileEntry,
+	SentinelFilePreview,
+	SentinelForkPoint,
+	SentinelGateDecision,
+	SentinelGateFilter,
+	SentinelGatekeeperConfig,
+	SentinelGatekeeperView,
+	SentinelGateStats,
+	SentinelGoal,
+	SentinelGoalPauseReason,
+	SentinelGoalRoundOutcome,
+	SentinelGoalUsage,
+	SentinelGoalView,
+	SentinelMode,
+	SentinelModelingState,
+	SentinelModelLibraryView,
+	SentinelModelRoleName,
+	SentinelNotifyConfig,
+	SentinelNotifyStatus,
+	SentinelPoc,
+	SentinelPocFilters,
+	SentinelPocImportFile,
+	SentinelPocImportOutcome,
+	SentinelPocSource,
+	SentinelPocSourceSave,
+	SentinelPocStats,
+	SentinelPocSummary,
+	SentinelPocSyncRecord,
+	SentinelSessionPresetView,
+	SentinelStateSnapshot,
+	SentinelSubagentEvent,
+	SentinelSubagentRun,
+	SentinelTestResult,
+	SentinelToolInfo,
+	SentinelVulnerability,
+	SentinelVulnFilters,
+	SentinelVulnStats,
+	SentinelVulnSummary,
+	SentinelVulnUpdate,
 } from "./protocol.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
 import { readSessionPreset, SESSION_PRESET_CUSTOM_TYPE } from "./session-preset.ts";
 import {
 	readSessionStatus,
 	SESSION_STATUS_CUSTOM_TYPE,
+	type SentinelSessionListEntry,
+	type SentinelSessionStatus,
 	withSessionStatus,
-	type ZGSessionListEntry,
-	type ZGSessionStatus,
 } from "./session-status.ts";
 import { createSessionTitleTool } from "./session-title-tool.ts";
 import { createSubagentTool } from "./subagent.ts";
@@ -204,15 +204,15 @@ import { createVulnerabilityTools } from "./vuln-tool.ts";
 import { emptyVulnStats, VulnerabilityStore, vulnerabilityDbPath } from "./vulnerabilities.ts";
 import { buildVulnReport } from "./vulnerability-markdown.ts";
 
-export interface ZGRuntimeHooks {
+export interface SentinelRuntimeHooks {
 	/** Events of the currently viewed session only. */
 	onSessionEvent(event: AgentSessionEvent): void;
 	/** Fired whenever operator-visible state changes (approvals, mode, model, run lifecycle). */
 	onStateChange(): void;
 	/** One live sub-agent step, for the sub-agent panel. */
-	onSubagentEvent(runId: string, event: ZGSubagentEvent): void;
+	onSubagentEvent(runId: string, event: SentinelSubagentEvent): void;
 	/** Fired after a notification send, so the settings screen can show its outcome. */
-	onNotifyStatus(status: ZGNotifyStatus): void;
+	onNotifyStatus(status: SentinelNotifyStatus): void;
 	/** A finding was submitted or reviewed; connected consoles refresh the hub page. */
 	onVulnChange(): void;
 	/** A session's name changed (operator or agent); consoles refresh the list. */
@@ -220,7 +220,7 @@ export interface ZGRuntimeHooks {
 	/** A finding reached the hub; the reviewer LLM queues it for calibration. */
 	onVulnSubmitted(id: string): void;
 	/** One gatekeeper judgment settled; consoles with the audit page open refresh it. */
-	onGateDecision(decision: ZGGateDecision): void;
+	onGateDecision(decision: SentinelGateDecision): void;
 	/** The POC library changed (import or delete); consoles refresh the POC page. */
 	onPocChange(): void;
 	/** A subscription source changed (save/delete/sync); consoles refresh the settings page. */
@@ -237,9 +237,9 @@ export interface ZGRuntimeHooks {
  * the conversation it was started in, and switching views must not touch it.
  */
 interface ManagedGoal {
-	goal: ZGGoal;
+	goal: SentinelGoal;
 	/** Cumulative usage when the round started, so the round can report its delta. */
-	roundUsageStart: ZGGoalUsage;
+	roundUsageStart: SentinelGoalUsage;
 	/** Tool calls seen in the round in flight; zero for three rounds trips the fuse. */
 	roundToolCalls: number;
 	/** Findings submitted to the hub since the goal started. */
@@ -276,7 +276,7 @@ interface ManagedSession {
 	 * the console-wide default in gatekeeper.json. Read from the session file at
 	 * creation, so a reopened conversation keeps the mode it was left in.
 	 */
-	modeOverride: ZGMode | null;
+	modeOverride: SentinelMode | null;
 	/**
 	 * The preset agent this session was created with, read from the branch. null
 	 * means the plain default agent. The body is not cached: it is read from disk
@@ -354,7 +354,7 @@ export interface TaskSessionOptions {
  */
 interface BashGateContext {
 	label: () => string;
-	modeOf: () => ZGMode;
+	modeOf: () => SentinelMode;
 	/** Host side of the /work mount, so the judge is shown the container path. */
 	hostWorkDir: string;
 	projectId: string | null;
@@ -362,14 +362,14 @@ interface BashGateContext {
 	sessionId: () => string | null;
 }
 
-export class ZGAgentRuntime {
+export class SentinelRuntime {
 	private cwd: string;
 	private activeProjectId: string | undefined;
 	private activeProjectName: string | undefined;
 	private activeContainer: string | undefined;
 	private readonly agentDir: string;
 	private sessionDir: string;
-	private readonly hooks: ZGRuntimeHooks;
+	private readonly hooks: SentinelRuntimeHooks;
 	private readonly approvals: ApprovalGate;
 	private readonly subagentStore: SubagentStore;
 	private readonly subagents: SubagentRegistry;
@@ -392,7 +392,7 @@ export class ZGAgentRuntime {
 	/** Set when models.json changed under a live runtime, so the next use refreshes it. */
 	private modelRuntimeDirty = false;
 	/** The run in flight for the viewed session, used to report it when it settles. */
-	private notifyStatus: ZGNotifyStatus = { at: null, ok: true };
+	private notifyStatus: SentinelNotifyStatus = { at: null, ok: true };
 	/**
 	 * Vulnerability records already pushed to the notification channel. Per
 	 * process: a restart may re-push a record the reviewer settles afterwards,
@@ -404,7 +404,7 @@ export class ZGAgentRuntime {
 		cwd: string;
 		agentDir?: string;
 		activeProject?: { id: string; name: string; container?: string; cwd?: string };
-		hooks: ZGRuntimeHooks;
+		hooks: SentinelRuntimeHooks;
 	}) {
 		this.cwd = options.cwd;
 		this.activeProjectId = options.activeProject?.id;
@@ -456,7 +456,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** The mode in effect for the viewed session: its own override, or the global default. */
-	get currentMode(): ZGMode {
+	get currentMode(): SentinelMode {
 		return this.effectiveMode(this.active);
 	}
 
@@ -466,7 +466,7 @@ export class ZGAgentRuntime {
 	 * because the default can change while a background session is running, and a
 	 * background session must not be governed by whatever is on screen.
 	 */
-	private effectiveMode(managed: ManagedSession | undefined): ZGMode {
+	private effectiveMode(managed: ManagedSession | undefined): SentinelMode {
 		if (managed?.modeOverride) return managed.modeOverride;
 		return readGatekeeperConfig(this.agentDir).mode;
 	}
@@ -521,7 +521,7 @@ export class ZGAgentRuntime {
 	 */
 	private async createSessionContext(
 		cwd: string,
-		permissions: ZGPermissionSet,
+		permissions: SentinelPermissionSet,
 		appendSystemPrompt?: string[],
 	): Promise<{ resourceLoader: DefaultResourceLoader; settingsManager: SettingsManager }> {
 		// A disabled extension is not even loaded: without MCP there are no
@@ -585,7 +585,7 @@ export class ZGAgentRuntime {
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
 		// and the console's mode may be `review` while the engine runs unattended.
-		const modeOf: () => ZGMode = task
+		const modeOf: () => SentinelMode = task
 			? () => (task.gateMode === "ai" ? "ai" : "auto")
 			: () => this.effectiveMode(managed);
 		const gateContext: Omit<BashGateContext, "label"> = {
@@ -899,7 +899,7 @@ export class ZGAgentRuntime {
 	 */
 	private createVulnTools(options: {
 		project: { id: string; name: string } | undefined;
-		permissions: ZGPermissionSet;
+		permissions: SentinelPermissionSet;
 		getSessionId: () => string | undefined;
 		getSource: () => string;
 		/** A record was created, so a running goal can count it as its own finding. */
@@ -936,7 +936,7 @@ export class ZGAgentRuntime {
 	 * still arrives later; this exists because a serious finding should not wait
 	 * for a run that may take another hour.
 	 */
-	private notifyHighSeverity(vuln: ZGVulnerability): void {
+	private notifyHighSeverity(vuln: SentinelVulnerability): void {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim() || !config.kinds.vulns) return;
 		// One push per record. A high finding is pushed the moment it is
@@ -982,7 +982,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** The goal state is a session entry, so it travels with the conversation. */
-	private persistGoal(managed: ManagedSession, goal: ZGGoal | null): void {
+	private persistGoal(managed: ManagedSession, goal: SentinelGoal | null): void {
 		managed.manager.appendCustomEntry(GOAL_STATE_CUSTOM_TYPE, goal);
 	}
 
@@ -1134,7 +1134,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** The records attached to one session, in attach order; missing ones are skipped. */
-	private attachedRecordsOf(managed: ManagedSession): ZGApiModel[] {
+	private attachedRecordsOf(managed: ManagedSession): SentinelApiModel[] {
 		const attach = managed.modelingAttach;
 		return attach ? this.apiModels.getMany(attach.ids) : [];
 	}
@@ -1285,7 +1285,7 @@ export class ZGAgentRuntime {
 	 */
 	private async finishModeling(
 		managed: ManagedSession,
-		status: Exclude<ZGApiModelStatus, "modeling">,
+		status: Exclude<SentinelApiModelStatus, "modeling">,
 		note?: string,
 	): Promise<void> {
 		const run = managed.modeling;
@@ -1318,7 +1318,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** The run in force for the viewed session, as the snapshot reports it. */
-	private modelingView(managed: ManagedSession | undefined): ZGModelingState | null {
+	private modelingView(managed: ManagedSession | undefined): SentinelModelingState | null {
 		const run = managed?.modeling;
 		if (!run) return null;
 		const record = this.apiModels.get(run.runId);
@@ -1332,12 +1332,12 @@ export class ZGAgentRuntime {
 	}
 
 	/** Every modeling run, newest first; the page filters by project and status. */
-	listApiModels(filters: ZGApiModelFilters = {}): ZGApiModelSummary[] {
+	listApiModels(filters: SentinelApiModelFilters = {}): SentinelApiModelSummary[] {
 		return this.apiModels.list(filters);
 	}
 
 	/** One run with its audit trail. */
-	getApiModel(id: string): { model: ZGApiModel; events: ZGApiModelEvent[] } | undefined {
+	getApiModel(id: string): { model: SentinelApiModel; events: SentinelApiModelEvent[] } | undefined {
 		const model = this.apiModels.get(id);
 		return model ? { model, events: this.apiModels.events(id) } : undefined;
 	}
@@ -1353,7 +1353,7 @@ export class ZGAgentRuntime {
 	 * through the normal path (tools off, marker written); otherwise the record is
 	 * closed on its own, which is the way out of a run whose console went away.
 	 */
-	finishApiModel(id: string, status: Exclude<ZGApiModelStatus, "modeling">, note?: string): boolean {
+	finishApiModel(id: string, status: Exclude<SentinelApiModelStatus, "modeling">, note?: string): boolean {
 		for (const managed of this.sessions.values()) {
 			if (managed.modeling?.runId === id) {
 				void this.finishModeling(managed, status, note);
@@ -1621,7 +1621,7 @@ export class ZGAgentRuntime {
 					? undefined
 					: extractRoundSummary(lastAssistantText(managed.session.messages));
 			const status = goal.status;
-			const outcome: ZGGoalRoundOutcome = aborted
+			const outcome: SentinelGoalRoundOutcome = aborted
 				? "aborted"
 				: status === "completed"
 					? "completed"
@@ -1710,7 +1710,7 @@ export class ZGAgentRuntime {
 	 * one: a goal that runs in the background settles there too, and a continuation
 	 * that cannot start has to be recorded against its own session.
 	 */
-	private pauseGoalOf(managed: ManagedSession, reason: ZGGoalPauseReason, note?: string): void {
+	private pauseGoalOf(managed: ManagedSession, reason: SentinelGoalPauseReason, note?: string): void {
 		const managedGoal = managed.goal;
 		if (!managedGoal || managedGoal.goal.status !== "active") return;
 		managedGoal.goal = pauseGoal(managedGoal.goal, reason, note, Date.now());
@@ -1724,7 +1724,7 @@ export class ZGAgentRuntime {
 	 * action on the conversation on screen, and a goal running in the background
 	 * keeps working (its notifications still arrive).
 	 */
-	private pauseActiveGoal(reason: ZGGoalPauseReason, note?: string): void {
+	private pauseActiveGoal(reason: SentinelGoalPauseReason, note?: string): void {
 		if (this.active) this.pauseGoalOf(this.active, reason, note);
 	}
 
@@ -1750,7 +1750,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** The goal as the console shows it: the stored record plus live counters. */
-	private goalView(managed: ManagedSession | undefined): ZGGoalView | null {
+	private goalView(managed: ManagedSession | undefined): SentinelGoalView | null {
 		if (!managed?.goal) return null;
 		const goal = managed.goal.goal;
 		// Sub-agent usage is shown for context. It does not consume rounds: the
@@ -2041,24 +2041,24 @@ export class ZGAgentRuntime {
 	 * the same way a freshly submitted high finding is pushed. The agent's own
 	 * rating may have undersold it.
 	 */
-	notifyReviewedHighSeverity(vuln: ZGVulnerability): void {
+	notifyReviewedHighSeverity(vuln: SentinelVulnerability): void {
 		this.notifyHighSeverity(vuln);
 	}
 
 	/** Notification configuration, for the settings screen. */
-	getNotifyConfig(): ZGNotifyConfig {
+	getNotifyConfig(): SentinelNotifyConfig {
 		return readNotifyConfig(this.agentDir);
 	}
 
-	getNotifyStatus(): ZGNotifyStatus {
+	getNotifyStatus(): SentinelNotifyStatus {
 		return this.notifyStatus;
 	}
 
-	saveNotifyConfig(config: ZGNotifyConfig): void {
+	saveNotifyConfig(config: SentinelNotifyConfig): void {
 		writeNotifyConfig(this.agentDir, config);
 	}
 
-	async testNotify(config: ZGNotifyConfig): Promise<ZGTestResult> {
+	async testNotify(config: SentinelNotifyConfig): Promise<SentinelTestResult> {
 		return await testDingTalk(config);
 	}
 
@@ -2122,7 +2122,7 @@ export class ZGAgentRuntime {
 	 * `review` pauses an active goal. A goal parked on a queue nobody is watching
 	 * is worse than one that pauses and says why.
 	 */
-	setMode(mode: ZGMode | null): void {
+	setMode(mode: SentinelMode | null): void {
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
 		if (active.modeOverride === mode) return;
@@ -2134,7 +2134,7 @@ export class ZGAgentRuntime {
 	}
 
 	/** Set the console-wide default that every session without an override follows. */
-	setGlobalMode(mode: ZGMode): void {
+	setGlobalMode(mode: SentinelMode): void {
 		const config = readGatekeeperConfig(this.agentDir);
 		if (config.mode === mode) return;
 		if (mode === "ai") this.requireJudgeEndpoint();
@@ -2166,11 +2166,11 @@ export class ZGAgentRuntime {
 	}
 
 	/** The gatekeeper settings the settings screen edits. */
-	getGatekeeperConfig(): ZGGatekeeperConfig {
+	getGatekeeperConfig(): SentinelGatekeeperConfig {
 		return readGatekeeperConfig(this.agentDir);
 	}
 
-	saveGatekeeperConfig(config: ZGGatekeeperConfig): void {
+	saveGatekeeperConfig(config: SentinelGatekeeperConfig): void {
 		writeGatekeeperConfig(this.agentDir, config);
 		// A mode saved here is the global default, so it applies to every session
 		// without an override right away.
@@ -2184,12 +2184,12 @@ export class ZGAgentRuntime {
 	}
 
 	/** Judged counts for the audit page header. */
-	getGateStats(filter?: ZGGateFilter): ZGGateStats {
+	getGateStats(filter?: SentinelGateFilter): SentinelGateStats {
 		return this.gateStore.stats(filter);
 	}
 
 	/** One page of audit records, newest first. */
-	listGateDecisions(filter: ZGGateFilter | undefined, page?: number, pageSize?: number) {
+	listGateDecisions(filter: SentinelGateFilter | undefined, page?: number, pageSize?: number) {
 		return this.gateStore.list(filter, page, pageSize);
 	}
 
@@ -2205,7 +2205,7 @@ export class ZGAgentRuntime {
 	 * Probe the judge with one fixed sample command. Nothing is recorded: this is
 	 * a settings check, not a real command judgment.
 	 */
-	async testJudge(): Promise<{ result: ZGTestResult; raw?: string }> {
+	async testJudge(): Promise<{ result: SentinelTestResult; raw?: string }> {
 		const resolved = this.gatekeeper.resolve();
 		if (!resolved.config) {
 			return {
@@ -2340,7 +2340,7 @@ export class ZGAgentRuntime {
 		this.hooks.onStateChange();
 	}
 
-	async listSessions(): Promise<ZGSessionListEntry[]> {
+	async listSessions(): Promise<SentinelSessionListEntry[]> {
 		const sessions = await SessionManager.list(this.cwd, this.sessionDir || undefined);
 		return sessions.map(withSessionStatus);
 	}
@@ -2356,7 +2356,7 @@ export class ZGAgentRuntime {
 	 * Set the operator status of any session in the managed session directory. The
 	 * status is an entry, so the conversation itself is untouched; `null` clears it.
 	 */
-	async setSessionStatus(path: string, status: ZGSessionStatus | null): Promise<void> {
+	async setSessionStatus(path: string, status: SentinelSessionStatus | null): Promise<void> {
 		const normalized = this.guardSessionPath(path);
 		const data = status ? { status, at: Date.now() } : null;
 		// A loaded session owns the live branch, and the toolbar reads the status
@@ -2406,7 +2406,7 @@ export class ZGAgentRuntime {
 		return normalized;
 	}
 
-	getTree(): { tree: SessionTreeNode[]; leafId: string | null; forkPoints: ZGForkPoint[] } {
+	getTree(): { tree: SessionTreeNode[]; leafId: string | null; forkPoints: SentinelForkPoint[] } {
 		const active = this.active;
 		return {
 			tree: active?.manager.getTree() ?? [],
@@ -2441,7 +2441,7 @@ export class ZGAgentRuntime {
 	 * The model screen. The first call persists the legacy-slot migration, so the
 	 * three old slots show up as library entries the operator can rename and reuse.
 	 */
-	getModelLibrary(): ZGModelLibraryView {
+	getModelLibrary(): SentinelModelLibraryView {
 		if (!readStoredModelLibrary(this.agentDir)) writeModelLibrary(this.agentDir, readModelLibrary(this.agentDir));
 		return libraryView(this.agentDir);
 	}
@@ -2456,7 +2456,7 @@ export class ZGAgentRuntime {
 		baseUrl: string;
 		apiKey: string | null;
 		modelId: string;
-	}): ZGModelLibraryView {
+	}): SentinelModelLibraryView {
 		if (input.id) {
 			updateLibraryEntry(this.agentDir, input.id, {
 				name: input.name,
@@ -2477,14 +2477,14 @@ export class ZGAgentRuntime {
 		return libraryView(this.agentDir);
 	}
 
-	removeModelEntry(id: string): ZGModelLibraryView {
+	removeModelEntry(id: string): SentinelModelLibraryView {
 		removeLibraryEntry(this.agentDir, id);
 		this.modelRuntimeDirty = true;
 		this.hooks.onStateChange();
 		return libraryView(this.agentDir);
 	}
 
-	duplicateModelEntry(id: string): ZGModelLibraryView {
+	duplicateModelEntry(id: string): SentinelModelLibraryView {
 		duplicateLibraryEntry(this.agentDir, id);
 		this.modelRuntimeDirty = true;
 		this.hooks.onStateChange();
@@ -2492,14 +2492,14 @@ export class ZGAgentRuntime {
 	}
 
 	/** Point a role at an entry (or at 主模型). Takes effect on the next use of the role. */
-	setModelRole(role: ZGModelRoleName, target: string | null): ZGModelLibraryView {
+	setModelRole(role: SentinelModelRoleName, target: string | null): SentinelModelLibraryView {
 		setLibraryRole(this.agentDir, role, target);
 		this.hooks.onStateChange();
 		return libraryView(this.agentDir);
 	}
 
 	/** Turning automatic review off also clears the queued backlog. */
-	setReviewerAuto(enabled: boolean): ZGModelLibraryView {
+	setReviewerAuto(enabled: boolean): SentinelModelLibraryView {
 		setReviewerAuto(this.agentDir, enabled);
 		if (!enabled) this.vulnerabilities.skipQueuedReviews();
 		this.hooks.onStateChange();
@@ -2508,10 +2508,10 @@ export class ZGAgentRuntime {
 
 	/** Tool permissions plus the inventory of what the live session mounted. */
 	getPermissions(): {
-		config: ZGPermissionsConfig;
-		effectiveSubagent: ZGPermissionSet;
-		presets: readonly ZGPermissionPreset[];
-		tools: ZGToolInfo[];
+		config: SentinelPermissionsConfig;
+		effectiveSubagent: SentinelPermissionSet;
+		presets: readonly SentinelPermissionPreset[];
+		tools: SentinelToolInfo[];
 	} {
 		const config = readPermissionsConfig(this.agentDir);
 		return {
@@ -2526,7 +2526,7 @@ export class ZGAgentRuntime {
 	 * What the viewed session actually has mounted. The permissions screen shows
 	 * this so a switch can be checked against reality instead of trusted.
 	 */
-	private listMountedTools(): ZGToolInfo[] {
+	private listMountedTools(): SentinelToolInfo[] {
 		const session = this.active?.session;
 		if (!session) return [];
 		const active = new Set(session.getActiveToolNames());
@@ -2545,7 +2545,7 @@ export class ZGAgentRuntime {
 	 * mounted when a session is created. A running session is refused rather than
 	 * disposed: the operator aborts it first, so no work is lost silently.
 	 */
-	async savePermissions(config: ZGPermissionsConfig): Promise<void> {
+	async savePermissions(config: SentinelPermissionsConfig): Promise<void> {
 		const running = [...this.sessions.values()].filter((managed) => managed.session.isStreaming);
 		if (running.length > 0) throw new Error("有会话正在运行，请先中止再修改权限");
 		writePermissionsConfig(this.agentDir, config);
@@ -2573,7 +2573,7 @@ export class ZGAgentRuntime {
 	 * session is then running on the default agent and the badge must not claim
 	 * otherwise.
 	 */
-	private presetView(active: ManagedSession | undefined): ZGSessionPresetView | null {
+	private presetView(active: ManagedSession | undefined): SentinelSessionPresetView | null {
 		if (!active?.presetId) return null;
 		const preset = findPreset(this.agentDir, active.presetId);
 		return {
@@ -2586,14 +2586,14 @@ export class ZGAgentRuntime {
 		};
 	}
 
-	snapshot(): ZGStateSnapshot {
+	snapshot(): SentinelStateSnapshot {
 		const resolvedMain = resolveLibraryRole(this.agentDir, "main");
 		const active = this.active;
 		const model = active?.session.model;
 		const globalMode = readGatekeeperConfig(this.agentDir).mode;
 		const sessionMode = this.effectiveMode(active);
 		const health = this.gatekeeper.health();
-		const gatekeeper: ZGGatekeeperView = {
+		const gatekeeper: SentinelGatekeeperView = {
 			globalMode,
 			sessionMode,
 			sessionOverride: active?.modeOverride ?? null,
@@ -2655,11 +2655,11 @@ export class ZGAgentRuntime {
 	 * Directory listing of /work. The host side of the mount is read directly;
 	 * the container is only consulted for a directory the host user cannot read.
 	 */
-	async listFiles(path: string): Promise<{ path: string; entries: ZGFileEntry[] }> {
+	async listFiles(path: string): Promise<{ path: string; entries: SentinelFileEntry[] }> {
 		return await listFiles(this.cwd, path, { container: this.requireContainer() });
 	}
 
-	async readFile(path: string): Promise<ZGFilePreview> {
+	async readFile(path: string): Promise<SentinelFilePreview> {
 		return await readFilePreview(this.requireContainer(), path);
 	}
 
@@ -2688,13 +2688,13 @@ export class ZGAgentRuntime {
 	}
 
 	/** Sub-agent runs of the viewed session, newest first, without process steps. */
-	listSubagents(): ZGSubagentRun[] {
+	listSubagents(): SentinelSubagentRun[] {
 		const sessionId = this.currentSessionId;
 		if (!sessionId) return [];
 		return this.subagents.list(sessionId);
 	}
 
-	getSubagent(id: string): ZGSubagentRun | undefined {
+	getSubagent(id: string): SentinelSubagentRun | undefined {
 		return this.subagents.get(id);
 	}
 
@@ -2710,19 +2710,19 @@ export class ZGAgentRuntime {
 	 * Findings of the active project plus their counts. The hub is project-scoped:
 	 * with no project there is nothing to show, not another project's records.
 	 */
-	listVulns(filters: ZGVulnFilters = {}): { items: ZGVulnSummary[]; stats: ZGVulnStats } {
+	listVulns(filters: SentinelVulnFilters = {}): { items: SentinelVulnSummary[]; stats: SentinelVulnStats } {
 		const projectId = this.activeProjectId;
 		if (!projectId) return { items: [], stats: emptyVulnStats() };
 		return { items: this.vulnerabilities.list(projectId, filters), stats: this.vulnerabilities.stats(projectId) };
 	}
 
 	/** One finding, by id or by its human-readable label, inside the active project. */
-	getVuln(id: string): ZGVulnerability | undefined {
+	getVuln(id: string): SentinelVulnerability | undefined {
 		return this.activeProjectId ? this.vulnerabilities.find(this.activeProjectId, id) : undefined;
 	}
 
 	/** Operator review: status, severity, CVSS, or a note. The agent cannot do this. */
-	updateVuln(id: string, patch: ZGVulnUpdate): ZGVulnerability | undefined {
+	updateVuln(id: string, patch: SentinelVulnUpdate): SentinelVulnerability | undefined {
 		const vuln = this.getVuln(id);
 		if (!vuln) return undefined;
 		const updated = this.vulnerabilities.update(vuln.id, patch);
@@ -2750,12 +2750,12 @@ export class ZGAgentRuntime {
 	}
 
 	/** Markdown report of the active project's findings. */
-	exportVulns(filters: ZGVulnFilters = {}): { filename: string; markdown: string } {
+	exportVulns(filters: SentinelVulnFilters = {}): { filename: string; markdown: string } {
 		const projectId = this.activeProjectId;
 		const summaries = projectId ? this.vulnerabilities.list(projectId, filters) : [];
 		const vulns = summaries
 			.map((summary) => this.vulnerabilities.get(summary.id))
-			.filter((vuln): vuln is ZGVulnerability => vuln !== undefined);
+			.filter((vuln): vuln is SentinelVulnerability => vuln !== undefined);
 		return buildVulnReport({
 			projectId: projectId ?? "",
 			projectName: this.activeProjectName ?? "未命名项目",
@@ -2765,11 +2765,11 @@ export class ZGAgentRuntime {
 
 	// --- POC 订阅（远程 zip 源；设置页管理，库只增不减） ---
 
-	listPocSources(): ZGPocSource[] {
+	listPocSources(): SentinelPocSource[] {
 		return this.subscriptions.list();
 	}
 
-	savePocSource(input: ZGPocSourceSave): { source: ZGPocSource } | { error: string } {
+	savePocSource(input: SentinelPocSourceSave): { source: SentinelPocSource } | { error: string } {
 		return this.subscriptions.save(input);
 	}
 
@@ -2777,18 +2777,18 @@ export class ZGAgentRuntime {
 		return this.subscriptions.delete(id);
 	}
 
-	async syncPocSource(id: string): Promise<{ source: ZGPocSource } | { error: string }> {
+	async syncPocSource(id: string): Promise<{ source: SentinelPocSource } | { error: string }> {
 		return this.subscriptions.sync(id, "manual");
 	}
 
 	/** The one-click official sync: make sure the built-in source exists, then sync it. */
-	async syncOfficialPocs(): Promise<{ source: ZGPocSource } | { error: string }> {
+	async syncOfficialPocs(): Promise<{ source: SentinelPocSource } | { error: string }> {
 		const ensured = this.subscriptions.ensureOfficial();
 		return this.subscriptions.sync(ensured.source.id, "manual");
 	}
 
 	/** A failed sync pushes DingTalk once per attempt, gated by the pocs kind. */
-	private notifyPocSyncFailure(source: ZGPocSource, record: ZGPocSyncRecord): void {
+	private notifyPocSyncFailure(source: SentinelPocSource, record: SentinelPocSyncRecord): void {
 		const config = readNotifyConfig(this.agentDir);
 		if (!config.enabled || !config.webhook.trim() || !config.kinds.pocs) return;
 		const title = `POC 订阅同步失败：${source.name}`;
@@ -2811,11 +2811,11 @@ export class ZGAgentRuntime {
 	// --- POC 库（只读模板中心；导入与删除是操作员动作，不经过 agent） ---
 
 	/** The library is global, not per project: templates are reference material. */
-	listPocs(filters: ZGPocFilters = {}): { items: ZGPocSummary[]; stats: ZGPocStats } {
+	listPocs(filters: SentinelPocFilters = {}): { items: SentinelPocSummary[]; stats: SentinelPocStats } {
 		return { items: this.pocs.list(filters).items, stats: this.pocs.stats() };
 	}
 
-	getPoc(id: string): ZGPoc | undefined {
+	getPoc(id: string): SentinelPoc | undefined {
 		return this.pocs.get(id);
 	}
 
@@ -2823,7 +2823,7 @@ export class ZGAgentRuntime {
 	 * Import templates from base64-encoded files. This is the one write path and
 	 * it belongs to the operator; there is no agent tool that can reach it.
 	 */
-	importPocs(files: ZGPocImportFile[]): ZGPocImportOutcome {
+	importPocs(files: SentinelPocImportFile[]): SentinelPocImportOutcome {
 		const outcome = this.pocs.import(
 			files.map((file) => ({ name: file.name, bytes: Buffer.from(file.data, "base64") })),
 		);
@@ -2879,7 +2879,7 @@ function firstUserText(messages: readonly unknown[]): string | undefined {
 }
 
 /** Token and cost counters of a session, in the shape a goal stores them. */
-function usageOf(stats: SessionStats | undefined): ZGGoalUsage {
+function usageOf(stats: SessionStats | undefined): SentinelGoalUsage {
 	if (!stats) return emptyUsage();
 	return {
 		input: stats.tokens.input,

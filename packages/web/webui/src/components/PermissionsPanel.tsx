@@ -13,17 +13,17 @@
 
 import { useEffect, useState } from "react";
 import type {
-	ZGCommanderPermissionKey,
-	ZGPermissionKey,
-	ZGPermissionSet,
-	ZGPermissionsConfig,
-	ZGPermissionPreset,
-	ZGToolInfo,
+	SentinelCommanderPermissionKey,
+	SentinelPermissionKey,
+	SentinelPermissionPreset,
+	SentinelPermissionSet,
+	SentinelPermissionsConfig,
+	SentinelToolInfo,
 } from "../types.ts";
 import { RefreshIcon } from "./icons.tsx";
 
 /** Order and wording of the switches; spawn_agent is main-agent only. */
-const SWITCHES: { key: ZGPermissionKey; label: string; hint: string; subagent: boolean }[] = [
+const SWITCHES: { key: SentinelPermissionKey; label: string; hint: string; subagent: boolean }[] = [
 	{ key: "read", label: "read", hint: "读取工作目录中的文件内容", subagent: true },
 	{ key: "bash", label: "bash", hint: "在项目容器内执行命令（审批模式仍逐条确认）", subagent: true },
 	{ key: "edit", label: "edit", hint: "对已有文件做精确文本替换", subagent: true },
@@ -43,7 +43,7 @@ const SWITCHES: { key: ZGPermissionKey; label: string; hint: string; subagent: b
 const SUBAGENT_SWITCHES = SWITCHES.filter((item) => item.subagent);
 
 /** The engineering-mode commander's switches: its scheduling tools are always mounted. */
-const COMMANDER_SWITCHES: { key: ZGCommanderPermissionKey; label: string; hint: string }[] = [
+const COMMANDER_SWITCHES: { key: SentinelCommanderPermissionKey; label: string; hint: string }[] = [
 	{
 		key: "bash",
 		label: "bash（受限）",
@@ -60,14 +60,14 @@ export function PermissionsPanel({
 	onSave,
 	onRefresh,
 }: {
-	config: ZGPermissionsConfig;
-	presets: ZGPermissionPreset[];
-	tools: ZGToolInfo[];
+	config: SentinelPermissionsConfig;
+	presets: SentinelPermissionPreset[];
+	tools: SentinelToolInfo[];
 	busy: boolean;
-	onSave: (config: ZGPermissionsConfig) => void;
+	onSave: (config: SentinelPermissionsConfig) => void;
 	onRefresh: () => void;
 }) {
-	const [draft, setDraft] = useState<ZGPermissionsConfig>(config);
+	const [draft, setDraft] = useState<SentinelPermissionsConfig>(config);
 
 	// Follow the server whenever it reports a different configuration, so a save
 	// from another window (or a rejected save) cannot leave stale switches here.
@@ -77,12 +77,13 @@ export function PermissionsPanel({
 
 	const dirty = JSON.stringify(draft) !== JSON.stringify(config);
 
-	const toggle = (agent: "main" | "subagent", key: ZGPermissionKey) => {
+	const toggle = (agent: "main" | "subagent", key: SentinelPermissionKey) => {
 		setDraft((prev) => {
-			const next: ZGPermissionsConfig = {
+			const next: SentinelPermissionsConfig = {
 				main: { ...prev.main },
 				subagent: { ...prev.subagent },
 				commander: { ...prev.commander },
+				subagentMaxTurns: prev.subagentMaxTurns,
 			};
 			next[agent][key] = !prev[agent][key];
 			if (agent === "main" && !next.main[key] && key !== "spawn_agent") {
@@ -93,20 +94,29 @@ export function PermissionsPanel({
 		});
 	};
 
-	const toggleCommander = (key: ZGCommanderPermissionKey) => {
+	const toggleCommander = (key: SentinelCommanderPermissionKey) => {
 		setDraft((prev) => ({
 			main: prev.main,
 			subagent: prev.subagent,
 			commander: { ...prev.commander, [key]: !prev.commander[key] },
+			subagentMaxTurns: prev.subagentMaxTurns,
 		}));
 	};
 
-	const applyPreset = (preset: ZGPermissionPreset) => {
-		setDraft({ main: { ...preset.main }, subagent: { ...preset.subagent }, commander: { ...preset.commander } });
+	const applyPreset = (preset: SentinelPermissionPreset) => {
+		setDraft((prev) => ({
+			main: { ...preset.main },
+			subagent: { ...preset.subagent },
+			commander: { ...preset.commander },
+			subagentMaxTurns: prev.subagentMaxTurns,
+		}));
 	};
 
-	const disabledCount = (set: ZGPermissionSet) =>
-		SWITCHES.filter((item) => item.subagent && !set[item.key]).length;
+	const setMaxTurns = (value: number) => {
+		setDraft((prev) => ({ ...prev, subagentMaxTurns: value }));
+	};
+
+	const disabledCount = (set: SentinelPermissionSet) => SWITCHES.filter((item) => item.subagent && !set[item.key]).length;
 
 	const switchRow = (agent: "main" | "subagent", item: (typeof SWITCHES)[number]) => {
 		const on = draft[agent][item.key];
@@ -121,7 +131,9 @@ export function PermissionsPanel({
 				/>
 				<span className="perm-switch-body">
 					<span className="perm-switch-name">{item.label}</span>
-					<span className="perm-switch-hint">{blockedByParent ? "主 Agent 已禁用，子 Agent 无法单独开启" : item.hint}</span>
+					<span className="perm-switch-hint">
+						{blockedByParent ? "主 Agent 已禁用，子 Agent 无法单独开启" : item.hint}
+					</span>
 				</span>
 			</label>
 		);
@@ -152,7 +164,13 @@ export function PermissionsPanel({
 					{dirty ? "有未保存的修改" : `主 Agent 已禁用 ${disabledCount(draft.main)} 项`}
 				</span>
 				<span className="composer-spacer" />
-				<button type="button" className="ghost small" onClick={onRefresh} disabled={busy} title="重新读取已挂载工具">
+				<button
+					type="button"
+					className="ghost small"
+					onClick={onRefresh}
+					disabled={busy}
+					title="重新读取已挂载工具"
+				>
 					<RefreshIcon />
 					刷新清单
 				</button>
@@ -161,8 +179,13 @@ export function PermissionsPanel({
 					className="primary"
 					disabled={busy || !dirty}
 					onClick={() =>
-					onSave({ main: { ...draft.main }, subagent: { ...draft.subagent }, commander: { ...draft.commander } })
-				}
+						onSave({
+							main: { ...draft.main },
+							subagent: { ...draft.subagent },
+							commander: { ...draft.commander },
+							subagentMaxTurns: draft.subagentMaxTurns,
+						})
+					}
 				>
 					保存并重建会话
 				</button>
@@ -177,6 +200,24 @@ export function PermissionsPanel({
 					<h3>子 Agent</h3>
 					<p className="perm-column-note">子代理的权限永远不超过主 Agent，且永远不能再派生子代理。</p>
 					{SUBAGENT_SWITCHES.map((item) => switchRow("subagent", item))}
+					<label className="perm-switch">
+						<span className="perm-switch-body">
+							<span className="perm-switch-name">轮次上限</span>
+							<span className="perm-switch-hint">单个子代理最多执行的轮数，达到后中止并汇报已有结果</span>
+						</span>
+						<input
+							type="number"
+							className="perm-number"
+							min={1}
+							max={200}
+							value={draft.subagentMaxTurns}
+							disabled={busy}
+							onChange={(event) => {
+								const value = Math.round(Number(event.target.value));
+								if (Number.isFinite(value)) setMaxTurns(value);
+							}}
+						/>
+					</label>
 				</section>
 				<section className="perm-column perm-column--tools">
 					<h3>当前已挂载工具 ({tools.length})</h3>
@@ -199,7 +240,8 @@ export function PermissionsPanel({
 			<section className="perm-commander">
 				<h3>指挥官（工程模式）</h3>
 				<p className="perm-column-note">
-					指挥官的调度工具（dispatch_task 等）始终挂载；这里控制的是它拆解任务用的受限执行面。修改在指挥官会话下次创建时生效（新建或恢复工程），运行中的工程不受影响。
+					指挥官的调度工具（dispatch_task
+					等）始终挂载；这里控制的是它拆解任务用的受限执行面。修改在指挥官会话下次创建时生效（新建或恢复工程），运行中的工程不受影响。
 				</p>
 				<div className="perm-commander-switches">
 					{COMMANDER_SWITCHES.map((item) => (
@@ -226,7 +268,8 @@ export function PermissionsPanel({
 
 			{draft.main.bash || draft.main.edit || draft.main.write ? null : (
 				<p className="perm-warn">
-					当前配置下 Agent 不能执行命令，也不能修改文件：适合只读侦察。如果它需要落地脚本或证据文件，请至少开启 write。
+					当前配置下 Agent 不能执行命令，也不能修改文件：适合只读侦察。如果它需要落地脚本或证据文件，请至少开启
+					write。
 				</p>
 			)}
 		</div>

@@ -47,7 +47,7 @@ plans/
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
 
-# ZGAgent web: test-only tool binaries (macOS arm64 copies)
+# Full Chain Sentinel web: test-only tool binaries (macOS arm64 copies)
 packages/web/test/fixtures/bin/
 packages/coding-agent/test/fixtures/bin/
 

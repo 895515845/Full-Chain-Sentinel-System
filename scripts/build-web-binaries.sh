@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Build the ZGAgent web console as single-file binaries.
+# Build the Full Chain Sentinel web console as single-file binaries.
 #
 # A binary carries the whole console: server code, browser UI, and the toolbox
-# Dockerfile. It still needs a Docker daemon and the zgagent:latest image on the
+# Dockerfile. It still needs a Docker daemon and the sentinel:latest image on the
 # target machine, which the console checks at startup and can build for itself.
 #
 # Usage:
@@ -17,7 +17,7 @@
 # Platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64
 #
 # Output:
-#   <out>/zgagent-web-<platform>.tar.gz
+#   <out>/sentinel-web-<platform>.tar.gz
 
 set -euo pipefail
 
@@ -132,25 +132,25 @@ for platform in "${PLATFORMS[@]}"; do
 		./dist/web/bun-entry.js \
 		./src/utils/image-resize-worker.ts \
 		./src/extensions/codemode/worker.ts \
-		--outfile "$OUTPUT_DIR/$platform/zgagent-web"
+		--outfile "$OUTPUT_DIR/$platform/sentinel-web"
 done
 
 echo "==> Creating archives..."
 cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
-	echo "Creating zgagent-web-$platform.tar.gz..."
-	mv "$platform" zgagent-web
-	tar -czf "zgagent-web-$platform.tar.gz" zgagent-web
-	mv zgagent-web "$platform"
+	echo "Creating sentinel-web-$platform.tar.gz..."
+	mv "$platform" sentinel-web
+	tar -czf "sentinel-web-$platform.tar.gz" sentinel-web
+	mv sentinel-web "$platform"
 done
 
 echo ""
 echo "==> Build complete!"
-ls -lh zgagent-web-*.tar.gz
+ls -lh sentinel-web-*.tar.gz
 echo ""
 echo "Extracted executables:"
 for platform in "${PLATFORMS[@]}"; do
-	echo "  $OUTPUT_DIR/$platform/zgagent-web"
+	echo "  $OUTPUT_DIR/$platform/sentinel-web"
 done
 echo ""
-echo "Run one with: $OUTPUT_DIR/${PLATFORMS[0]}/zgagent-web --check"
+echo "Run one with: $OUTPUT_DIR/${PLATFORMS[0]}/sentinel-web --check"

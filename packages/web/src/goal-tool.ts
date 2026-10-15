@@ -21,16 +21,21 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { BLOCKED_STREAK_LIMIT } from "./goal.ts";
-import type { ZGGoal, ZGGoalCompletion, ZGGoalCriterionResult, ZGGoalProgress } from "./protocol.ts";
+import type {
+	SentinelGoal,
+	SentinelGoalCompletion,
+	SentinelGoalCriterionResult,
+	SentinelGoalProgress,
+} from "./protocol.ts";
 
 /** What the runtime has to provide for the tools to work on a live goal. */
 export interface GoalPort {
 	/** The goal in force for the calling session, if any. */
-	current(): ZGGoal | undefined;
+	current(): SentinelGoal | undefined;
 	/** Findings submitted to the hub since this goal started. */
 	submitted(): number;
-	progress(progress: ZGGoalProgress): void;
-	complete(completion: ZGGoalCompletion): void;
+	progress(progress: SentinelGoalProgress): void;
+	complete(completion: SentinelGoalCompletion): void;
 	/** Records the claim and reports how long the same blocker has held. */
 	blocked(reason: string, evidence: string[]): { streak: number; accepted: boolean };
 }
@@ -107,7 +112,7 @@ function sameCriterion(left: string, right: string): boolean {
 
 export function createGoalTools(port: GoalPort): ToolDefinition[] {
 	/** Every tool starts here: no goal, a stale id, or a finished goal is refused. */
-	const requireActive = (goalId: string | undefined): { goal: ZGGoal } | { error: string } => {
+	const requireActive = (goalId: string | undefined): { goal: SentinelGoal } | { error: string } => {
 		const goal = port.current();
 		if (!goal) {
 			return { error: "当前会话没有持续目标。持续目标由操作员在输入框上方点「持续目标」启动。" };
@@ -136,7 +141,7 @@ export function createGoalTools(port: GoalPort): ToolDefinition[] {
 		async execute(_toolCallId, params): Promise<AgentToolResult<GoalToolDetails>> {
 			const active = requireActive(params.goal_id);
 			if ("error" in active) return failure(active.error, "no-goal");
-			const update: ZGGoalProgress = {
+			const update: SentinelGoalProgress = {
 				done: params.done.map((item) => item.trim()).filter(Boolean),
 				todo: params.todo.map((item) => item.trim()).filter(Boolean),
 				blockers: (params.blockers ?? []).map((item) => item.trim()).filter(Boolean),
@@ -199,7 +204,7 @@ export function createGoalTools(port: GoalPort): ToolDefinition[] {
 			}
 
 			// Acceptance criteria: filled-in criteria are a contract, not a hint.
-			const criteria: ZGGoalCriterionResult[] = [];
+			const criteria: SentinelGoalCriterionResult[] = [];
 			if (goal.criteria.length > 0) {
 				const given = params.criteria ?? [];
 				if (given.length !== goal.criteria.length) {
@@ -236,7 +241,7 @@ export function createGoalTools(port: GoalPort): ToolDefinition[] {
 			}
 
 			const at = Date.now();
-			const completion: ZGGoalCompletion = {
+			const completion: SentinelGoalCompletion = {
 				summary: params.summary.trim(),
 				evidence,
 				submitted,

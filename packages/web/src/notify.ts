@@ -13,9 +13,14 @@
  */
 
 import { createHmac } from "node:crypto";
-import type { ZGNotifyConfig, ZGNotifyStatus, ZGTestResult, ZGVulnerability } from "./protocol.ts";
-import { SESSION_STATUS_LABELS, type ZGSessionStatus } from "./session-status.ts";
-import { ZG_VULN_SEVERITY_LABELS, ZG_VULN_STATUS_LABELS } from "./vulnerabilities.ts";
+import type {
+	SentinelNotifyConfig,
+	SentinelNotifyStatus,
+	SentinelTestResult,
+	SentinelVulnerability,
+} from "./protocol.ts";
+import { SESSION_STATUS_LABELS, type SentinelSessionStatus } from "./session-status.ts";
+import { SENTINEL_VULN_SEVERITY_LABELS, SENTINEL_VULN_STATUS_LABELS } from "./vulnerabilities.ts";
 
 const SEND_TIMEOUT_MS = 10000;
 /** Two retries after the first attempt, per the operator's choice. */
@@ -41,7 +46,7 @@ export function signedWebhookUrl(webhook: string, secret: string, timestampMs: n
 }
 
 /** A DingTalk markdown body, with the keyword prepended when one is configured. */
-export function buildPayload(config: ZGNotifyConfig, title: string, markdown: string): string {
+export function buildPayload(config: SentinelNotifyConfig, title: string, markdown: string): string {
 	const prefix = config.keyword ? `${config.keyword}\n` : "";
 	return JSON.stringify({
 		msgtype: "markdown",
@@ -82,7 +87,7 @@ function clipToBytes(text: string, maxBytes: number): string {
  * the operator asked to keep in full still has to fit, so it is cut here and the
  * note says which limit did it.
  */
-export function fitPayload(config: ZGNotifyConfig, title: string, markdown: string): string {
+export function fitPayload(config: SentinelNotifyConfig, title: string, markdown: string): string {
 	const overhead = Buffer.byteLength(buildPayload(config, title, ""), "utf-8");
 	if (overhead + Buffer.byteLength(markdown, "utf-8") <= MAX_BODY_BYTES) {
 		return buildPayload(config, title, markdown);
@@ -94,7 +99,7 @@ export function fitPayload(config: ZGNotifyConfig, title: string, markdown: stri
 }
 
 /** One delivery attempt. Returns the failure reason, or undefined on success. */
-async function attempt(config: ZGNotifyConfig, title: string, markdown: string): Promise<string | undefined> {
+async function attempt(config: SentinelNotifyConfig, title: string, markdown: string): Promise<string | undefined> {
 	const url = signedWebhookUrl(config.webhook, config.secret, Date.now());
 	let response: Response;
 	try {
@@ -148,7 +153,11 @@ function delay(ms: number): Promise<void> {
  * Post a markdown notification, retrying a transient failure. Never throws: the
  * caller records the result and moves on.
  */
-export async function sendDingTalk(config: ZGNotifyConfig, title: string, markdown: string): Promise<ZGNotifyStatus> {
+export async function sendDingTalk(
+	config: SentinelNotifyConfig,
+	title: string,
+	markdown: string,
+): Promise<SentinelNotifyStatus> {
 	const webhook = config.webhook.trim();
 	if (!webhook) {
 		return { at: Date.now(), ok: false, error: "未配置 webhook 地址" };
@@ -165,14 +174,14 @@ export async function sendDingTalk(config: ZGNotifyConfig, title: string, markdo
 }
 
 /** Settings-screen "send a test message" action. */
-export async function testDingTalk(config: ZGNotifyConfig): Promise<ZGTestResult> {
+export async function testDingTalk(config: SentinelNotifyConfig): Promise<SentinelTestResult> {
 	if (!config.webhook.trim()) return { ok: false, message: "请先填写 webhook 地址" };
 	const urlError = webhookUrlError(config.webhook.trim());
 	if (urlError) return { ok: false, message: urlError, detail: "钉钉自定义机器人只接受 https。" };
 	const status = await sendDingTalk(
 		config,
-		"ZGAgent 测试通知",
-		"### ZGAgent 测试通知\n\n如果你在群里看到这条消息，通知配置可用。",
+		"全链哨兵 测试通知",
+		"### 全链哨兵 测试通知\n\n如果你在群里看到这条消息，通知配置可用。",
 	);
 	return status.ok
 		? { ok: true, message: "测试消息已发送，请查看钉钉群" }
@@ -190,13 +199,13 @@ export function shouldNotifyRun(runNotify: boolean | undefined, enabled: boolean
 }
 
 /** Everything the notification reports about one finished run. */
-export interface ZGRunReport {
+export interface SentinelRunReport {
 	status: "done" | "failed" | "aborted";
 	projectName: string;
 	/** Session name if the operator set one, else the first instruction. */
 	sessionTitle: string;
 	/** The operator's manual label for that session, when it has one. */
-	sessionStatus?: ZGSessionStatus | null;
+	sessionStatus?: SentinelSessionStatus | null;
 	durationMs: number;
 	/** The run's closing assistant text. */
 	summary: string;
@@ -206,7 +215,7 @@ export interface ZGRunReport {
 	cost?: number;
 }
 
-const STATUS_LABEL: Record<ZGRunReport["status"], string> = {
+const STATUS_LABEL: Record<SentinelRunReport["status"], string> = {
 	done: "完成",
 	failed: "失败",
 	aborted: "已中止",
@@ -224,9 +233,9 @@ function formatDuration(ms: number): string {
  * The markdown body and robot title for a finished run. `limit` is the operator's
  * character budget for the closing summary; 0 keeps it whole.
  */
-export function buildRunNotification(report: ZGRunReport, limit: number): { title: string; markdown: string } {
+export function buildRunNotification(report: SentinelRunReport, limit: number): { title: string; markdown: string } {
 	const label = STATUS_LABEL[report.status];
-	const title = `ZGAgent 任务${label}`;
+	const title = `全链哨兵 任务${label}`;
 	const lines = [
 		`### ${title}`,
 		"",
@@ -251,13 +260,13 @@ export function buildRunNotification(report: ZGRunReport, limit: number): { titl
 }
 
 /** Everything the notification reports about one persistent goal. */
-export interface ZGGoalReport {
+export interface SentinelGoalReport {
 	/** Human label of the state, e.g. "已完成" or "已暂停（轮数上限）". */
 	label: string;
 	projectName: string;
 	sessionTitle: string;
 	/** The operator's manual label for that session, when it has one. */
-	sessionStatus?: ZGSessionStatus | null;
+	sessionStatus?: SentinelSessionStatus | null;
 	objective: string;
 	rounds: { used: number; limit: number };
 	durationMs: number;
@@ -276,8 +285,8 @@ export interface ZGGoalReport {
  *
  * `limit` is the operator's character budget for the conclusion; 0 keeps it whole.
  */
-export function buildGoalNotification(report: ZGGoalReport, limit: number): { title: string; markdown: string } {
-	const title = `ZGAgent 持续目标${report.label}`;
+export function buildGoalNotification(report: SentinelGoalReport, limit: number): { title: string; markdown: string } {
+	const title = `全链哨兵 持续目标${report.label}`;
 	const lines = [
 		`### ${title}`,
 		"",
@@ -320,19 +329,19 @@ export function buildGoalNotification(report: ZGGoalReport, limit: number): { ti
  * holds the rest.
  */
 export function buildVulnNotification(
-	vuln: ZGVulnerability,
+	vuln: SentinelVulnerability,
 	projectName: string,
 	limit: number,
 ): { title: string; markdown: string } {
-	const severity = ZG_VULN_SEVERITY_LABELS[vuln.severity];
-	const title = `ZGAgent 发现${severity}漏洞`;
+	const severity = SENTINEL_VULN_SEVERITY_LABELS[vuln.severity];
+	const title = `全链哨兵 发现${severity}漏洞`;
 	const lines = [
 		`### ${title}`,
 		"",
 		`- **编号**：${vuln.label}`,
 		`- **标题**：${vuln.title}`,
 		`- **等级**：${severity}（${vuln.severity}）· CVSS ${vuln.cvss.toFixed(1)}`,
-		`- **状态**：${ZG_VULN_STATUS_LABELS[vuln.status]}`,
+		`- **状态**：${SENTINEL_VULN_STATUS_LABELS[vuln.status]}`,
 		`- **目标**：${vuln.target}`,
 		`- **项目**：${projectName || vuln.projectName}`,
 		`- **来源**：${vuln.source}`,

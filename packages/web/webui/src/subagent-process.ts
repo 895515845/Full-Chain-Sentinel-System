@@ -8,9 +8,9 @@
  * (and testable without a DOM).
  */
 
-import type { ZGSubagentEvent, ZGSubagentRun, ZGSubagentStatus } from "./types.ts";
+import type { SentinelSubagentEvent, SentinelSubagentRun, SentinelSubagentStatus } from "./types.ts";
 
-export const STATUS_LABELS: Record<ZGSubagentStatus, string> = {
+export const STATUS_LABELS: Record<SentinelSubagentStatus, string> = {
 	running: "运行中",
 	done: "已完成",
 	error: "失败",
@@ -53,7 +53,7 @@ export function formatMs(ms: number): string {
 }
 
 /** How long a finished run took; empty while it is still running. */
-export function durationOf(run: ZGSubagentRun): string {
+export function durationOf(run: SentinelSubagentRun): string {
 	if (!run.endedAt) return "";
 	return formatMs(new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime());
 }
@@ -98,14 +98,16 @@ export function toolSummary(name: string, args: unknown, output: string, status:
 
 /** Markdown source without the syntax that reads as noise inside a two-line clamp. */
 export function plainText(text: string): string {
-	return text
-		.replace(/```[^\n]*\n?/g, "")
-		// [ \t], not \s: with the m flag \s would also eat the blank line above a
-		// heading or list item, collapsing the paragraph break with it.
-		.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
-		.replace(/^[ \t]{0,3}[-*+][ \t]+/gm, "")
-		.replace(/\*\*|__|`/g, "")
-		.trim();
+	return (
+		text
+			.replace(/```[^\n]*\n?/g, "")
+			// [ \t], not \s: with the m flag \s would also eat the blank line above a
+			// heading or list item, collapsing the paragraph break with it.
+			.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+			.replace(/^[ \t]{0,3}[-*+][ \t]+/gm, "")
+			.replace(/\*\*|__|`/g, "")
+			.trim()
+	);
 }
 
 export interface TextStep {
@@ -142,7 +144,7 @@ export interface StatusStep {
 	seq: number;
 	at: number;
 	note: string;
-	status?: ZGSubagentStatus;
+	status?: SentinelSubagentStatus;
 }
 
 export type Step = TextStep | ThinkingStep | ToolStep | StatusStep;
@@ -159,7 +161,7 @@ export function toolStatus(step: ToolStep): ToolStatus {
 	return step.running ? "running" : step.isError ? "error" : "done";
 }
 
-function toolStepFrom(event: ZGSubagentEvent, end: ZGSubagentEvent | undefined): ToolStep {
+function toolStepFrom(event: SentinelSubagentEvent, end: SentinelSubagentEvent | undefined): ToolStep {
 	const name = event.toolName ?? "tool";
 	const output = end?.output ?? "";
 	const status: ToolStatus = end === undefined ? "running" : end.isError ? "error" : "done";
@@ -186,8 +188,8 @@ function toolStepFrom(event: ZGSubagentEvent, end: ZGSubagentEvent | undefined):
  * is the turn still in flight. A `tool_end` is folded into its `tool_start`, so
  * one call is one row.
  */
-export function buildTurns(events: ZGSubagentEvent[]): TurnGroup[] {
-	const ends = new Map<string, ZGSubagentEvent>();
+export function buildTurns(events: SentinelSubagentEvent[]): TurnGroup[] {
+	const ends = new Map<string, SentinelSubagentEvent>();
 	const started = new Set<string>();
 	for (const event of events) {
 		if (event.kind === "tool_end" && event.toolCallId) ends.set(event.toolCallId, event);

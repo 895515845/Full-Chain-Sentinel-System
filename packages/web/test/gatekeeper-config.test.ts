@@ -23,7 +23,7 @@ let root = "";
 let agentDir = "";
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "zgagent-gate-config-"));
+	root = mkdtempSync(join(tmpdir(), "sentinel-gate-config-"));
 	agentDir = join(root, "agent");
 });
 

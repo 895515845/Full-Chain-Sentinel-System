@@ -7,7 +7,7 @@ import baseConfig, { workspaceSourcePaths } from "../../vitest.base.ts";
 // Tests must not depend on (or create) the user's real agent directory. Point
 // the default agent dir at a per-run temp directory; tests that stub the env
 // themselves override this value.
-const testAgentDir = mkdtempSync(join(tmpdir(), "zgagent-vitest-agent-"));
+const testAgentDir = mkdtempSync(join(tmpdir(), "sentinel-vitest-agent-"));
 
 // find/grep tool tests need fd and rg. Tests run offline (no managed download),
 // so expose the checked-in copies through PATH.
@@ -23,7 +23,7 @@ export default mergeConfig(
 			// Tests run offline by default; opt in with allowNetwork() from test/test-network-env.ts.
 			env: {
 				PI_OFFLINE: "1",
-				ZGAGENT_CODING_AGENT_DIR: testAgentDir,
+				SENTINEL_CODING_AGENT_DIR: testAgentDir,
 				PATH: `${fixtureBinDir}:${process.env.PATH ?? ""}`,
 			},
 			unstubEnvs: true,
