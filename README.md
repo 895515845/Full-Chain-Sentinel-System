@@ -118,3 +118,4 @@ docker build -t sentinel:latest docker/
 
 - 上游仓库：https://github.com/earendil-works/pi
 - 本项目新增部分的版权归本项目作者，同样以 MIT 发布。
+- 例外：[packages/coding-agent/examples/extensions/doom-overlay/doom/](packages/coding-agent/examples/extensions/doom-overlay/doom/) 是 GPLv2 的 DOOM 编译产物及其对应源码，不属于 MIT，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

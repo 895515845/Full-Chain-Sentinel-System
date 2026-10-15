@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Build DOOM for pi-doom using doomgeneric and Emscripten
+# Build DOOM for the overlay demo using doomgeneric and Emscripten.
+#
+# The doomgeneric source is vendored next to this script and is GPLv2 (see
+# README.md and LICENSE in this directory). The clone below only runs when that
+# directory is missing, and it checks out the same commit the vendored copy and
+# the compiled output in build/ came from.
 
 set -e
 
@@ -24,11 +29,14 @@ if ! command -v emcc &> /dev/null; then
     exit 1
 fi
 
+DOOMGENERIC_COMMIT="5a7c842f0ccbe6914637abd56efaeaba2ba4a575"
+
 # Clone doomgeneric if not present
 if [ ! -d "$DOOM_DIR/doomgeneric" ]; then
-    echo "Cloning doomgeneric..."
+    echo "Cloning doomgeneric at $DOOMGENERIC_COMMIT..."
     cd "$DOOM_DIR"
     git clone https://github.com/ozkl/doomgeneric.git
+    git -C doomgeneric checkout --quiet "$DOOMGENERIC_COMMIT"
 fi
 
 # Create build directory

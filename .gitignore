@@ -56,3 +56,9 @@ packages/droid-apk/.gradle/
 packages/droid-apk/app/build/
 packages/droid-apk/build/
 packages/droid-apk/local.properties
+
+# DOOM overlay example: build intermediates. The compiled output in
+# doom/build/ is tracked on purpose, it ships with the GPLv2 license and source.
+packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/doomgeneric_pi.c
+packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/*.o
+packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/*.bc

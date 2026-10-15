@@ -44,3 +44,7 @@ Height is calculated from width to maintain DOOM's 3.2:1 aspect ratio (accountin
 - [id Software](https://github.com/id-Software/DOOM) for the original DOOM
 - [doomgeneric](https://github.com/ozkl/doomgeneric) for the portable DOOM implementation
 - [pi-doom](https://github.com/badlogic/pi-doom) for the original pi integration
+
+## License
+
+The extension code is MIT, like the rest of this repository. `doom/` is **GPLv2**: it holds the compiled DOOM, the source it was compiled from, and the license text. See [doom/README.md](doom/README.md).
