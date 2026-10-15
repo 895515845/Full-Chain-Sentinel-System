@@ -137,7 +137,8 @@ function findContainingOutput(metafile, inputSuffix) {
 
 function outputBytes(metafiles) {
 	return metafiles.reduce(
-		(total, metafile) => total + Object.values(metafile.outputs).reduce((subtotal, output) => subtotal + output.bytes, 0),
+		(total, metafile) =>
+			total + Object.values(metafile.outputs).reduce((subtotal, output) => subtotal + output.bytes, 0),
 		0,
 	);
 }
@@ -172,7 +173,10 @@ const mainResult = await build({
 	splitting: true,
 });
 
-const bedrockLoaderOutput = findContainingOutput(mainResult.metafile, "packages/ai/dist/api/bedrock-converse-stream.lazy.js");
+const bedrockLoaderOutput = findContainingOutput(
+	mainResult.metafile,
+	"packages/ai/dist/api/bedrock-converse-stream.lazy.js",
+);
 const oauthLoaderOutput = findContainingOutput(mainResult.metafile, "packages/ai/dist/auth/oauth/load.js");
 const imageResizeOutput = findContainingOutput(mainResult.metafile, "packages/coding-agent/dist/utils/image-resize.js");
 const configOutput = findContainingOutput(mainResult.metafile, "packages/coding-agent/dist/config.js");
@@ -227,7 +231,9 @@ const codemodeWorkerResult = await build({
 	splitting: false,
 });
 for (const [outputPath, output] of Object.entries(codemodeWorkerResult.metafile.outputs)) {
-	const invalid = output.imports.filter((imported) => imported.kind !== "import-statement" || !isBuiltin(imported.path));
+	const invalid = output.imports.filter(
+		(imported) => imported.kind !== "import-statement" || !isBuiltin(imported.path),
+	);
 	if (invalid.length > 0) {
 		throw new Error(
 			`Codemode worker must only import Node builtins: ${invalid.map((imported) => imported.path).join(", ")}`,

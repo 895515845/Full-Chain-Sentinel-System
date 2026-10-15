@@ -30,7 +30,7 @@ test("produces a verified, content-addressed artifact set", (t) => {
 	writePackage(
 		join(repoRoot, "packages", "target"),
 		{ name: "@pi-package-test/target", version: "1.0.0", files: ["dist"] },
-		{ "dist/index.js": 'export const target = true;\n' },
+		{ "dist/index.js": "export const target = true;\n" },
 	);
 	execFileSync("git", ["init", "--quiet"], { cwd: repoRoot });
 	execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot });
@@ -38,8 +38,15 @@ test("produces a verified, content-addressed artifact set", (t) => {
 	execFileSync("git", ["add", "."], { cwd: repoRoot });
 	execFileSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: repoRoot });
 
-	const artifactSet = produceArtifactSet({ build: false, outDir: join(repoRoot, ".artifacts", "package set"), repoRoot });
-	assert.deepEqual(artifactSet.packages.map((pkg) => pkg.name), ["@pi-package-test/shared", "@pi-package-test/target"]);
+	const artifactSet = produceArtifactSet({
+		build: false,
+		outDir: join(repoRoot, ".artifacts", "package set"),
+		repoRoot,
+	});
+	assert.deepEqual(
+		artifactSet.packages.map((pkg) => pkg.name),
+		["@pi-package-test/shared", "@pi-package-test/target"],
+	);
 	for (const pkg of artifactSet.packages) {
 		assert.match(pkg.tarball, /-[0-9a-f]{12}\.tgz$/);
 		assert.match(pkg.integrity, /^sha512-/);
@@ -48,7 +55,11 @@ test("produces a verified, content-addressed artifact set", (t) => {
 	assert.equal(readArtifactSet(artifactSet.manifestPath).packages.length, 2);
 
 	writeFileSync(join(repoRoot, "packages/shared/dist/index.js"), 'export const marker = "changed";\n');
-	const changedArtifactSet = produceArtifactSet({ build: false, outDir: join(repoRoot, ".artifacts", "changed package set"), repoRoot });
+	const changedArtifactSet = produceArtifactSet({
+		build: false,
+		outDir: join(repoRoot, ".artifacts", "changed package set"),
+		repoRoot,
+	});
 	assert.notEqual(
 		changedArtifactSet.getPackage("@pi-package-test/shared").tarball,
 		artifactSet.getPackage("@pi-package-test/shared").tarball,

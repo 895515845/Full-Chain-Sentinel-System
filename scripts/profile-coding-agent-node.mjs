@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -423,7 +423,10 @@ async function runTuiBenchmarkRun({ runtime, runIndex, measuredIndex, options, p
 	});
 
 	const startedAt = performance.now();
-	const exitCode = await waitForExit(child, `Benchmark ${measuredIndex === undefined ? `warmup ${runNumber}` : `run ${measuredIndex}`}`);
+	const exitCode = await waitForExit(
+		child,
+		`Benchmark ${measuredIndex === undefined ? `warmup ${runNumber}` : `run ${measuredIndex}`}`,
+	);
 	const elapsedMs = performance.now() - startedAt;
 
 	try {
@@ -521,7 +524,10 @@ async function runRpcBenchmarkRun({ runtime, runIndex, measuredIndex, options, p
 	child.stdin.setDefaultEncoding("utf8");
 	child.stdin.write(`${JSON.stringify({ id: requestId, type: "get_state" })}\n`);
 
-	const exitCode = await waitForExit(child, `Benchmark ${measuredIndex === undefined ? `warmup ${runNumber}` : `run ${measuredIndex}`}`);
+	const exitCode = await waitForExit(
+		child,
+		`Benchmark ${measuredIndex === undefined ? `warmup ${runNumber}` : `run ${measuredIndex}`}`,
+	);
 
 	try {
 		if (responseError) {

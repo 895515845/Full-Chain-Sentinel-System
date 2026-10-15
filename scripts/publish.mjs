@@ -2,9 +2,9 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { execNpmSync } from "./npm-command.mjs";
 import { produceArtifactSet } from "./package-artifacts.mjs";
 import { getPublicWorkspacePackages } from "./release-packages.mjs";
-import { execNpmSync } from "./npm-command.mjs";
 
 const dryRun = process.argv.includes("--dry-run");
 const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
@@ -19,9 +19,13 @@ function isPublished(name, version) {
 		if (!output.trim()) throw new Error(`npm returned no version for ${name}@${version}`);
 		return true;
 	} catch (error) {
-		const output = error && typeof error === "object"
-			? ["stdout", "stderr"].map((key) => key in error ? String(error[key] ?? "") : "").filter(Boolean).join("\n")
-			: "";
+		const output =
+			error && typeof error === "object"
+				? ["stdout", "stderr"]
+						.map((key) => (key in error ? String(error[key] ?? "") : ""))
+						.filter(Boolean)
+						.join("\n")
+				: "";
 		if (output.includes("E404") || output.includes("404 Not Found")) return false;
 		throw new Error(`Failed to query ${name}@${version}${output ? `\n${output}` : ""}`, { cause: error });
 	}
@@ -43,9 +47,15 @@ const artifactSet = produceArtifactSet({ build: false, repoRoot });
 try {
 	const packageStates = artifactSet.packages.map((pkg) => ({ ...pkg, published: isPublished(pkg.name, pkg.version) }));
 	for (const pkg of packageStates) {
-		console.log(`${pkg.name}@${pkg.version} ${pkg.published ? "is already published" : "is ready to publish"}: ${pkg.tarballPath}`);
+		console.log(
+			`${pkg.name}@${pkg.version} ${pkg.published ? "is already published" : "is ready to publish"}: ${pkg.tarballPath}`,
+		);
 	}
-	console.log(dryRun ? "\nDry-running tarball publication with provenance.\n" : "\nAll packages packed; starting publication.\n");
+	console.log(
+		dryRun
+			? "\nDry-running tarball publication with provenance.\n"
+			: "\nAll packages packed; starting publication.\n",
+	);
 	for (const pkg of packageStates) {
 		if (pkg.published) {
 			console.log(`Skipping ${pkg.name}@${pkg.version}: already published\n`);

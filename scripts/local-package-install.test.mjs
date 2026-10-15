@@ -99,7 +99,10 @@ test("wires multiple direct packages without registry fallbacks", (t) => {
 		consumerDirectory,
 		packageNames: ["@pi-package-test/target", "@pi-package-test/second"],
 	});
-	execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: consumerDirectory, stdio: "pipe" });
+	execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], {
+		cwd: consumerDirectory,
+		stdio: "pipe",
+	});
 
 	const manifest = JSON.parse(readFileSync(join(consumerDirectory, "package.json"), "utf8"));
 	assert.match(manifest.dependencies["@pi-package-test/target"], /^file:/);
@@ -110,7 +113,9 @@ test("wires multiple direct packages without registry fallbacks", (t) => {
 	const lockPath = join(consumerDirectory, "package-lock.json");
 	const lockContents = readFileSync(lockPath, "utf8");
 	const lock = JSON.parse(lockContents);
-	const targetLockEntry = Object.values(lock.packages).find((entry) => entry.resolved?.includes("pi-package-test-target"));
+	const targetLockEntry = Object.values(lock.packages).find((entry) =>
+		entry.resolved?.includes("pi-package-test-target"),
+	);
 	assert.ok(targetLockEntry);
 	targetLockEntry.resolved = "https://registry.npmjs.org/@pi-package-test/target/-/target-1.0.0.tgz";
 	writeFileSync(lockPath, JSON.stringify(lock));
@@ -131,7 +136,13 @@ test("installs a package as the only direct dependency", (t) => {
 	const { artifactSet, root } = createArtifactSet(t);
 	const unsupportedDirectory = join(root, "unsupported-consumer");
 	assert.throws(
-		() => installConsumer({ artifactSet, directory: unsupportedDirectory, packageManager: "yarn", packageNames: ["@pi-package-test/target"] }),
+		() =>
+			installConsumer({
+				artifactSet,
+				directory: unsupportedDirectory,
+				packageManager: "yarn",
+				packageNames: ["@pi-package-test/target"],
+			}),
 		/Unsupported package manager: yarn/,
 	);
 	assert.equal(existsSync(unsupportedDirectory), false);
@@ -172,7 +183,10 @@ test("wires and installs a pnpm consumer without registry fallbacks", (t) => {
 	const consumerDirectory = join(root, "pnpm-consumer");
 	mkdirSync(consumerDirectory);
 	writeFileSync(join(consumerDirectory, "package.json"), '{"private":true,"type":"module"}\n');
-	writeFileSync(join(consumerDirectory, "pnpm-workspace.yaml"), "# existing workspace comment\npackages: []\noverrides:\n  existing: 1.2.3\n");
+	writeFileSync(
+		join(consumerDirectory, "pnpm-workspace.yaml"),
+		"# existing workspace comment\npackages: []\noverrides:\n  existing: 1.2.3\n",
+	);
 	wireConsumer({
 		artifactSet,
 		consumerDirectory,
@@ -188,7 +202,10 @@ test("wires and installs a pnpm consumer without registry fallbacks", (t) => {
 	const workspace = parse(workspaceContents);
 	assert.equal(workspace.overrides.existing, "1.2.3");
 	for (const artifact of artifactSet.packages) {
-		assert.ok(workspace.overrides[artifact.name].endsWith(basename(artifact.tarballPath)), `${artifact.name} override must reference its artifact`);
+		assert.ok(
+			workspace.overrides[artifact.name].endsWith(basename(artifact.tarballPath)),
+			`${artifact.name} override must reference its artifact`,
+		);
 	}
 
 	const pnpmCli = fileURLToPath(new URL("../node_modules/pnpm/bin/pnpm.mjs", import.meta.url));
@@ -197,14 +214,21 @@ test("wires and installs a pnpm consumer without registry fallbacks", (t) => {
 		stdio: "pipe",
 		timeout: 300_000,
 	});
-	const marker = execFileSync(process.execPath, ["--input-type=module", "--eval", 'import("@pi-package-test/target").then(({ marker }) => console.log(marker))'], {
-		cwd: consumerDirectory,
-		encoding: "utf8",
-	});
+	const marker = execFileSync(
+		process.execPath,
+		["--input-type=module", "--eval", 'import("@pi-package-test/target").then(({ marker }) => console.log(marker))'],
+		{
+			cwd: consumerDirectory,
+			encoding: "utf8",
+		},
+	);
 	assert.equal(marker.trim(), "local artifact");
 	const lockContents = readFileSync(join(consumerDirectory, "pnpm-lock.yaml"), "utf8");
 	assert.doesNotMatch(lockContents, /https?:\/\//);
 	for (const packageName of ["@pi-package-test/target", "@pi-package-test/shared"]) {
-		assert.ok(lockContents.includes(basename(artifactSet.getPackage(packageName).tarballPath)), `${packageName} lock entry must reference its artifact`);
+		assert.ok(
+			lockContents.includes(basename(artifactSet.getPackage(packageName).tarballPath)),
+			`${packageName} lock entry must reference its artifact`,
+		);
 	}
 });

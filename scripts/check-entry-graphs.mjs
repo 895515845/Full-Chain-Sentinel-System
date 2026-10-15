@@ -134,7 +134,9 @@ for (const [pkgDir, budgets] of Object.entries(BUDGETS)) {
 			for (const pattern of budget.forbid ?? []) {
 				const hit = graph.filter((file) => file.includes(pattern));
 				if (hit.length > 0) {
-					console.error(`${pkgDir} export "${name}" must not reach ${pattern}:\n${hit.map((f) => `    ${f}`).join("\n")}`);
+					console.error(
+						`${pkgDir} export "${name}" must not reach ${pattern}:\n${hit.map((f) => `    ${f}`).join("\n")}`,
+					);
 					failures += 1;
 				}
 			}

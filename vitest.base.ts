@@ -61,7 +61,10 @@ export default defineConfig({
 			},
 			{ find: /^@earendil-works\/pi-agent-core$/, replacement: workspaceSourcePaths.agentIndex },
 			{ find: /^@earendil-works\/pi-codemode$/, replacement: workspaceSourcePaths.codemodeIndex },
-			{ find: /^@earendil-works\/pi-codemode\/declarations$/, replacement: workspaceSourcePaths.codemodeDeclarations },
+			{
+				find: /^@earendil-works\/pi-codemode\/declarations$/,
+				replacement: workspaceSourcePaths.codemodeDeclarations,
+			},
 			{ find: /^@earendil-works\/pi-codemode\/source$/, replacement: workspaceSourcePaths.codemodeSource },
 			{ find: /^@earendil-works\/pi-protocol$/, replacement: workspaceSourcePaths.protocolIndex },
 			{ find: /^@earendil-works\/pi-client$/, replacement: workspaceSourcePaths.clientIndex },

@@ -35,7 +35,12 @@ if (values["package-manager"] !== "npm" && values["package-manager"] !== "pnpm")
 
 const artifactSet = readArtifactSet(resolve(values.manifest));
 const consumerDirectory = resolve(values.consumer);
-wireConsumer({ artifactSet, consumerDirectory, packageManager: values["package-manager"], packageNames: values.package });
+wireConsumer({
+	artifactSet,
+	consumerDirectory,
+	packageManager: values["package-manager"],
+	packageNames: values.package,
+});
 
 console.log(`Updated ${consumerDirectory}/package.json from ${artifactSet.manifestPath}`);
 console.log(`Run ${values["package-manager"]} install --ignore-scripts in the consumer project.`);

@@ -315,7 +315,9 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 			(packageName.startsWith(internalPackagePrefix) || internalPackageNames.has(packageName)) &&
 			entry.version !== installerPackageJson.version
 		) {
-			errors.push(`${lockPath} internal package version ${entry.version} does not match ${installerPackageJson.version}`);
+			errors.push(
+				`${lockPath} internal package version ${entry.version} does not match ${installerPackageJson.version}`,
+			);
 		}
 		if (entry.hasInstallScript) {
 			if (!packageName || !entry.version) {
@@ -364,14 +366,17 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		}
 	}
 
-	const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
-		.length;
+	const platformPackageCount = Object.values(installLock.packages).filter(
+		(entry) => entry.os || entry.cpu || entry.libc,
+	).length;
 	if (platformPackageCount === 0) {
 		errors.push("no platform-specific optional dependency entries found");
 	}
 
 	if (errors.length > 0) {
-		throw new Error(`Generated installer lock failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
+		throw new Error(
+			`Generated installer lock failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`,
+		);
 	}
 }
 
@@ -450,8 +455,9 @@ try {
 		writeFileSync(outputPackageJsonPath, packageJsonContent);
 		writeFileSync(outputLockfilePath, lockfileContent);
 		const packageCount = Object.keys(installLock.packages).length - 1;
-		const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
-			.length;
+		const platformPackageCount = Object.values(installLock.packages).filter(
+			(entry) => entry.os || entry.cpu || entry.libc,
+		).length;
 		console.log(
 			`Wrote packages/coding-agent/install-lock/package.json and package-lock.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
 		);

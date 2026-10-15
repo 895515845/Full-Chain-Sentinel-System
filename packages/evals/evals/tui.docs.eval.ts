@@ -5,9 +5,9 @@ import {
 	type AgentSession,
 	AgentSessionRuntime,
 	type AgentSessionServices,
+	createAgentSessionFromServices,
 	InteractiveMode,
 	SessionManager,
-	createAgentSessionFromServices,
 } from "@earendil-works/pi-coding-agent";
 import { Levenshtein } from "autoevals";
 import { createJudge, describeEval } from "vitest-evals";

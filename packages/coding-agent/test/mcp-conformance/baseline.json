@@ -30,18 +30,11 @@
 		},
 		"2025-06-18": {
 			"initialize": {
-				"passing": [
-					"mcp-client-initialization",
-					"pi-client"
-				],
+				"passing": ["mcp-client-initialization", "pi-client"],
 				"failing": []
 			},
 			"tools_call": {
-				"passing": [
-					"pi-client",
-					"tool-add-numbers",
-					"wire-schema-valid"
-				],
+				"passing": ["pi-client", "tool-add-numbers", "wire-schema-valid"],
 				"failing": []
 			},
 			"auth/token-endpoint-auth-basic": {
@@ -110,24 +103,15 @@
 		},
 		"2025-11-25": {
 			"initialize": {
-				"passing": [
-					"mcp-client-initialization",
-					"pi-client"
-				],
+				"passing": ["mcp-client-initialization", "pi-client"],
 				"failing": []
 			},
 			"tools_call": {
-				"passing": [
-					"pi-client",
-					"tool-add-numbers",
-					"wire-schema-valid"
-				],
+				"passing": ["pi-client", "tool-add-numbers", "wire-schema-valid"],
 				"failing": []
 			},
 			"elicitation-sep1034-client-defaults": {
-				"passing": [
-					"pi-client"
-				],
+				"passing": ["pi-client"],
 				"failing": [
 					"client-elicitation-sep1034-boolean-default",
 					"client-elicitation-sep1034-enum-default",
@@ -224,9 +208,7 @@
 					"token-request",
 					"valid-bearer-token"
 				],
-				"failing": [
-					"cimd-client-id-used"
-				]
+				"failing": ["cimd-client-id-used"]
 			},
 			"auth/scope-from-www-authenticate": {
 				"passing": [
@@ -310,9 +292,7 @@
 					"scope-retry-limit",
 					"token-request"
 				],
-				"failing": [
-					"pi-client"
-				]
+				"failing": ["pi-client"]
 			},
 			"auth/token-endpoint-auth-basic": {
 				"passing": [

@@ -83,7 +83,9 @@ function findVisualStudioDevCmd() {
 	for (const base of [process.env.ProgramFiles, programFilesX86]) {
 		if (!base) continue;
 		for (const edition of ["BuildTools", "Community", "Professional", "Enterprise"]) {
-			candidates.push(path.join(base, "Microsoft Visual Studio", "2022", edition, "Common7", "Tools", "VsDevCmd.bat"));
+			candidates.push(
+				path.join(base, "Microsoft Visual Studio", "2022", edition, "Common7", "Tools", "VsDevCmd.bat"),
+			);
 		}
 	}
 
@@ -224,7 +226,9 @@ const toolchain = requestedToolchain ?? (process.platform === "win32" && vsDevCm
 
 if (toolchain === "msvc") {
 	if (!vsDevCmd || !hasMsvc) {
-		throw new Error("Microsoft C++ Build Tools not found. Install the Visual Studio C++ workload or set PI_TUI_WIN32_TOOLCHAIN=mingw.");
+		throw new Error(
+			"Microsoft C++ Build Tools not found. Install the Visual Studio C++ workload or set PI_TUI_WIN32_TOOLCHAIN=mingw.",
+		);
 	}
 	for (const target of targets) buildWithMsvc(target, vsDevCmd);
 } else {

@@ -3,9 +3,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
 import { installConsumer, packageConsumerDirectoryName, smokeTestNpmConsumer } from "./local-package-install.mjs";
 import { produceArtifactSet } from "./package-artifacts.mjs";
-import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "pi-package-install-"));
 try {

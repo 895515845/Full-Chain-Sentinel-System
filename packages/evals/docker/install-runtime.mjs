@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { codingAgentName } from "../../../scripts/coding-agent-smoke.mjs";
 import { installConsumer } from "../../../scripts/local-package-install.mjs";
 import { produceArtifactSet } from "../../../scripts/package-artifacts.mjs";
-import { codingAgentName } from "../../../scripts/coding-agent-smoke.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const outputDirectory = process.argv[2];
@@ -64,7 +64,4 @@ for (const file of ["package.json", "vitest.evals.config.ts"]) {
 for (const directory of ["src", "evals"]) {
 	cpSync(join(repositoryRoot, "packages/evals", directory), join(runtimeEvalRoot, directory), { recursive: true });
 }
-cpSync(
-	join(repositoryRoot, "packages/evals/docker/entrypoint.ts"),
-	join(runtimeEvalRoot, "docker/entrypoint.ts"),
-);
+cpSync(join(repositoryRoot, "packages/evals/docker/entrypoint.ts"), join(runtimeEvalRoot, "docker/entrypoint.ts"));

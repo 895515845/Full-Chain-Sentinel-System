@@ -31,9 +31,7 @@ test("retries a lost conditional update and preserves a racing newer marker", as
 		"0.84.0",
 		async () => {
 			readCount++;
-			return readCount === 1
-				? { etag: '"previous"', version: "0.83.0" }
-				: { etag: '"newer"', version: "0.85.0" };
+			return readCount === 1 ? { etag: '"previous"', version: "0.83.0" } : { etag: '"newer"', version: "0.85.0" };
 		},
 		async (condition) => {
 			writeCount++;

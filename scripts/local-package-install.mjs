@@ -90,7 +90,8 @@ function verifyLocalResolutions(directory, artifactSet, directPackageName) {
 		}
 		resolvedNames.add(name);
 	}
-	if (!resolvedNames.has(directPackageName)) throw new Error(`${directPackageName} is missing from the consumer lockfile`);
+	if (!resolvedNames.has(directPackageName))
+		throw new Error(`${directPackageName} is missing from the consumer lockfile`);
 }
 
 function preparePnpmWorkspace(consumerDirectory, specifiers) {
@@ -98,13 +99,18 @@ function preparePnpmWorkspace(consumerDirectory, specifiers) {
 	const contents = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
 	const document = parseDocument(contents);
 	if (document.errors.length > 0) {
-		throw new Error(`Invalid pnpm workspace file ${workspacePath}: ${document.errors.map((error) => error.message).join("; ")}`);
+		throw new Error(
+			`Invalid pnpm workspace file ${workspacePath}: ${document.errors.map((error) => error.message).join("; ")}`,
+		);
 	}
 	const workspace = document.toJS();
 	if (workspace !== null && (typeof workspace !== "object" || Array.isArray(workspace))) {
 		throw new Error(`Invalid pnpm workspace file ${workspacePath}: root must be a mapping`);
 	}
-	if (workspace?.overrides !== undefined && (typeof workspace.overrides !== "object" || workspace.overrides === null || Array.isArray(workspace.overrides))) {
+	if (
+		workspace?.overrides !== undefined &&
+		(typeof workspace.overrides !== "object" || workspace.overrides === null || Array.isArray(workspace.overrides))
+	) {
 		throw new Error(`Invalid pnpm workspace file ${workspacePath}: overrides must be a mapping`);
 	}
 	if (document.contents === null) document.contents = document.createNode({});
@@ -113,7 +119,8 @@ function preparePnpmWorkspace(consumerDirectory, specifiers) {
 }
 
 export function wireConsumer({ artifactSet, consumerDirectory, packageNames, packageManager = "npm" }) {
-	if (packageManager !== "npm" && packageManager !== "pnpm") throw new Error(`Unsupported package manager: ${packageManager}`);
+	if (packageManager !== "npm" && packageManager !== "pnpm")
+		throw new Error(`Unsupported package manager: ${packageManager}`);
 	if (packageNames.length === 0) throw new Error("At least one package is required");
 	const packageJsonPath = join(consumerDirectory, "package.json");
 	if (!existsSync(packageJsonPath)) throw new Error(`Consumer package.json does not exist: ${packageJsonPath}`);
@@ -132,7 +139,8 @@ export function wireConsumer({ artifactSet, consumerDirectory, packageNames, pac
 		}
 	}
 	for (const name of directPackages) {
-		const targetSection = dependencySections.find((section) => Object.hasOwn(manifest[section] ?? {}, name)) ?? "dependencies";
+		const targetSection =
+			dependencySections.find((section) => Object.hasOwn(manifest[section] ?? {}, name)) ?? "dependencies";
 		for (const section of dependencySections) {
 			if (section !== targetSection && manifest[section]) delete manifest[section][name];
 		}
@@ -146,7 +154,8 @@ export function wireConsumer({ artifactSet, consumerDirectory, packageNames, pac
 }
 
 export function installConsumer({ artifactSet, directory, packageNames, packageManager = "npm" }) {
-	if (packageManager !== "npm" && packageManager !== "bun") throw new Error(`Unsupported package manager: ${packageManager}`);
+	if (packageManager !== "npm" && packageManager !== "bun")
+		throw new Error(`Unsupported package manager: ${packageManager}`);
 	if (packageNames.length === 0) throw new Error("At least one package is required");
 	for (const packageName of packageNames) artifactSet.getPackage(packageName);
 	mkdirSync(directory, { recursive: true });
@@ -166,8 +175,10 @@ export function smokeTestNpmConsumer({ directory, artifactSet, packageName }) {
 	if (manifest.version !== artifact.version) {
 		throw new Error(`${packageName} version mismatch: expected ${artifact.version}, found ${manifest.version}`);
 	}
-	if (typeof manifest.main !== "string") throw new Error(`Public Pi package ${packageName} must declare a string main field`);
-	if (typeof manifest.types !== "string") throw new Error(`Public Pi package ${packageName} must declare a string types field`);
+	if (typeof manifest.main !== "string")
+		throw new Error(`Public Pi package ${packageName} must declare a string main field`);
+	if (typeof manifest.types !== "string")
+		throw new Error(`Public Pi package ${packageName} must declare a string types field`);
 	assertPackageFile(installedDirectory, manifest.main, `${packageName} main`);
 	assertPackageFile(installedDirectory, manifest.types, `${packageName} types`);
 
@@ -181,14 +192,23 @@ export function smokeTestNpmConsumer({ directory, artifactSet, packageName }) {
 		}
 		if (types) assertPackageFile(installedDirectory, types, `${packageName} types export ${subpath}`);
 	}
-	for (const [name, target] of Object.entries(typeof manifest.bin === "string" ? { [packageName.split("/").at(-1)]: manifest.bin } : (manifest.bin ?? {}))) {
-		assertPackageFile(installedDirectory, target.startsWith("./") ? target : `./${target}`, `${packageName} bin ${name}`);
+	for (const [name, target] of Object.entries(
+		typeof manifest.bin === "string" ? { [packageName.split("/").at(-1)]: manifest.bin } : (manifest.bin ?? {}),
+	)) {
+		assertPackageFile(
+			installedDirectory,
+			target.startsWith("./") ? target : `./${target}`,
+			`${packageName} bin ${name}`,
+		);
 	}
 
-	if (!existsSync(join(directory, "package-lock.json"))) throw new Error(`npm consumer smoke test requires package-lock.json: ${directory}`);
+	if (!existsSync(join(directory, "package-lock.json")))
+		throw new Error(`npm consumer smoke test requires package-lock.json: ${directory}`);
 	verifyLocalResolutions(directory, artifactSet, packageName);
 	const smokePath = join(directory, "artifact-smoke.mjs");
-	const resolveChecks = runtimeSpecifiers.map((specifier) => `assert.ok(existsSync(fileURLToPath(import.meta.resolve(${JSON.stringify(specifier)}))));`).join("\n");
+	const resolveChecks = runtimeSpecifiers
+		.map((specifier) => `assert.ok(existsSync(fileURLToPath(import.meta.resolve(${JSON.stringify(specifier)}))));`)
+		.join("\n");
 	writeFileSync(
 		smokePath,
 		`import assert from "node:assert/strict";\nimport { existsSync } from "node:fs";\nimport { fileURLToPath } from "node:url";\nimport ${JSON.stringify(packageName)};\n${resolveChecks}\n`,

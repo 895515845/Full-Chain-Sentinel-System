@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
 import { installConsumer } from "./local-package-install.mjs";
 import { produceArtifactSet } from "./package-artifacts.mjs";
-import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
 
 const devPackages = ["pi-client", "pi-protocol", "pi-server"].map((name) => `@earendil-works/${name}`);
 
@@ -38,18 +38,18 @@ function createFixture(t, { importServer = false, declareServer = false } = {}) 
 				types: "./dist/index.d.ts",
 				exports: isAgent
 					? {
-						".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
-						"./client": { source: "./src/client/index.ts" },
-						"./experimental/plugin": { source: "./src/experimental/plugin.ts" },
-					}
+							".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+							"./client": { source: "./src/client/index.ts" },
+							"./experimental/plugin": { source: "./src/experimental/plugin.ts" },
+						}
 					: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
 				files: ["dist"],
 				...(isAgent
 					? {
-						bin: { pi: "dist/bundle/cli.js" },
-						...(declareServer ? { dependencies: { "@earendil-works/pi-server": "1.0.0" } } : {}),
-						devDependencies: Object.fromEntries(devPackages.map((packageName) => [packageName, "1.0.0"])),
-					}
+							bin: { pi: "dist/bundle/cli.js" },
+							...(declareServer ? { dependencies: { "@earendil-works/pi-server": "1.0.0" } } : {}),
+							devDependencies: Object.fromEntries(devPackages.map((packageName) => [packageName, "1.0.0"])),
+						}
 					: {}),
 			},
 			{
@@ -63,9 +63,9 @@ export class ModelRuntime { static create() {} }
 				"dist/index.d.ts": "export {};\n",
 				...(isAgent
 					? {
-						"dist/cli.js": 'console.log("1.0.0");\n',
-						"dist/bundle/cli.js": 'console.log("1.0.0");\n',
-					}
+							"dist/cli.js": 'console.log("1.0.0");\n',
+							"dist/bundle/cli.js": 'console.log("1.0.0");\n',
+						}
 					: {}),
 			},
 		);

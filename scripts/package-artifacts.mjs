@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { getPublicWorkspacePackages } from "./release-packages.mjs";
 import { execNpmSync } from "./npm-command.mjs";
+import { getPublicWorkspacePackages } from "./release-packages.mjs";
 
 const manifestSchemaVersion = 1;
 
@@ -60,20 +60,32 @@ function prepareOutputDirectory(outDir, options) {
 	if (!outDir) return mkdtempSync(join(tmpdir(), "pi-package-artifacts-"));
 	const outputDirectory = resolve(outDir);
 	if (dirname(outputDirectory) === outputDirectory || isInsidePath(repoRoot, outputDirectory)) {
-		throw new Error(`Output directory must not be the repository, its ancestor, or a filesystem root: ${outputDirectory}`);
+		throw new Error(
+			`Output directory must not be the repository, its ancestor, or a filesystem root: ${outputDirectory}`,
+		);
 	}
 	if (isInsidePath(outputDirectory, repoRoot) && !isInsidePath(outputDirectory, join(repoRoot, ".artifacts"))) {
-		throw new Error(`Repository-local output directory must be inside ${join(repoRoot, ".artifacts")}: ${outputDirectory}`);
+		throw new Error(
+			`Repository-local output directory must be inside ${join(repoRoot, ".artifacts")}: ${outputDirectory}`,
+		);
 	}
 	if (existsSync(outputDirectory)) {
-		if (!options.force) throw new Error(`Output directory already exists. Use --force to replace it: ${outputDirectory}`);
+		if (!options.force)
+			throw new Error(`Output directory already exists. Use --force to replace it: ${outputDirectory}`);
 		rmSync(outputDirectory, { force: true, recursive: true });
 	}
 	mkdirSync(outputDirectory, { recursive: true });
 	return outputDirectory;
 }
 
-export function produceArtifactSet({ repoRoot, outDir, build = true, offlineModelData = false, force = false, source }) {
+export function produceArtifactSet({
+	repoRoot,
+	outDir,
+	build = true,
+	offlineModelData = false,
+	force = false,
+	source,
+}) {
 	const root = resolve(repoRoot);
 	const artifactDirectory = prepareOutputDirectory(outDir, { force, repoRoot: root });
 	if (build) {
@@ -124,7 +136,8 @@ export function readArtifactSet(manifestPath) {
 			throw new Error(`Missing package tarball for ${pkg.name}: ${tarballPath}`);
 		}
 		const integrity = `sha512-${createHash("sha512").update(readFileSync(tarballPath)).digest("base64")}`;
-		if (integrity !== pkg.integrity) throw new Error(`Package tarball integrity mismatch for ${pkg.name}: ${tarballPath}`);
+		if (integrity !== pkg.integrity)
+			throw new Error(`Package tarball integrity mismatch for ${pkg.name}: ${tarballPath}`);
 		return { ...pkg, tarballPath };
 	});
 	return {

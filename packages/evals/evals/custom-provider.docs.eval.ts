@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach } from "vitest";
 import { describeEval, StructuredOutputJudge } from "vitest-evals";
+import { createPiDocumentationEvalHarness } from "../src/harness.ts";
 import {
 	createAcmeServer,
 	STREAM_API_DOCUMENTATION,
@@ -9,7 +10,6 @@ import {
 	STREAM_PROVIDER_ID,
 } from "./acme-server.ts";
 import { inspectProvider, type ProviderRuntimeOutput } from "./configured-runtime.ts";
-import { createPiDocumentationEvalHarness } from "../src/harness.ts";
 
 const DOCUMENTATION_PATH = "fixtures/acme-stream-api.json";
 const STREAM_API_KEY = "resolved-stream-key";

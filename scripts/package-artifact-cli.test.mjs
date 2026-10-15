@@ -25,7 +25,16 @@ test("rejects missing option values before doing work", () => {
 
 test("rejects an unsupported package manager before doing work", () => {
 	assertFailsBeforeWork(
-		runScript("use-local-packages.mjs", ["--manifest", "missing.json", "--consumer", "target", "--package", "example", "--package-manager", "yarn"]),
+		runScript("use-local-packages.mjs", [
+			"--manifest",
+			"missing.json",
+			"--consumer",
+			"target",
+			"--package",
+			"example",
+			"--package-manager",
+			"yarn",
+		]),
 		/Unsupported package manager: yarn/,
 	);
 });

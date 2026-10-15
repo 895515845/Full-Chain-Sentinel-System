@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { chownSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+	chownSync,
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

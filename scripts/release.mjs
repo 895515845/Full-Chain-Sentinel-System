@@ -59,10 +59,14 @@ function assertPackagesAreRegisteredWithNpm() {
 
 	console.log("Checking npm package registration...");
 	for (const packageName of packageNames) {
-		const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["view", packageName, "version", "--json"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
+		const result = spawnSync(
+			process.platform === "win32" ? "npm.cmd" : "npm",
+			["view", packageName, "version", "--json"],
+			{
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
 
 		if (result.status === 0 && result.stdout.trim()) {
 			console.log(`  ${packageName}`);
@@ -75,11 +79,17 @@ function assertPackagesAreRegisteredWithNpm() {
 			continue;
 		}
 
-		throw new Error(output ? `Failed to query npm registration for ${packageName}\n${output}` : `Failed to query npm registration for ${packageName}`);
+		throw new Error(
+			output
+				? `Failed to query npm registration for ${packageName}\n${output}`
+				: `Failed to query npm registration for ${packageName}`,
+		);
 	}
 
 	if (unregisteredPackages.length > 0) {
-		throw new Error(`The following public workspace packages are not registered on npm:\n${unregisteredPackages.map((packageName) => `  ${packageName}`).join("\n")}\nRegister them before running a release.`);
+		throw new Error(
+			`The following public workspace packages are not registered on npm:\n${unregisteredPackages.map((packageName) => `  ${packageName}`).join("\n")}\nRegister them before running a release.`,
+		);
 	}
 
 	console.log("  All public workspace packages are registered on npm\n");
@@ -104,9 +114,7 @@ function shellQuote(value) {
 }
 
 function removeStaleWorkspaceLockEntries() {
-	const workspaceVersions = new Map(
-		getPublicWorkspacePackages().map((pkg) => [pkg.name, pkg.version]),
-	);
+	const workspaceVersions = new Map(getPublicWorkspacePackages().map((pkg) => [pkg.name, pkg.version]));
 	const lockPath = "package-lock.json";
 	const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 	let removed = 0;
@@ -132,7 +140,14 @@ function removeStaleWorkspaceLockEntries() {
 
 function stageChangedFiles() {
 	const output = run("git ls-files -m -o -d --exclude-standard", { silent: true });
-	const paths = [...new Set((output || "").split("\n").map((line) => line.trim()).filter(Boolean))];
+	const paths = [
+		...new Set(
+			(output || "")
+				.split("\n")
+				.map((line) => line.trim())
+				.filter(Boolean),
+		),
+	];
 	if (paths.length === 0) {
 		return;
 	}
@@ -153,7 +168,9 @@ function bumpOrSetVersion(target) {
 		}
 
 		console.log(`Setting explicit version (${target})...`);
-		run(`npm version ${target} --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
+		run(
+			`npm version ${target} --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`,
+		);
 	}
 
 	// npm version can temporarily install the previous workspace versions before
@@ -183,10 +200,7 @@ function updateChangelogsForRelease(version) {
 			continue;
 		}
 
-		const updated = content.replace(
-			"## [Unreleased]",
-			`## [${version}] - ${date}`
-		);
+		const updated = content.replace("## [Unreleased]", `## [${version}] - ${date}`);
 		writeFileSync(changelog, updated);
 		console.log(`  Updated ${changelog}`);
 	}
@@ -200,10 +214,7 @@ function addUnreleasedSection() {
 		const content = readFileSync(changelog, "utf-8");
 
 		// Insert after "# Changelog\n\n"
-		const updated = content.replace(
-			/^(# Changelog\n\n)/,
-			`$1${unreleasedSection}`
-		);
+		const updated = content.replace(/^(# Changelog\n\n)/, `$1${unreleasedSection}`);
 		writeFileSync(changelog, updated);
 		console.log(`  Added [Unreleased] to ${changelog}`);
 	}

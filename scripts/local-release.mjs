@@ -5,10 +5,10 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { installConsumer, packageConsumerDirectoryName, smokeTestNpmConsumer } from "./local-package-install.mjs";
-import { produceArtifactSet } from "./package-artifacts.mjs";
 import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
+import { installConsumer, packageConsumerDirectoryName, smokeTestNpmConsumer } from "./local-package-install.mjs";
 import { execNpmSync } from "./npm-command.mjs";
+import { produceArtifactSet } from "./package-artifacts.mjs";
 
 function printUsage() {
 	console.log(`Usage: node scripts/local-release.mjs [options]
@@ -37,14 +37,19 @@ function currentBinaryPlatform() {
 function buildBunBinaryRelease(targetDirectory, archiveDirectory) {
 	const platform = currentBinaryPlatform();
 	const binaryBuildDirectory = join(archiveDirectory, "binary-build");
-	execFileSync("bash", ["./scripts/build-binaries.sh",
-		"--skip-install",
-		"--skip-build",
-		"--platform",
-		platform,
-		"--out",
-		binaryBuildDirectory,
-	], { stdio: "inherit" });
+	execFileSync(
+		"bash",
+		[
+			"./scripts/build-binaries.sh",
+			"--skip-install",
+			"--skip-build",
+			"--platform",
+			platform,
+			"--out",
+			binaryBuildDirectory,
+		],
+		{ stdio: "inherit" },
+	);
 	rmSync(targetDirectory, { force: true, recursive: true });
 	cpSync(join(binaryBuildDirectory, platform), targetDirectory, { recursive: true });
 	const archiveName = platform.startsWith("windows-") ? `pi-${platform}.zip` : `pi-${platform}.tar.gz`;
@@ -117,9 +122,10 @@ if (!options.skipInstall) {
 	const validationRoot = mkdtempSync(join(tmpdir(), "pi-local-release-consumers-"));
 	try {
 		for (const pkg of artifactSet.packages) {
-			const directory = pkg.name === codingAgentName
-				? nodeInstallDirectory
-				: join(validationRoot, "npm", packageConsumerDirectoryName(pkg.name));
+			const directory =
+				pkg.name === codingAgentName
+					? nodeInstallDirectory
+					: join(validationRoot, "npm", packageConsumerDirectoryName(pkg.name));
 			installConsumer({ artifactSet, directory, packageNames: [pkg.name] });
 			smokeTestNpmConsumer({ artifactSet, directory, packageName: pkg.name });
 			if (pkg.name === codingAgentName) smokeTestCodingAgent(directory);
@@ -127,7 +133,12 @@ if (!options.skipInstall) {
 		createPiShim(nodeInstallDirectory);
 
 		if (!options.skipBunInstall) {
-			installConsumer({ artifactSet, directory: bunInstallDirectory, packageManager: "bun", packageNames: [codingAgentName] });
+			installConsumer({
+				artifactSet,
+				directory: bunInstallDirectory,
+				packageManager: "bun",
+				packageNames: [codingAgentName],
+			});
 			smokeTestCodingAgent(bunInstallDirectory, "bun");
 			createPiShim(bunInstallDirectory);
 		}
@@ -144,7 +155,9 @@ for (const pkg of artifactSet.packages) console.log(`  ${pkg.tarballPath}`);
 if (!options.skipInstall) {
 	console.log("\nLocal Bun binary release:");
 	console.log(`  ${binaryDirectory}`);
-	console.log(`  ${join(outDir, `pi-${binaryPlatform}.${String(binaryPlatform).startsWith("windows-") ? "zip" : "tar.gz"}`)}`);
+	console.log(
+		`  ${join(outDir, `pi-${binaryPlatform}.${String(binaryPlatform).startsWith("windows-") ? "zip" : "tar.gz"}`)}`,
+	);
 	console.log("\nRun the local Bun binary release from outside the repository:");
 	console.log(`  ${join(binaryDirectory, String(binaryPlatform).startsWith("windows-") ? "pi.exe" : "pi")} --help`);
 

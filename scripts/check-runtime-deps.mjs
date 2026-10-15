@@ -36,7 +36,10 @@ function checkSource(source, manifest) {
 		if (!node || !(isStringLiteral(node) || isNoSubstitutionTemplateLiteral(node))) return;
 		const specifier = node.text;
 		if (specifier.startsWith(".") || specifier.startsWith("/") || isBuiltin(specifier)) return;
-		const name = specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+		const name = specifier
+			.split("/")
+			.slice(0, specifier.startsWith("@") ? 2 : 1)
+			.join("/");
 		if (declared.has(name)) return;
 		const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
 		failures.push(`${file}:${line + 1}: ${specifier} is not declared in ${manifest.name}'s runtime dependencies`);

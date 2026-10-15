@@ -20,7 +20,9 @@ for await (const line of lines) {
 	} else if (message.method === "ping") {
 		result = {};
 	} else {
-		process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "not found" } })}\n`);
+		process.stdout.write(
+			`${JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "not found" } })}\n`,
+		);
 		continue;
 	}
 	process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n`);
