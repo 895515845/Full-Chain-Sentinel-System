@@ -34,4 +34,6 @@ dependencies {
 	implementation("androidx.appcompat:appcompat:1.7.0")
 	implementation("com.squareup.okhttp3:okhttp:4.12.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+	// 扫码填入反连地址（二维码由控制台「安卓设备」页生成）
+	implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

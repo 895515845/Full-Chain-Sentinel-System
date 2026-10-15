@@ -8,7 +8,8 @@
  * stays off (no prompt, no tools) until explicitly enabled there.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import type { DroidDevice, DroidToken, ZGClientMessage } from "../types.ts";
 
 function formatTime(iso: string | null): string {
@@ -38,6 +39,7 @@ export function DroidPage({
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 	const [listenHost, setListenHost] = useState("0.0.0.0");
 	const [listenPort, setListenPort] = useState("9944");
+	const qrRef = useRef<HTMLCanvasElement | null>(null);
 
 	useEffect(() => {
 		if (listenConfig) {
@@ -64,6 +66,14 @@ export function DroidPage({
 	const active = tokens.filter((token) => !token.revokedAt);
 	const onlineCount = devices.filter((device) => device.online).length;
 	const firstToken = active[0];
+
+	// 扫码即连：地址 + token 打包进二维码，DroidBridge 扫描后自动填入。
+	useEffect(() => {
+		const canvas = qrRef.current;
+		if (!canvas) return;
+		const payload = firstToken ? `${reverseAddress.url}?token=${firstToken.token}` : reverseAddress.url;
+		QRCode.toCanvas(canvas, payload, { width: 168, margin: 1, errorCorrectionLevel: "M" }).catch(() => undefined);
+	}, [firstToken, reverseAddress.url]);
 
 	return (
 		<div className="page-card droid-page">
@@ -261,6 +271,18 @@ export function DroidPage({
 								))}
 							</div>
 						)}
+					</div>
+
+					<div className="droid-card">
+						<h3 className="droid-card__title">扫码即连</h3>
+						<div className="droid-qr-wrap">
+							<canvas ref={qrRef} className="droid-qr" />
+							<div className="droid-qr-wrap__meta">
+								<p className="droid-hint" style={{ margin: 0 }}>
+									二维码包含当前反连地址与首个有效 token。手机上 DroidBridge 点「扫码填入」即可完成配置；换地址或换 token 后二维码自动更新。
+								</p>
+							</div>
+						</div>
 					</div>
 
 					<div className="droid-card">

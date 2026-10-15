@@ -67,15 +67,18 @@ class WsClient(
 	private fun loopReconnect() {
 		var backoff = 1_000L
 		while (!closed) {
-			val attempt = backoff
-			onState("连接中", "退避 ${attempt / 1000}s")
-			val opened = java.util.concurrent.CountDownLatch(1)
+			onState("连接中", "退避 ${backoff / 1000}s")
+			// 这道闩只在连接「断开」时放行（onFailure/onClosed）。onOpen 绝不放行：
+			// 否则循环会在连接健康时立刻再拨一条新连接，旧连接被网关替换，
+			// OkHttp 的 ping 就会发在死socket上（sent ping but didn't receive pong）。
+			val disconnected = java.util.concurrent.CountDownLatch(1)
+			var current: WebSocket? = null
 			val request = Request.Builder().url("$url?token=$token&deviceId=$deviceId").build()
-			var socket: WebSocket? = null
 			ws = client.newWebSocket(
 				request,
 				object : WebSocketListener() {
 					override fun onOpen(webSocket: WebSocket, response: Response) {
+						current = webSocket
 						backoff = 1_000L
 						onState("在线", "")
 						// 握手帧：任何其他帧都必须在这之后（网关要求 hello 优先）。
@@ -90,7 +93,6 @@ class WsClient(
 								.toString(),
 						)
 						startHeartbeat(webSocket)
-						opened.countDown()
 					}
 
 					override fun onMessage(webSocket: WebSocket, text: String) {
@@ -99,23 +101,23 @@ class WsClient(
 
 					override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
 						onState("断开", t.message ?: "")
-						opened.countDown()
+						disconnected.countDown()
 					}
 
 					override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
 						onState("已关闭", "$code $reason")
-						opened.countDown()
+						disconnected.countDown()
 					}
 				},
 			)
-			socket ?: run { opened.countDown() }
-			// 等这条连接断开（onFailure/onClosed 放行），再退避重连。
-			while (!closed && opened.count > 0) {
+			if (current == null) disconnected.countDown()
+			// 卡在这里直到这条连接真正断开。
+			while (!closed && disconnected.count > 0) {
 				TimeUnit.MILLISECONDS.sleep(200)
 			}
 			if (closed) break
 			var waited = 0L
-			while (!closed && waited < attempt) {
+			while (!closed && waited < backoff) {
 				TimeUnit.MILLISECONDS.sleep(200)
 				waited += 200
 			}
