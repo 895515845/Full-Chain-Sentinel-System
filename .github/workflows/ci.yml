@@ -1,0 +1,94 @@
+name: CI
+
+# Build, check, and test on every push to main and every pull request.
+#
+# Two jobs on purpose: a red check and a red test should be distinguishable at a
+# glance. Both hydrate packages/ai/src/providers/data/ first, because that
+# directory is generated and not tracked, while tsc and the build import it.
+#
+# Known caveat: packages/web/test/e2e.test.ts has one timing-sensitive case
+# ("a compaction that stalls ...") that can fail on a machine with warm caches
+# while the same commit passes on a cold checkout. If the test job goes red on
+# that single case, it is that, not a code regression.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Hydrate model data
+        run: npm run hydrate:model-data
+
+      - name: Build
+        run: npm run build
+
+      # The console is not part of the root build chain, and check:browser-smoke
+      # serves webui/dist.
+      - name: Build the web console
+        run: npm run build:web
+
+      - name: Check
+        run: npm run check
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Hydrate model data
+        run: npm run hydrate:model-data
+
+      # test.sh isolates HOME, TMPDIR, and git/npm config, and runs the suite
+      # without API keys, which is what keeps the endpoint-gated tests inert.
+      - name: Run the test suite
+        run: bash test.sh
