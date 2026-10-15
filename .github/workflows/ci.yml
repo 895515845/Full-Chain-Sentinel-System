@@ -94,6 +94,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # packages/env's ssh, remote, conformance, and differential tests need the
+      # Rust daemon, which the root build does not compile. rustup show installs
+      # the toolchain pinned in packages/env/daemon/rust-toolchain.toml.
+      - name: Build the env daemon
+        run: |
+          set -euo pipefail
+          rustup show
+          npm --prefix packages/env run build:daemon
+
       # test.sh isolates HOME, TMPDIR, and git/npm config, and runs the suite
       # without API keys, which is what keeps the endpoint-gated tests inert.
       - name: Run the test suite
