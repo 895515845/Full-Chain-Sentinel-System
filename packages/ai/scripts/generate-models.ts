@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
-import { type AiGatewayPricing, getAiGatewayCost } from "./ai-gateway-pricing.ts";
-import { buildOpenRouterCatalog, type OpenRouterCatalog, type OpenRouterModelListItem } from "./openrouter-catalog.ts";
 import {
 	CLOUDFLARE_AI_GATEWAY_ANTHROPIC_BASE_URL,
 	CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL,
@@ -13,6 +10,11 @@ import {
 	CLOUDFLARE_WORKERS_AI_BASE_URL,
 	CLOUDFLARE_WORKERS_AI_REST_BASE_URL,
 } from "../src/api/cloudflare.ts";
+import {
+	DEFAULT_RADIUS_GATEWAY,
+	getRadiusModelsFromConfig,
+	loadRadiusGatewayConfig,
+} from "../src/providers/radius-config.ts";
 import type {
 	AnthropicMessagesCompat,
 	AnyModel,
@@ -28,21 +30,19 @@ import type {
 	OpenAICompletionsCompat,
 	OpenAIResponsesCompat,
 } from "../src/types.ts";
+import { type AiGatewayPricing, getAiGatewayCost } from "./ai-gateway-pricing.ts";
 import {
 	assertExactModelIds,
 	createModelDataManifest,
 	groupProviderModelData,
-	type ModelDataStructure,
 	MODEL_DATA_MANIFEST_FILE,
+	type ModelDataStructure,
 	readModelDataProviderIds,
 	validateGeneratedModelData,
 	validateModelDataDirectory,
 } from "./model-data.ts";
-import {
-	DEFAULT_RADIUS_GATEWAY,
-	getRadiusModelsFromConfig,
-	loadRadiusGatewayConfig,
-} from "../src/providers/radius-config.ts";
+import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
+import { buildOpenRouterCatalog, type OpenRouterCatalog, type OpenRouterModelListItem } from "./openrouter-catalog.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -89,7 +89,8 @@ function readGeneratorOptions(args: string[]): {
 	}
 
 	if (jsonOnly && !jsonOutputDir) throw new Error("--json-only requires --json-output");
-	if (dataOnly && (jsonOnly || jsonOutputDir)) throw new Error("--data-only cannot be combined with JSON catalog output");
+	if (dataOnly && (jsonOnly || jsonOutputDir))
+		throw new Error("--data-only cannot be combined with JSON catalog output");
 	return { strict, dataOnly, jsonOnly, jsonOutputDir, pretty };
 }
 
@@ -189,10 +190,7 @@ const TOGETHER_TOGGLE_REASONING_EFFORT_COMPAT: OpenAICompletionsCompat = {
 	...TOGETHER_TOGGLE_REASONING_COMPAT,
 	supportsReasoningEffort: true,
 };
-const TOGETHER_REASONING_ONLY_MODELS = new Set([
-	"deepseek-ai/DeepSeek-R1",
-	"MiniMaxAI/MiniMax-M2.7",
-]);
+const TOGETHER_REASONING_ONLY_MODELS = new Set(["deepseek-ai/DeepSeek-R1", "MiniMaxAI/MiniMax-M2.7"]);
 const TOGETHER_REASONING_EFFORT_MODELS = new Set(["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
 const TOGETHER_TOGGLE_REASONING_EFFORT_MODELS = new Set(["deepseek-ai/DeepSeek-V4-Pro-0813"]);
 const TOGETHER_FIXED_REASONING_LEVEL_MAP = {
@@ -680,10 +678,7 @@ const OPENAI_COMPLETIONS_DEFAULT_COMPAT = {
 	sendSessionAffinityHeaders: false,
 	supportsLongCacheRetention: true,
 } satisfies Required<
-	Omit<
-		OpenAICompletionsCompat,
-		"cacheControlFormat" | "supportsThinkingTokenBudget" | "thinkingTokenBudgetField"
-	>
+	Omit<OpenAICompletionsCompat, "cacheControlFormat" | "supportsThinkingTokenBudget" | "thinkingTokenBudgetField">
 > & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 };
@@ -746,8 +741,7 @@ function detectOpenAICompletionsCompat(model: Model<"openai-completions">): Open
 	const isGrok = provider === "xai" || baseUrl.includes("api.x.ai");
 	const isOpenRouterDeveloperRoleModel =
 		isOpenRouter && (model.id.startsWith("anthropic/") || model.id.startsWith("openai/"));
-	const cacheControlFormat =
-		provider === "openrouter" && /^~?anthropic\//.test(model.id) ? "anthropic" : undefined;
+	const cacheControlFormat = provider === "openrouter" && /^~?anthropic\//.test(model.id) ? "anthropic" : undefined;
 
 	return {
 		supportsStore: !isNonStandard,
@@ -884,11 +878,7 @@ const OPENAI_GRAMMAR_TOOL_PROVIDERS = new Set([
 	"opencode",
 	"cloudflare-ai-gateway",
 ]);
-const OPENAI_GRAMMAR_TOOL_APIS = new Set<Api>([
-	"openai-responses",
-	"azure-openai-responses",
-	"openai-codex-responses",
-]);
+const OPENAI_GRAMMAR_TOOL_APIS = new Set<Api>(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
 
 function applyOpenAIGrammarToolCompatMetadata(model: Model<Api>): void {
 	if (!OPENAI_GRAMMAR_TOOL_APIS.has(model.api) || !OPENAI_GRAMMAR_TOOL_PROVIDERS.has(model.provider)) return;
@@ -949,8 +939,7 @@ const OPENAI_RESPONSES_PROXY_PROVIDERS = new Set(["opencode", "opencode-go", "gi
 function applyOpenAIResponsesTranscriptMetadata(model: Model<Api>): void {
 	const isOpenAIResponses = model.provider === "openai" && model.api === "openai-responses";
 	const isOpenAICodex = model.provider === "openai-codex" && model.api === "openai-codex-responses";
-	const isProxiedResponses =
-		OPENAI_RESPONSES_PROXY_PROVIDERS.has(model.provider) && model.api === "openai-responses";
+	const isProxiedResponses = OPENAI_RESPONSES_PROXY_PROVIDERS.has(model.provider) && model.api === "openai-responses";
 	if (
 		!(isOpenAIResponses || isOpenAICodex || isProxiedResponses) ||
 		!OPENAI_MID_CONVO_SYSTEM_MESSAGE_MODEL_IDS.has(model.id)
@@ -1036,10 +1025,7 @@ function getGoogleThinkingLevelMap(
 }
 
 function applyThinkingLevelMetadata(model: Model<any>): void {
-	if (
-		(model.api === "openai-responses" || model.api === "azure-openai-responses") &&
-		model.id.startsWith("gpt-5")
-	) {
+	if ((model.api === "openai-responses" || model.api === "azure-openai-responses") && model.id.startsWith("gpt-5")) {
 		mergeThinkingLevelMap(model, { off: null });
 	}
 	if (
@@ -1123,11 +1109,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.api === "anthropic-messages" && isAnthropicTemperatureUnsupportedModel(model.id)) {
 		mergeAnthropicMessagesCompat(model, { supportsTemperature: false });
 	}
-	if (
-		model.api === "openai-completions" &&
-		model.id.includes("deepseek-v4") &&
-		model.thinkingLevelMap === undefined
-	) {
+	if (model.api === "openai-completions" && model.id.includes("deepseek-v4") && model.thinkingLevelMap === undefined) {
 		mergeThinkingLevelMap(
 			model,
 			model.provider === "openrouter"
@@ -1135,7 +1117,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 				: model.provider === "azure"
 					? AZURE_DEEPSEEK_V4_THINKING_LEVEL_MAP
 					: (model.provider === "deepseek" || model.provider === "opencode" || model.provider === "opencode-go") &&
-						model.id.includes("deepseek-v4-flash")
+							model.id.includes("deepseek-v4-flash")
 						? DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP
 						: DEEPSEEK_V4_THINKING_LEVEL_MAP,
 		);
@@ -1683,9 +1665,7 @@ function processFireworksModels(provider: ModelsDevProvider | undefined): Model<
 	for (const [modelId, model] of Object.entries(provider.models)) {
 		if (model.tool_call !== true) continue;
 
-		const input: ("text" | "image")[] = model.modalities?.input?.includes("image")
-			? ["text", "image"]
-			: ["text"];
+		const input: ("text" | "image")[] = model.modalities?.input?.includes("image") ? ["text", "image"] : ["text"];
 		const common = {
 			id: modelId,
 			name: model.name || modelId,
@@ -1755,7 +1735,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				if (m.tool_call !== true) continue;
 				if (BEDROCK_INFERENCE_PROFILE_ONLY_MODEL_IDS.has(modelId)) continue;
 
-				let id = modelId;
+				const id = modelId;
 
 				if (id.startsWith("ai21.jamba")) {
 					// These models doesn't support tool use in streaming mode
@@ -2100,7 +2080,8 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				if (!m.modalities?.input?.includes("text")) continue;
 				if (!m.modalities?.output?.includes("text")) continue;
 
-				const liveModelId = nvidiaNimModelIds.get(modelId) ?? nvidiaNimModelIds.get(normalizeNvidiaModelId(modelId));
+				const liveModelId =
+					nvidiaNimModelIds.get(modelId) ?? nvidiaNimModelIds.get(normalizeNvidiaModelId(modelId));
 				if (!liveModelId) continue;
 				if (NVIDIA_NIM_UNSUPPORTED_MODELS.has(liveModelId)) continue;
 
@@ -2214,6 +2195,15 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				// the OpenAI-compatible /v1/chat/completions path (Qwen 3.5/3.6).
 				// Switch them to openai-completions so requests use Bearer auth
 				// and the standard /v1/chat/completions endpoint.
+				// The Go endpoint's hand-written provider does not register the
+				// google-generative-ai API, so models.dev entries that surface as
+				// @ai-sdk/google cannot be served there. Skip them instead of
+				// generating a shard that cannot compile.
+				if (variant.provider === "opencode-go" && api === "google-generative-ai") {
+					console.log(`  skipping opencode-go:${modelId} (google-generative-ai is not registered by the provider)`);
+					continue;
+				}
+
 				if (variant.provider === "opencode-go") {
 					if (modelId === "minimax-m2.7") {
 						api = "openai-completions";
@@ -2270,7 +2260,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				if (m.status === "deprecated") continue;
 
 				// Claude 4.x and 5.x models route to Anthropic Messages API
-				const isCopilotClaude = /^claude-(haiku|sonnet|opus|fable)-[45]([.\-]|$)/.test(modelId);
+				const isCopilotClaude = /^claude-(haiku|sonnet|opus|fable)-[45]([.-]|$)/.test(modelId);
 				// GPT, Grok, OSWE, and MAI-Code models are only served through
 				// the Copilot /responses endpoint.
 				const needsResponsesApi =
@@ -2302,13 +2292,15 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 					headers: { ...COPILOT_STATIC_HEADERS },
 					...(anthropicCompat ? { compat: anthropicCompat } : {}),
 					// compat only applies to openai-completions
-					...(api === "openai-completions" ? {
-						compat: {
-							supportsStore: false,
-							supportsDeveloperRole: false,
-							supportsReasoningEffort: false,
-						},
-					} : {}),
+					...(api === "openai-completions"
+						? {
+								compat: {
+									supportsStore: false,
+									supportsDeveloperRole: false,
+									supportsReasoningEffort: false,
+								},
+							}
+						: {}),
 				};
 
 				models.push(copilotModel);
@@ -2349,7 +2341,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 		// Process Kimi For Coding models
 		if (data["kimi-code-plan-global"]?.models) {
 			const kimiModels = data["kimi-code-plan-global"].models as Record<string, ModelsDevModel>;
-			const hasCanonicalModel = Object.prototype.hasOwnProperty.call(kimiModels, "kimi-for-coding");
+			const hasCanonicalModel = Object.hasOwn(kimiModels, "kimi-for-coding");
 
 			const kimiAliases = new Set(["k2p5", "k2p6", "k2p7"]);
 
@@ -3080,7 +3072,8 @@ async function generateModels() {
 			candidate.id.includes("deepseek-v4") &&
 			!QWEN_TOKEN_PLAN_PROVIDER_IDS.has(candidate.provider)
 		) {
-			const preservesNativeReasoningEffort = candidate.provider === "openrouter" || candidate.provider === "opencode";
+			const preservesNativeReasoningEffort =
+				candidate.provider === "openrouter" || candidate.provider === "opencode";
 			candidate.compat = {
 				...candidate.compat,
 				...(preservesNativeReasoningEffort
@@ -3226,7 +3219,7 @@ async function generateModels() {
 	allModels.push(...codexModels);
 
 	// Add missing Mistral Medium 3.5 model until models.dev includes it
-	if (!allModels.some(m => m.provider === "mistral" && m.id === "mistral-medium-3.5")) {
+	if (!allModels.some((m) => m.provider === "mistral" && m.id === "mistral-medium-3.5")) {
 		allModels.push({
 			id: "mistral-medium-3.5",
 			name: "Mistral Medium 3.5",
@@ -3248,7 +3241,7 @@ async function generateModels() {
 	}
 
 	// Add "auto" alias for openrouter/auto
-	if (!allModels.some(m => m.provider === "openrouter" && m.id === "auto")) {
+	if (!allModels.some((m) => m.provider === "openrouter" && m.id === "auto")) {
 		allModels.push({
 			id: "auto",
 			name: "Auto",
@@ -3260,10 +3253,10 @@ async function generateModels() {
 			cost: {
 				// we dont know about the costs because OpenRouter auto routes to different models
 				// and then charges you for the underlying used model
-				input:0,
-				output:0,
-				cacheRead:0,
-				cacheWrite:0,
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
 			},
 			contextWindow: 2000000,
 			maxTokens: 30000,
@@ -3274,7 +3267,7 @@ async function generateModels() {
 	// router alias/plugin entry point; its model metadata does not advertise
 	// tools, but the alias resolves to a concrete model that can invoke caller
 	// tools and has the openrouter:fusion server tool auto-injected.
-	if (!allModels.some(m => m.provider === "openrouter" && m.id === "openrouter/fusion")) {
+	if (!allModels.some((m) => m.provider === "openrouter" && m.id === "openrouter/fusion")) {
 		allModels.push({
 			id: "openrouter/fusion",
 			name: "OpenRouter: Fusion",
@@ -3413,7 +3406,8 @@ async function generateModels() {
 		];
 	}
 
-	const serializeJson = (value: unknown) => `${JSON.stringify(value, null, generatorOptions.pretty ? 2 : undefined)}\n`;
+	const serializeJson = (value: unknown) =>
+		`${JSON.stringify(value, null, generatorOptions.pretty ? 2 : undefined)}\n`;
 	const writeJson = (path: string, value: unknown) => writeFileSync(path, serializeJson(value));
 	const generatedDataProviderIds = generatorOptions.dataOnly
 		? readModelDataProviderIds(packageRoot)
