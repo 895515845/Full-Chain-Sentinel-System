@@ -11,9 +11,14 @@
 - Rebranded the product to ZGAgent: `piConfig.name` is `zgagent`, the bin is `zgagent`, and the config directory moved from `~/.pi` to `~/.zgagent` (agent env keys become `ZGAGENT_CODING_AGENT_DIR` / `ZGAGENT_CODING_AGENT_SESSION_DIR`)
 - Replaced the default system prompt with an authorized-penetration-testing persona: methodology rules (recon, enumeration, vulnerability mapping, validation, exploitation, post-exploitation, reporting), scope-authorization and evidence rules, and an ops section; the pi docs section was removed
 
+### 全链哨兵 Rebrand
+
+- Rebranded the product again to 全链哨兵 (Full Chain Sentinel System): `piConfig.name` is `sentinel`, the bin is `sentinel`, and the config directory moved from `~/.zgagent` to `~/.sentinel`, migrated automatically on first run (the agent env keys are now `SENTINEL_CODING_AGENT_DIR` / `SENTINEL_CODING_AGENT_SESSION_DIR`); the default system prompt and the provider attribution headers carry the new identity
+- Session `custom` entry types (`zg-mode`, `zg-preset`, `zg-status`, `zg-goal`, `zg-loop-guard`) and the legacy model slot ids (`zg-endpoint`, `zg-commander`, `zg-judge`) keep their names on purpose: they are keys inside existing session files and `models.json`, so renaming them would make those files unreadable
+
 ### Added
 
-- Added `baseToolsOverride` to `createAgentSession()` options so custom runtimes can replace built-in base tools (used by the ZGAgent web console to wrap the bash tool with an approval gate)
+- Added `baseToolsOverride` to `createAgentSession()` options so custom runtimes can replace built-in base tools (used by the Full Chain Sentinel web console to wrap the bash tool with an approval gate)
 - Added `customState` to `SessionInfo`: the latest `custom` entry's data per `customType`, read in the same pass that already computes `name` and `firstMessage`. A host that keeps per-session operator state in `custom` entries (the console's persistent goal and manual session status) can show it in a session list without opening every file a second time
 - Exported the `ThinkingLevel` and `ImageContent` types, which hosts need to call `setThinkingLevel()` and to pass `images` to `prompt()`
 - Added the `loop-guard` built-in extension. It watches the streaming response and, when one line or a short cycle starts repeating, aborts the request, trims the repeated tail so it does not re-enter the context, and continues the run with a nudge to change approach (after three nudges it stops and leaves the decision to the operator). The nudge is sent once the aborted run has settled, because a run that came back `aborted` cannot be continued from a turn boundary. It also counts consecutive identical tool calls per session and injects an advisory reminder at 3, 5 and 8 calls. Both notices are `custom_message` entries (`customType` `zg-loop-guard`), so the model reads them as a user message while the console shows them as a notice. Disable it with `-builtin:loop-guard` in the `extensions` setting.
@@ -21,10 +26,12 @@
 ### Changed
 
 - Changed the `showHardwareCursor` setting to use only the terminal cursor instead of also drawing Pi's reverse-video cursor
-- Changed the CLI help description to the penetration-testing role and provider attribution headers to the `zgagent` identity
+- Changed the CLI help description to the penetration-testing role and provider attribution headers to the `sentinel` identity
 
 ### Fixed
 
+- Extended the `loop-guard` stutter detector to catch repetition it previously missed: the same line recurring in alternation with other lines (its consecutive-run count never built), and short phrases cycled with no fixed period on a single line (e.g. `Let me run. Let me be. Let me do. …`), now detected via a per-line total count and a 3-word-gram frequency scan of the tail window
+- Exported `createLoopGuardExtension` and `LOOP_GUARD_CUSTOM_TYPE` from the SDK so embedded hosts can mount the extension (the CLI already loaded it as a built-in)
 - Fixed tools supplied through `baseToolsOverride` losing their `promptSnippet` and `promptGuidelines`: the definition rebuilt from the AgentTool dropped both, so the tool vanished from the system prompt's tool section and its guidelines from the rules section. `wrapToolDefinition` now carries the metadata, and the duplicated `Object.assign` in the bash and PowerShell wrappers is gone.
 - Fixed Mistral streams being aborted mid-generation (e.g. during long thinking) after the request timeout; the timeout now applies only to waiting for response headers ([#10609](https://github.com/earendil-works/pi/issues/10609))
 

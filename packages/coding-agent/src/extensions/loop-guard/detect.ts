@@ -30,6 +30,12 @@ export interface StutterSignal {
 export interface StutterOptions {
 	/** Consecutive identical non-blank lines that trip the detector. */
 	repeatLines: number;
+	/**
+	 * Total occurrences of one non-blank line (consecutive or not) that trip the
+	 * detector. Alternation like `Let me do it.` / `Hmm.` / `Let me do it.` never
+	 * builds a consecutive run, but it is the same loop.
+	 */
+	repeatLinesTotal: number;
 	/** Length of the tail window scanned for a periodic cycle. */
 	cycleWindow: number;
 	/** Longest repeating unit treated as a cycle. */
@@ -40,15 +46,23 @@ export interface StutterOptions {
 	cycleScanStride: number;
 	/** Fraction of the window allowed to differ before a period is not a cycle. */
 	cycleTolerance: number;
+	/**
+	 * Repetitions of one 3-word gram inside the cycle window that trip the
+	 * detector. Covers short phrases cycled in no fixed order on a single line,
+	 * where neither the line signal nor a strict period can fire.
+	 */
+	gramMinRepeats: number;
 }
 
 export const STUTTER_DEFAULTS: StutterOptions = {
 	repeatLines: 6,
+	repeatLinesTotal: 12,
 	cycleWindow: 600,
 	cycleMaxPeriod: 50,
 	cycleMinRepeats: 12,
 	cycleScanStride: 200,
 	cycleTolerance: 0.03,
+	gramMinRepeats: 10,
 };
 
 /**
@@ -65,6 +79,10 @@ export class StutterDetector {
 	private run = 0;
 	private runStart = 0;
 	private lastCycleScan = 0;
+	/** Total occurrences per line, so alternation counts where a run cannot build. */
+	private readonly lineCounts = new Map<string, number>();
+	/** Where each line first appeared, so a total-count trip trims from there. */
+	private readonly lineFirst = new Map<string, number>();
 
 	constructor(options: StutterOptions = STUTTER_DEFAULTS) {
 		this.options = options;
@@ -78,6 +96,8 @@ export class StutterDetector {
 		this.run = 0;
 		this.runStart = 0;
 		this.lastCycleScan = 0;
+		this.lineCounts.clear();
+		this.lineFirst.clear();
 	}
 
 	/** Fold the text so far and report a repetition the first time one trips. */
@@ -94,13 +114,19 @@ export class StutterDetector {
 		}
 		if (text.length - this.lastCycleScan < this.options.cycleScanStride) return undefined;
 		this.lastCycleScan = text.length;
-		return this.observeCycle(text);
+		return this.observeCycle(text) ?? this.observeGrams(text);
 	}
 
 	private observeLine(line: string, start: number): StutterSignal | undefined {
 		// Blank lines are transparent: they separate the repeats in practice without
 		// breaking the run.
 		if (line.length < 2) return undefined;
+		const total = (this.lineCounts.get(line) ?? 0) + 1;
+		this.lineCounts.set(line, total);
+		if (!this.lineFirst.has(line)) this.lineFirst.set(line, start);
+		if (total >= this.options.repeatLinesTotal) {
+			return { kind: "lines", preview: line.slice(0, 80), count: total, offset: this.lineFirst.get(line) ?? start };
+		}
 		if (line === this.previousLine) {
 			this.run += 1;
 		} else {
@@ -140,6 +166,36 @@ export class StutterDetector {
 			};
 		}
 		return undefined;
+	}
+
+	/**
+	 * Short phrases cycled with no fixed period on one line — `Let me run. Let me
+	 * be. Let me do. Let me be. …` — evade both the line signal (no newlines) and
+	 * the strict period scan (the order is irregular). Word-gram frequency does
+	 * not care about order: a 3-word gram that keeps reappearing in the tail is
+	 * the same loop.
+	 */
+	private observeGrams(text: string): StutterSignal | undefined {
+		const { cycleWindow, gramMinRepeats } = this.options;
+		const window = text.slice(-cycleWindow);
+		const tokens = window.split(/\s+/).filter((token) => token.length > 0);
+		if (tokens.length < gramMinRepeats + 2) return undefined;
+		const grams = new Map<string, number>();
+		for (let index = 0; index + 2 < tokens.length; index += 1) {
+			const gram = `${tokens[index]} ${tokens[index + 1]} ${tokens[index + 2]}`;
+			grams.set(gram, (grams.get(gram) ?? 0) + 1);
+		}
+		let best: { gram: string; count: number } | undefined;
+		for (const [gram, count] of grams) {
+			if (!best || count > best.count) best = { gram, count };
+		}
+		if (!best || best.count < gramMinRepeats) return undefined;
+		return {
+			kind: "cycle",
+			preview: best.gram.slice(0, 80),
+			count: best.count,
+			offset: Math.max(0, text.length - cycleWindow),
+		};
 	}
 }
 

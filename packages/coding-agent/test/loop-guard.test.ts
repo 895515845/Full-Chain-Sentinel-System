@@ -126,6 +126,32 @@ describe("StutterDetector", () => {
 		expect(signal?.count).toBeGreaterThanOrEqual(12);
 	});
 
+	test("trips on a line alternating with other lines, not just consecutive repeats", () => {
+		const detector = new StutterDetector();
+		const text = `Let me do it.\n\nHmm.\n\n`.repeat(6) + "Let me do it.\n\n".repeat(6);
+		const signal = detector.push(text);
+		expect(signal?.kind).toBe("lines");
+		expect(signal?.preview).toBe("Let me do it.");
+		expect(signal?.count).toBe(12);
+		// The trim starts where the repeated line first appeared.
+		expect(signal?.offset).toBe(0);
+	});
+
+	test("trips on short phrases cycled without a fixed period on one line", () => {
+		const detector = new StutterDetector();
+		const phrases = ["Let me run.", "Let me be.", "Let me do."];
+		// Primes mod 3: an irregular order, so no strict period exists to find.
+		const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29];
+		let text = "";
+		for (let index = 0; index < 60; index += 1) {
+			text += `${phrases[primes[index % primes.length] % 3]} `;
+		}
+		const signal = detector.push(text);
+		expect(signal?.kind).toBe("cycle");
+		expect(signal?.preview).toContain("Let me");
+		expect(signal?.count).toBeGreaterThanOrEqual(10);
+	});
+
 	test("leaves ordinary prose alone", () => {
 		const detector = new StutterDetector();
 		const text = [
