@@ -1819,6 +1819,7 @@ export function App() {
 						/>
 					) : page === "droid" ? (
 						<DroidPage
+							connected={connected}
 							devices={droidState.devices}
 							tokens={droidState.tokens}
 							listen={droidState.listen}

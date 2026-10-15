@@ -18,6 +18,7 @@ function formatTime(iso: string | null): string {
 }
 
 export function DroidPage({
+	connected,
 	devices,
 	tokens,
 	listen,
@@ -26,6 +27,8 @@ export function DroidPage({
 	consoleUrl,
 	send,
 }: {
+	/** Requests may only go out on an open socket; before that the list stays empty. */
+	connected: boolean;
 	devices: DroidDevice[];
 	tokens: DroidToken[];
 	listen: { host: string; port: number } | null;
@@ -40,6 +43,7 @@ export function DroidPage({
 	const [listenHost, setListenHost] = useState("0.0.0.0");
 	const [listenPort, setListenPort] = useState("9944");
 	const qrRef = useRef<HTMLCanvasElement | null>(null);
+	const [qrToken, setQrToken] = useState<DroidToken | null>(null);
 
 	useEffect(() => {
 		if (listenConfig) {
@@ -190,12 +194,17 @@ export function DroidPage({
 												{revealed === token.id ? "隐藏" : "显示/复制"}
 											</button>
 											{!token.revokedAt ? (
+												<button type="button" className="ghost small" onClick={() => setQrToken(token)}>
+													二维码
+												</button>
+											) : null}
+											{!token.revokedAt ? (
 												<button
 													type="button"
 													className="ghost small danger"
 													onClick={() => send({ type: "droid_token_revoke", id: token.id })}
 												>
-													吊销
+													删除
 												</button>
 											) : null}
 										</div>
@@ -299,6 +308,29 @@ export function DroidPage({
 						{firstToken ? <div className="mono">{`${reverseAddress.url}?token=${firstToken.token}`}</div> : null}
 					</div>
 				</div>
+			</div>
+			{qrToken ? <TokenQrModal token={qrToken} address={reverseAddress.url} onClose={() => setQrToken(null)} /> : null}
+		</div>
+	);
+}
+
+/** 每个 token 一枚二维码：内容 = 反连地址 + 该 token，DroidBridge 扫码即填入。 */
+function TokenQrModal({ token, address, onClose }: { token: DroidToken; address: string; onClose(): void }) {
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		QRCode.toCanvas(canvas, `${address}?token=${token.token}`, { width: 220, margin: 1, errorCorrectionLevel: "M" }).catch(
+			() => undefined,
+		);
+	}, [address, token.token]);
+	return (
+		<div className="droid-qr-overlay" onClick={onClose}>
+			<div className="droid-qr-modal" onClick={(event) => event.stopPropagation()}>
+				<h3 className="droid-qr-modal__title">{token.label} 的接入二维码</h3>
+				<canvas ref={canvasRef} className="droid-qr-modal__canvas" />
+				<div className="droid-qr-modal__val">{`${address}?token=${token.token}`}</div>
+				<p className="droid-hint">手机 DroidBridge 点「扫码填入」对准即可；点空白处关闭。</p>
 			</div>
 		</div>
 	);

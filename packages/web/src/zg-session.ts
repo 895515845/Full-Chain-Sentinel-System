@@ -1433,9 +1433,9 @@ export class ZGAgentRuntime {
 		this.hooks.onDroidChange();
 	}
 
-	/** Revoke a token and drop every device that authenticated with it. */
+	/** 删除一条 token（操作员语义：吊销即删除），并断开用它反连的设备。 */
 	async droidRevokeToken(id: string): Promise<void> {
-		if (!this.droids.revokeToken(id)) throw new Error("该 token 不存在或已吊销");
+		if (!this.droids.deleteToken(id)) throw new Error("该 token 不存在");
 		for (const device of this.droids.listDevices()) {
 			if (device.tokenId === id) this.droidGateway?.disconnect(device.id);
 		}

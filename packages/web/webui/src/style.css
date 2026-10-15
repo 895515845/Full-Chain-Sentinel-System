@@ -8582,6 +8582,19 @@ button.link {
 .droid-field input,
 .droid-field select {
 	width: 100%;
+	padding: 6px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--text);
+	font: inherit;
+	font-size: 12.5px;
+}
+
+.droid-field input:focus,
+.droid-field select:focus {
+	outline: none;
+	border-color: var(--accent);
 }
 
 .droid-block-btn {
@@ -8596,6 +8609,22 @@ button.link {
 .droid-inline input {
 	flex: 1;
 	min-width: 0;
+	padding: 6px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--text);
+	font: inherit;
+	font-size: 12.5px;
+}
+
+.droid-inline input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.droid-inline .primary {
+	flex: none;
 }
 
 .droid-hint {
@@ -8760,4 +8789,57 @@ button.link {
 	.droid-layout {
 		grid-template-columns: 1fr;
 	}
+}
+
+.droid-qr-wrap {
+	display: flex;
+	gap: 12px;
+	align-items: flex-start;
+}
+
+.droid-qr-wrap__meta {
+	flex: 1;
+	min-width: 0;
+}
+
+.droid-qr {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: #fff;
+}
+
+.droid-qr-overlay {
+	position: fixed;
+	inset: 0;
+	background: #000000a6;
+	display: grid;
+	place-items: center;
+	z-index: 60;
+}
+
+.droid-qr-modal {
+	background: var(--card);
+	border-radius: var(--radius);
+	padding: 16px;
+	max-width: 420px;
+	text-align: center;
+}
+
+.droid-qr-modal__title {
+	margin: 0 0 10px;
+	font-size: 13.5px;
+}
+
+.droid-qr-modal__canvas {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: #fff;
+}
+
+.droid-qr-modal__val {
+	margin-top: 10px;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--dim);
+	overflow-wrap: anywhere;
 }

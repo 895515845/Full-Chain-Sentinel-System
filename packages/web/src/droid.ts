@@ -187,6 +187,12 @@ export class DroidStore {
 		return Number(result.changes ?? 0) > 0;
 	}
 
+	/** 删除一条 token（操作员语义：吊销即消失）。设备引用它的连接由调用方断开。 */
+	deleteToken(id: string): boolean {
+		const result = this.db.prepare("DELETE FROM droid_tokens WHERE id = ?").run(id);
+		return Number(result.changes ?? 0) > 0;
+	}
+
 	// -- devices --------------------------------------------------------------
 
 	/**

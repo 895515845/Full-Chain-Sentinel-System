@@ -72,9 +72,10 @@ test("HAR import lands queryable request/response pairs", () => {
 
 	const rows = store.list("p1");
 	expect(rows).toHaveLength(2);
-	expect(rows[0]?.method).toBe("GET");
+	// Both entries land in the same millisecond, so their relative order is not stable.
+	expect(rows.map((row) => row.method).sort()).toEqual(["GET", "POST"]);
 
-	const entry = store.get(rows[1]?.id as string, "p1");
+	const entry = store.get(rows.find((row) => row.method === "POST")?.id as string, "p1");
 	expect(entry?.host).toBe("api.example.com");
 	expect(entry?.requestBody).toContain("orderId");
 	expect(entry?.requestHeaders).toContain("SID=admin");
