@@ -26,10 +26,16 @@ data class ExecResult(val code: Int, val stdout: String, val stderr: String) {
 }
 
 object Shell {
-	/** 执行一条 shell 命令。asRoot 时经 su（Magisk 会弹一次授权）。 */
-	fun run(cmd: String, asRoot: Boolean, timeoutMs: Int, workDir: String = "/data/local/tmp"): ExecResult {
+	/**
+	 * 执行一条 shell 命令。asRoot 时经 su（Magisk 会弹一次授权）。
+	 *
+	 * 不设置工作目录：普通应用 uid 无权进入 /data/local/tmp（那是 adb shell 的
+	 * 工作目录），指定它会让 ProcessBuilder.start() 直接抛 IOException，su 都
+	 * 轮不到执行。命令一律用绝对路径。
+	 */
+	fun run(cmd: String, asRoot: Boolean, timeoutMs: Int): ExecResult {
 		val argv = if (asRoot) listOf("su", "-c", cmd) else listOf("sh", "-c", cmd)
-		val proc = ProcessBuilder(argv).directory(File(workDir)).start()
+		val proc = ProcessBuilder(argv).start()
 		val out = StringBuilder()
 		val err = StringBuilder()
 		val done = Thread {
@@ -62,11 +68,22 @@ object Shell {
 		return ExecResult(if (finished) proc.exitValue() else 124, out.toString(), err.toString())
 	}
 
-	/** root 可用性探测：`su -c id` 的 uid 里带 root 即可。 */
-	fun rootAvailable(): Boolean = try {
-		run("id -u", asRoot = true, timeoutMs = 5_000).let { it.code == 0 && it.stdout.contains("0") }
-	} catch (_: Exception) {
-		false
+	/**
+	 * root 可用性探测：`su -c id -u` 的输出为 0 即可。
+	 *
+	 * 第一次 su 会触发 Magisk 授权弹窗，而探测结果随 hello 帧一次性上报——
+	 * 所以这里重试几次、把超时放宽到 10s，给操作员留出点「允许」的时间。
+	 */
+	fun rootAvailable(): Boolean {
+		repeat(3) { attempt ->
+			try {
+				val result = run("id -u", asRoot = true, timeoutMs = 10_000)
+				if (result.code == 0 && result.stdout.contains("0")) return true
+			} catch (_: Exception) {
+			}
+			if (attempt < 2) Thread.sleep(1_500)
+		}
+		return false
 	}
 }
 
@@ -112,12 +129,24 @@ object Handlers {
 
 	fun captureStatus(): ExecResult = Shell.run("ls -l '$CAPTURE_PATH' 2>/dev/null || echo none", asRoot = true, timeoutMs = 5_000)
 
-	/** pull：读文件字节，交给调用方分片。超限拒绝（上限由服务端下发）。 */
+	/**
+	 * pull：读文件字节，交给调用方分片。超限拒绝（上限由服务端下发）。
+	 * 直接读不到（root 建的文件、其他应用的私有目录）就走 root cat。
+	 */
 	fun readFile(path: String, maxBytes: Long): ByteArray {
 		val file = File(path)
-		if (!file.exists()) throw IllegalArgumentException("文件不存在: $path")
-		if (file.length() > maxBytes) throw IllegalArgumentException("文件超过上限: ${file.length()} > $maxBytes")
-		return file.readBytes()
+		val direct = try {
+			if (file.exists() && file.length() > maxBytes) throw IllegalArgumentException("文件超过上限: ${file.length()} > $maxBytes")
+			file.readBytes()
+		} catch (_: Exception) {
+			null
+		}
+		if (direct != null) return direct
+		val result = Shell.run("cat '$path'", asRoot = true, timeoutMs = 30_000)
+		if (result.code != 0) throw IllegalArgumentException("读取失败: ${result.stderr.ifEmpty { "文件不存在或无权限" }}")
+		val bytes = Base64.decode(Base64.encodeToString(result.stdout.toByteArray(), Base64.NO_WRAP), Base64.DEFAULT)
+		if (bytes.size > maxBytes) throw IllegalArgumentException("文件超过上限: ${bytes.size} > $maxBytes")
+		return bytes
 	}
 
 	/** push：把 base64 写到目标路径。 */
