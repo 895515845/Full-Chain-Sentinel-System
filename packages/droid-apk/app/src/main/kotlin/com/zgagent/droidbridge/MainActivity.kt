@@ -9,12 +9,13 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+
+import android.app.Activity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /** 设置页：填服务器反连地址与 token，启动/停止前台服务。 */
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 	private lateinit var prefs: Prefs
 	private lateinit var status: TextView
 

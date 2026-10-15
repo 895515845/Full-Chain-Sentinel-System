@@ -101,7 +101,18 @@ class DroidService : Service() {
 				"capture_start" -> answer(obj) { resultOf(it, Handlers.captureStart(it)) }
 				"capture_stop" -> answer(obj) { resultOf(it, Handlers.captureStop()) }
 				"capture_status" -> answer(obj) { resultOf(it, Handlers.captureStatus()) }
-				"screencap" -> answerStream(obj) { Handlers.screencap().let { (file, r) -> if (!r.ok) throw IllegalStateException("截屏失败: ${r.stderr}"); file.readBytes() to r } }
+				"screencap" -> answerStream(obj) {
+					val (file, r) = Handlers.screencap()
+					if (!r.ok) throw IllegalStateException("截屏失败: ${r.stderr}")
+					// root 建的文件应用 uid 可能读不到，走 root cat。
+					val bytes = try {
+						file.readBytes()
+					} catch (_: Exception) {
+						Handlers.readFile(file.absolutePath, 32L * 1024 * 1024)
+					}
+					Shell.run("rm -f '${file.absolutePath}'", asRoot = true, timeoutMs = 5_000)
+					bytes to r
+				}
 				"pull" -> answerStream(obj) { Handlers.readFile(it.path, it.maxBytes) to ExecResult(0, "", "") }
 				"tcp_open" -> scope.launch { onTcpOpen(obj) }
 				"tcp_send" -> scope.launch { onTcpSend(obj) }
