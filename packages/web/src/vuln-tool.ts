@@ -49,7 +49,7 @@ const TITLE_TAIL = /[。．.；;，,、：:\s]+$/;
  *
  * Agents that carry a plan number through a run tend to prefix it to every
  * output, so the hub ended up with titles like
- * "【计划编号 PLAN-0109】结论更正：api/report/export 非 SSRF（建议撤销）".
+ * "【计划编号 PLAN-0109】结论更正：/api/report/export 非 SSRF（建议撤销）".
  * The plan number, the round, and the verdict are process notes: they belong in
  * the description, and the title is only the flaw.
  */
@@ -277,7 +277,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 					content: [
 						{
 							type: "text",
-							text: `标题太长（${title.length} 字，上限 ${MAX_VULN_TITLE_CHARS} 字），没有入库。请改成一句话漏洞标题：「漏洞类型 + 受影响对象」，例如「后台登录处 SQL 注入」「/api/report/export 免验证码登录」。计划编号、轮次、结论更正、建议撤销、括号里的判定说明都属于流程信息，写进 description；改好后重新调用 vuln_submit。`,
+							text: `标题太长（${title.length} 字，上限 ${MAX_VULN_TITLE_CHARS} 字），没有入库。请改成一句话漏洞标题：「漏洞类型 + 受影响对象」，例如「后台登录处 SQL 注入」「/api/report/export 未授权导出」。计划编号、轮次、结论更正、建议撤销、括号里的判定说明都属于流程信息，写进 description；改好后重新调用 vuln_submit。`,
 						},
 					],
 					details: { ok: false, error: "title-too-long" },
