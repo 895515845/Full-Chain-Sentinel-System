@@ -27,7 +27,7 @@ permissions:
 jobs:
   check:
     name: Build and check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,7 +64,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,6 +87,12 @@ jobs:
 
       - name: Hydrate model data
         run: npm run hydrate:model-data
+
+      # Some tests resolve workspace packages through the package.json exports,
+      # which point at dist/, and spawn node subprocesses that import it. On a
+      # fresh checkout those fail without a build.
+      - name: Build
+        run: npm run build
 
       # test.sh isolates HOME, TMPDIR, and git/npm config, and runs the suite
       # without API keys, which is what keeps the endpoint-gated tests inert.
