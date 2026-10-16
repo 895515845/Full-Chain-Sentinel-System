@@ -24,10 +24,13 @@ import {
 	createToolSearchExtension,
 	createWriteTool,
 	DefaultResourceLoader,
+	type ExtensionFactory,
 	getAgentDir,
 	getDefaultSessionDir,
 	type ImageContent,
 	ModelRuntime,
+	mcpNamespace,
+	probeMcpServer,
 	SessionManager,
 	type SessionStats,
 	type SessionTreeNode,
@@ -98,6 +101,19 @@ import {
 	startRound,
 } from "./goal.ts";
 import { createGoalTools, type GoalPort } from "./goal-tool.ts";
+import {
+	loadSentinelMcpConfig,
+	mcpConfigView,
+	mcpEntryFor,
+	normalizeMcpServer,
+	readMcpServers,
+	recordMcpStatus,
+	deleteMcpServer as removeMcpServer,
+	type SentinelMcpServerRecord,
+	updateMcpServerRecord,
+	validateMcpServerInput,
+	saveMcpServer as writeMcpServer,
+} from "./mcp-config.ts";
 import { modelsJsonPath } from "./model-config.ts";
 import {
 	addLibraryEntry,
@@ -174,6 +190,9 @@ import type {
 	SentinelGoalRoundOutcome,
 	SentinelGoalUsage,
 	SentinelGoalView,
+	SentinelMcpConfigView,
+	SentinelMcpServerInput,
+	SentinelMcpTestResult,
 	SentinelMode,
 	SentinelModelingState,
 	SentinelModelLibraryView,
@@ -543,8 +562,9 @@ export class SentinelRuntime {
 	 * The CLI loads codemode, tool search, and MCP as built-in extensions; SDK
 	 * sessions have to add them explicitly. codemode and tool_search register
 	 * inactive, so the default-tools override activates them while keeping the
-	 * coding tools. The MCP extension reads mcp.json from the agent directory and
-	 * connects its servers on session_start, which `bindExtensions` emits.
+	 * coding tools. The MCP extension connects its servers on session_start,
+	 * which `bindExtensions` emits; its config comes from 设置 → MCP, not from
+	 * pi's own mcp.json (see `createMcpExtension`).
 	 */
 	private async createSessionContext(
 		cwd: string,
@@ -557,7 +577,7 @@ export class SentinelRuntime {
 		const extensionFactories = [];
 		if (permissions.codemode) extensionFactories.push(createCodemodeExtension());
 		if (permissions.tool_search) extensionFactories.push(createToolSearchExtension());
-		if (permissions.mcp) extensionFactories.push(createMcpExtension());
+		if (permissions.mcp) extensionFactories.push(this.mcpExtensionFactory());
 		// Loop hygiene is not permission-gated: it only aborts degenerate output
 		// and injects reminders, so it belongs in every session.
 		extensionFactories.push(createLoopGuardExtension());
@@ -576,6 +596,22 @@ export class SentinelRuntime {
 		if (permissions.tool_search) modifiers.push("+tool_search");
 		settingsManager.applyOverrides(modifiers.length > 0 ? { defaultTools: modifiers } : {});
 		return { resourceLoader, settingsManager };
+	}
+
+	/**
+	 * The MCP extension, pointed at 设置 → MCP instead of pi's own `mcp.json`.
+	 *
+	 * Replacing `loadConfig` is what makes the console the only place a server can
+	 * come from: a session connects exactly the entries the settings page shows, so
+	 * a hand-written file cannot add a tool nobody can see. `updateConfig` covers the
+	 * one other writer, the extension's own `/mcp` manager in a terminal session,
+	 * which then changes the same file.
+	 */
+	private mcpExtensionFactory(): ExtensionFactory {
+		return createMcpExtension({
+			loadConfig: () => loadSentinelMcpConfig(this.agentDir),
+			updateConfig: (entry, patch) => updateMcpServerRecord(this.agentDir, entry.name, patch),
+		});
 	}
 
 	private async createSessionInto(manager: SessionManager, task?: TaskSessionOptions): Promise<string> {
@@ -1537,6 +1573,87 @@ export class SentinelRuntime {
 			recordAssetStatus(this.agentDir, platform, { at: Date.now(), ok: false, error: message });
 			return { ok: false, message: `连接失败：${message}`, detail: message };
 		}
+	}
+
+	/**
+	 * The custom MCP servers as 设置 → MCP shows them.
+	 *
+	 * These are not tools of their own: the MCP extension turns a connected
+	 * server's tools into `mcp__<server>__<tool>` registrations, and the 权限
+	 * switch named `mcp` decides whether the extension is loaded at all. This
+	 * page decides which servers it has to connect.
+	 */
+	getMcpServers(): SentinelMcpConfigView {
+		return mcpConfigView(this.agentDir);
+	}
+
+	/**
+	 * Add or replace one server and rebuild, so live sessions connect the new set.
+	 *
+	 * Saving does not probe. A connection is the extension's job at session start,
+	 * and probing here would run the operator's stdio command as a side effect of
+	 * pressing 保存 — a command they consented to run, but not at that moment.
+	 * 测试连接 is the explicit way to run one.
+	 */
+	async saveMcpServer(input: SentinelMcpServerInput): Promise<SentinelMcpConfigView> {
+		this.assertNoRunningSession("MCP 配置");
+		const view = writeMcpServer(this.agentDir, input);
+		await this.rebuildSessions();
+		return view;
+	}
+
+	/** Remove one server and rebuild, so its tools stop being registered. */
+	async deleteMcpServer(name: string): Promise<SentinelMcpConfigView> {
+		this.assertNoRunningSession("MCP 配置");
+		const view = removeMcpServer(this.agentDir, name);
+		await this.rebuildSessions();
+		return view;
+	}
+
+	/**
+	 * Connect once to one server and report what it offers, without saving anything.
+	 *
+	 * `draft` probes the form as it stands, which is how a server is checked before
+	 * it is written. The outcome of a stored server's probe is recorded, so the page
+	 * still shows it after a reload.
+	 */
+	async testMcpServer(name: string, draft?: SentinelMcpServerInput): Promise<SentinelMcpTestResult> {
+		let server: SentinelMcpServerRecord;
+		if (draft) {
+			const failure = validateMcpServerInput(draft);
+			if (failure) return { ok: false, state: "failed", message: failure, tools: [], resources: 0 };
+			server = normalizeMcpServer(draft);
+		} else {
+			const namespace = mcpNamespace(name.trim());
+			const stored = readMcpServers(this.agentDir).servers.find((entry) => mcpNamespace(entry.name) === namespace);
+			if (!stored) {
+				return { ok: false, state: "failed", message: `未找到 MCP 服务器 "${name}"`, tools: [], resources: 0 };
+			}
+			server = stored;
+		}
+		const probe = await probeMcpServer(mcpEntryFor(this.agentDir, server), { cwd: this.cwd });
+		if (!draft) {
+			try {
+				recordMcpStatus(this.agentDir, server.name, {
+					at: Date.now(),
+					ok: probe.ok,
+					...(probe.ok
+						? { tools: probe.tools.length, resources: probe.resources }
+						: { error: probe.detail ?? probe.message }),
+				});
+			} catch {
+				// The settings screen loses one status line, nothing else.
+			}
+		}
+		return {
+			ok: probe.ok,
+			state: probe.state,
+			message: probe.message,
+			...(probe.detail ? { detail: probe.detail } : {}),
+			tools: probe.tools,
+			resources: probe.resources,
+			...(probe.instructions ? { instructions: probe.instructions } : {}),
+		};
 	}
 
 	/**

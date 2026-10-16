@@ -18,6 +18,7 @@ import { GoalBar } from "./components/GoalBar.tsx";
 import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
 import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
 import { AssetPanel } from "./components/AssetPanel.tsx";
+import { McpPanel } from "./components/McpPanel.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
@@ -75,6 +76,9 @@ import type {
 	SentinelPocSourceSave,
 	SentinelPocStats,
 	SentinelPocSummary,
+	SentinelMcpConfigView,
+	SentinelMcpServerInput,
+	SentinelMcpTestResult,
 	SentinelPresetView,
 	SentinelProjectInfo,
 	SentinelServerMessage,
@@ -190,6 +194,8 @@ export function App() {
 	const [notifyStatus, setNotifyStatus] = useState<SentinelNotifyStatus>({ at: null, ok: true });
 	const [assetConfig, setAssetConfig] = useState<SentinelAssetConfigView | null>(null);
 	const [assetBusy, setAssetBusy] = useState(false);
+	const [mcpConfig, setMcpConfig] = useState<SentinelMcpConfigView | null>(null);
+	const [mcpBusy, setMcpBusy] = useState(false);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
 	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
 	const [permissionTools, setPermissionTools] = useState<SentinelToolInfo[]>([]);
@@ -343,6 +349,7 @@ export function App() {
 	const modelTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const notifyTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const assetTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
+	const mcpTestResolverRef = useRef<((result: SentinelMcpTestResult | null) => void) | null>(null);
 	const judgeTestResolverRef = useRef<((result: { result: SentinelTestResult; raw?: string } | null) => void) | null>(null);
 	/** The audit query on screen, so a live judgment can refresh exactly that view. */
 	const gateQueryRef = useRef<{ filter: SentinelGateFilter; page: number } | null>(null);
@@ -453,6 +460,17 @@ export function App() {
 					if (notifyTestResolverRef.current) {
 						const resolve = notifyTestResolverRef.current;
 						notifyTestResolverRef.current = null;
+						resolve(message.result);
+					}
+					break;
+				case "mcp_servers":
+					setMcpConfig(message.config);
+					setMcpBusy(false);
+					break;
+				case "mcp_test_result":
+					if (mcpTestResolverRef.current) {
+						const resolve = mcpTestResolverRef.current;
+						mcpTestResolverRef.current = null;
 						resolve(message.result);
 					}
 					break;
@@ -2136,6 +2154,60 @@ export function App() {
 								) : (
 									<div className="ws-empty">
 										<span>正在读取资产测绘配置…</span>
+									</div>
+								)}
+							</div>
+						</div>
+					) : page === "settings.mcp" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										MCP
+										{mcpConfig ? ` · 已挂载 ${mcpConfig.mounted} 个服务器` : ""}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								{mcpConfig ? (
+									<McpPanel
+										config={mcpConfig}
+										busy={mcpBusy}
+										onOpenPermissions={() => openPage("settings.permissions")}
+										onSave={(server: SentinelMcpServerInput) => {
+											setMcpBusy(true);
+											send({ type: "save_mcp_server", server });
+											// Saving rebuilds the live sessions, so the switch is released on a
+											// timeout as well as on the reply.
+											window.setTimeout(() => setMcpBusy(false), 30000);
+										}}
+										onDelete={(name) => {
+											setMcpBusy(true);
+											send({ type: "delete_mcp_server", name });
+											window.setTimeout(() => setMcpBusy(false), 30000);
+										}}
+										onTest={async (name, draft) => {
+											const result = await new Promise<SentinelMcpTestResult | null>((resolve) => {
+												mcpTestResolverRef.current = resolve;
+												connectionRef.current?.send({
+													type: "test_mcp_server",
+													name,
+													...(draft ? { draft } : {}),
+												});
+												window.setTimeout(() => {
+													if (mcpTestResolverRef.current === resolve) {
+														mcpTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 40000);
+											});
+											return result;
+										}}
+									/>
+								) : (
+									<div className="ws-empty">
+										<span>正在读取 MCP 配置…</span>
 									</div>
 								)}
 							</div>

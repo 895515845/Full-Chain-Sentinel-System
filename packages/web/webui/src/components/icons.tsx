@@ -194,6 +194,11 @@ export function AssetIcon(props: IconProps) {
 	return <Radar size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
+/** Custom MCP servers: plug the console into external tool servers. */
+export function McpIcon(props: IconProps) {
+	return <Plug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
 /** Rename an entry. */
 export function RenameIcon(props: IconProps) {
 	return <Pencil size={SIZE} strokeWidth={STROKE} {...props} />;

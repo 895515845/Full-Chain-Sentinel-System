@@ -1082,6 +1082,15 @@ export type SentinelClientMessage =
 	 * so a key can be verified before it is written.
 	 */
 	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "get_mcp_servers" }
+	/** Add or replace one custom MCP server. The name is the identity; renaming is delete + add. */
+	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
+	| { type: "delete_mcp_server"; name: string }
+	/**
+	 * Probe one server without saving anything, so a draft can be checked before it
+	 * is written. `draft` overrides the stored entry; without it the stored one is probed.
+	 */
+	| { type: "test_mcp_server"; name: string; draft?: SentinelMcpServerInput }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	/** Change an engine's command gate; refused while a task is in flight. */
@@ -1223,6 +1232,8 @@ export type SentinelServerMessage =
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
 	| { type: "asset_config"; config: SentinelAssetConfigView }
 	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
+	| { type: "mcp_servers"; config: SentinelMcpConfigView }
+	| { type: "mcp_test_result"; name: string; result: SentinelMcpTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelEngineEvent }
@@ -1361,6 +1372,93 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+}
+
+/**
+ * How a custom MCP server is reached. `stdio` spawns a command on the console
+ * host, outside the project container. `http` talks to a remote streamable-HTTP
+ * endpoint, and `sse` to the older HTTP+SSE one, where the server names the
+ * message endpoint on a long-lived stream.
+ */
+export type SentinelMcpTransport = "stdio" | "http" | "sse";
+
+/** Exposure of a server's tools, as the MCP extension accepts it. */
+export type SentinelMcpExposure = "codemode" | "deferred" | "direct" | "hidden";
+
+/** The outcome of the last connection attempt, kept for the settings screen. */
+export interface SentinelMcpStatus {
+	/** Epoch milliseconds of the attempt, or null when it was never connected. */
+	at: number | null;
+	ok: boolean;
+	/** Failure text as the connection or the transport reported it. */
+	error?: string;
+	/** Tools the server offered at the last successful connect. */
+	tools?: number;
+	/** Resources it listed at the last successful connect. */
+	resources?: number;
+}
+
+/** One custom server as the settings screen shows it, editor fields included. */
+export interface SentinelMcpServerView {
+	name: string;
+	enabled: boolean;
+	transport: SentinelMcpTransport;
+	/** Command line for stdio, URL for http: the one-line summary of the row. */
+	target: string;
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+	cwd: string;
+	url: string;
+	headers: Record<string, string>;
+	description: string;
+	exposure: SentinelMcpExposure;
+	/** Per-request timeout in seconds; null means the extension's own default (60). */
+	timeout: number | null;
+	/**
+	 * stdio only: the operator accepted that the command runs on the console host.
+	 * A server without it is stored but never mounted.
+	 */
+	hostExecAcknowledged: boolean;
+	status: SentinelMcpStatus;
+}
+
+/** The whole custom-MCP configuration as the console sees it. */
+export interface SentinelMcpConfigView {
+	servers: SentinelMcpServerView[];
+	/** Servers a session mounts right now (enabled, acknowledged, and within the tool budget). */
+	mounted: number;
+	/** The 权限 → MCP switch. Off means no server is mounted at all. */
+	permissionOn: boolean;
+	/** Config file the entries are stored in, shown on the page. */
+	path: string;
+}
+
+/** Saving one custom server. */
+export interface SentinelMcpServerInput {
+	name: string;
+	enabled: boolean;
+	transport: SentinelMcpTransport;
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+	cwd: string;
+	url: string;
+	headers: Record<string, string>;
+	description: string;
+	exposure: SentinelMcpExposure;
+	timeout: number | null;
+	hostExecAcknowledged: boolean;
+}
+
+/** One connection probe, with what the server offered when it answered. */
+export interface SentinelMcpTestResult extends SentinelTestResult {
+	state: "connected" | "needs-auth" | "failed";
+	/** Tool names the server offered, when it connected. */
+	tools: string[];
+	resources: number;
+	/** Server instructions from `initialize`, when it sent any. */
+	instructions?: string;
 }
 
 export interface SentinelEnvReport {

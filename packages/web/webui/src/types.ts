@@ -32,6 +32,7 @@ export type SentinelPageId =
 	| "settings.presets"
 	| "settings.pocs"
 	| "settings.assets"
+	| "settings.mcp"
 	| "about";
 
 /** Reasoning effort levels pi accepts, ascending. */
@@ -919,6 +920,10 @@ export type SentinelClientMessage =
 	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
 	| { type: "set_asset_query_limit"; limit: number }
 	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "get_mcp_servers" }
+	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
+	| { type: "delete_mcp_server"; name: string }
+	| { type: "test_mcp_server"; name: string; draft?: SentinelMcpServerInput }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	| { type: "engine_pause"; id: string }
@@ -1038,6 +1043,8 @@ export type SentinelServerMessage =
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
 	| { type: "asset_config"; config: SentinelAssetConfigView }
 	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
+	| { type: "mcp_servers"; config: SentinelMcpConfigView }
+	| { type: "mcp_test_result"; name: string; result: SentinelMcpTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelSubagentEvent }
@@ -1144,6 +1151,79 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+}
+
+/**
+ * `stdio` spawns a command on the console host. `http` calls a remote
+ * streamable-HTTP endpoint, and `sse` the older HTTP+SSE one.
+ */
+export type SentinelMcpTransport = "stdio" | "http" | "sse";
+
+/** Exposure of a server's tools, as the MCP extension accepts it. */
+export type SentinelMcpExposure = "codemode" | "deferred" | "direct" | "hidden";
+
+/** Outcome of the last connection attempt, shown on the settings page. */
+export interface SentinelMcpStatus {
+	at: number | null;
+	ok: boolean;
+	error?: string;
+	tools?: number;
+	resources?: number;
+}
+
+export interface SentinelMcpServerView {
+	name: string;
+	enabled: boolean;
+	transport: SentinelMcpTransport;
+	/** Command line for stdio, URL for http. */
+	target: string;
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+	cwd: string;
+	url: string;
+	headers: Record<string, string>;
+	description: string;
+	exposure: SentinelMcpExposure;
+	/** Per-request timeout in seconds; null means the extension's own default. */
+	timeout: number | null;
+	/** stdio only: the operator accepted that the command runs on the console host. */
+	hostExecAcknowledged: boolean;
+	status: SentinelMcpStatus;
+}
+
+export interface SentinelMcpConfigView {
+	servers: SentinelMcpServerView[];
+	/** Servers a session connects (enabled, and acknowledged when stdio). */
+	mounted: number;
+	/** The 权限 → MCP switch; off means nothing is mounted. */
+	permissionOn: boolean;
+	/** Config file the entries are stored in. */
+	path: string;
+}
+
+export interface SentinelMcpServerInput {
+	name: string;
+	enabled: boolean;
+	transport: SentinelMcpTransport;
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+	cwd: string;
+	url: string;
+	headers: Record<string, string>;
+	description: string;
+	exposure: SentinelMcpExposure;
+	timeout: number | null;
+	hostExecAcknowledged: boolean;
+}
+
+/** One connection probe, with what the server offered when it answered. */
+export interface SentinelMcpTestResult extends SentinelTestResult {
+	state: "connected" | "needs-auth" | "failed";
+	tools: string[];
+	resources: number;
+	instructions?: string;
 }
 
 /**

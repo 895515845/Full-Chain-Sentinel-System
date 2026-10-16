@@ -7887,6 +7887,479 @@ button.link {
 	line-height: 1.7;
 }
 
+/* ---------- Custom MCP servers (设置 → MCP) ----------
+   Same table grammar as 资产测绘: one row per server, a state rail on the left,
+   and the long-lived details folded into an expandable block. The editor is the
+   only place a transport is described, so it stays a full-width form rather than
+   a modal. */
+.mcp-page {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	flex: none;
+}
+
+.mcp-page .hint {
+	display: block;
+	margin-top: 3px;
+	color: var(--dim);
+	font-size: 11.5px;
+	line-height: 1.55;
+}
+
+.mcp-page code {
+	padding: 1px 5px;
+	border-radius: 4px;
+	background: var(--raised);
+	font-family: var(--mono);
+	font-size: 11.5px;
+}
+
+.mcp-notice {
+	margin-bottom: 10px;
+	padding: 7px 12px;
+	border: 1px solid #f5dfb8;
+	border-radius: var(--radius);
+	background: var(--warn-dim);
+	color: #8a6116;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.mcp-notice b {
+	margin-right: 6px;
+}
+
+/* The permission switch is off: a different failure than a bad server, and the
+   only one the operator can fix on another page. */
+.mcp-notice.is-warn {
+	border-color: #f7cfcf;
+	background: var(--danger-dim);
+	color: #c0392b;
+}
+
+.mcp-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding-bottom: 12px;
+}
+
+.mcp-toolbar__stats {
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.mcp-toolbar__stats b {
+	color: var(--text-bright);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The count and its caveat read as one sentence, so the hint stays on the line. */
+.mcp-toolbar__stats .hint {
+	display: inline;
+	margin-top: 0;
+}
+
+.mcp-toolbar__spacer {
+	flex: 1;
+}
+
+/* Each row is its own grid, so the tracks are fixed: a track widened by its
+   content would desync the columns. */
+.mcp-table {
+	min-width: 1000px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.mcp-row {
+	display: grid;
+	grid-template-columns: minmax(220px, 1.6fr) 78px minmax(160px, 1fr) minmax(150px, 1fr) 200px;
+	align-items: center;
+	gap: 12px;
+	padding: 9px 14px;
+	font-size: 13px;
+}
+
+.mcp-row > * {
+	min-width: 0;
+}
+
+.mcp-row--head {
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.mcp-group {
+	position: relative;
+	border-top: 1px solid var(--border);
+}
+
+.mcp-group::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--disabled);
+}
+
+.mcp-group.is-ok::before {
+	background: var(--ok);
+}
+
+.mcp-group.is-bad::before {
+	background: var(--danger);
+}
+
+.mcp-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.mcp-name__text {
+	min-width: 0;
+}
+
+.mcp-name__title {
+	color: var(--text-bright);
+	font-weight: 500;
+	line-height: 1.35;
+}
+
+.mcp-name__target {
+	overflow: hidden;
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mcp-toggle {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	flex: none;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	color: var(--dim);
+	font-size: 11px;
+}
+
+.mcp-toggle::before {
+	content: "▸";
+}
+
+.mcp-toggle.open::before {
+	content: "▾";
+}
+
+.mcp-toggle:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--raised);
+	color: var(--accent);
+}
+
+.mcp-cell {
+	color: var(--dim);
+	font-size: 12.5px;
+	line-height: 1.45;
+	font-variant-numeric: tabular-nums;
+}
+
+.mcp-cell--nowrap {
+	white-space: nowrap;
+}
+
+.mcp-state {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.mcp-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 22px;
+	padding: 0 9px;
+	border-radius: 11px;
+	font-size: 11.5px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.mcp-pill::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.mcp-pill.is-ok {
+	background: var(--ok-dim);
+	color: #3d8b1f;
+}
+
+.mcp-pill.is-bad {
+	background: var(--danger-dim);
+	color: #c0392b;
+}
+
+.mcp-pill.is-off {
+	background: var(--raised);
+	color: var(--dim);
+}
+
+.mcp-switch {
+	position: relative;
+	display: inline-flex;
+	width: 34px;
+	height: 19px;
+	flex: none;
+	cursor: pointer;
+}
+
+.mcp-switch input {
+	position: absolute;
+	width: 0;
+	height: 0;
+	opacity: 0;
+}
+
+.mcp-switch > span {
+	flex: 1;
+	border-radius: 10px;
+	background: #dcdfe6;
+	transition: background 140ms;
+}
+
+.mcp-switch > span::after {
+	content: "";
+	position: absolute;
+	left: 2px;
+	top: 2px;
+	width: 15px;
+	height: 15px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px #0003;
+	transition: transform 140ms;
+}
+
+.mcp-switch input:checked + span {
+	background: var(--accent);
+}
+
+.mcp-switch input:checked + span::after {
+	transform: translateX(15px);
+}
+
+.mcp-switch input:disabled + span {
+	opacity: 0.5;
+}
+
+.mcp-ops {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.mcp-ops button {
+	padding: 3px 9px;
+	font-size: 12px;
+}
+
+.mcp-ops button.quiet {
+	border-color: transparent;
+	background: none;
+	color: var(--dim);
+}
+
+.mcp-ops button.quiet:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	color: var(--danger);
+}
+
+.mcp-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 14px 22px;
+	padding: 12px 14px 14px 46px;
+	border-top: 1px dashed var(--border);
+	background: var(--raised);
+	font-size: 12.5px;
+}
+
+.mcp-detail[hidden] {
+	display: none;
+}
+
+.mcp-detail__title {
+	margin: 10px 0 5px;
+	color: var(--dim);
+	font-size: 11.5px;
+}
+
+.mcp-detail__title:first-child {
+	margin-top: 0;
+}
+
+.mcp-note {
+	color: var(--dim);
+	line-height: 1.7;
+}
+
+.mcp-error {
+	padding: 8px 10px;
+	border: 1px solid #f7cfcf;
+	border-radius: var(--radius);
+	background: var(--danger-dim);
+	color: #c0392b;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	word-break: break-word;
+}
+
+.mcp-result {
+	margin-bottom: 10px;
+	padding: 7px 10px;
+	border-radius: var(--radius);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.mcp-result.is-ok {
+	background: var(--ok-dim);
+	color: #3d8b1f;
+}
+
+.mcp-result.is-bad {
+	background: var(--danger-dim);
+	color: #c0392b;
+}
+
+.mcp-result pre {
+	margin: 6px 0 0;
+	color: inherit;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	opacity: 0.85;
+}
+
+.mcp-result__note {
+	margin: 6px 0 0;
+	line-height: 1.6;
+	opacity: 0.9;
+}
+
+.mcp-editor {
+	margin-top: 18px;
+	padding: 14px 16px 16px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.mcp-editor .settings-section {
+	margin: 0 0 12px;
+	padding-top: 0;
+	border-top: 0;
+}
+
+.mcp-editor__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px 16px;
+}
+
+.mcp-editor label {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.mcp-editor__wide {
+	margin-top: 12px;
+}
+
+.mcp-editor input[type="text"],
+.mcp-editor input:not([type]),
+.mcp-editor select,
+.mcp-editor textarea {
+	width: 100%;
+	padding: 7px 9px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12.5px;
+}
+
+.mcp-editor textarea {
+	resize: vertical;
+	line-height: 1.6;
+}
+
+.mcp-editor input:focus,
+.mcp-editor select:focus,
+.mcp-editor textarea:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+/* The one checkbox that carries a consequence, so it is a row of its own rather
+   than a field label. */
+.mcp-editor__ack {
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+	color: var(--text);
+	font-size: 12.5px;
+	line-height: 1.6;
+}
+
+.mcp-editor__ack input {
+	flex: none;
+}
+
+.mcp-editor__actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.mcp-footnote {
+	margin: 12px 0 0;
+	color: var(--dim);
+	font-size: 12px;
+	line-height: 1.7;
+}
+
+.mcp-editor .mcp-footnote {
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
 /* ---------- Login screen (鉴权) ----------
    Standalone dark page per the reference layout: brand visual on the left, the
    form on the right. It renders outside the console shell, so it carries its

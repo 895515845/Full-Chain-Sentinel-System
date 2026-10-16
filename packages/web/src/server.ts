@@ -795,6 +795,7 @@ export async function startSentinelServer(
 		if (agentDir) sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
 		if (agentDir) sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 		if (agentDir) sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
+		if (agentDir) sendTo(socket, { type: "mcp_servers", config: runtime.getMcpServers() });
 	});
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -1172,6 +1173,40 @@ export async function startSentinelServer(
 					sendTo(socket, {
 						type: "asset_test_result",
 						platform: message.platform,
+						result,
+					} satisfies SentinelServerMessage);
+					return;
+				}
+				case "get_mcp_servers":
+					sendTo(socket, { type: "mcp_servers", config: runtime.getMcpServers() });
+					return;
+				case "save_mcp_server": {
+					// Saving rebuilds the live sessions, so the set of connected servers
+					// changes with the form. A running session refuses it.
+					try {
+						const config = await runtime.saveMcpServer(message.server);
+						broadcast({ type: "mcp_servers", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "delete_mcp_server": {
+					try {
+						const config = await runtime.deleteMcpServer(message.name);
+						broadcast({ type: "mcp_servers", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "test_mcp_server": {
+					// A probe writes nothing but the status line, so no rebuild follows.
+					const result = await runtime.testMcpServer(message.name, message.draft);
+					broadcast({ type: "mcp_servers", config: runtime.getMcpServers() });
+					sendTo(socket, {
+						type: "mcp_test_result",
+						name: message.name,
 						result,
 					} satisfies SentinelServerMessage);
 					return;
