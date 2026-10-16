@@ -95,7 +95,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import type { McpHttpServerConfig } from "../../core/mcp-servers.ts";
+import type { McpHttpServerConfig, McpSseServerConfig } from "../../core/mcp-servers.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
 	defaultModelPerProvider,
@@ -6389,7 +6389,9 @@ export class InteractiveMode {
 
 		let name = existing?.name ?? "radius";
 		if (!existing && servers.some((server) => server.name === name)) name = "radius-mcp";
-		const config: McpHttpServerConfig =
+		// Either url transport: the entry is found by URL, and SSE and streamable HTTP share every
+		// field this flow touches, so reusing the existing entry keeps its transport.
+		const config: McpHttpServerConfig | McpSseServerConfig =
 			existing && "url" in existing.config
 				? { ...existing.config, auth: { provider: providerId } }
 				: { url: RADIUS_MCP_URL, auth: { provider: providerId } };

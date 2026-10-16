@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `SseTransport`, the MCP 2024-11-05 HTTP+SSE transport: it opens one long-lived `GET` event stream, takes the message endpoint from the server's first `endpoint` event (absolute or relative, `http`/`https` only), POSTs JSON-RPC there, and reads replies from the stream. It reuses `consumeSseStream()` for framing, reconnects a dropped stream with the same backoff as `StreamableHttpTransport` while re-reading the endpoint, reports a 401 as `McpAuthRequiredError` so the existing OAuth flow applies, and bounds every read. The current spec replaced this transport with streamable HTTP; it is here for servers that only speak the old one
+
 ## [1.1.0] - 2026-10-07
 
 ### Added

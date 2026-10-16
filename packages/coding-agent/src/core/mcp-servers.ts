@@ -147,7 +147,27 @@ export interface McpHttpServerConfig extends McpServerConfigBase {
 	auth?: { provider: string };
 }
 
-export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig;
+/**
+ * The MCP 2024-11-05 HTTP+SSE transport, which the current spec replaced with streamable HTTP.
+ *
+ * Identical in every field to `McpHttpServerConfig`; only the transport differs, so OAuth, headers,
+ * `auth.provider`, timeouts, and exposure all apply the same way. `type` is required here so that
+ * `config.type === "sse"` distinguishes the two url transports.
+ */
+export interface McpSseServerConfig extends McpServerConfigBase {
+	type: "sse";
+	url: string;
+	/** Values may reference environment variables (`${NAME}`) or commands (`!cmd`). */
+	headers?: Record<string, string>;
+	oauth?: McpOAuthConfig;
+	/**
+	 * Send the token of a pi provider (`/login <provider>`) instead of using OAuth. Not allowed in project
+	 * `mcp.json` files, and requires https except on loopback hosts, since it sends the credential to `url`.
+	 */
+	auth?: { provider: string };
+}
+
+export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig;
 
 const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -267,9 +287,10 @@ export function validateMcpServerConfig(name: string, raw: unknown): McpServerCo
 	if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) {
 		return `server "${name}": timeout must be a positive number of seconds`;
 	}
-	if (type === "sse") return `server "${name}": legacy SSE transport is not supported; use the streamable HTTP URL`;
-
-	if (typeof value.url === "string" && (type === undefined || type === "http" || type === "streamable-http")) {
+	if (
+		typeof value.url === "string" &&
+		(type === undefined || type === "http" || type === "streamable-http" || type === "sse")
+	) {
 		if (!URL.canParse(value.url) || !/^https?:$/.test(new URL(value.url).protocol)) {
 			return `server "${name}": url must be an http or https URL`;
 		}
@@ -287,7 +308,7 @@ export function validateMcpServerConfig(name: string, raw: unknown): McpServerCo
 				return `server "${name}": auth requires an https URL, or http on localhost, 127.0.0.1, or [::1]`;
 			}
 		}
-		return value as unknown as McpHttpServerConfig;
+		return value as unknown as McpHttpServerConfig | McpSseServerConfig;
 	}
 	if (typeof value.command === "string" && (type === undefined || type === "stdio")) {
 		if (

@@ -55,6 +55,7 @@ export {
 	type ToolAnnotations,
 	type ToolExecution,
 } from "./protocol/types.ts";
+export { type SseReconnectOptions, SseTransport, type SseTransportOptions } from "./transports/sse.ts";
 export { StdioTransport, type StdioTransportOptions } from "./transports/stdio.ts";
 export {
 	McpAuthRequiredError,

@@ -1,14 +1,17 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	isJsonRpcRequest,
 	type JsonRpcMessage,
 	LATEST_PROTOCOL_VERSION,
 	McpAuthRequiredError,
 	McpHttpError,
 	McpSessionExpiredError,
+	SseTransport,
+	StreamableHttpTransport,
 } from "@earendil-works/pi-mcp";
 import { createInMemoryTransportPair, type InMemoryTransport } from "@earendil-works/pi-mcp/testing";
 import { afterEach, describe, expect, it } from "vitest";
@@ -73,16 +76,33 @@ describe("MCP config", () => {
 			["shared", "project", { command: "project-cmd", exposure: "direct" }],
 			["remote", "global", { url: "https://example.com/mcp", headers: { Authorization: TOKEN_HEADER } }],
 			["off", "global", { command: "x", enabled: false }],
+			// The legacy HTTP+SSE transport is kept and reaches the SSE transport.
+			["legacy", "global", { type: "sse", url: "https://example.com/sse" }],
 		]);
-		expect(trusted.errors).toHaveLength(4);
+		expect(trusted.errors).toHaveLength(3);
 		expect(trusted.errors[0]).toContain('server "bad" needs either "command"');
-		expect(trusted.errors[1]).toContain("legacy SSE transport is not supported");
-		expect(trusted.errors[2]).toContain('server "badUrl": url must be an http or https URL');
-		expect(trusted.errors[3]).toContain('invalid server name "bad name"');
+		expect(trusted.errors[1]).toContain('server "badUrl": url must be an http or https URL');
+		expect(trusted.errors[2]).toContain('invalid server name "bad name"');
 
 		// Untrusted projects cannot add or override servers, since stdio servers run commands.
 		const untrusted = loadMcpConfig({ ...paths, projectTrusted: false });
 		expect(untrusted.servers.find((server) => server.name === "shared")?.config).toEqual({ command: "global-cmd" });
+	});
+
+	it("builds the SSE transport for an sse config and streamable HTTP otherwise", () => {
+		const paths = setup({}, {});
+		const entry = (config: McpServerEntry["config"]): McpServerEntry => ({
+			name: "x",
+			config,
+			source: join(paths.agentDir, "mcp.json"),
+			scope: "global",
+		});
+		expect(
+			createDefaultTransport(entry({ type: "sse", url: "https://example.com/sse" }), paths.cwd, undefined),
+		).toBeInstanceOf(SseTransport);
+		expect(createDefaultTransport(entry({ url: "https://example.com/mcp" }), paths.cwd, undefined)).toBeInstanceOf(
+			StreamableHttpTransport,
+		);
 	});
 
 	// #10277
@@ -697,6 +717,59 @@ for await (const line of createInterface({ input: process.stdin })) {
 			expect(authorizations).toEqual(["Bearer tok"]);
 		} finally {
 			await connection.close();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+
+	it("connects to a legacy HTTP+SSE server and lists its tools", async () => {
+		let origin = "";
+		let stream: ServerResponse | undefined;
+		const server = createServer((request, response) => {
+			if (request.method === "GET") {
+				response.writeHead(200, { "content-type": "text/event-stream" });
+				stream = response;
+				// The server names where JSON-RPC messages go, which is the whole difference from
+				// streamable HTTP: nothing is POSTed to the URL that opened this stream.
+				response.write(`event: endpoint\ndata: ${origin}/message?sessionId=abc\n\n`);
+				return;
+			}
+			let body = "";
+			request.on("data", (chunk) => {
+				body += chunk;
+			});
+			request.on("end", () => {
+				response.writeHead(202).end();
+				const message = JSON.parse(body) as JsonRpcMessage;
+				if (!isJsonRpcRequest(message)) return;
+				const result =
+					message.method === "initialize"
+						? {
+								protocolVersion: LATEST_PROTOCOL_VERSION,
+								capabilities: { tools: {} },
+								serverInfo: { name: "legacy", version: "1.0.0" },
+							}
+						: message.method === "tools/list"
+							? { tools: [{ name: "legacy_tool", inputSchema: { type: "object" } }] }
+							: {};
+				stream?.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n\n`);
+			});
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+		const connection = new McpServerConnection({
+			entry: { name: "legacy", config: { type: "sse", url: `${origin}/sse` }, source: "test" },
+			cwd: process.cwd(),
+			createTransport: createDefaultTransport,
+			credentials: new McpOAuthCredentialStore(new InMemoryAuthStorageBackend()),
+			onTools: () => {},
+		});
+		try {
+			await connection.getClient();
+			expect(connection.state).toBe("connected");
+			expect(connection.tools.map((tool) => tool.name)).toEqual(["legacy_tool"]);
+		} finally {
+			await connection.close();
+			stream?.end();
 			await new Promise((resolve) => server.close(resolve));
 		}
 	});

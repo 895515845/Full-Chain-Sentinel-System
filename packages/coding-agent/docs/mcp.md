@@ -1,6 +1,6 @@
 # MCP Servers
 
-Pi connects to [Model Context Protocol](https://modelcontextprotocol.io) servers over stdio or streamable HTTP and makes their tools and resources available to the model.
+Pi connects to [Model Context Protocol](https://modelcontextprotocol.io) servers over stdio, streamable HTTP, or the legacy HTTP+SSE transport, and makes their tools and resources available to the model.
 
 ## Quick setup
 
@@ -61,7 +61,7 @@ The format matches other MCP clients:
 
 Stdio servers use `command`, `args`, `env`, and `cwd`. Relative `cwd` values resolve against the session directory. A leading `~/` in `command`, an argument, or `cwd` names the home directory.
 
-HTTP servers use `url`, `headers`, and `oauth` (see [Authenticate with OAuth](#authenticate-with-oauth)). The legacy SSE transport is not supported.
+HTTP servers use `url`, `headers`, and `oauth` (see [Authenticate with OAuth](#authenticate-with-oauth)). With `"type": "sse"` the same fields drive the legacy HTTP+SSE transport instead: Pi opens an SSE stream, takes the message endpoint from the server's first `endpoint` event, and reads replies from that stream. Prefer streamable HTTP when the server offers it.
 
 Both server types support:
 
@@ -75,8 +75,8 @@ Keep personal servers and servers with credentials in the user-level file. Use t
 ### Configuration rules
 
 - Server names may contain only letters, digits, `_`, and `-`. Tools are named `mcp__<server>__<tool>`, with every character other than letters, digits, and `_` replaced by `_`; tools of a server whose names then collide all get a hash suffix. Server names that differ only in `-` and `_` count as the same server: a second one is rejected, and a `mcp.json` server overrides a registered one.
-- `type` is optional. A `command` selects stdio and a `url` selects streamable HTTP. When present, `type` must be `stdio`, `http`, or `streamable-http`.
-- `sse` is rejected. Servers that document an SSE endpoint often also provide streamable HTTP, commonly at `/mcp` instead of `/sse`.
+- `type` is optional. A `command` selects stdio and a `url` selects streamable HTTP. When present, `type` must be `stdio`, `http`, `streamable-http`, or `sse`.
+- `sse` selects the legacy HTTP+SSE transport, which the MCP 2024-11-05 revision defined and the current one replaced. Servers that document an SSE endpoint often also provide streamable HTTP, commonly at `/mcp` instead of `/sse`; use that when it exists.
 - `command` is one executable and `args` contains its arguments. It is not a shell command string.
 - `env` and `headers` values can use environment variables such as `${GITHUB_TOKEN}`. They can also run a command with `!command`, but the command must make up the whole value, for example `"Authorization": "!echo Bearer $(gh auth token)"`.
 - Invalid entries are reported and skipped without preventing other servers from connecting.

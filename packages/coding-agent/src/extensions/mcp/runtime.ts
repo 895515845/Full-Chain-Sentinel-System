@@ -25,6 +25,7 @@ import {
 	type ReadResourceResult,
 	type Resource,
 	type ResourceTemplate,
+	SseTransport,
 	StdioTransport,
 	StreamableHttpTransport,
 } from "@earendil-works/pi-mcp";
@@ -102,11 +103,13 @@ export function createDefaultTransport(
 ): McpTransport {
 	const { config, name } = entry;
 	if ("url" in config) {
-		return new StreamableHttpTransport({
+		const options = {
 			url: config.url,
 			headers: resolveHeadersOrThrow(config.headers, `MCP server "${name}"`),
 			authProvider,
-		});
+		};
+		// The two url transports differ only in how they are driven; every other field is shared.
+		return config.type === "sse" ? new SseTransport(options) : new StreamableHttpTransport(options);
 	}
 	const env: Record<string, string> = {};
 	for (const [key, value] of Object.entries(config.env ?? {})) {

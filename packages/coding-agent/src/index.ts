@@ -221,6 +221,7 @@ export {
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
 export type { RegisteredMcpServer } from "./core/mcp-servers.ts";
+export { mcpNamespace, validateMcpServerConfig } from "./core/mcp-servers.ts";
 export { convertToLlm } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export {
@@ -416,6 +417,7 @@ export type { CodemodeStoreEntryData, CodemodeToolDetails } from "./extensions/c
 export { createLoopGuardExtension, LOOP_GUARD_CUSTOM_TYPE } from "./extensions/loop-guard/index.ts";
 export type { LoadedMcpConfig, McpExposure, McpServerConfig, McpServerEntry } from "./extensions/mcp/config.ts";
 export { createMcpExtension, type McpExtensionOptions, type McpTransportFactory } from "./extensions/mcp/index.ts";
+export { type McpProbeOptions, type McpProbeResult, probeMcpServer } from "./extensions/mcp/probe.ts";
 export { createToolSearchExtension } from "./extensions/tool-search/index.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
