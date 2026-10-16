@@ -1,6 +1,6 @@
 # 全链哨兵 Full Chain Sentinel System
 
-基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带中文 Web 控制台与容器化作业环境。
+知攻善防实验室，基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带中文 Web 控制台与容器化作业环境。
 
 ## 授权使用声明
 
@@ -135,3 +135,78 @@ docker build -t sentinel:latest docker/
 - 上游仓库：https://github.com/earendil-works/pi
 - 本项目新增部分的版权归本项目作者，同样以 MIT 发布。
 - 例外：[packages/coding-agent/examples/extensions/doom-overlay/doom/](packages/coding-agent/examples/extensions/doom-overlay/doom/) 是 GPLv2 的 DOOM 编译产物及其对应源码，不属于 MIT，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 何为全链路？
+
+渗透测试场景在安全服务工作中，通常分为三种
+1.Web 渗透 2.微信小程序渗透 3.APP 渗透
+至此，我们全链路打通，一个平台畅游所有任务
+三端是怎么打通的呢？
+我们要知道我们渗透测试测的是什么？很多人都不明白道理，我们渗透测试过程，90% 的针对服务器后端进行测试的，后端想给我们前端展示，所以想打通三端也只是不同载体的问题。
+比如 
+Web 前端载体就是浏览器，
+微信小程序的前端载体就是微信小程序容器
+APP 的前端载体就是一些 UI 框架
+所以，本质上 Web、小程序、APP，都是一样的。
+
+## 使用
+
+
+<img width="1080" height="594" alt="image" src="https://github.com/user-attachments/assets/d724fa14-4220-4086-a0aa-470615ec476b" />
+
+简单说几个场景怎么用吧，
+1.Web 测试
+直接输入框使用即可
+2.微信小程序
+选择预设 Agent 然后自己在 Tscan 这类工具中把微信小程序反编译，点击左下角“附件”上传即可。
+3.APP
+在左侧安卓设备中配置好你的安卓机器，然后在你的安卓里面安装好对应 APP，然后在对话框中选择“安卓”即可
+因为本人想法是更少的工具和上下文，所以，你如果不开“安卓”这个按钮的话，他是不会插入安卓相关的工具调用的、也不会插入相关 prompt 
+
+## 关于安卓配置
+
+你需要有一台 root 后的设备（虚拟机亦可），并且安装配套的 app 即可
+
+<img width="1080" height="592" alt="image" src="https://github.com/user-attachments/assets/f5814373-cbff-4af7-81eb-784b00827dae" />
+
+
+关于手机 root，这里就不再讲解，有兴趣可以去酷安社区逛逛,安卓机为反连主平台，所以你可以将主程序部署在公网服务器。
+
+<img width="1024" height="1896" alt="image" src="https://github.com/user-attachments/assets/a7200b6d-dd2b-4eda-b6a1-6f116a4a7fc9" />
+
+## 工程模式 
+
+适用于批量测试环节，指挥官架构，适用于多任务指挥，这个还是测试阶段，自行玩一玩吧。
+
+<img width="1080" height="590" alt="image" src="https://github.com/user-attachments/assets/70fe4ad5-2d8c-4887-8bad-4d5991a1ca3e" />
+
+## 守门审计
+
+建议在设置->模型里面再配置一个小模型，比如 qwen,Hook所有 Bash 调用过程，建议用千问的 API 按量付费，不可以用 CodingPlan 模型，因为 CodingPlan 会有速率限制。
+
+https://www.qianwenai.com/models/qwen-flash
+
+采用小模型监管大模型，最大程度上尽量避免对生产环境造成影响。
+
+<img width="1080" height="586" alt="image" src="https://github.com/user-attachments/assets/fd3e597e-b32a-44a9-8572-657503bddedd" />
+
+## 关于 POC 订阅
+
+你可以做一些自己的 Nuclei 的 POC 订阅服务，放进“设置->POC订阅”里面，这种应用场景主要是打 nday ，本来没打算加 Nuclei 固定 POC 的功能的，但是考虑到像 jeecg boot 、若依这种开发框架，的 api 路由自定义功能，还是加了吧。
+
+你只需要在你的远程服务器上定时的把Nuclei 的所有 POC 打包成 zip，然后远程同步即可。
+
+也可以直接同步 Nuclei 官方的 POC
+
+<img width="1080" height="588" alt="image" src="https://github.com/user-attachments/assets/2119c330-7c49-4237-ae5b-50799f666ac5" />
+
+
+## 全链哨兵交流群
+
+加群的，一定要在“打招呼内容”备注“全链哨兵”。
+
+<img width="1080" height="1370" alt="image" src="https://github.com/user-attachments/assets/d77acb04-87f9-4222-8a82-ebe929dbc161" />
+
+<img width="1080" height="523" alt="image" src="https://github.com/user-attachments/assets/e74a6db0-0e88-4b24-9a2c-d5de4c55d1a8" />
+
+
