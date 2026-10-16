@@ -83,6 +83,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },
 	{ page: "settings.pocs", label: "POC 订阅", icon: PocIcon },
 	{ page: "settings.assets", label: "资产测绘", icon: AssetIcon },
+	{ page: "settings.websearch", label: "Web 搜索", icon: AssetIcon },
 	{ page: "settings.mcp", label: "MCP", icon: McpIcon },
 	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },

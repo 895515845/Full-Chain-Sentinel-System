@@ -1082,6 +1082,13 @@ export type SentinelClientMessage =
 	 * so a key can be verified before it is written.
 	 */
 	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "get_websearch_config" }
+	/** Add or update one pool key; the key material is write-only. */
+	| { type: "save_websearch_key"; key: SentinelWebSearchKeyInput }
+	| { type: "delete_websearch_key"; id: string }
+	| { type: "set_websearch_query_limit"; limit: number }
+	/** Probe one pool key without saving; `key` overrides the stored secret. */
+	| { type: "test_websearch_key"; id?: string; key?: string }
 	| { type: "get_mcp_servers" }
 	/** Add or replace one custom MCP server. The name is the identity; renaming is delete + add. */
 	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
@@ -1238,6 +1245,8 @@ export type SentinelServerMessage =
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
 	| { type: "asset_config"; config: SentinelAssetConfigView }
 	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
+	| { type: "websearch_config"; config: SentinelWebSearchConfigView }
+	| { type: "websearch_test_result"; result: SentinelTestResult }
 	| { type: "mcp_servers"; config: SentinelMcpConfigView }
 	| { type: "mcp_test_result"; name: string; result: SentinelMcpTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
@@ -1378,6 +1387,39 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+}
+
+/**
+ * Web-search (Tavily) key-pool configuration. Unlike the asset platforms, the
+ * pool holds many keys of one provider and rotates them by remaining credits,
+ * so the view is a list rather than a fixed platform row.
+ */
+export interface SentinelWebSearchKeyView {
+	id: string;
+	label: string;
+	enabled: boolean;
+	hasKey: boolean;
+	verified: boolean;
+	status: SentinelAssetStatus;
+	/** Last 4 characters of the stored key, so rows can be told apart. */
+	tail?: string;
+	/** Credits left and the cap they relate to, when a usage probe has run. */
+	usage?: { remaining: number | null; limit: number | null };
+}
+
+export interface SentinelWebSearchConfigView {
+	keys: SentinelWebSearchKeyView[];
+	sessionQueryLimit: number;
+	usable: number;
+}
+
+/** Add or update one pool key. An absent id adds; a replaced key un-verifies it. */
+export interface SentinelWebSearchKeyInput {
+	id?: string;
+	label: string;
+	/** null keeps the stored secret; omitted on add is an error. */
+	key?: string | null;
+	enabled: boolean;
 }
 
 /**

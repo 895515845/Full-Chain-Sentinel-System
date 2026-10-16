@@ -47,6 +47,7 @@ function config(mcp: boolean): SentinelPermissionsConfig {
 		vuln_read: true,
 		poc_read: true,
 		asset_read: true,
+		web_search: true,
 	};
 	return { main: { ...set }, subagent: { ...set }, commander: { bash: true, read: true }, subagentMaxTurns: 40 };
 }

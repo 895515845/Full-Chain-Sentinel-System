@@ -7587,6 +7587,82 @@ button.link {
 	color: var(--dim);
 }
 
+/* The add-a-key row on the Web 搜索 panel: same box as the per-row key input,
+   with the label fixed-width and the key taking the remaining space. */
+.websearch-add-input {
+	height: 30px;
+	padding: 0 9px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.websearch-add-input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.websearch-add-input--label {
+	width: 160px;
+	flex: none;
+}
+
+.websearch-add-input--key {
+	flex: 1;
+	min-width: 240px;
+}
+
+/* Web 搜索（方案 A）行网格：Key / 状态 / 剩余额度 / 最近调用 / 操作，五列。 */
+.websearch-row {
+	grid-template-columns:
+		minmax(170px, 1.2fr) 148px minmax(200px, 1.2fr) minmax(130px, 0.9fr)
+		200px;
+}
+
+.websearch-quota {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.websearch-meter {
+	display: block;
+	flex: none;
+	width: 120px;
+	height: 6px;
+	border-radius: 4px;
+	background: #ececea;
+	overflow: hidden;
+}
+
+.websearch-meter i {
+	display: block;
+	height: 100%;
+	border-radius: 4px;
+	background: var(--ok);
+}
+
+.websearch-meter.is-low i {
+	background: var(--warn, #b8860b);
+}
+
+.websearch-meter.is-empty i {
+	background: var(--bad, #c0392b);
+}
+
+.websearch-quota__num {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .asset-limit input {
 	width: 62px;
 	height: 30px;

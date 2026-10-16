@@ -50,6 +50,12 @@ const SWITCHES: { key: SentinelPermissionKey; label: string; hint: string; subag
 		hint: "检索 POC 库（只读参考：模板不进容器，要执行需自己写 yaml 后用 bash 跑 nuclei）",
 		subagent: true,
 	},
+	{
+		key: "web_search",
+		label: "web_search / web_extract",
+		hint: "用 Tavily 号池做公网 Web 搜索与页面抓取（设置 → Web 搜索 管理 Key，按剩余额度自动轮换）",
+		subagent: true,
+	},
 ];
 
 const SUBAGENT_SWITCHES = SWITCHES.filter((item) => item.subagent);

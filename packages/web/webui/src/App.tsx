@@ -18,6 +18,7 @@ import { GoalBar } from "./components/GoalBar.tsx";
 import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
 import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
 import { AssetPanel } from "./components/AssetPanel.tsx";
+import { WebSearchPanel } from "./components/WebSearchPanel.tsx";
 import { McpPanel } from "./components/McpPanel.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
@@ -47,6 +48,7 @@ import type {
 	SentinelApiModelFilters,
 	SentinelApiModelSummary,
 	SentinelAssetConfigView,
+	SentinelWebSearchConfigView,
 	SentinelAssetPlatform,
 	SentinelClientMessage,
 	SentinelDoctrineView,
@@ -194,6 +196,9 @@ export function App() {
 	const [notifyStatus, setNotifyStatus] = useState<SentinelNotifyStatus>({ at: null, ok: true });
 	const [assetConfig, setAssetConfig] = useState<SentinelAssetConfigView | null>(null);
 	const [assetBusy, setAssetBusy] = useState(false);
+	const [webSearchConfig, setWebSearchConfig] = useState<SentinelWebSearchConfigView | null>(null);
+	const [webSearchBusy, setWebSearchBusy] = useState(false);
+	const webSearchTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const [mcpConfig, setMcpConfig] = useState<SentinelMcpConfigView | null>(null);
 	const [mcpBusy, setMcpBusy] = useState(false);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
@@ -448,6 +453,17 @@ export function App() {
 				case "asset_config":
 					setAssetConfig(message.config);
 					setAssetBusy(false);
+					break;
+				case "websearch_config":
+					setWebSearchConfig(message.config);
+					setWebSearchBusy(false);
+					break;
+				case "websearch_test_result":
+					if (webSearchTestResolverRef.current) {
+						const resolve = webSearchTestResolverRef.current;
+						webSearchTestResolverRef.current = null;
+						resolve(message.result);
+					}
 					break;
 				case "asset_test_result":
 					if (assetTestResolverRef.current) {
@@ -1133,6 +1149,10 @@ export function App() {
 			case "settings.assets":
 				// The server also pushes this on connect; this refreshes on navigation.
 				send({ type: "get_asset_config" });
+				break;
+			case "settings.websearch":
+				// The server also pushes this on connect; this refreshes on navigation.
+				send({ type: "get_websearch_config" });
 				break;
 			case "settings.presets":
 				send({ type: "list_presets" });
@@ -2171,6 +2191,58 @@ export function App() {
 								) : (
 									<div className="ws-empty">
 										<span>正在读取资产测绘配置…</span>
+									</div>
+								)}
+							</div>
+						</div>
+					) : page === "settings.websearch" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										Web 搜索（Tavily）
+										{webSearchConfig ? ` · 号池 ${webSearchConfig.usable} 个 Key 可用` : ""}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								{webSearchConfig ? (
+									<WebSearchPanel
+										config={webSearchConfig}
+										busy={webSearchBusy}
+										onSave={(key) => {
+											setWebSearchBusy(true);
+											send({ type: "save_websearch_key", key });
+											window.setTimeout(() => setWebSearchBusy(false), 40000);
+										}}
+										onDelete={(id) => {
+											setWebSearchBusy(true);
+											send({ type: "delete_websearch_key", id });
+											window.setTimeout(() => setWebSearchBusy(false), 40000);
+										}}
+										onSaveLimit={(limit) => {
+											setWebSearchBusy(true);
+											send({ type: "set_websearch_query_limit", limit });
+											window.setTimeout(() => setWebSearchBusy(false), 40000);
+										}}
+										onTest={async (id?: string, key?: string) => {
+											const result = await new Promise<SentinelTestResult | null>((resolve) => {
+												webSearchTestResolverRef.current = resolve;
+												connectionRef.current?.send({ type: "test_websearch_key", id, key });
+												window.setTimeout(() => {
+													if (webSearchTestResolverRef.current === resolve) {
+														webSearchTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 40000);
+											});
+											return result;
+										}}
+									/>
+								) : (
+									<div className="ws-empty">
+										<span>正在读取 Web 搜索配置…</span>
 									</div>
 								)}
 							</div>

@@ -23,6 +23,7 @@
 - **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
 - **安卓设备插件**：root 测试机安装自研 DroidBridge APK 主动反连，提供 shell、文件上下行、截屏、logcat、tcpdump 抓包、frida 动态调试与 APK 静态分析。
 - **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门员判定。
+- **Web 搜索插件**（设置 → Web 搜索）：接入 **Tavily**，Agent 用 `web_search`（公网搜索）与 `web_extract`（页面正文抓取）做目标情报收集（泄露文档、公开报告、技术文章）。支持多 Key 号池，控制台按各 Key 剩余额度自动轮换，额度耗尽自动切换；查询流水入 `websearch.db`，原始响应落项目 `evidence/search/`。只有「权限 → Web 搜索」开关打开且号池里有已验证的 Key 时才会挂载工具；密钥明文存本机 `websearch.json`（0600），不进容器、不进 bash 审计。
 - **自定义 MCP 插件**（设置 → MCP）：在控制台里增删改查 MCP 服务器（`http`、`sse` 或 `stdio`）并逐个测试连接，工具以 `mcp__<服务器>__<工具>` 挂给 Agent，仍受「权限 → MCP」总开关约束，且该开关下可逐个服务器放开或关掉。配置由哨兵自己拥有（`mcp-servers.json`，0600），**不读 pi 原生的 `mcp.json`**，所以列表里没有的服务器 Agent 看不到。**stdio 服务器在控制台宿主机上直接执行**（不在容器内、不过 bash 审批），必须逐条勾选风险确认才能保存。
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
@@ -120,6 +121,7 @@ docker build -t sentinel:latest docker/
 - 容器以 root 运行，没有资源上限，也没有 cap-drop / seccomp / read-only；同一项目的所有会话与并发任务共用一个容器。
 - 控制台会加载项目目录下的 `settings.json`、`.pi/extensions`、`AGENTS.md`，且没有项目信任确认步骤——不要把来源不可信的工作目录设为项目。MCP 服务器不在此列：它们只来自「设置 → MCP」，项目目录里的 `.pi/mcp.json` 与配置目录里的 `mcp.json` 都不读。
 - **自定义 MCP 的 stdio 服务器在控制台宿主机上直接执行**：不在容器内，也不经过 bash 审批与守门模型，因此必须逐条勾选风险确认才能保存。需要 OAuth 登录的 HTTP 服务器请在终端执行 `sentinel mcp login`。
+- **Web 搜索会把搜索关键词与 API Key 发送给 Tavily**：请求在控制台进程里直接 HTTPS 发出，不过审批门、也不经过容器；搜索内容对 Tavily 可见。多 Key 明文存本机 `websearch.json`（权限 0600），前端不回显；流水与原始响应留在本机（`websearch.db` 与项目 `evidence/search/`）。
 - **资产测绘会把查询内容与 API Key 发送给第三方平台**（FOFA / 360 Quake / 奇安信 Hunter）：查询在控制台进程里直接 HTTPS 发出，不过审批门、也不经过容器，但目标域名、IP 等查询内容对这些平台可见。密钥明文存在本机配置目录的 `assets.json`（权限 0600），前端不回显；查询流水与原始响应留在本机（`assets.db` 与项目 `evidence/asset/`）。
 
 完整边界与配置见 [packages/web/README.md](packages/web/README.md#安全提示)。

@@ -219,6 +219,8 @@ import type {
 	SentinelVulnStats,
 	SentinelVulnSummary,
 	SentinelVulnUpdate,
+	SentinelWebSearchConfigView,
+	SentinelWebSearchKeyInput,
 } from "./protocol.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
 import { readSessionPreset, SESSION_PRESET_CUSTOM_TYPE } from "./session-preset.ts";
@@ -237,6 +239,23 @@ import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } f
 import { createVulnerabilityTools } from "./vuln-tool.ts";
 import { emptyVulnStats, VulnerabilityStore, vulnerabilityDbPath } from "./vulnerabilities.ts";
 import { buildVulnReport } from "./vulnerability-markdown.ts";
+import { probeTavilyKey, tavilyUsage, usageRemaining } from "./websearch.ts";
+import {
+	deleteWebSearchKey as deleteStoredWebSearchKey,
+	readWebSearchConfig,
+	recordWebSearchKeyStatus,
+	saveWebSearchKey,
+	usablePoolKeys,
+	webSearchConfigView,
+	setWebSearchQueryLimit as writeWebSearchQueryLimit,
+} from "./websearch-config.ts";
+import { WebSearchStore, websearchDbPath } from "./websearch-store.ts";
+import {
+	createWebSearchTools,
+	type WebSearchQueryReport,
+	type WebSearchToolContext,
+	writeWebSearchEvidence,
+} from "./websearch-tool.ts";
 
 export interface SentinelRuntimeHooks {
 	/** Events of the currently viewed session only. */
@@ -356,6 +375,8 @@ interface ManagedSession {
 	 * configured budget "per session" rather than "per process".
 	 */
 	assetQueries: number;
+	/** Web-search (Tavily) calls this session has made, shared with sub-agents. */
+	webQueries: number;
 }
 
 /** Extra wiring a task session needs beyond a console session. */
@@ -419,6 +440,9 @@ export class SentinelRuntime {
 	private readonly droids: DroidStore;
 	private readonly captures: CaptureStore;
 	private readonly assets: AssetStore;
+	private readonly webSearchLog: WebSearchStore;
+	/** Per-key usage cache: remaining credits at `at`; -1 marks a dead probe. */
+	private readonly webUsageCache = new Map<string, { at: number; remaining: number; limit: number | null }>();
 	/** Injected once the server has built the WS device gateway (see server.ts). */
 	private droidGateway: DroidGateway | undefined;
 	/** The device page's switch: off means the droid/apk tools are not mounted at all. */
@@ -468,6 +492,7 @@ export class SentinelRuntime {
 		this.droids = new DroidStore(droidDbPath(this.agentDir));
 		this.captures = new CaptureStore(capturesDbPath(this.agentDir));
 		this.assets = new AssetStore(assetsDbPath(this.agentDir));
+		this.webSearchLog = new WebSearchStore(websearchDbPath(this.agentDir));
 		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
@@ -645,6 +670,7 @@ export class SentinelRuntime {
 			// Attached records survive a restart the same way a run does.
 			modelingAttach: task ? undefined : (readModelingAttach(manager.getBranch()) ?? undefined),
 			assetQueries: 0,
+			webQueries: 0,
 		};
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
@@ -709,6 +735,9 @@ export class SentinelRuntime {
 		// model never sees a search engine it cannot use. Task sessions are left
 		// out, the same way the droid and modeling tools are.
 		const assetPlatforms = task || !permissions.asset_read ? [] : usablePlatforms(this.agentDir);
+		// Web search follows the same rule: the switch plus a usable pool key is
+		// what puts web_search/web_extract in the tool list at all.
+		const webSearchOn = !task && permissions.web_search && usablePoolKeys(this.agentDir).length > 0;
 		const customTools: ToolDefinition[] = [
 			// The agent names the conversation once the task is clear; task
 			// sessions keep their engine prefix so the sidebar badge holds.
@@ -740,6 +769,7 @@ export class SentinelRuntime {
 						this.createAssetToolContext(managed, () => "主代理"),
 					)
 				: []),
+			...(webSearchOn ? createWebSearchTools(this.createWebSearchToolContext(managed, () => "主代理")) : []),
 			// The modeling tools are declared on every console session — the operator
 			// may start modeling by asking for it instead of pressing the button — and
 			// they carry their own "only call this when asked" wording. Task sessions
@@ -812,6 +842,9 @@ export class SentinelRuntime {
 											assetPlatforms,
 											this.createAssetToolContext(managed, () => "子代理"),
 										)
+									: []),
+								...(subagentPermissions.web_search && webSearchOn
+									? createWebSearchTools(this.createWebSearchToolContext(managed, () => "子代理"))
 									: []),
 							],
 						}),
@@ -1502,6 +1535,237 @@ export class SentinelRuntime {
 	/** Asset-mapping queries a removed project takes with it. */
 	purgeProjectAssets(projectId: string): number {
 		return this.assets.purgeProject(projectId);
+	}
+
+	/** Web-search queries a removed project takes with it. */
+	purgeProjectWebSearch(projectId: string): number {
+		return this.webSearchLog.purgeProject(projectId);
+	}
+
+	// =========================================================================
+	// Web search (Tavily 号池插件)
+	// =========================================================================
+
+	/** The console's web-search pool. Keys are reported as has-key flags only. */
+	getWebSearchConfig(): SentinelWebSearchConfigView {
+		const view = webSearchConfigView(this.agentDir);
+		// Merge the usage cache into the view so the panel can draw meters without
+		// the browser calling Tavily itself; a stale (never probed) key has none.
+		return {
+			...view,
+			keys: view.keys.map((key) => {
+				const cached = this.webUsageCache.get(key.id);
+				if (!cached || cached.remaining < 0) return key;
+				return {
+					...key,
+					usage: {
+						remaining: cached.remaining === Number.POSITIVE_INFINITY ? null : cached.remaining,
+						limit: cached.limit,
+					},
+				};
+			}),
+		};
+	}
+
+	/** Add or update one pool key, probe it, and rebuild so the tool set follows. */
+	async saveWebSearchKey(input: SentinelWebSearchKeyInput): Promise<SentinelWebSearchConfigView> {
+		this.assertNoRunningSession("Web 搜索配置");
+		const config = saveWebSearchKey(this.agentDir, input);
+		const entry = config.keys.find((candidate) => candidate.id === input.id);
+		const target = entry ?? config.keys[config.keys.length - 1];
+		if (target?.enabled && target.key) {
+			const result = await this.probeWebSearchKey(target.id);
+			if (!result.ok) {
+				// A key that failed its save-time probe is disabled again: mounting an
+				// unusable key would make every call fail until someone noticed.
+				saveWebSearchKey(this.agentDir, { id: target.id, label: target.label, key: null, enabled: false });
+			}
+		}
+		this.webUsageCache.clear();
+		await this.rebuildSessions();
+		return this.getWebSearchConfig();
+	}
+
+	/** Remove one pool key and rebuild. */
+	async deleteWebSearchKey(id: string): Promise<SentinelWebSearchConfigView> {
+		this.assertNoRunningSession("Web 搜索配置");
+		deleteStoredWebSearchKey(this.agentDir, id);
+		this.webUsageCache.clear();
+		await this.rebuildSessions();
+		return this.getWebSearchConfig();
+	}
+
+	/** Change the per-session search budget and rebuild. */
+	async setWebSearchQueryLimit(limit: number): Promise<SentinelWebSearchConfigView> {
+		this.assertNoRunningSession("Web 搜索配置");
+		writeWebSearchQueryLimit(this.agentDir, limit);
+		await this.rebuildSessions();
+		return this.getWebSearchConfig();
+	}
+
+	/**
+	 * Probe one pool key without saving; `key` overrides the stored secret so a
+	 * draft can be checked first. The outcome is recorded on the key.
+	 */
+	async testWebSearchKey(id: string | undefined, key?: string): Promise<SentinelTestResult> {
+		const config = readWebSearchConfig(this.agentDir);
+		const entry = id ? config.keys.find((candidate) => candidate.id === id) : undefined;
+		const effective = key?.trim() ? key.trim() : entry?.key;
+		if (!effective) return { ok: false, message: "未提供 API Key" };
+		const label = entry?.label ?? "草稿 Key";
+		try {
+			const probe = await probeTavilyKey({ key: effective });
+			if (entry && !key?.trim()) {
+				const usage = probe.usage;
+				recordWebSearchKeyStatus(this.agentDir, entry.id, {
+					at: Date.now(),
+					ok: true,
+					...(usage
+						? {
+								quota: `套餐 ${usage.plan} · 已用 ${usage.planUsed}${usage.planLimit === null ? "" : ` / ${usage.planLimit}`}`,
+							}
+						: {}),
+				});
+			}
+			const before = this.webSearchPoolSignature();
+			const left = probe.usage ? usageRemaining(probe.usage) : null;
+			this.webUsageCache.set(entry?.id ?? "draft", {
+				at: Date.now(),
+				// Infinity reads as unlimited in the pick; the cache never stores null.
+				remaining: left === null ? Number.POSITIVE_INFINITY : left,
+				limit: probe.usage?.planLimit ?? probe.usage?.keyLimit ?? null,
+			});
+			if (this.webSearchPoolSignature() !== before) {
+				const running = [...this.sessions.values()].some((managed) => managed.session.isStreaming);
+				if (!running) await this.rebuildSessions();
+			}
+			return { ok: true, message: probe.message };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (entry && !key?.trim()) {
+				recordWebSearchKeyStatus(this.agentDir, entry.id, { at: Date.now(), ok: false, error: message });
+			}
+			return { ok: false, message: `${label}：${message}` };
+		}
+	}
+
+	/** Probe one stored key and record the outcome. */
+	private async probeWebSearchKey(id: string): Promise<SentinelTestResult> {
+		return this.testWebSearchKey(id);
+	}
+
+	/** Which stored keys currently serve the pool; a change means a rebuild. */
+	private webSearchPoolSignature(): string {
+		return usablePoolKeys(this.agentDir)
+			.map((entry) => entry.id)
+			.join(",");
+	}
+
+	/**
+	 * The tools' view of the key pool. Usages are cached for 60 seconds, so a
+	 * burst of searches does not spend a call on /usage every time; the pick is
+	 * serialized, so concurrent searches cannot grab the same "most remaining"
+	 * key simultaneously.
+	 */
+	private createWebSearchToolContext(managed: ManagedSession, source: () => string): WebSearchToolContext {
+		return {
+			pickKey: async (exclude: string[]) => {
+				await this.refreshWebUsageCache();
+				const candidates = usablePoolKeys(this.agentDir).filter((entry) => !exclude.includes(entry.id));
+				if (candidates.length === 0) {
+					return exclude.length > 0
+						? "号池中的 Key 额度已全部耗尽"
+						: "没有可用的 Tavily Key：先在「设置 - Web 搜索」添加并验证";
+				}
+				let best: { id: string; label: string; key: string; remaining: number } | undefined;
+				for (const entry of candidates) {
+					const cached = this.webUsageCache.get(entry.id);
+					const remaining = cached?.remaining ?? Number.POSITIVE_INFINITY;
+					if (!best || (remaining > best.remaining && best.remaining !== Number.POSITIVE_INFINITY)) {
+						best = { id: entry.id, label: entry.label, key: entry.key, remaining };
+					}
+				}
+				if (!best) return "没有可用的 Tavily Key";
+				return { id: best.id, label: best.label, key: best.key };
+			},
+			remaining: () => {
+				const limit = readWebSearchConfig(this.agentDir).sessionQueryLimit;
+				return limit === 0 ? null : Math.max(0, limit - managed.webQueries);
+			},
+			consume: () => {
+				const limit = readWebSearchConfig(this.agentDir).sessionQueryLimit;
+				if (limit !== 0 && managed.webQueries >= limit) return false;
+				managed.webQueries += 1;
+				return true;
+			},
+			saveEvidence: (name, raw) => writeWebSearchEvidence(this.cwd, name, raw),
+			report: (report) => this.recordWebSearchQuery(managed, source(), report),
+		};
+	}
+
+	/** Re-read any usage entry older than 60 seconds, newest data first as pick input. */
+	private async refreshWebUsageCache(): Promise<void> {
+		const now = Date.now();
+		const stale = usablePoolKeys(this.agentDir).filter(
+			(entry) => !this.webUsageCache.has(entry.id) || now - (this.webUsageCache.get(entry.id)?.at ?? 0) > 60_000,
+		);
+		if (stale.length === 0) return;
+		await Promise.all(
+			stale.map(async (entry) => {
+				try {
+					const usage = await tavilyUsage({ key: entry.key });
+					const left = usageRemaining(usage);
+					this.webUsageCache.set(entry.id, {
+						at: Date.now(),
+						remaining: left === null ? Number.POSITIVE_INFINITY : left,
+						limit: usage.planLimit ?? usage.keyLimit,
+					});
+					recordWebSearchKeyStatus(this.agentDir, entry.id, {
+						at: Date.now(),
+						ok: true,
+						quota: `套餐 ${usage.plan} · 已用 ${usage.planUsed}${usage.planLimit === null ? "" : ` / ${usage.planLimit}`}`,
+					});
+				} catch (error) {
+					// A key that stopped answering drops out of the pick until its status
+					// is refreshed by hand (测试) — a dead key must not be chosen.
+					this.webUsageCache.set(entry.id, { at: Date.now(), remaining: -1, limit: null });
+					recordWebSearchKeyStatus(this.agentDir, entry.id, {
+						at: Date.now(),
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}),
+		);
+	}
+
+	/**
+	 * Log one web-search call. Best-effort, like the asset log: the call already
+	 * happened, a bookkeeping failure must not turn it into a failed tool call.
+	 */
+	private recordWebSearchQuery(managed: ManagedSession, source: string, report: WebSearchQueryReport): void {
+		void source;
+		const projectId = this.activeProjectId;
+		if (!projectId) return;
+		const sessionId = managed.manager.getSessionId();
+		try {
+			this.webSearchLog.save({
+				projectId,
+				kind: report.kind,
+				query: report.query,
+				ok: report.ok,
+				latencyMs: report.latencyMs,
+				count: report.count,
+				...(report.error ? { error: report.error } : {}),
+				...(report.keyId ? { keyId: report.keyId } : {}),
+				...(sessionId ? { sessionId } : {}),
+				source,
+				...(report.evidencePath ? { evidencePath: report.evidencePath } : {}),
+				records: report.records,
+			});
+		} catch {
+			// The query happened and the agent saw the answer.
+		}
 	}
 
 	/**
@@ -3225,6 +3489,7 @@ export class SentinelRuntime {
 		this.droids.close();
 		this.captures.close();
 		this.assets.close();
+		this.webSearchLog.close();
 		this.subscriptions.stop();
 		this.gateStore.close();
 	}

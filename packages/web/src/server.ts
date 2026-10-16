@@ -795,6 +795,7 @@ export async function startSentinelServer(
 		if (agentDir) sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
 		if (agentDir) sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 		if (agentDir) sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
+		if (agentDir) sendTo(socket, { type: "websearch_config", config: runtime.getWebSearchConfig() });
 		if (agentDir) sendTo(socket, { type: "mcp_servers", config: runtime.getMcpServers() });
 	});
 
@@ -1177,6 +1178,49 @@ export async function startSentinelServer(
 					} satisfies SentinelServerMessage);
 					return;
 				}
+				case "get_websearch_config":
+					sendTo(socket, { type: "websearch_config", config: runtime.getWebSearchConfig() });
+					return;
+				case "save_websearch_key": {
+					// Saving also probes the key and rebuilds live sessions, so the tool
+					// set follows the pool. A running session refuses the change — but the
+					// config is broadcast either way, so the screen never shows a stale
+					// pool after a refused or half-applied save.
+					try {
+						const config = await runtime.saveWebSearchKey(message.key);
+						broadcast({ type: "websearch_config", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+						broadcast({ type: "websearch_config", config: runtime.getWebSearchConfig() });
+					}
+					return;
+				}
+				case "delete_websearch_key": {
+					try {
+						const config = await runtime.deleteWebSearchKey(message.id);
+						broadcast({ type: "websearch_config", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+						broadcast({ type: "websearch_config", config: runtime.getWebSearchConfig() });
+					}
+					return;
+				}
+				case "set_websearch_query_limit": {
+					try {
+						const config = await runtime.setWebSearchQueryLimit(message.limit);
+						broadcast({ type: "websearch_config", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+						broadcast({ type: "websearch_config", config: runtime.getWebSearchConfig() });
+					}
+					return;
+				}
+				case "test_websearch_key": {
+					const result = await runtime.testWebSearchKey(message.id, message.key);
+					broadcast({ type: "websearch_config", config: runtime.getWebSearchConfig() });
+					sendTo(socket, { type: "websearch_test_result", result } satisfies SentinelServerMessage);
+					return;
+				}
 				case "get_mcp_servers":
 					sendTo(socket, { type: "mcp_servers", config: runtime.getMcpServers() });
 					return;
@@ -1275,8 +1319,9 @@ export async function startSentinelServer(
 					const purgedModels = runtime.purgeProjectApiModels(message.id);
 					const purgedCaptures = runtime.purgeProjectCaptures(message.id);
 					const purgedAssets = runtime.purgeProjectAssets(message.id);
+					const purgedWebSearch = runtime.purgeProjectWebSearch(message.id);
 					console.error(
-						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录`,
+						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录、${purgedWebSearch} 条 Web 搜索记录`,
 					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.

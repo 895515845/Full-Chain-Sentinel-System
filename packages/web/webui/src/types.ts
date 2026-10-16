@@ -32,6 +32,7 @@ export type SentinelPageId =
 	| "settings.presets"
 	| "settings.pocs"
 	| "settings.assets"
+	| "settings.websearch"
 	| "settings.mcp"
 	| "about";
 
@@ -155,7 +156,9 @@ export type SentinelPermissionKey =
 	| "spawn_agent"
 	| "vuln_submit"
 	| "vuln_read"
-	| "poc_read";
+	| "poc_read"
+	| "asset_read"
+	| "web_search";
 
 /** The switches of one agent; a missing entry means "not allowed". */
 export type SentinelPermissionSet = Record<SentinelPermissionKey, boolean>;
@@ -920,6 +923,11 @@ export type SentinelClientMessage =
 	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
 	| { type: "set_asset_query_limit"; limit: number }
 	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "get_websearch_config" }
+	| { type: "save_websearch_key"; key: SentinelWebSearchKeyInput }
+	| { type: "delete_websearch_key"; id: string }
+	| { type: "set_websearch_query_limit"; limit: number }
+	| { type: "test_websearch_key"; id?: string; key?: string }
 	| { type: "get_mcp_servers" }
 	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
 	| { type: "delete_mcp_server"; name: string }
@@ -1045,6 +1053,8 @@ export type SentinelServerMessage =
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
 	| { type: "asset_config"; config: SentinelAssetConfigView }
 	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
+	| { type: "websearch_config"; config: SentinelWebSearchConfigView }
+	| { type: "websearch_test_result"; result: SentinelTestResult }
 	| { type: "mcp_servers"; config: SentinelMcpConfigView }
 	| { type: "mcp_test_result"; name: string; result: SentinelMcpTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
@@ -1153,6 +1163,36 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+}
+
+/** One Tavily pool key as the settings screen shows it; the key never leaves the host. */
+export interface SentinelWebSearchKeyView {
+	id: string;
+	label: string;
+	enabled: boolean;
+	hasKey: boolean;
+	verified: boolean;
+	status: SentinelAssetStatus;
+	/** Last 4 characters of the stored key, so rows can be told apart. */
+	tail?: string;
+	/** Credits left and the cap they relate to, when a usage probe has run. */
+	usage?: { remaining: number | null; limit: number | null };
+}
+
+export interface SentinelWebSearchConfigView {
+	keys: SentinelWebSearchKeyView[];
+	/** Queries one session may send; 0 means unlimited. */
+	sessionQueryLimit: number;
+	usable: number;
+}
+
+/** Add or update one pool key. An absent id adds; a replaced key un-verifies it. */
+export interface SentinelWebSearchKeyInput {
+	id?: string;
+	label: string;
+	/** null keeps the stored secret; omitted on add is an error. */
+	key?: string | null;
+	enabled: boolean;
 }
 
 /**
