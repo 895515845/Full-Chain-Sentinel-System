@@ -85,8 +85,10 @@ CLI 同样可用：
 ```bash
 ./test.sh                   # 全部非 e2e 测试
 npm run check               # biome + 依赖/导入/入口图检查 + tsc + webui + 浏览器冒烟
-npm run build:offline       # 全量构建，不联网、不重生成模型目录（CI 用的就是这条）
+npm run build:offline       # 全量构建，不联网、不重生成模型目录
 ```
+
+本仓库不跑 CI（只保留发布流程）：提交前请自己跑 `npm run check` 和 `./test.sh`。
 
 单测从包根目录跑：
 
@@ -94,7 +96,7 @@ npm run build:offline       # 全量构建，不联网、不重生成模型目�
 node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/<name>.test.ts
 ```
 
-`packages/ai/src/providers/data/` 是 `generate-models` 的产物，已固定在版本库里：模型 id 的类型联合体直接由它推导，CI 也用它做类型检查和测试，所以厂商轮换模型不会让 CI 变红。要更新目录时跑 `npm run generate:models`（需联网）并提交改动——刷新会改到 `.manifest.json` 的 `generatedAt` 时间戳，属正常。发布流程仍会实时刷新，发布产物里的目录是最新的。
+`packages/ai/src/providers/data/` 是 `generate-models` 的产物，已固定在版本库里：模型 id 的类型联合体直接由它推导，固定它之后 `tsc` 和测试不会随厂商轮换模型而漂移（全新克隆也能离线做类型检查）。要更新目录时跑 `npm run generate:models`（需联网）并提交改动——刷新会改到 `.manifest.json` 的 `generatedAt` 时间戳，属正常。发布流程仍会实时刷新，发布产物里的目录是最新的。
 
 作业容器：
 
