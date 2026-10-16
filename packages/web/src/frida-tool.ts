@@ -8,18 +8,26 @@
  * one for the same port) and run the CLI inside the container.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execInContainer } from "./docker.ts";
 import type { DroidToolContext } from "./droid-tool.ts";
-import { builtinScript, builtinScriptNames } from "./frida-scripts.ts";
+import { builtinScriptNames, resolveBuiltinScript, scriptBanner } from "./frida-scripts.ts";
 
-export const FRIDA_TOOL_NAMES: readonly string[] = ["droid_frida_setup", "droid_frida_ps", "droid_frida"];
+export const FRIDA_TOOL_NAMES: readonly string[] = [
+	"droid_frida_setup",
+	"droid_frida_ps",
+	"droid_frida",
+	"droid_unpack",
+];
 const DEVICE_FRIDA = "/data/local/tmp/frida-server";
+const DEVICE_DUMP_DIR = "/data/local/tmp/sentinel-unpack";
 const CONTAINER_HOST = "host.docker.internal";
+/** Per-script output budget; the section is cut, the rest of the sections kept. */
+const SCRIPT_OUTPUT_BUDGET = 6000;
 
 function failure(text: string): AgentToolResult<{ ok: boolean }> {
 	return { content: [{ type: "text", text }], details: { ok: false }, isError: true };
@@ -63,6 +71,62 @@ async function inContainer(
 ): Promise<{ code: number; output: string }> {
 	const result = await execInContainer(ctx.container(), command, [], { timeoutMs });
 	return { code: result.code, output: `${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}` };
+}
+
+/** Turn a scripts spec list into container paths, writing builtin sources to /work/frida. */
+async function materializeScripts(
+	ctx: DroidToolContext,
+	specs: string[],
+): Promise<{ paths: string[]; names: string[] } | { error: string }> {
+	const dir = join(ctx.workDir(), "frida");
+	mkdirSync(dir, { recursive: true });
+	const paths: string[] = [];
+	const names: string[] = [];
+	for (let index = 0; index < specs.length; index++) {
+		const spec = specs[index]!.trim();
+		const resolved = resolveBuiltinScript(spec);
+		if ("error" in resolved) return { error: resolved.error };
+		if ("name" in resolved) {
+			// Params make the same builtin resolve differently; index keeps runs apart.
+			const file = `${resolved.name}-${index}.js`;
+			writeFileSync(join(dir, file), resolved.source);
+			paths.push(`/work/frida/${file}`);
+			names.push(resolved.name);
+		} else {
+			const rel = resolved.path.replace(/^\/work\/?/, "");
+			if (!existsSync(join(ctx.workDir(), rel))) {
+				return {
+					error: `脚本不存在：${resolved.path}。内建脚本：${builtinScriptNames().join("、")}；或给一个 /work 下的自定义脚本路径`,
+				};
+			}
+			paths.push(`/work/${rel}`);
+			names.push(basename(rel));
+		}
+	}
+	return { paths, names };
+}
+
+/** Split combined frida output into per-script sections, each within its budget. */
+function sectionOutput(names: string[], output: string): string {
+	const sections: string[] = [];
+	const consumed = new Set<string>();
+	let rest = output;
+	for (const name of names) {
+		const marker = `===== ${scriptBanner(name)}`;
+		const at = rest.indexOf(marker);
+		if (at < 0) continue;
+		consumed.add(name);
+		const next = rest.indexOf("===== sentinel:", at + marker.length);
+		const body = (next < 0 ? rest.slice(at) : rest.slice(at, next)).trim();
+		sections.push(
+			body.length > SCRIPT_OUTPUT_BUDGET ? `${body.slice(0, SCRIPT_OUTPUT_BUDGET)}\n…[该脚本输出已截断]` : body,
+		);
+		if (next >= 0) rest = rest.slice(0, at) + rest.slice(next);
+	}
+	if (sections.length === 0) return output.slice(0, SCRIPT_OUTPUT_BUDGET * 2);
+	const unmatched = output.length - sections.reduce((sum, s) => sum + s.length, 0);
+	const lead = unmatched > 200 ? `${output.slice(0, Math.min(unmatched, 2000))}\n` : "";
+	return lead + sections.join("\n\n");
 }
 
 export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
@@ -154,19 +218,25 @@ export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
 
 	const frida = defineTool({
 		name: "droid_frida",
-		label: "Run a Frida script against an app",
+		label: "Run Frida scripts against an app",
 		defaultActive: false,
 		description:
-			"Run a Frida script against an app on the device for a bounded time and return its console output. script accepts a builtin name (okhttp_log / ssl_pinning_bypass / root_detection_bypass / crypto_log) or a work-directory path to a custom JS file. attach mode targets a running app by name or pid; spawn mode starts it fresh (use with -f style apps like com.example.app). Output beyond 16k characters is truncated.",
-		promptSnippet: "Instrument an app with a Frida script and collect its output",
+			"Run one or more Frida scripts against an app on the device for a bounded time and return each script's console output. Each entry is a builtin name (okhttp_log / ssl_pinning_bypass / root_detection_bypass / crypto_log / native_ssl_bypass / flutter_bypass / anti_frida_bypass), a builtin with parameters (crypto_log?alg=AES), or a work-directory path to a custom JS file. Scripts run in one injection in the given order; put anti_frida_bypass first when the app detects frida. attach mode targets a running app by name or pid; spawn mode starts it fresh. Each script's output is truncated at its own budget.",
+		promptSnippet: "Instrument an app with Frida scripts and collect their output",
 		promptGuidelines: [
 			"Read the decompiled code (apk_decompile/apk_search) before hooking: hook names must match the target",
-			"Prefer builtin scripts first; write a custom JS to /work when the target needs specific hooks",
+			"Stack builtin scripts (e.g. anti_frida_bypass + ssl_pinning_bypass + okhttp_log) instead of three separate runs",
+			"Filter noisy builtins by parameter (okhttp_log?url=/api) instead of wading through truncated output",
 			"Run for 10-60 seconds per call; long-lived hooks are better done in several bounded runs",
 		],
 		parameters: Type.Object({
 			app: Type.String({ description: "应用：包名/应用名（attach）或进程名+pid（spawn 用包名）" }),
-			script: Type.String({ description: "内建脚本名或工作目录内的自定义脚本路径（/work/…）" }),
+			scripts: Type.Array(Type.String(), {
+				minItems: 1,
+				maxItems: 4,
+				description:
+					"脚本列表（1-4 个）：内建名（可带 ?参数=值）、或 /work 下自定义脚本路径。多个脚本一次注入按顺序执行",
+			}),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("attach"), Type.Literal("spawn")], {
 					description: "默认 attach（附加到运行中的应用）；spawn 重新拉起应用",
@@ -181,24 +251,9 @@ export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
 			const tunnel = await tunnelAddress(ctx, picked.id, 27042);
 			if (!tunnel.ok) return failure(`隧道建立失败：${tunnel.error}（先运行 droid_frida_setup）`);
 
-			let scriptPath: string;
-			const builtin = builtinScript(params.script);
-			if (builtin) {
-				const dir = join(ctx.workDir(), "frida");
-				mkdirSync(dir, { recursive: true });
-				scriptPath = `/work/frida/${builtin.name}.js`;
-				writeFileSync(join(dir, builtin.name + ".js"), builtin.source);
-			} else {
-				const hostPath = join(ctx.workDir(), params.script.replace(/^\/work\/?/, ""));
-				if (!existsSync(hostPath)) {
-					return failure(
-						`脚本不存在：${params.script}。内建脚本：${builtinScriptNames().join("、")}；或给一个 /work 下的自定义脚本路径`,
-					);
-				}
-				scriptPath = `/work/${params.script.replace(/^\/work\/?/, "")}`;
-			}
-			// The script may reference its own filename in logs; keep the basename stable.
-			void basename(scriptPath);
+			const materialized = await materializeScripts(ctx, params.scripts);
+			if ("error" in materialized) return failure(materialized.error);
+			const scriptFlags = materialized.paths.map((path) => `-l '${path}'`).join(" ");
 
 			const seconds = Math.min(Math.max(params.seconds ?? 20, 5), 300);
 			const target = /^\d+$/.test(params.app)
@@ -208,19 +263,19 @@ export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
 					: `-n '${params.app.replace(/'/g, "")}'`;
 			const run = await inContainer(
 				ctx,
-				`timeout ${seconds + 5} frida -H ${tunnel.address} ${target} -l '${scriptPath}' -q 2>&1 | head -400`,
+				`timeout ${seconds + 5} frida -H ${tunnel.address} ${target} ${scriptFlags} -q 2>&1`,
 				(seconds + 10) * 1000,
 			);
 			const output = run.output.trim();
 			if (run.code !== 0 && output.length === 0) {
 				return failure(`frida 运行失败（退出码 ${run.code}）`);
 			}
-			const head = `Frida ${params.mode === "spawn" ? "spawn" : "attach"} ${params.app} · ${seconds}s · ${picked.name}`;
+			const head = `Frida ${params.mode === "spawn" ? "spawn" : "attach"} ${params.app} · ${seconds}s · ${picked.name} · 脚本：${materialized.names.join("、")}`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `${head}\n\n${output.slice(0, 16_000) || "（无输出：脚本可能没有命中，检查 hook 的类名是否存在）"}`,
+						text: `${head}\n\n${sectionOutput(materialized.names, output) || "（无输出：脚本可能没有命中，检查 hook 的类名是否存在）"}`,
 					},
 				],
 				details: { ok: true },
@@ -228,5 +283,116 @@ export function createFridaTools(ctx: DroidToolContext): ToolDefinition[] {
 		},
 	});
 
-	return [setup, fridaPs, frida];
+	const unpack = defineTool({
+		name: "droid_unpack",
+		label: "Dump decrypted DEX files from a hardened app",
+		defaultActive: false,
+		description:
+			"Memory-unpack a hardened APK: spawn the app with the dex_dump Frida script (FRIDA-DEXDump style), let the packer finish decrypting, scan process memory for dex magic and save the dumped DEX files into the work directory under evidence/unpack/<package>/. Requires a rooted device with frida-server running (droid_frida_setup first). Returns the saved dex paths; decompile them with apk_decompile afterwards. Note: extracted-code packers (nop method bodies) still dump empty methods — that needs a FART-class active-call dump, out of scope here.",
+		promptSnippet: "Dump decrypted DEX from a hardened app into the work directory",
+		promptGuidelines: [
+			"Run apk_manifest first: if it reports a packer (加固), unpack before decompiling the base APK",
+			"Give the app time to reach its main screen (more code loaded = more dex recovered); 30-60 seconds is a good default",
+			"The dumped dex usually need jadx one by one; pick the largest ones first",
+		],
+		parameters: Type.Object({
+			app: Type.String({ description: "目标应用包名（spawn 模式启动）" }),
+			seconds: Type.Optional(Type.Number({ description: "等待收集秒数，默认 30，上限 120" })),
+			device: Type.Optional(Type.String({ description: "目标设备（单台在线时可省略）" })),
+		}),
+		async execute(_toolCallId, params): Promise<AgentToolResult<{ ok: boolean; path?: string }>> {
+			const picked = pickDevice(ctx, params.device);
+			if (typeof picked === "string") return failure(picked);
+			const gateway = ctx.gateway();
+			if (!gateway) return failure("设备网关未启动");
+			const tunnel = await tunnelAddress(ctx, picked.id, 27042);
+			if (!tunnel.ok) return failure(`隧道建立失败：${tunnel.error}（先运行 droid_frida_setup）`);
+
+			const resolved = resolveBuiltinScript("dex_dump");
+			if (!("name" in resolved)) return failure("内置 dex_dump 脚本缺失");
+			const dir = join(ctx.workDir(), "frida");
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "dex_dump.js"), resolved.source);
+
+			const seconds = Math.min(Math.max(params.seconds ?? 30, 10), 120);
+			// The dump script itself scans at ~0.5s and ~8s; give late loaders one more
+			// pass by simply running longer.
+			const run = await inContainer(
+				ctx,
+				`timeout ${seconds + 5} frida -H ${tunnel.address} -f '${params.app.replace(/'/g, "")}' -l '/work/frida/dex_dump.js' -q 2>&1`,
+				(seconds + 10) * 1000,
+			);
+			const listing = await gateway.request(
+				picked.id,
+				{ t: "exec", cmd: `ls -la ${DEVICE_DUMP_DIR}/ 2>/dev/null | head -50`, asRoot: true, timeoutMs: 15_000 },
+				{ timeoutMs: 25_000 },
+			);
+			const listed = listing.ok ? (listing.stdout ?? "") : "";
+			if (!listing.ok || !/\.dex/.test(listed)) {
+				return failure(
+					`未 dump 到任何 dex。frida 输出：\n${run.output.trim().slice(0, 2000) || "（无输出）"}\n\n` +
+						`排查：app 是否被杀（先跑 anti_frida_bypass）；壳是否把解密 dex 放到只执行内存（该工具覆盖不了）`,
+				);
+			}
+			const count = (listed.match(/\.dex/g) ?? []).length;
+			const pack = params.app.replace(/[^A-Za-z0-9._-]/g, "");
+			const deviceTar = `/data/local/tmp/sentinel-unpack-${pack}.tar`;
+			const tar = await gateway.request(
+				picked.id,
+				{
+					t: "exec",
+					cmd: `rm -f ${deviceTar}; tar cf ${deviceTar} -C ${DEVICE_DUMP_DIR} . && echo done`,
+					asRoot: true,
+					timeoutMs: 60_000,
+				},
+				{ timeoutMs: 70_000 },
+			);
+			if (!tar.ok) return failure(`打包失败：${tar.error ?? "未知错误"}`);
+
+			// Pull the tar into the work directory, then untar in the container so the
+			// dex files land under evidence/unpack/<package>/ as ordinary files.
+			const hostTar = join(ctx.workDir(), "evidence", "unpack", `${pack}.tar`);
+			mkdirSync(join(ctx.workDir(), "evidence", "unpack"), { recursive: true });
+			const fd = openSync(hostTar, "w");
+			let written = 0;
+			const pull = await gateway
+				.request(
+					picked.id,
+					{ t: "pull", path: deviceTar, maxBytes: 256 * 1024 * 1024 },
+					{
+						timeoutMs: 120_000,
+						onData: (chunk) => {
+							writeSync(fd, chunk);
+							written += chunk.length;
+						},
+					},
+				)
+				.finally(() => closeSync(fd));
+			if (!pull.ok || written === 0) {
+				rmSync(hostTar, { force: true });
+				return failure(`拉取失败：${pull.ok ? "tar 为空" : (pull.error ?? "未知错误")}`);
+			}
+			const outDir = `/work/evidence/unpack/${pack}`;
+			const extract = await execInContainer(
+				ctx.container(),
+				`rm -rf '${outDir}' && mkdir -p '${outDir}' && tar xf '/work/evidence/unpack/${pack}.tar' -C '${outDir}' && ls -la '${outDir}' | head -40`,
+				[],
+				{ timeoutMs: 120_000 },
+			);
+			if (extract.code !== 0) return failure(`解包失败：${(extract.stderr || extract.stdout).slice(0, 1000)}`);
+			return {
+				content: [
+					{
+						type: "text",
+						text:
+							`脱壳完成：${picked.name} 上的 ${params.app}，dump 到 ${count} 个 dex，已解包到 ${outDir}（工作目录 evidence/unpack/${pack}/）。\n` +
+							`设备侧清单：\n${listed}\n下一步：apk_decompile 最大的几个 dex（apk 参数直接给 dex 路径也可以用 jadx）。`,
+					},
+				],
+				details: { ok: true, path: outDir },
+			};
+		},
+	});
+
+	return [setup, fridaPs, frida, unpack];
 }

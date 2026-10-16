@@ -380,6 +380,89 @@ export function createDroidTools(ctx: DroidToolContext): ToolDefinition[] {
 }
 
 /** Container-side static analysis: the APK never leaves /work, the tools run next to it. */
+
+/**
+ * Known packer fingerprints: vendor → (native library fragments, smali package
+ * fragments). Matched case-insensitively against the apktool output tree. A
+ * hardened APK decompiles into a stub; saying which packer it is decides whether
+ * the agent should unpack (droid_unpack) before wasting time reading junk smali.
+ */
+const PACKER_SIGNATURES: ReadonlyArray<{ vendor: string; libs: RegExp; classes: RegExp }> = [
+	{
+		vendor: "梆梆安全 (Bangcle/SecNeo)",
+		libs: /lib(DexHelper|SecShell|ExecHelper|baksmali|DexProtector)/i,
+		classes: /com\.secneo\.apkwrapper|com\.secneo\.SApplication/i,
+	},
+	{
+		vendor: "360 加固保 (Jiagu)",
+		libs: /libjiagu(_a|_x86|_art)?\.so|libjiagu\.so/i,
+		classes: /com\.qihoo\.util|com\.stub\.StubApp/i,
+	},
+	{
+		vendor: "腾讯乐固 (Legu)",
+		libs: /libshella-\d|libshellx-\d|libBugly\.so|libtup\.so|libexec\.so/i,
+		classes: /com\.tencent\.StubShell|s\.h\.e\.l\.l/i,
+	},
+	{
+		vendor: "爱加密 (Ijiami)",
+		libs: /libexecmain\.so|ijiami\.dat|libexec\.so/i,
+		classes: /s\.h\.e\.l\.l|com\.shell\.SuperApplication/i,
+	},
+	{ vendor: "娜迦 (Nagoo)", libs: /libkwssgmain\.so|libkwscmm\.so|libkwscr\.so/i, classes: /com\.nagoo|kwsapp/i },
+	{ vendor: "百度加固", libs: /libbaiduprotect\d*\.so/i, classes: /com\.baidu\.protect/i },
+	{ vendor: "腾讯 TP / ACE", libs: /libtprt\.so|libNSaferOnly\.so/i, classes: /com\.tencent\.tpmobile/i },
+	{ vendor: "网易易盾", libs: /libnesec\.so|libexecmixed\.so/i, classes: /com\.netease\.nis\.shell/i },
+	{ vendor: "DexProtector", libs: /libdexprotector/i, classes: /dexprotector/i },
+	{ vendor: "几维 (Kiwi)", libs: /libkwmmain\.so|kdpdata\.so/i, classes: /com\.kiwisec/i },
+];
+
+/** Grep the apktool output tree for packer fingerprints; returns a report block. */
+async function detectHardening(container: string, dir: string): Promise<string> {
+	const result = await execInContainer(
+		container,
+		`find '${dir}' -name '*.so' -path '*/lib/*' 2>/dev/null | head -200; echo '---classes---'; ` +
+			`grep -rhoaE 'L?com/(secneo[^;"]*|qihoo[^;"]*|stub/[^;"]*|baidu/protect[^;"]*|netease/nis[^;"]*|kiwisec[^;"]*|tencent/StubShell[^;"]*)' '${dir}'/res/smali* '${dir}'/src 2>/dev/null | sort -u | head -20`,
+		[],
+		{ timeoutMs: 120_000 },
+	);
+	if (result.code !== 0) return "加固识别失败（apktool 输出目录不完整？先 apk_decompile）";
+	const soFiles: string[] = [];
+	const classHints: string[] = [];
+	let inClasses = false;
+	for (const line of (result.stdout ?? "").split("\n")) {
+		if (line.trim() === "---classes---") {
+			inClasses = true;
+			continue;
+		}
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		(inClasses ? classHints : soFiles).push(trimmed);
+	}
+	const hits: string[] = [];
+	for (const signature of PACKER_SIGNATURES) {
+		const evidence = [
+			...soFiles.filter((file) => signature.libs.test(file)),
+			...classHints.filter((hint) => signature.classes.test(hint)),
+		];
+		if (evidence.length > 0) {
+			hits.push(
+				`${signature.vendor}：命中 ${evidence
+					.slice(0, 3)
+					.map((file) => file.split("/").pop())
+					.join("、")}`,
+			);
+		}
+	}
+	if (hits.length === 0) {
+		return soFiles.length === 0
+			? "未发现 native 库（纯 Java/Kotlin 或未解出资源）；未见已知加固特征"
+			: `未发现已知加固特征（lib 下：${soFiles
+					.slice(0, 8)
+					.map((file) => file.split("/").pop())
+					.join("、")}）。若反编译结果明显异常（空壳/类名错乱），仍可尝试 droid_unpack`;
+	}
+	return `${hits.join("\n")}\n→ 检测到加固：直接反编译 base.apk 只能得到壳代码，先 droid_unpack 脱壳再 apk_decompile dump 出的 dex`;
+}
 export function createApkTools(ctx: DroidToolContext): ToolDefinition[] {
 	const runJadxTool = (
 		name: string,
@@ -479,11 +562,14 @@ PYEOF`,
 				{ timeoutMs: 120_000 },
 			);
 			if (result.code !== 0) return failure(`解析失败：${truncate(result.stderr || result.stdout, 4000)}`);
+			const hardening = await detectHardening(ctx.container(), dir);
 			return {
 				content: [
 					{
 						type: "text",
-						text: `${truncate(result.stdout, 20_000)}\n\n检查清单：导出组件是否可被外部应用调用拉起敏感界面；debuggable/backup 是否关闭；cleartext 是否允许；WebView 的 JS 桥与 file 访问；硬编码密钥（apk_search 'password|secret|api[_-]?key'）。`,
+						text:
+							`${truncate(result.stdout, 20_000)}\n\n== 加固识别 ==\n${hardening}\n\n` +
+							`检查清单：导出组件是否可被外部应用调用拉起敏感界面；debuggable/backup 是否关闭；cleartext 是否允许；WebView 的 JS 桥与 file 访问；硬编码密钥（apk_search 'password|secret|api[_-]?key'）。`,
 					},
 				],
 				details: { ok: true, path: dir },
