@@ -17,7 +17,7 @@
 
 - **方法论驱动的渗透流程**：侦察 → 枚举 → 漏洞映射 → 验证 → 利用 → 后渗透 → 报告，系统提示强调授权范围、证据留痕与最小侵入。
 - **中文 Web 控制台**（[packages/web](packages/web/README.md)）：流式对话与思考过程、工具执行卡片、会话树、文件与子代理弹窗、项目选择。
-- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门员模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。设备命令走与 bash 相同的守门与审批链。
+- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门员模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。审批链覆盖 bash 与安卓 shell 命令（`droid_shell`）；frida、抓包、APK 分析与文件面板直接调用容器，不过审批门。
 - **容器化作业环境**：每个项目一个 Kali 容器，内置侦察、枚举、Web 利用、口令与内网工具；容器网络模式在「设置 → 环境」切换（默认 host）。
 - **漏洞中枢**：`vuln_submit` 提交已验证漏洞，必填 CVSS 分数，原始数据包逐字保存，操作员复核留时间线，可按项目导出 Markdown 报告。
 - **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
@@ -31,7 +31,7 @@
 
 ```bash
 npm install --ignore-scripts
-npm run build          # 后端各包与 coding-agent（首次需联网拉取模型目录）
+npm run build:offline  # 后端各包与 coding-agent（不联网，模型目录已入库）
 npm run build:web      # Web 控制台与前端资源
 npm run start:web
 ```
@@ -108,7 +108,21 @@ docker build -t sentinel:latest docker/
 
 ## 安全边界
 
-全链哨兵 沿用 pi 的权限模型：无内建沙箱，工具以当前用户权限执行。审批模式只拦截 bash 工具。自动执行模式下模型可运行任意命令，请仅在**授权目标与隔离环境**中使用，必要时配合容器化（参见 [containerization.md](packages/coding-agent/docs/containerization.md)）。
+**控制台**：Docker 是硬依赖。每个项目一个 Kali 容器（`sentinel:latest`），Agent 的 bash 命令**在容器内执行**（`docker exec`），项目目录 bind mount 进 `/work`，容器**以 root 运行**。容器网络默认 **host**（容器直接用宿主机网络栈，反向 shell、payload 服务、本地靶场、内网与 VPN 才是真实的），可在「设置 → 环境 → 容器网络」切到 **bridge**；两种模式都保留 `NET_RAW`，`NET_ADMIN` 只在 bridge 模式授予。Docker 检查有阻断项时控制台拒绝 `prompt`、`compact` 与持续目标。
+
+**但容器只约束命令，不是整体沙箱**：控制台与 Agent 进程本身以启动者的用户身份跑在宿主机上，只有命令进容器。
+
+- 审批链只覆盖 bash 与安卓 shell（`droid_shell`），子代理的 bash 走同一条链；**read/edit/write、文件面板、MCP 工具、codemode，以及 frida、抓包、APK 分析等直接调用容器的工具都不过门**。工程任务的 bash 另有一套正则黑名单、20 秒超时与 40 条预算，同样不走审批门。
+- `read/edit/write` 直接读写宿主机文件系统，项目目录只是相对路径的基准，绝对路径不受限制；MCP 的 stdio 服务器是宿主机子进程。
+- AI 审批（守门员）只判六类破坏性操作，判定失败、超时或无法解析一律放行（fail-open），**不是沙箱、也不做数据防泄漏**。
+- 容器以 root 运行，没有资源上限，也没有 cap-drop / seccomp / read-only；同一项目的所有会话与并发任务共用一个容器。
+- 控制台会加载项目目录下的 `settings.json`、`.pi/extensions`、`AGENTS.md`、`mcp.json`，且没有项目信任确认步骤——不要把来源不可信的工作目录设为项目。
+
+完整边界与配置见 [packages/web/README.md](packages/web/README.md#安全提示)。
+
+**CLI**：沿用 pi 的权限模型，无内建沙箱，工具以当前用户权限在宿主机执行；需要隔离就把 CLI 整个跑进容器（[containerization.md](packages/coding-agent/docs/containerization.md) 是上游文档，命令与路径名仍是 `pi`）。
+
+自动执行模式下模型可运行任意命令，持续目标在自动执行下也没有危险命令黑名单，请仅在**授权目标与隔离环境**中使用；需要无人值守又不愿全放行时用 AI 审批。控制台的登录、随机入口串与授权承诺只用于防误用与防扫描，不构成隔离。
 
 安全问题请通过仓库 Issue 反馈，不要在公开 Issue 里附可直接利用的细节。
 
