@@ -87,6 +87,99 @@ export function presetsDir(agentDir: string): string {
 }
 
 /**
+ * The presets every fresh console ships with. They are seeded, not mounted: the
+ * first start writes them into the operator's store as ordinary presets, which
+ * keeps the rest of the code free of a second preset source. Seeding matches by
+ * name and id and only fills a gap — an operator's own edit to a same-named
+ * preset is the more valuable copy, so it is never overwritten, and a preset
+ * the operator deleted stays deleted.
+ */
+const BUILTIN_PRESETS: readonly {
+	id: string;
+	name: string;
+	description: string;
+	tags: string[];
+	placeholder: string;
+	text: string;
+}[] = [
+	{
+		id: "web-pentest",
+		name: "Web 渗透测试",
+		description: "Web 渗透测试，深度渗透测试，以 RCE 为目标",
+		tags: ["web"],
+		placeholder: "输入目标 URL，敲回车即可。",
+		text: "深度渗透测试，以 RCE 为目标进行深度渗透测试，中途挖到的漏洞也要，尽量多的扩大战果，挖到 RCE 之后，不允许影响系统业务正常运行，只允许执行 pwd 来验证，在整个漏洞挖掘的过程中，不允许对系统业务正常运行产生影响，比如删除用户、修改用户密码、删除任何东西、修改系统配置等等。",
+	},
+	{
+		id: "app-client",
+		name: "APP 客户端漏洞挖掘",
+		description: "APP 客户端漏洞挖掘",
+		tags: ["app"],
+		placeholder: "确认“安卓设备”内有设备连接，并且安装好 APP，然后再右方点击“安卓”，最后说明你想测试的 APP 即可。",
+		text: "你是一名APP 客户端漏洞挖掘，你需要对用户提供的目标 APP 进行客户端漏洞挖掘（不涉及服务端），深入漏洞挖掘，以客户端 RCE 漏洞为目标进行测试，其中遇到的其他漏洞也要上报漏洞中枢。如果你没有远程连接安卓相关的工具，那么请提醒用户把“安卓”权限放开。",
+	},
+	{
+		id: "app-server",
+		name: "APP 服务端漏洞挖掘",
+		description: "APP 服务端漏洞挖掘",
+		tags: ["app"],
+		placeholder: "确认“安卓设备”内有设备连接，并且安装好 APP，然后再右方点击“安卓”，最后说明你想测试的 APP 即可。",
+		text: [
+			"你是一名渗透测试专家，需要对目标 APP 做渗透测试，目标是测试 APP 对应的服务端进行测试，通常，你的任务工作流是->逆向 APP->分析源码->对目标业务系统进行业务建模->开始挖掘漏洞。",
+			"挖掘漏洞的目标：以 RCE 为目标，进行渗透测试，注意：如果挖到 RCE 漏洞，只允许执行 pwd、dir 命令，并且，在整个漏洞挖掘过程中，不允许对目标业务系统造成影响。",
+			"",
+			"如果你没有远程连接安卓相关的工具，那么请提醒用户把“安卓”权限放开。",
+		].join("\n"),
+	},
+	{
+		id: "wechat-miniprogram",
+		name: "微信小程序渗透测试",
+		description: "微信小程序渗透测试",
+		tags: ["app"],
+		placeholder: "上传反编译后的微信小程序包即可。",
+		text: [
+			"你的任务是对目标微信小程序进行渗透测试，大致分两类：",
+			"1.针对微信小程序生态的：比如 AKSK 泄露、JDBC 泄露之类的。",
+			"2.针对远程目标服务器的，一般情况下流程如下：查看用户上传的微信小程序包并解压->对目标进行业务建模->根据业务建模结果继续渗透测试,以数据和权限为目标，尝试 RCE 远程服务器。",
+			"",
+			"注意：渗透测试过程中，不允许影响目标服务器的正常运行，不允许删除、修改用户密码，不允许对业务正常运行造成影响。",
+		].join("\n"),
+	},
+];
+
+/**
+ * Write any built-in preset the store does not have yet, and its body file.
+ * Called once per console start; a no-op on every later start.
+ */
+export function ensureBuiltinPresets(agentDir: string): void {
+	const stored = readStored(agentDir);
+	const names = new Set(stored.map((preset) => preset.name));
+	const ids = new Set(stored.map((preset) => preset.id));
+	const missing = BUILTIN_PRESETS.filter((builtin) => !names.has(builtin.name) && !ids.has(builtin.id));
+	if (missing.length === 0) return;
+	const now = Date.now();
+	writeStored(agentDir, [
+		...stored,
+		...missing.map((builtin) => ({
+			id: builtin.id,
+			name: builtin.name,
+			description: builtin.description,
+			tags: [...builtin.tags],
+			placeholder: builtin.placeholder,
+			enabled: true,
+			createdAt: now,
+			updatedAt: now,
+		})),
+	]);
+	mkdirSync(presetsDir(agentDir), { recursive: true });
+	for (const builtin of missing) {
+		const path = presetTextPath(agentDir, builtin.id);
+		if (existsSync(path)) continue;
+		writeFileSync(path, `${builtin.text.trim()}\n`, { mode: 0o600 });
+	}
+}
+
+/**
  * Preset ids end up in file names and in the commander's brief, so they are
  * restricted to a slug alphabet. A hand-edited `presets.json` carrying `../` in
  * an id must not be able to point the body path outside the presets directory.
