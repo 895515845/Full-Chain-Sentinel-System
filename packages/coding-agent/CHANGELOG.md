@@ -27,6 +27,7 @@
 
 - Changed the `showHardwareCursor` setting to use only the terminal cursor instead of also drawing Pi's reverse-video cursor
 - Changed the CLI help description to the penetration-testing role and provider attribution headers to the `sentinel` identity
+- Changed the default model for `xiaomi` and the three `xiaomi-token-plan-*` providers to `mimo-v2.6-pro`: the live catalog marks the `mimo-v2.5` generation as deprecated
 
 ### Fixed
 

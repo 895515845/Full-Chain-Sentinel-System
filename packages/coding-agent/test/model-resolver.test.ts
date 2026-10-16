@@ -529,7 +529,7 @@ describe("resolveCliModel", () => {
 
 	test("prefers an authenticated exact raw model id over an unauthenticated inferred provider", () => {
 		const commandcodeModel: Model<"anthropic-messages"> = {
-			id: "xiaomi/mimo-v2.5-pro",
+			id: "xiaomi/mimo-v2.6-pro",
 			name: "Xiaomi MiMo via Commandcode",
 			api: "anthropic-messages",
 			provider: "commandcode",
@@ -541,7 +541,7 @@ describe("resolveCliModel", () => {
 			maxTokens: 8192,
 		};
 		const xiaomiModel: Model<"anthropic-messages"> = {
-			id: "mimo-v2.5-pro",
+			id: "mimo-v2.6-pro",
 			name: "Xiaomi MiMo",
 			api: "anthropic-messages",
 			provider: "xiaomi",
@@ -558,13 +558,13 @@ describe("resolveCliModel", () => {
 		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
-			cliModel: "xiaomi/mimo-v2.5-pro",
+			cliModel: "xiaomi/mimo-v2.6-pro",
 			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
 		expect(result.model?.provider).toBe("commandcode");
-		expect(result.model?.id).toBe("xiaomi/mimo-v2.5-pro");
+		expect(result.model?.id).toBe("xiaomi/mimo-v2.6-pro");
 	});
 
 	test("resolves provider-prefixed fuzzy patterns (openrouter/qwen -> openrouter model)", () => {

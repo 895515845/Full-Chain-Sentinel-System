@@ -55,10 +55,10 @@ export const defaultModelPerProvider: Partial<Record<KnownProvider, string>> = {
 	"qwen-token-plan": "qwen3.7-max",
 	"qwen-token-plan-cn": "qwen3.7-max",
 	"qwen-token-plan-individual": "qwen3.8-max",
-	xiaomi: "mimo-v2.5-pro",
-	"xiaomi-token-plan-cn": "mimo-v2.5-pro",
-	"xiaomi-token-plan-ams": "mimo-v2.5-pro",
-	"xiaomi-token-plan-sgp": "mimo-v2.5-pro",
+	xiaomi: "mimo-v2.6-pro",
+	"xiaomi-token-plan-cn": "mimo-v2.6-pro",
+	"xiaomi-token-plan-ams": "mimo-v2.6-pro",
+	"xiaomi-token-plan-sgp": "mimo-v2.6-pro",
 };
 
 export interface ScopedModel {
@@ -521,7 +521,7 @@ export function resolveCliModel(options: {
 		// one exact raw model-id match that is authenticated. This keeps
 		// "provider/model" syntax preferred when usable, but handles models whose
 		// literal id starts with a known provider name (for example
-		// commandcode model id "xiaomi/mimo-v2.5-pro").
+		// commandcode model id "xiaomi/mimo-v2.6-pro").
 		if (inferredProvider) {
 			const rawExactMatches = availableModels.filter(
 				(m) => m.id.toLowerCase() === cliModel.toLowerCase() && !modelsAreEqual(m, model),
