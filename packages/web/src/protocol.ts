@@ -1073,6 +1073,15 @@ export type SentinelClientMessage =
 	| { type: "abort_image_build" }
 	| { type: "set_sources"; sources: SentinelSources }
 	| { type: "set_container_network"; network: SentinelContainerNetwork }
+	| { type: "get_asset_config" }
+	/** Save one platform's switch and key; the key is write-only. */
+	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
+	| { type: "set_asset_query_limit"; limit: number }
+	/**
+	 * Probe one platform without saving anything. `key` overrides the stored one
+	 * so a key can be verified before it is written.
+	 */
+	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	/** Change an engine's command gate; refused while a task is in flight. */
@@ -1212,6 +1221,8 @@ export type SentinelServerMessage =
 	| { type: "image_build_result"; ok: boolean; error?: string }
 	| { type: "sources_saved"; sources: SentinelSources; error?: string }
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
+	| { type: "asset_config"; config: SentinelAssetConfigView }
+	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelEngineEvent }
@@ -1291,6 +1302,65 @@ export interface SentinelSources {
 	pipIndex: string;
 	npmRegistry: string;
 	goProxy: string;
+}
+
+/**
+ * Asset-mapping platforms the console can query. All three are read-only
+ * internet-wide search engines: the console calls them directly with the
+ * operator's key, and the key never enters the project container.
+ */
+export type SentinelAssetPlatform = "fofa" | "quake" | "hunter";
+
+/**
+ * The outcome of the most recent call to one platform, kept for the settings
+ * screen so a failure stays visible after the session that hit it is gone.
+ */
+export interface SentinelAssetStatus {
+	/** Epoch milliseconds of the attempt, or null when the platform was never called. */
+	at: number | null;
+	ok: boolean;
+	/** Failure text as the platform or the transport reported it. */
+	error?: string;
+	/** Quota line as the platform reported it, e.g. "剩余 39366 点". */
+	quota?: string;
+}
+
+/** One platform as the settings screen shows it; the key itself never leaves the host. */
+export interface SentinelAssetPlatformView {
+	id: SentinelAssetPlatform;
+	label: string;
+	/** Operator switch. Off means the platform's tool is not mounted at all. */
+	enabled: boolean;
+	/** A key is stored. Only this fact is sent to the browser, never the key. */
+	hasKey: boolean;
+	/**
+	 * The key was probed and the platform answered. A platform is only handed to
+	 * the agent when this is true, so an unusable key never becomes a tool that
+	 * fails on every call.
+	 */
+	verified: boolean;
+	status: SentinelAssetStatus;
+}
+
+/** The whole asset-mapping configuration as the console sees it. */
+export interface SentinelAssetConfigView {
+	platforms: SentinelAssetPlatformView[];
+	/**
+	 * Queries one session may send across all platforms; 0 means unlimited. The
+	 * budget exists because all three platforms meter queries, and an agent
+	 * working a large scope can burn a day's quota in minutes.
+	 */
+	sessionQueryLimit: number;
+	/** How many platforms are usable right now (enabled, keyed, and verified). */
+	usable: number;
+}
+
+/** Saving one platform: the key is write-only and never read back. */
+export interface SentinelAssetPlatformInput {
+	id: SentinelAssetPlatform;
+	enabled: boolean;
+	/** null keeps the stored key, "" clears it, anything else replaces it. */
+	key: string | null;
 }
 
 export interface SentinelEnvReport {

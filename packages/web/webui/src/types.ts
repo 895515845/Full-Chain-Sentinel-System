@@ -31,6 +31,7 @@ export type SentinelPageId =
 	| "settings.security"
 	| "settings.presets"
 	| "settings.pocs"
+	| "settings.assets"
 	| "about";
 
 /** Reasoning effort levels pi accepts, ascending. */
@@ -914,6 +915,10 @@ export type SentinelClientMessage =
 	| { type: "abort_image_build" }
 	| { type: "set_sources"; sources: SentinelSources }
 	| { type: "set_container_network"; network: SentinelContainerNetwork }
+	| { type: "get_asset_config" }
+	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
+	| { type: "set_asset_query_limit"; limit: number }
+	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	| { type: "engine_pause"; id: string }
@@ -1031,6 +1036,8 @@ export type SentinelServerMessage =
 	| { type: "image_build_result"; ok: boolean; error?: string }
 	| { type: "sources_saved"; sources: SentinelSources; error?: string }
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
+	| { type: "asset_config"; config: SentinelAssetConfigView }
+	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelSubagentEvent }
@@ -1093,6 +1100,50 @@ export interface SentinelSources {
 	pipIndex: string;
 	npmRegistry: string;
 	goProxy: string;
+}
+
+/**
+ * The three internet-wide asset search engines the console can query with the
+ * operator's own account. The console sends the requests, so the key never
+ * reaches the project container.
+ */
+export type SentinelAssetPlatform = "fofa" | "quake" | "hunter";
+
+/** Outcome of the most recent call to one platform, shown on the settings page. */
+export interface SentinelAssetStatus {
+	/** Epoch milliseconds of the attempt, or null when the platform was never called. */
+	at: number | null;
+	ok: boolean;
+	error?: string;
+	/** Quota line as the platform reported it. */
+	quota?: string;
+}
+
+export interface SentinelAssetPlatformView {
+	id: SentinelAssetPlatform;
+	label: string;
+	enabled: boolean;
+	/** A key is stored. The key itself is never sent to the browser. */
+	hasKey: boolean;
+	/** The key was probed and the platform answered; only then is the tool mounted. */
+	verified: boolean;
+	status: SentinelAssetStatus;
+}
+
+export interface SentinelAssetConfigView {
+	platforms: SentinelAssetPlatformView[];
+	/** Queries one session may send across all platforms; 0 means unlimited. */
+	sessionQueryLimit: number;
+	/** Platforms that are enabled, keyed and verified. */
+	usable: number;
+}
+
+/** Saving one platform: the key is write-only and never read back. */
+export interface SentinelAssetPlatformInput {
+	id: SentinelAssetPlatform;
+	enabled: boolean;
+	/** null keeps the stored key, "" clears it, anything else replaces it. */
+	key: string | null;
 }
 
 /**

@@ -794,6 +794,7 @@ export async function startSentinelServer(
 		if (agentDir) sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
 		if (agentDir) sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
 		if (agentDir) sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
+		if (agentDir) sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
 	});
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -1140,6 +1141,41 @@ export async function startSentinelServer(
 					broadcastEnvironment();
 					return;
 				}
+				case "get_asset_config":
+					sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
+					return;
+				case "save_asset_platform": {
+					// The save also probes the key and rebuilds the live sessions, so the
+					// tool set changes with the switch. A running session refuses it.
+					try {
+						const config = await runtime.saveAssetPlatform(message.platform);
+						broadcast({ type: "asset_config", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "set_asset_query_limit": {
+					try {
+						const config = await runtime.setAssetQueryLimit(message.limit);
+						broadcast({ type: "asset_config", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "test_asset_platform": {
+					const result = await runtime.testAssetPlatform(message.platform, message.key);
+					// A probe can flip a platform's usability, so the config follows the
+					// result: the screen's "已挂载" state must match what the runtime did.
+					broadcast({ type: "asset_config", config: runtime.getAssetConfig() });
+					sendTo(socket, {
+						type: "asset_test_result",
+						platform: message.platform,
+						result,
+					} satisfies SentinelServerMessage);
+					return;
+				}
 				case "get_stats": {
 					const stats = runtime.getStats();
 					if (stats) socket.send(JSON.stringify({ type: "stats", stats } satisfies SentinelServerMessage));
@@ -1193,8 +1229,9 @@ export async function startSentinelServer(
 					const purgedGates = runtime.purgeProjectGates(message.id);
 					const purgedModels = runtime.purgeProjectApiModels(message.id);
 					const purgedCaptures = runtime.purgeProjectCaptures(message.id);
+					const purgedAssets = runtime.purgeProjectAssets(message.id);
 					console.error(
-						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录`,
+						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录`,
 					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.

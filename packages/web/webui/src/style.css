@@ -7450,6 +7450,443 @@ button.link {
 	color: var(--disabled);
 }
 
+/* ---------------------------------------------------------------------------
+   设置 → 资产测绘：平台表格
+   --------------------------------------------------------------------------- */
+
+/* The page is a comparison table, not the 560px form column the other settings
+   pages use: status, quota and the last call are columns the operator reads
+   across the three platforms, and "which platform is feeding the agent" is the
+   question this page exists to answer. */
+.asset-page {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	/* Without this the page shrinks to the panel and everything past the fold is
+	   clipped instead of scrolled — same rule as the other tables in this body. */
+	flex: none;
+}
+
+.asset-notice {
+	margin-bottom: 12px;
+	padding: 7px 12px;
+	border: 1px solid #f5dfb8;
+	border-radius: var(--radius);
+	background: var(--warn-dim);
+	color: #8a6116;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.asset-notice b {
+	margin-right: 6px;
+}
+
+.asset-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding-bottom: 12px;
+}
+
+.asset-toolbar__stats {
+	font-size: 12.5px;
+	color: var(--dim);
+}
+
+.asset-toolbar__stats b {
+	color: var(--text-bright);
+	font-variant-numeric: tabular-nums;
+}
+
+.asset-toolbar__spacer {
+	flex: 1;
+}
+
+.asset-limit {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.asset-limit input {
+	width: 62px;
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12.5px;
+	text-align: right;
+}
+
+.asset-limit input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+/* A definite width keeps every row's tracks identical: each row is its own grid,
+   so a track widened by its content would desync the columns. */
+.asset-table {
+	min-width: 1040px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.asset-row {
+	display: grid;
+	grid-template-columns:
+		minmax(170px, 1.3fr) 148px minmax(180px, 1.1fr) minmax(150px, 1fr)
+		136px 182px;
+	align-items: center;
+	gap: 12px;
+	padding: 9px 14px;
+	font-size: 13px;
+}
+
+/* Every cell shrinks rather than widening its track; long values ellipsize or
+   wrap inside the cell. This is what keeps the three rows aligned. */
+.asset-row > * {
+	min-width: 0;
+}
+
+.asset-row--head {
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.asset-group {
+	position: relative;
+	border-top: 1px solid var(--border);
+}
+
+/* State rail on the row's left edge: the same signal as the badge, readable
+   without reading. */
+.asset-group::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--disabled);
+}
+
+.asset-group.is-ok::before {
+	background: var(--ok);
+}
+
+.asset-group.is-bad::before {
+	background: var(--danger);
+}
+
+.asset-plat {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+
+.asset-toggle {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	flex: none;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	color: var(--dim);
+	font-size: 11px;
+}
+
+.asset-toggle::before {
+	content: "▸";
+}
+
+.asset-toggle.open::before {
+	content: "▾";
+}
+
+.asset-toggle:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--raised);
+	color: var(--accent);
+}
+
+.asset-mark {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	flex: none;
+	border-radius: 7px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-size: 12.5px;
+	font-weight: 700;
+}
+
+.asset-plat__text {
+	min-width: 0;
+}
+
+.asset-plat__name {
+	color: var(--text-bright);
+	font-weight: 500;
+	line-height: 1.35;
+}
+
+.asset-plat__tool {
+	overflow: hidden;
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.asset-state {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.asset-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 22px;
+	padding: 0 9px;
+	border-radius: 11px;
+	font-size: 11.5px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.asset-pill::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.asset-pill.is-ok {
+	background: var(--ok-dim);
+	color: #3d8b1f;
+}
+
+.asset-pill.is-bad {
+	background: var(--danger-dim);
+	color: #c0392b;
+}
+
+.asset-pill.is-off {
+	background: var(--raised);
+	color: var(--dim);
+}
+
+/* A switch, not a checkbox: the row already carries a badge, and two boxes side
+   by side read as the same control. */
+.asset-switch {
+	position: relative;
+	display: inline-flex;
+	width: 34px;
+	height: 19px;
+	flex: none;
+	cursor: pointer;
+}
+
+.asset-switch input {
+	position: absolute;
+	width: 0;
+	height: 0;
+	opacity: 0;
+}
+
+.asset-switch > span {
+	flex: 1;
+	border-radius: 10px;
+	background: #dcdfe6;
+	transition: background 140ms;
+}
+
+.asset-switch > span::after {
+	content: "";
+	position: absolute;
+	left: 2px;
+	top: 2px;
+	width: 15px;
+	height: 15px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px #0003;
+	transition: transform 140ms;
+}
+
+.asset-switch input:checked + span {
+	background: var(--accent);
+}
+
+.asset-switch input:checked + span::after {
+	transform: translateX(15px);
+}
+
+.asset-switch input:disabled + span {
+	opacity: 0.5;
+}
+
+.asset-key input {
+	width: 100%;
+	height: 30px;
+	padding: 0 9px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.asset-key input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.asset-cell {
+	color: var(--dim);
+	font-size: 12.5px;
+	line-height: 1.45;
+	font-variant-numeric: tabular-nums;
+}
+
+.asset-cell--nowrap {
+	white-space: nowrap;
+}
+
+.asset-ops {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.asset-ops button {
+	padding: 3px 9px;
+	font-size: 12px;
+}
+
+/* 清除 stays a button rather than a link: it deletes a stored key. */
+.asset-ops button.quiet {
+	border-color: transparent;
+	background: none;
+	color: var(--dim);
+}
+
+.asset-ops button.quiet:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	color: var(--danger);
+}
+
+.asset-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 14px 22px;
+	padding: 12px 14px 14px 50px;
+	border-top: 1px dashed var(--border);
+	background: var(--raised);
+	font-size: 12.5px;
+}
+
+/* The display:grid above would otherwise beat the hidden attribute's display:none. */
+.asset-detail[hidden] {
+	display: none;
+}
+
+.asset-detail__title {
+	margin: 10px 0 5px;
+	color: var(--dim);
+	font-size: 11.5px;
+}
+
+.asset-detail__title:first-child {
+	margin-top: 0;
+}
+
+.asset-note {
+	color: var(--dim);
+	line-height: 1.7;
+}
+
+.asset-syntax {
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.7;
+	word-break: break-all;
+}
+
+.asset-error {
+	padding: 8px 10px;
+	border: 1px solid #f7cfcf;
+	border-radius: var(--radius);
+	background: var(--danger-dim);
+	color: #c0392b;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	word-break: break-word;
+}
+
+.asset-result {
+	margin-bottom: 10px;
+	padding: 7px 10px;
+	border-radius: var(--radius);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.asset-result.is-ok {
+	background: var(--ok-dim);
+	color: #3d8b1f;
+}
+
+.asset-result.is-bad {
+	background: var(--danger-dim);
+	color: #c0392b;
+}
+
+.asset-result pre {
+	margin: 6px 0 0;
+	color: inherit;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	opacity: 0.85;
+}
+
+.asset-footnote {
+	margin: 12px 0 0;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+	color: var(--dim);
+	font-size: 12px;
+	line-height: 1.7;
+}
+
 /* ---------- Login screen (鉴权) ----------
    Standalone dark page per the reference layout: brand visual on the left, the
    form on the right. It renders outside the console shell, so it carries its

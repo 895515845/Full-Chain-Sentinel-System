@@ -50,6 +50,18 @@ import {
 	endpointsOf,
 } from "./apimodels.ts";
 import { ApprovalGate } from "./approval.ts";
+import {
+	ASSET_PLATFORM_LABELS,
+	assetConfigView,
+	readAssetConfig,
+	recordAssetStatus,
+	usablePlatforms,
+	saveAssetPlatform as writeAssetPlatform,
+	setAssetQueryLimit as writeAssetQueryLimit,
+} from "./asset-config.ts";
+import { probeAssetPlatform, searchAssets } from "./asset-platforms.ts";
+import { AssetStore, assetsDbPath } from "./asset-store.ts";
+import { type AssetQueryReport, type AssetToolContext, createAssetTools, writeAssetEvidence } from "./asset-tool.ts";
 import { CAPTURE_TOOL_NAMES, createCaptureTools } from "./capture-tool.ts";
 import { CaptureStore, capturesDbPath } from "./captures.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
@@ -146,6 +158,9 @@ import type {
 	SentinelApiModelFilters,
 	SentinelApiModelStatus,
 	SentinelApiModelSummary,
+	SentinelAssetConfigView,
+	SentinelAssetPlatform,
+	SentinelAssetPlatformInput,
 	SentinelFileEntry,
 	SentinelFilePreview,
 	SentinelForkPoint,
@@ -316,6 +331,12 @@ interface ManagedSession {
 	 * `api_model_read` stays mounted until the operator removes the attachment.
 	 */
 	modelingAttach?: ModelingAttach;
+	/**
+	 * Asset-mapping queries this session has spent, across all platforms and
+	 * including its sub-agents. Reset by a rebuild, which is what makes the
+	 * configured budget "per session" rather than "per process".
+	 */
+	assetQueries: number;
 }
 
 /** Extra wiring a task session needs beyond a console session. */
@@ -378,6 +399,7 @@ export class SentinelRuntime {
 	private readonly apiModels: ApiModelStore;
 	private readonly droids: DroidStore;
 	private readonly captures: CaptureStore;
+	private readonly assets: AssetStore;
 	/** Injected once the server has built the WS device gateway (see server.ts). */
 	private droidGateway: DroidGateway | undefined;
 	/** The device page's switch: off means the droid/apk tools are not mounted at all. */
@@ -426,6 +448,7 @@ export class SentinelRuntime {
 		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
 		this.droids = new DroidStore(droidDbPath(this.agentDir));
 		this.captures = new CaptureStore(capturesDbPath(this.agentDir));
+		this.assets = new AssetStore(assetsDbPath(this.agentDir));
 		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
@@ -585,6 +608,7 @@ export class SentinelRuntime {
 			modeling: task ? undefined : (readModelingRun(manager.getBranch()) ?? undefined),
 			// Attached records survive a restart the same way a run does.
 			modelingAttach: task ? undefined : (readModelingAttach(manager.getBranch()) ?? undefined),
+			assetQueries: 0,
 		};
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
@@ -644,6 +668,11 @@ export class SentinelRuntime {
 			: this.activeProjectId
 				? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
 				: undefined;
+		// Asset mapping is an operator-configured capability: a platform that is
+		// switched off, unkeyed or unverified contributes no tool at all, so the
+		// model never sees a search engine it cannot use. Task sessions are left
+		// out, the same way the droid and modeling tools are.
+		const assetPlatforms = task || !permissions.asset_read ? [] : usablePlatforms(this.agentDir);
 		const customTools: ToolDefinition[] = [
 			// The agent names the conversation once the task is clear; task
 			// sessions keep their engine prefix so the sidebar badge holds.
@@ -669,6 +698,12 @@ export class SentinelRuntime {
 			// The POC library is read-only reference; the switch controls both of
 			// its tools, and sub-agents inherit it through the subset rule.
 			...(permissions.poc_read ? createPocTools({ store: this.pocs }) : []),
+			...(assetPlatforms.length > 0
+				? createAssetTools(
+						assetPlatforms,
+						this.createAssetToolContext(managed, () => "主代理"),
+					)
+				: []),
 			// The modeling tools are declared on every console session — the operator
 			// may start modeling by asking for it instead of pressing the button — and
 			// they carry their own "only call this when asked" wording. Task sessions
@@ -731,7 +766,18 @@ export class SentinelRuntime {
 									getSource,
 									onSubmit: () => this.noteGoalFinding(managed),
 								}),
-							extraTools: subagentPermissions.poc_read ? createPocTools({ store: this.pocs }) : [],
+							extraTools: [
+								...(subagentPermissions.poc_read ? createPocTools({ store: this.pocs }) : []),
+								// A sub-agent shares the parent session's query budget, so a
+								// fan-out cannot spend the operator's quota faster than the
+								// budget allows.
+								...(subagentPermissions.asset_read && assetPlatforms.length > 0
+									? createAssetTools(
+											assetPlatforms,
+											this.createAssetToolContext(managed, () => "子代理"),
+										)
+									: []),
+							],
 						}),
 					]
 				: []),
@@ -1406,6 +1452,189 @@ export class SentinelRuntime {
 	/** HTTP capture evidence of a removed project. */
 	purgeProjectCaptures(projectId: string): number {
 		return this.captures.purgeProject(projectId);
+	}
+
+	// =========================================================================
+	// Asset mapping (资产测绘插件)
+	// =========================================================================
+
+	/** The console's asset configuration. Keys are reported as a has-key flag only. */
+	getAssetConfig(): SentinelAssetConfigView {
+		return assetConfigView(this.agentDir);
+	}
+
+	/** Asset-mapping queries a removed project takes with it. */
+	purgeProjectAssets(projectId: string): number {
+		return this.assets.purgeProject(projectId);
+	}
+
+	/**
+	 * Save one platform, probe it, and rebuild the sessions so the tool set
+	 * matches.
+	 *
+	 * The probe is what decides whether the platform's tool is handed to the
+	 * agent: a key that does not work is recorded as a failure and contributes no
+	 * tool, rather than a tool that fails on every call. That is why saving is
+	 * one round trip — switch, key and verification all settle here.
+	 */
+	async saveAssetPlatform(input: SentinelAssetPlatformInput): Promise<SentinelAssetConfigView> {
+		this.assertNoRunningSession("资产测绘配置");
+		const view = writeAssetPlatform(this.agentDir, input);
+		const entry = view.platforms.find((platform) => platform.id === input.id);
+		if (entry?.enabled && entry.hasKey) await this.probeAssetPlatform(input.id);
+		await this.rebuildSessions();
+		return this.getAssetConfig();
+	}
+
+	/** Change the per-session query budget and rebuild, so live sessions get it. */
+	async setAssetQueryLimit(limit: number): Promise<SentinelAssetConfigView> {
+		this.assertNoRunningSession("资产测绘配置");
+		writeAssetQueryLimit(this.agentDir, limit);
+		await this.rebuildSessions();
+		return this.getAssetConfig();
+	}
+
+	/**
+	 * Probe one platform without saving anything, so a key can be checked before
+	 * it is written. `key` overrides the stored one.
+	 *
+	 * A probe that changes which platforms are usable changes the tool set too,
+	 * so the sessions are rebuilt — unless one is running, in which case the
+	 * change lands on the next rebuild instead of interrupting work.
+	 */
+	async testAssetPlatform(platform: SentinelAssetPlatform, key?: string): Promise<SentinelTestResult> {
+		const before = usablePlatforms(this.agentDir).join(",");
+		const result = await this.probeAssetPlatform(platform, key);
+		if (usablePlatforms(this.agentDir).join(",") !== before) {
+			const running = [...this.sessions.values()].some((managed) => managed.session.isStreaming);
+			if (!running) await this.rebuildSessions();
+		}
+		return result;
+	}
+
+	/**
+	 * Probe one platform and record the outcome. A probe that throws is recorded
+	 * as a failure: an unreachable platform is exactly what the settings screen
+	 * has to show.
+	 */
+	private async probeAssetPlatform(platform: SentinelAssetPlatform, key?: string): Promise<SentinelTestResult> {
+		const stored = readAssetConfig(this.agentDir).platforms[platform].key;
+		const effective = key?.trim() ? key.trim() : stored;
+		if (!effective) {
+			return { ok: false, message: `尚未填写 ${ASSET_PLATFORM_LABELS[platform]} 的 API Key` };
+		}
+		try {
+			const result = await probeAssetPlatform({ platform, key: effective });
+			recordAssetStatus(this.agentDir, platform, {
+				at: Date.now(),
+				ok: result.ok,
+				...(result.ok ? {} : { error: result.message }),
+				...(result.quota ? { quota: result.quota } : {}),
+			});
+			return result;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			recordAssetStatus(this.agentDir, platform, { at: Date.now(), ok: false, error: message });
+			return { ok: false, message: `连接失败：${message}`, detail: message };
+		}
+	}
+
+	/**
+	 * The tools' view of the runtime. The key is read per call rather than
+	 * captured, so a key the operator replaces mid-session is used at once; the
+	 * budget lives on the session, so a sub-agent spends the same allowance.
+	 */
+	private createAssetToolContext(managed: ManagedSession, source: () => string): AssetToolContext {
+		const budget = (): number => readAssetConfig(this.agentDir).sessionQueryLimit;
+		return {
+			search: (options) => searchAssets(options),
+			keyOf: (platform) => readAssetConfig(this.agentDir).platforms[platform].key,
+			remaining: () => {
+				const limit = budget();
+				return limit === 0 ? null : Math.max(0, limit - managed.assetQueries);
+			},
+			consume: () => {
+				const limit = budget();
+				if (limit !== 0 && managed.assetQueries >= limit) return false;
+				managed.assetQueries += 1;
+				return true;
+			},
+			saveEvidence: (name, raw) => writeAssetEvidence(this.cwd, name, raw),
+			report: (report) => this.recordAssetQuery(managed, source(), report),
+		};
+	}
+
+	/**
+	 * Log one query and refresh the platform's status line. Both writes are
+	 * best-effort: a successful search must not become a failed tool call because
+	 * a bookkeeping write hit a full disk.
+	 */
+	private recordAssetQuery(managed: ManagedSession, source: string, report: AssetQueryReport): void {
+		try {
+			recordAssetStatus(this.agentDir, report.platform, {
+				at: Date.now(),
+				ok: report.ok,
+				...(report.ok ? {} : { error: report.error ?? "查询失败" }),
+				...(report.quota ? { quota: report.quota } : {}),
+			});
+		} catch {
+			// The settings screen loses one status line, nothing else.
+		}
+		const projectId = this.activeProjectId;
+		if (!projectId) return;
+		const sessionId = managed.manager.getSessionId();
+		try {
+			this.assets.save({
+				projectId,
+				platform: report.platform,
+				query: report.query,
+				page: report.page,
+				size: report.size,
+				total: report.total,
+				count: report.count,
+				ok: report.ok,
+				latencyMs: report.latencyMs,
+				...(report.error ? { error: report.error } : {}),
+				...(report.quota ? { quota: report.quota } : {}),
+				...(sessionId ? { sessionId } : {}),
+				source,
+				...(report.evidencePath ? { evidencePath: report.evidencePath } : {}),
+				records: report.records,
+			});
+		} catch {
+			// Same reasoning: the query happened and the operator saw it.
+		}
+	}
+
+	/**
+	 * A tool-set change rebuilds every console session, so it is refused while a
+	 * session is running rather than disposing work in flight.
+	 */
+	private assertNoRunningSession(what: string): void {
+		if ([...this.sessions.values()].some((managed) => managed.session.isStreaming)) {
+			throw new Error(`有会话正在运行，请先中止再修改${what}`);
+		}
+	}
+
+	/**
+	 * Dispose and recreate every console session so a tool-set change takes
+	 * effect. Task sessions are skipped: the engine owns their lifecycle, and new
+	 * tasks pick up the new switches. The viewed session is recreated last, so the
+	 * console stays on it.
+	 */
+	private async rebuildSessions(): Promise<void> {
+		const existing = [...this.sessions.values()].filter((managed) => !managed.taskSession);
+		const activeKey = this.activeKey;
+		for (const managed of existing) managed.unsubscribe();
+		for (const managed of existing) managed.session.dispose();
+		for (const managed of existing) this.sessions.delete(managed.key);
+		const order = [...existing];
+		const viewed = order.findIndex((managed) => managed.key === activeKey);
+		if (viewed !== -1) order.push(...order.splice(viewed, 1));
+		for (const managed of order) {
+			await this.createSessionInto(managed.manager);
+		}
+		this.hooks.onStateChange();
 	}
 
 	// =========================================================================
@@ -2550,24 +2779,9 @@ export class SentinelRuntime {
 	 * disposed: the operator aborts it first, so no work is lost silently.
 	 */
 	async savePermissions(config: SentinelPermissionsConfig): Promise<void> {
-		const running = [...this.sessions.values()].filter((managed) => managed.session.isStreaming);
-		if (running.length > 0) throw new Error("有会话正在运行，请先中止再修改权限");
+		this.assertNoRunningSession("权限");
 		writePermissionsConfig(this.agentDir, config);
-		// Task sessions are skipped for the same reason as in saveConfig: the
-		// engine owns their lifecycle, and new tasks pick up the new switches.
-		const existing = [...this.sessions.values()].filter((managed) => !managed.taskSession);
-		const activeKey = this.activeKey;
-		for (const managed of existing) managed.unsubscribe();
-		for (const managed of existing) managed.session.dispose();
-		for (const managed of existing) this.sessions.delete(managed.key);
-		// Recreate every session, restoring the previously viewed one last.
-		const order = [...existing];
-		const viewed = order.findIndex((managed) => managed.key === activeKey);
-		if (viewed !== -1) order.push(...order.splice(viewed, 1));
-		for (const managed of order) {
-			await this.createSessionInto(managed.manager);
-		}
-		this.hooks.onStateChange();
+		await this.rebuildSessions();
 	}
 
 	/**
@@ -2877,6 +3091,7 @@ export class SentinelRuntime {
 		this.apiModels.close();
 		this.droids.close();
 		this.captures.close();
+		this.assets.close();
 		this.subscriptions.stop();
 		this.gateStore.close();
 	}

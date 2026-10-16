@@ -36,6 +36,7 @@ import {
 	Network,
 	Pencil,
 	Plug,
+	Radar,
 	RefreshCw,
 	Settings,
 	Shield,
@@ -186,6 +187,11 @@ export function ShieldIcon(props: IconProps) {
 /** Environment: the Docker runtime the console depends on. */
 export function EnvironmentIcon(props: IconProps) {
 	return <Container size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Asset mapping: query FOFA / Quake / Hunter for exposed assets. */
+export function AssetIcon(props: IconProps) {
+	return <Radar size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Rename an entry. */

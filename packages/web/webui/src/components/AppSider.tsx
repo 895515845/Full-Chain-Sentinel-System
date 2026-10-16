@@ -14,6 +14,7 @@ import { SENTINEL_MODE_LABELS } from "../types.ts";
 import {
 	AboutIcon,
 	ApiModelIcon,
+	AssetIcon,
 	CaretDownIcon,
 	ChatIcon,
 	CollapseIcon,
@@ -80,6 +81,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
 	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },
 	{ page: "settings.pocs", label: "POC 订阅", icon: PocIcon },
+	{ page: "settings.assets", label: "资产测绘", icon: AssetIcon },
 	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];

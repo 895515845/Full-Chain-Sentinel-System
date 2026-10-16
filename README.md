@@ -22,6 +22,7 @@
 - **漏洞中枢**：`vuln_submit` 提交已验证漏洞，必填 CVSS 分数，原始数据包逐字保存，操作员复核留时间线，可按项目导出 Markdown 报告。
 - **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
 - **安卓设备插件**：root 测试机安装自研 DroidBridge APK 主动反连，提供 shell、文件上下行、截屏、logcat、tcpdump 抓包、frida 动态调试与 APK 静态分析。
+- **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门员判定。
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 
@@ -117,6 +118,7 @@ docker build -t sentinel:latest docker/
 - AI 审批（守门员）只判六类破坏性操作，判定失败、超时或无法解析一律放行（fail-open），**不是沙箱、也不做数据防泄漏**。
 - 容器以 root 运行，没有资源上限，也没有 cap-drop / seccomp / read-only；同一项目的所有会话与并发任务共用一个容器。
 - 控制台会加载项目目录下的 `settings.json`、`.pi/extensions`、`AGENTS.md`、`mcp.json`，且没有项目信任确认步骤——不要把来源不可信的工作目录设为项目。
+- **资产测绘会把查询内容与 API Key 发送给第三方平台**（FOFA / 360 Quake / 奇安信 Hunter）：查询在控制台进程里直接 HTTPS 发出，不过审批门、也不经过容器，但目标域名、IP 等查询内容对这些平台可见。密钥明文存在本机配置目录的 `assets.json`（权限 0600），前端不回显；查询流水与原始响应留在本机（`assets.db` 与项目 `evidence/asset/`）。
 
 完整边界与配置见 [packages/web/README.md](packages/web/README.md#安全提示)。
 

@@ -17,6 +17,7 @@ import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { GoalBar } from "./components/GoalBar.tsx";
 import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
 import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { AssetPanel } from "./components/AssetPanel.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
@@ -44,6 +45,8 @@ import type {
 	SentinelApiModelEvent,
 	SentinelApiModelFilters,
 	SentinelApiModelSummary,
+	SentinelAssetConfigView,
+	SentinelAssetPlatform,
 	SentinelClientMessage,
 	SentinelDoctrineView,
 	SentinelEngine,
@@ -185,6 +188,8 @@ export function App() {
 		summaryLimit: 2000,
 	});
 	const [notifyStatus, setNotifyStatus] = useState<SentinelNotifyStatus>({ at: null, ok: true });
+	const [assetConfig, setAssetConfig] = useState<SentinelAssetConfigView | null>(null);
+	const [assetBusy, setAssetBusy] = useState(false);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
 	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
 	const [permissionTools, setPermissionTools] = useState<SentinelToolInfo[]>([]);
@@ -337,6 +342,7 @@ export function App() {
 	const transcriptFollowRef = useRef(true);
 	const modelTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const notifyTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
+	const assetTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const judgeTestResolverRef = useRef<((result: { result: SentinelTestResult; raw?: string } | null) => void) | null>(null);
 	/** The audit query on screen, so a live judgment can refresh exactly that view. */
 	const gateQueryRef = useRef<{ filter: SentinelGateFilter; page: number } | null>(null);
@@ -431,6 +437,17 @@ export function App() {
 				case "notify_config":
 					setNotifyConfig(message.config);
 					setNotifyStatus(message.status);
+					break;
+				case "asset_config":
+					setAssetConfig(message.config);
+					setAssetBusy(false);
+					break;
+				case "asset_test_result":
+					if (assetTestResolverRef.current) {
+						const resolve = assetTestResolverRef.current;
+						assetTestResolverRef.current = null;
+						resolve(message.result);
+					}
 					break;
 				case "notify_test_result":
 					if (notifyTestResolverRef.current) {
@@ -1090,6 +1107,10 @@ export function App() {
 				break;
 			case "settings.pocs":
 				send({ type: "list_poc_sources" });
+				break;
+			case "settings.assets":
+				// The server also pushes this on connect; this refreshes on navigation.
+				send({ type: "get_asset_config" });
 				break;
 			case "settings.presets":
 				send({ type: "list_presets" });
@@ -2068,6 +2089,55 @@ export function App() {
 									officialSyncing={pocOfficialSyncing}
 									onSyncOfficial={syncOfficialPocs}
 								/>
+							</div>
+						</div>
+					) : page === "settings.assets" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										资产测绘
+										{assetConfig ? ` · 已挂载 ${assetConfig.usable} 个平台` : ""}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								{assetConfig ? (
+									<AssetPanel
+										config={assetConfig}
+										busy={assetBusy}
+										onSave={(platform) => {
+											setAssetBusy(true);
+											send({ type: "save_asset_platform", platform });
+											// Saving also probes the key and rebuilds the sessions, so
+											// the switch is released on a timeout as well as on the reply.
+											window.setTimeout(() => setAssetBusy(false), 40000);
+										}}
+										onSaveLimit={(limit) => {
+											setAssetBusy(true);
+											send({ type: "set_asset_query_limit", limit });
+											window.setTimeout(() => setAssetBusy(false), 40000);
+										}}
+										onTest={async (platform: SentinelAssetPlatform, key?: string) => {
+											const result = await new Promise<SentinelTestResult | null>((resolve) => {
+												assetTestResolverRef.current = resolve;
+												connectionRef.current?.send({ type: "test_asset_platform", platform, key });
+												window.setTimeout(() => {
+													if (assetTestResolverRef.current === resolve) {
+														assetTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 40000);
+											});
+											return result;
+										}}
+									/>
+								) : (
+									<div className="ws-empty">
+										<span>正在读取资产测绘配置…</span>
+									</div>
+								)}
 							</div>
 						</div>
 					) : page === "settings.presets" ? (

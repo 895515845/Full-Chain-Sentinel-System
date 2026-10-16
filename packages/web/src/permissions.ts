@@ -28,7 +28,8 @@ export type SentinelPermissionKey =
 	| "spawn_agent"
 	| "vuln_submit"
 	| "vuln_read"
-	| "poc_read";
+	| "poc_read"
+	| "asset_read";
 
 export const PERMISSION_KEYS: readonly SentinelPermissionKey[] = [
 	"read",
@@ -42,6 +43,7 @@ export const PERMISSION_KEYS: readonly SentinelPermissionKey[] = [
 	"vuln_submit",
 	"vuln_read",
 	"poc_read",
+	"asset_read",
 ];
 
 /** Keys a sub-agent can hold at all: delegation never recurses. */
@@ -109,6 +111,7 @@ export const PERMISSION_LABELS: Record<SentinelPermissionKey, string> = {
 	vuln_submit: "vuln_submit 提交漏洞",
 	vuln_read: "vuln_list / vuln_get 查询漏洞",
 	poc_read: "poc_search / poc_read 检索 POC 库",
+	asset_read: "fofa_search / quake_search / hunter_search 资产测绘",
 };
 
 export const PERMISSION_HINTS: Record<SentinelPermissionKey, string> = {
@@ -123,6 +126,8 @@ export const PERMISSION_HINTS: Record<SentinelPermissionKey, string> = {
 	vuln_submit: "把已验证的漏洞提交到当前项目的漏洞中枢（原始数据包、CVSS 评分一并提交）",
 	vuln_read: "查询当前项目已记录的漏洞，避免重复提交并在总结中引用编号",
 	poc_read: "检索操作员导入的 Nuclei POC 库（只读参考；要执行需自己写 yaml 并用 bash 跑 nuclei）",
+	asset_read:
+		"用操作员配置的 FOFA / 360 Quake / 奇安信 Hunter 账号做互联网资产测绘（由控制台代发请求，密钥不进容器；只有已启用并通过验证的平台才会挂载）",
 };
 
 function fullSet(): SentinelPermissionSet {
@@ -138,6 +143,7 @@ function fullSet(): SentinelPermissionSet {
 		vuln_submit: true,
 		vuln_read: true,
 		poc_read: true,
+		asset_read: true,
 	};
 }
 
@@ -154,6 +160,7 @@ function emptySet(): SentinelPermissionSet {
 		vuln_submit: false,
 		vuln_read: false,
 		poc_read: false,
+		asset_read: false,
 	};
 }
 
@@ -172,6 +179,7 @@ function reconSet(): SentinelPermissionSet {
 		spawn_agent: true,
 		vuln_read: true,
 		poc_read: true,
+		asset_read: true,
 	};
 }
 
@@ -286,6 +294,7 @@ export function excludeToolsFor(set: SentinelPermissionSet): string[] {
 	if (!set.vuln_submit) excluded.push("vuln_submit");
 	if (!set.vuln_read) excluded.push("vuln_list", "vuln_get");
 	if (!set.poc_read) excluded.push("poc_search", "poc_read");
+	if (!set.asset_read) excluded.push("fofa_search", "quake_search", "hunter_search");
 	if (!set.mcp) excluded.push("mcp__*", ...MCP_RESOURCE_TOOLS);
 	return excluded;
 }
