@@ -1611,6 +1611,22 @@ export class SentinelRuntime {
 	}
 
 	/**
+	 * Flip one server's switch from the permissions page.
+	 *
+	 * Same file and same field as the MCP page's 启用: the two pages are two views of
+	 * one switch, so they cannot disagree. Only `enabled` is written, which is also why
+	 * this is not a save: a page that has been open a while holds a stale URL and a stale
+	 * token, and writing those back would be a silent overwrite of what the operator
+	 * typed on the other page.
+	 */
+	async setMcpServerEnabled(name: string, enabled: boolean): Promise<SentinelMcpConfigView> {
+		this.assertNoRunningSession("MCP 配置");
+		updateMcpServerRecord(this.agentDir, name, { enabled });
+		await this.rebuildSessions();
+		return this.getMcpServers();
+	}
+
+	/**
 	 * Connect once to one server and report what it offers, without saving anything.
 	 *
 	 * `draft` probes the form as it stands, which is how a server is checked before

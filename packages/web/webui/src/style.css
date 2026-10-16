@@ -4025,6 +4025,81 @@ svg.lucide {
 	color: var(--dim);
 }
 
+/* The MCP switch's per-server rows: nested under the switch they narrow. */
+.perm-mcp {
+	display: flex;
+	flex-direction: column;
+	margin: 0 0 4px 26px;
+	padding-left: 8px;
+	border-left: 1px solid var(--border);
+}
+
+.perm-mcp-note {
+	margin: 2px 0 4px;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--dim);
+}
+
+.perm-mcp-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 3px 6px;
+	border-radius: var(--radius);
+	cursor: pointer;
+	transition: background 120ms;
+}
+
+.perm-mcp-row:hover {
+	background: var(--raised);
+}
+
+.perm-mcp-row input {
+	flex: none;
+	margin-top: 2px;
+	accent-color: var(--accent);
+}
+
+.perm-mcp-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.perm-mcp-name {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text);
+}
+
+.perm-mcp-row.on .perm-mcp-name {
+	color: var(--accent);
+}
+
+.perm-mcp-transport {
+	padding: 0 4px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font-family: var(--sans);
+	font-size: 10px;
+	color: var(--dim);
+}
+
+/* One line, ellipsised: a stdio target is a whole command line. */
+.perm-mcp-hint {
+	max-width: 420px;
+	overflow: hidden;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--dim);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .perm-tools {
 	display: flex;
 	flex-direction: column;

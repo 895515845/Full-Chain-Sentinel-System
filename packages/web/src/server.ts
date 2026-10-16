@@ -1200,6 +1200,16 @@ export async function startSentinelServer(
 					}
 					return;
 				}
+				case "set_mcp_server_enabled": {
+					// Same rebuild as a save: the switch decides whether the server is mounted.
+					try {
+						const config = await runtime.setMcpServerEnabled(message.name, message.enabled);
+						broadcast({ type: "mcp_servers", config });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
 				case "test_mcp_server": {
 					// A probe writes nothing but the status line, so no rebuild follows.
 					const result = await runtime.testMcpServer(message.name, message.draft);

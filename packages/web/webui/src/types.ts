@@ -923,6 +923,8 @@ export type SentinelClientMessage =
 	| { type: "get_mcp_servers" }
 	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
 	| { type: "delete_mcp_server"; name: string }
+	/** Flip one server's switch from the permissions page; the MCP page reads the same field. */
+	| { type: "set_mcp_server_enabled"; name: string; enabled: boolean }
 	| { type: "test_mcp_server"; name: string; draft?: SentinelMcpServerInput }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }

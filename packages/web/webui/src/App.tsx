@@ -1120,6 +1120,10 @@ export function App() {
 			case "settings.permissions":
 				send({ type: "get_permissions" });
 				break;
+			case "settings.mcp":
+				// Also pushed on connect; this refreshes after another window changed it.
+				send({ type: "get_mcp_servers" });
+				break;
 			case "settings.environment":
 				send({ type: "get_environment" });
 				break;
@@ -2037,8 +2041,21 @@ export function App() {
 										config={permissions}
 										presets={permissionPresets}
 										tools={permissionTools}
+										mcpServers={mcpConfig?.servers ?? null}
+										mcpBusy={mcpBusy}
 										busy={permissionBusy}
-										onRefresh={() => send({ type: "get_permissions" })}
+										onRefresh={() => {
+											send({ type: "get_permissions" });
+											// The MCP switch's per-server rows come from the MCP view.
+											send({ type: "get_mcp_servers" });
+										}}
+										onToggleMcpServer={(name, enabled) => {
+											setMcpBusy(true);
+											send({ type: "set_mcp_server_enabled", name, enabled });
+											// Flipping the switch rebuilds the live sessions, so the row is
+											// released on a timeout as well as on the reply.
+											window.setTimeout(() => setMcpBusy(false), 30000);
+										}}
 										onSave={(next) => {
 											setPermissionBusy(true);
 											send({ type: "save_permissions", config: next });

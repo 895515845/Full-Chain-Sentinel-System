@@ -1087,6 +1087,12 @@ export type SentinelClientMessage =
 	| { type: "save_mcp_server"; server: SentinelMcpServerInput }
 	| { type: "delete_mcp_server"; name: string }
 	/**
+	 * Flip one server's switch from the permissions page, which lists the same servers.
+	 * It sends the one field rather than a whole entry, so a page holding a stale copy of
+	 * a URL or a token cannot write that copy back over the stored one.
+	 */
+	| { type: "set_mcp_server_enabled"; name: string; enabled: boolean }
+	/**
 	 * Probe one server without saving anything, so a draft can be checked before it
 	 * is written. `draft` overrides the stored entry; without it the stored one is probed.
 	 */

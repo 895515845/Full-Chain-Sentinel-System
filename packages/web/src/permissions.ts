@@ -121,7 +121,7 @@ export const PERMISSION_HINTS: Record<SentinelPermissionKey, string> = {
 	write: "新建或整体覆盖文件",
 	codemode: "在沙箱脚本里批量调用上面已允许的工具，不会额外放行被禁用的工具",
 	tool_search: "按需检索并加载尚未声明的工具（含 MCP 工具），被禁用的工具搜不到",
-	mcp: "连接 mcp.json 中配置的 MCP 服务器并使用它们的工具",
+	mcp: "连接「设置 → MCP」中配置的 MCP 服务器并使用它们的工具（项目目录与配置目录里的 mcp.json 都不读）",
 	spawn_agent: "把独立子任务委派给隔离子代理并行执行",
 	vuln_submit: "把已验证的漏洞提交到当前项目的漏洞中枢（原始数据包、CVSS 评分一并提交）",
 	vuln_read: "查询当前项目已记录的漏洞，避免重复提交并在总结中引用编号",

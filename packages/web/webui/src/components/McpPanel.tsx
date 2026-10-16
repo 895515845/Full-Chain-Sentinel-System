@@ -50,7 +50,8 @@ const STATE_TONES: Record<McpServerState, string> = {
 	unacknowledged: "bad",
 };
 
-const TRANSPORT_LABELS: Record<SentinelMcpTransport, string> = {
+/** Transport names, shared with the permissions page so the two cannot drift apart. */
+export const TRANSPORT_LABELS: Record<SentinelMcpTransport, string> = {
 	stdio: "stdio",
 	http: "HTTP",
 	sse: "SSE",

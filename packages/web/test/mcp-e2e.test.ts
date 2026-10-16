@@ -481,6 +481,30 @@ test("deletes one server, and deleting a name that is gone is a no-op", async ()
 	expect(again.servers.map((server) => server.name)).toEqual(["local", "remote", "legacy"]);
 });
 
+test("the permissions page can switch one server off, and the MCP page reads the same field", async () => {
+	// Put the set in a known state first: the switch is the subject here, so it must not
+	// depend on what an earlier test left behind.
+	const before = await afterConfig(() => send({ type: "set_mcp_server_enabled", name: "remote", enabled: true }));
+	expect(before.mounted).toBe(3);
+	expect(before.servers.map((server) => server.name)).toEqual(["local", "remote", "legacy"]);
+
+	const off = await afterConfig(() => send({ type: "set_mcp_server_enabled", name: "remote", enabled: false }));
+	expect(off.mounted).toBe(2);
+	// Both views come from one field, so the MCP page cannot disagree with the permissions page.
+	expect(off.servers.find((server) => server.name === "remote")?.enabled).toBe(false);
+	// The entry itself is untouched: same target, same transport, still listed.
+	expect(off.servers.map((server) => server.name)).toEqual(["local", "remote", "legacy"]);
+	expect(off.servers[1].url).toBe(httpUrl);
+
+	const on = await afterConfig(() => send({ type: "set_mcp_server_enabled", name: "remote", enabled: true }));
+	expect(on.mounted).toBe(3);
+	expect(on.servers[1].enabled).toBe(true);
+
+	expect(await errorFrom(() => send({ type: "set_mcp_server_enabled", name: "ghost", enabled: true }))).toContain(
+		"未定义",
+	);
+});
+
 test("the 权限 → MCP switch drives the page's warning without dropping the list", async () => {
 	drain();
 	send({ type: "get_permissions" });
