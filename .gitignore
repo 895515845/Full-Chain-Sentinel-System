@@ -8,7 +8,9 @@ dist/
 packages/*/dist/
 packages/*/dist-chrome/
 packages/*/dist-firefox/
-packages/ai/src/providers/data/
+# packages/ai/src/providers/data/ is tracked on purpose. The model-id type unions
+# and the test expectations derive from it, so CI must not refetch a moving live
+# catalog. Refresh it deliberately with `npm run generate-models` and commit.
 packages/ai/src/providers/.model-generation-*/
 *.cpuprofile
 

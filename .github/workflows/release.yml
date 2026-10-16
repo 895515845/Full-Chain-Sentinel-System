@@ -96,9 +96,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # packages/ai/src/providers/data/ is generated and not tracked, but the
-      # console build imports it. Hydrate first, or the build sees no model data.
-      - name: Hydrate model data
+      # Refresh the pinned catalog so the released binary ships the models that
+      # are current at release time. packages/ai/src/providers/data/ is tracked,
+      # so this step is about freshness, not about filling in missing files.
+      - name: Refresh model data
         run: npm run hydrate:model-data
 
       - name: Build the console binary
