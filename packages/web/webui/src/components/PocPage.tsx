@@ -63,11 +63,15 @@ function officialLine(source: SentinelPocSource): string {
 export function PocPage({
 	items,
 	stats,
+	page,
+	pageSize,
+	total,
 	filters,
 	detail,
 	importing,
 	outcome,
 	onFiltersChange,
+	onPageChange,
 	onOpen,
 	onImport,
 	onDelete,
@@ -77,12 +81,19 @@ export function PocPage({
 }: {
 	items: SentinelPocSummary[];
 	stats: SentinelPocStats;
+	/** The page this table shows, 1-based, with the page size the server used. */
+	page: number;
+	pageSize: number;
+	/** Matches across all pages under the current filter. */
+	total: number;
 	filters: SentinelPocFilters;
 	detail: SentinelPoc | null;
 	importing: boolean;
 	/** Result of the last import batch, shown until the next one starts. */
 	outcome: SentinelPocImportOutcome | null;
 	onFiltersChange(filters: SentinelPocFilters): void;
+	/** Turn to another page of the current filter. */
+	onPageChange(page: number): void;
 	/** Fetch one template's full yaml for the row being expanded. */
 	onOpen(id: string): void;
 	onImport(files: File[]): void;
@@ -99,6 +110,7 @@ export function PocPage({
 	const [sortKey, setSortKey] = useState<SortKey>("when");
 	const [sortDesc, setSortDesc] = useState(true);
 	const fileInput = useRef<HTMLInputElement | null>(null);
+	const pages = Math.max(1, Math.ceil(total / pageSize));
 
 	const apply = (patch: Partial<SentinelPocFilters>): void => {
 		onFiltersChange({
@@ -286,7 +298,7 @@ export function PocPage({
 					}}
 				/>
 				<span className="poc-hits">
-					显示 {items.length} / {stats.total} 条
+					匹配 {total} 条
 					{filters.search || filters.severity || filters.tag ? "（已筛选）" : ""}
 				</span>
 			</div>
@@ -335,6 +347,20 @@ export function PocPage({
 					</tbody>
 				</table>
 			</div>
+
+			{pages > 1 ? (
+				<div className="poc-pager">
+					<button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+						上一页
+					</button>
+					<span>
+						第 {page} / {pages} 页 · 共 {total} 条
+					</span>
+					<button type="button" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>
+						下一页
+					</button>
+				</div>
+			) : null}
 
 			<div className="poc-foot">
 				<span>库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei</span>

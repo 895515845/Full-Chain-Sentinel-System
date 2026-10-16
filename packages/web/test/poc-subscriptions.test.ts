@@ -74,6 +74,9 @@ beforeAll(async () => {
 	store = new PocStore(join(dir, "pocs.db"));
 	const hooks: SubscriptionHooks = {
 		onChange: () => {},
+		onPocChange: () => {
+			pocChanges += 1;
+		},
 		onSyncFailure: (source, record) => failures.push({ source, record }),
 	};
 	subscriptions = new PocSubscriptions(dir, store, hooks);
@@ -98,6 +101,8 @@ afterAll(() => {
 });
 
 const failures: { source: SentinelPocSource; record: { error?: string } }[] = [];
+/** How many syncs told the consoles to re-read the template library. */
+let pocChanges = 0;
 
 test("URL validation and interval clamping", () => {
 	expect(sourceUrlError("http://内网/pack.zip")).toBeUndefined();
@@ -161,6 +166,8 @@ test("a sync downloads, imports, and records history", async () => {
 	expect(after?.lastSyncAt).toBeTruthy();
 	expect(after?.lastResult).toMatchObject({ ok: true, imported: 1, replaced: 0, skipped: 0, trigger: "manual" });
 	expect(store.get("t-sub")).toBeDefined();
+	// The library, not just the source list, has to be re-read by the console.
+	expect(pocChanges).toBe(1);
 });
 
 test("a failed sync records the error, fires the failure hook, and keeps the library", async () => {
@@ -174,6 +181,8 @@ test("a failed sync records the error, fires the failure hook, and keeps the lib
 	expect(after?.lastResult?.trigger).toBe("auto");
 	expect(failures).toHaveLength(1);
 	expect(store.get("t-sub")).toBeDefined();
+	// A failed sync changed nothing, so it must not claim the library changed.
+	expect(pocChanges).toBe(1);
 });
 
 test("interval due logic", () => {

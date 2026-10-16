@@ -403,7 +403,14 @@ export async function startSentinelServer(
 	/** The POC library, pushed when the operator imports or deletes templates. */
 	function broadcastPocs(): void {
 		const view = runtime.listPocs();
-		broadcast({ type: "pocs", items: view.items, stats: view.stats });
+		broadcast({
+			type: "pocs",
+			items: view.items,
+			stats: view.stats,
+			total: view.total,
+			page: view.page,
+			pageSize: view.pageSize,
+		});
 	}
 
 	/**
@@ -1353,8 +1360,15 @@ export async function startSentinelServer(
 					return;
 				}
 				case "list_pocs": {
-					const view = runtime.listPocs(message.filters);
-					sendTo(socket, { type: "pocs", items: view.items, stats: view.stats });
+					const view = runtime.listPocs(message.filters, message.page, message.pageSize);
+					sendTo(socket, {
+						type: "pocs",
+						items: view.items,
+						stats: view.stats,
+						total: view.total,
+						page: view.page,
+						pageSize: view.pageSize,
+					});
 					return;
 				}
 				case "get_poc": {

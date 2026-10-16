@@ -1056,7 +1056,7 @@ export type SentinelClientMessage =
 	/** `force` is the hub's manual re-review: it overwrites an already-settled verdict. */
 	| { type: "retry_vuln_review"; id: string; force?: boolean }
 	| { type: "review_pending_vulns" }
-	| { type: "list_pocs"; filters?: SentinelPocFilters }
+	| { type: "list_pocs"; filters?: SentinelPocFilters; page?: number; pageSize?: number }
 	| { type: "get_poc"; id: string }
 	| { type: "import_pocs"; files: SentinelPocImportFile[] }
 	| { type: "delete_poc"; id: string }
@@ -1194,7 +1194,14 @@ export type SentinelServerMessage =
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
-	| { type: "pocs"; items: SentinelPocSummary[]; stats: SentinelPocStats }
+	| {
+			type: "pocs";
+			items: SentinelPocSummary[];
+			stats: SentinelPocStats;
+			total: number;
+			page: number;
+			pageSize: number;
+	  }
 	| { type: "poc"; poc: SentinelPoc }
 	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "pocs_imported"; outcome: SentinelPocImportOutcome }

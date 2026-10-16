@@ -30,11 +30,10 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 /** Largest template accepted; real nuclei templates are a few kilobytes. */
 const MAX_TEMPLATE_BYTES = 512 * 1024;
 /**
- * Templates listed in one answer. The query asks for one row more than this and
- * keeps the surplus as `hasMore`: an answer that cannot tell a full page from a
- * truncated one reports a 5,000-row match as 100 rows.
+ * Templates per page. The console paginates with this size; `poc_search` still
+ * gets one page and points the model at narrowing the query when `hasMore`.
  */
-const LIST_CAP = 100;
+export const LIST_CAP = 100;
 /**
  * Templates stored per commit. A whole-archive import is one transaction per
  * chunk: not one per template (every statement autocommitted, ~0.6ms each) and
@@ -111,9 +110,12 @@ function toPoc(row: PocRow): SentinelPoc {
 	return { ...toSummary(row), content: row.content };
 }
 
-/** One page of `list()` results; `hasMore` says the library held more matches. */
+/** One page of `list()` results; `total` counts every match across pages. */
 export interface SentinelPocListPage {
 	items: SentinelPocSummary[];
+	total: number;
+	page: number;
+	pageSize: number;
 	hasMore: boolean;
 }
 
@@ -337,7 +339,7 @@ export class PocStore {
 		}
 	}
 
-	list(filters: SentinelPocFilters = {}): SentinelPocListPage {
+	list(filters: SentinelPocFilters = {}, page = 1, pageSize = LIST_CAP): SentinelPocListPage {
 		const conditions: string[] = [];
 		const params: (string | number)[] = [];
 		if (filters.severity) {
@@ -354,10 +356,23 @@ export class PocStore {
 			params.push(needle, needle, needle, needle);
 		}
 		const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+		const safePage = Math.max(1, Math.floor(page));
+		const size = Math.min(Math.max(1, Math.floor(pageSize)), LIST_CAP);
+		const totalRow = this.db.prepare(`SELECT COUNT(*) AS n FROM pocs${where}`).get(...params) as unknown as {
+			n: number;
+		};
+		const total = Number(totalRow.n);
+		const offset = (safePage - 1) * size;
 		const rows = this.db
-			.prepare(`SELECT ${SUMMARY_COLUMNS} FROM pocs${where} ORDER BY imported_at DESC, id LIMIT ${LIST_CAP + 1}`)
-			.all(...params) as unknown as PocSummaryRow[];
-		return { items: rows.slice(0, LIST_CAP).map(toSummary), hasMore: rows.length > LIST_CAP };
+			.prepare(`SELECT ${SUMMARY_COLUMNS} FROM pocs${where} ORDER BY imported_at DESC, id LIMIT ? OFFSET ?`)
+			.all(...params, size, offset) as unknown as PocSummaryRow[];
+		return {
+			items: rows.map(toSummary),
+			total,
+			page: safePage,
+			pageSize: size,
+			hasMore: offset + rows.length < total,
+		};
 	}
 
 	get(id: string): SentinelPoc | undefined {

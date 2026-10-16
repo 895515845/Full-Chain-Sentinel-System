@@ -273,6 +273,10 @@ export function App() {
 		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
 	});
 	const [pocFilters, setPocFilters] = useState<SentinelPocFilters>({});
+	/** The library page on screen (1-based) and the server's paging numbers. */
+	const [pocPage, setPocPage] = useState(1);
+	const [pocTotal, setPocTotal] = useState(0);
+	const [pocPageSize, setPocPageSize] = useState(100);
 	const [pocDetail, setPocDetail] = useState<SentinelPoc | null>(null);
 	const [pocImporting, setPocImporting] = useState(false);
 	const [lastPocImport, setLastPocImport] = useState<SentinelPocImportOutcome | null>(null);
@@ -707,6 +711,8 @@ export function App() {
 				case "pocs":
 					setPocItems(message.items);
 					setPocStats(message.stats);
+					setPocTotal(message.total);
+					setPocPageSize(message.pageSize);
 					break;
 				case "poc":
 					setPocDetail(message.poc);
@@ -1120,6 +1126,16 @@ export function App() {
 		loadGates(gateFilter, gatePage);
 	}, [page, connected, gateFilter, gatePage, loadGates]);
 
+	/**
+	 * The POC page reads on open: imports and syncs push the library, but a
+	 * console that imported before this page was ever opened has no push to
+	 * rely on, and would show an empty table over a full database.
+	 */
+	useEffect(() => {
+		if (page !== "pocs" || !connected) return;
+		send({ type: "list_pocs", filters: pocFilters, page: pocPage });
+	}, [page, connected, pocFilters, pocPage, send]);
+
 	// Leaving the page drops the remembered query, so a judgment arriving while the
 	// operator is elsewhere does not trigger a query nobody is looking at.
 	useEffect(() => {
@@ -1161,13 +1177,16 @@ export function App() {
 	}, [snapshot?.project?.id, connected, send]);
 
 	/** Re-read the library under the current filter. */
-	const loadPocs = useCallback(
-		(filters: SentinelPocFilters) => {
-			setPocFilters(filters);
-			send({ type: "list_pocs", filters });
-		},
-		[send],
-	);
+	const loadPocs = useCallback((filters: SentinelPocFilters) => {
+		setPocFilters(filters);
+		// A new filter restarts the listing, so the effect re-reads page 1.
+		setPocPage(1);
+	}, []);
+
+	/** Turn the library page; the active filter stays as it is. */
+	const loadPocsPage = useCallback((page: number) => {
+		setPocPage(page);
+	}, []);
 
 	/** One template in full, in the detail overlay. */
 	const openPoc = useCallback(
@@ -1781,11 +1800,15 @@ export function App() {
 						<PocPage
 							items={pocItems}
 							stats={pocStats}
+							page={pocPage}
+							pageSize={pocPageSize}
+							total={pocTotal}
 							filters={pocFilters}
 							detail={pocDetail}
 							importing={pocImporting}
 							outcome={lastPocImport}
 							onFiltersChange={loadPocs}
+							onPageChange={loadPocsPage}
 							onOpen={openPoc}
 							onImport={(files) => void importPocs(files)}
 							onDelete={(id) => send({ type: "delete_poc", id })}

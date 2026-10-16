@@ -138,8 +138,8 @@ import {
 } from "./permissions.ts";
 import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
-import { PocStore, pocsDbPath } from "./pocs.ts";
-import { findPreset, readPresetText } from "./presets.ts";
+import { LIST_CAP, PocStore, pocsDbPath } from "./pocs.ts";
+import { ensureBuiltinPresets, findPreset, readPresetText } from "./presets.ts";
 import type {
 	SentinelApiModel,
 	SentinelApiModelEvent,
@@ -419,6 +419,9 @@ export class SentinelRuntime {
 		this.sessionDir = getDefaultSessionDir(this.cwd, this.agentDir);
 		this.subagentStore = new SubagentStore(subagentDbPath(this.agentDir));
 		this.vulnerabilities = new VulnerabilityStore(vulnerabilityDbPath(this.agentDir));
+		// Seed the built-in presets before anything reads the store: a fresh
+		// console must offer them from its very first session.
+		ensureBuiltinPresets(this.agentDir);
 		this.pocs = new PocStore(pocsDbPath(this.agentDir));
 		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
 		this.droids = new DroidStore(droidDbPath(this.agentDir));
@@ -426,6 +429,7 @@ export class SentinelRuntime {
 		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
+			onPocChange: () => this.hooks.onPocChange(),
 			onSyncFailure: (source, record) => this.notifyPocSyncFailure(source, record),
 		});
 		this.subscriptions.start();
@@ -2811,8 +2815,18 @@ export class SentinelRuntime {
 	// --- POC 库（只读模板中心；导入与删除是操作员动作，不经过 agent） ---
 
 	/** The library is global, not per project: templates are reference material. */
-	listPocs(filters: SentinelPocFilters = {}): { items: SentinelPocSummary[]; stats: SentinelPocStats } {
-		return { items: this.pocs.list(filters).items, stats: this.pocs.stats() };
+	listPocs(
+		filters: SentinelPocFilters = {},
+		page = 1,
+		pageSize = LIST_CAP,
+	): {
+		items: SentinelPocSummary[];
+		total: number;
+		page: number;
+		pageSize: number;
+		stats: SentinelPocStats;
+	} {
+		return { ...this.pocs.list(filters, page, pageSize), stats: this.pocs.stats() };
 	}
 
 	getPoc(id: string): SentinelPoc | undefined {

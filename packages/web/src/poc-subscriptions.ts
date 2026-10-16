@@ -78,6 +78,12 @@ interface StoredSource {
 export interface SubscriptionHooks {
 	/** A source changed (save/delete/sync finished); consoles refresh the list. */
 	onChange(): void;
+	/**
+	 * A sync imported templates. Separate from `onChange` because the source list
+	 * and the template library are two different views: a console with the POC
+	 * page open has to re-read the library, or it keeps showing the pre-sync one.
+	 */
+	onPocChange(): void;
 	/** A sync failed; the runtime decides whether that becomes a DingTalk push. */
 	onSyncFailure(source: SentinelPocSource, record: SentinelPocSyncRecord): void;
 }
@@ -315,6 +321,8 @@ export class PocSubscriptions {
 		this.record(source, record);
 		this.persist();
 		this.hooks.onChange();
+		// Only a sync that actually imported templates changes the library.
+		if (outcome) this.hooks.onPocChange();
 		if (failure !== undefined) this.hooks.onSyncFailure(toView(source), record);
 		return { source: toView(source) };
 	}
