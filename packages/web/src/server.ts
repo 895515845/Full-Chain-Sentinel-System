@@ -7,6 +7,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createSecureServer } from "node:https";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,6 +128,12 @@ export interface SentinelServerOptions {
 	gate?: boolean;
 	/** A fixed entry token; by default a fresh one is generated on every start. */
 	gateToken?: string;
+	/**
+	 * Serve HTTPS (the page and its WebSocket over TLS on the same listener).
+	 * Off means plain HTTP — the automated tests run that way; the CLI turns it
+	 * on by default and hands the PEM contents here.
+	 */
+	tls?: { cert: string; key: string };
 	/**
 	 * First-visit authorization promise (default: on exactly when authentication
 	 * is). Until the operator accepts the statement, `/api` and the WebSocket
@@ -345,7 +352,7 @@ export async function startSentinelServer(
 		// With the gate on, the console address is the entry URL: it is the only one
 		// that works, so this is what the environment page shows and what the startup
 		// log prints.
-		return `http://${shownHost}:${boundPort}${gateEnabled ? `/${gateToken}` : ""}`;
+		return `${options.tls ? "https" : "http"}://${shownHost}:${boundPort}${gateEnabled ? `/${gateToken}` : ""}`;
 	}
 
 	/** The current report, running the check first if there is none or `force` is set. */
@@ -643,7 +650,7 @@ export async function startSentinelServer(
 	const listenConfig = runtime.droidListenConfig();
 	if (listenConfig) await droidGateway.listen(listenConfig.host, listenConfig.port);
 
-	const server = createServer((request, response) => {
+	const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
 		// The gate answers before anything else — before the auth endpoints too, so a
@@ -742,7 +749,10 @@ export async function startSentinelServer(
 			return;
 		}
 		serveStatic(webuiDistDir(), path, response);
-	});
+	};
+	const server = options.tls
+		? createSecureServer({ cert: options.tls.cert, key: options.tls.key }, requestHandler)
+		: createServer(requestHandler);
 
 	const wss = new WebSocketServer({ noServer: true });
 	// The upgrade handshake is where the WebSocket is gated: no valid session, no console.
