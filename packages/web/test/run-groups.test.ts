@@ -101,9 +101,11 @@ test("runFoldState keeps failures and the run in flight visible", () => {
 	// The same run folds once it settles.
 	expect(fold(running, 0, [], false)).toEqual({ collapsed: true, digest: "1.0s" });
 
-	// A run that ends on a tool result has not said anything yet.
+	// A run cut mid-step ends on a tool result: once settled it folds (the live
+	// run stays open through the streaming check), because nothing more is coming.
 	const silent = groupRuns([user("a", 1000), toolResult(2000)]);
-	expect(fold(silent, 0)).toBeUndefined();
+	expect(fold(silent, 0)).toEqual({ collapsed: true, digest: "1 次工具调用 · 1.0s" });
+	expect(fold(silent, 0, [], true)).toBeUndefined();
 });
 
 test("a run ending on a loop-guard notice still folds", () => {

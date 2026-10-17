@@ -186,7 +186,15 @@ export function runFoldState(options: {
 	// message in front of it, which on its own would keep the run open.
 	const notice = isNoticeMessage(last);
 	const lastWord = notice ? group.body[group.body.length - 2] : last;
-	if (!lastWord || lastWord.role !== "assistant") return undefined;
+	if (!lastWord) return undefined;
+	// A settled run that ends on a tool result was cut mid-step — a stutter abort
+	// or a compaction landed between the tool call and the model's next word. The
+	// tool card already shows its own outcome, so the stretch folds; the live run
+	// is exempt through the streaming check above.
+	if (lastWord.role === "toolResult" || lastWord.role === "bashExecution") {
+		return { collapsed: !expanded.has(group.key), digest: runDigest(group.prompt, group.body) };
+	}
+	if (lastWord.role !== "assistant") return undefined;
 	if (lastWord.errorMessage) return undefined;
 	if (!notice && (lastWord.stopReason === "error" || lastWord.stopReason === "aborted")) return undefined;
 	// A thinking-only ending (the model was cut by a compaction boundary before
