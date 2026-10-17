@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { readFileBase64 } from "./PocPage.tsx";
+import { PluginDevDocs } from "./PluginDevDocs.tsx";
 import type {
 	SentinelPluginArtifactsView,
 	SentinelPluginConfigField,
@@ -161,6 +162,7 @@ export function PluginPanel({
 	const [hostDraft, setHostDraft] = useState<HostDraft | null>(null);
 	const [packageFile, setPackageFile] = useState<{ name: string; size: number } | null>(null);
 	const [packageError, setPackageError] = useState<string | null>(null);
+	const [activeTab, setActiveTab] = useState<"plugins" | "docs">("plugins");
 	const [installHostId, setInstallHostId] = useState("");
 	const [configValues, setConfigValues] = useState<Record<string, string>>({});
 	const [allowHostNetwork, setAllowHostNetwork] = useState(false);
@@ -464,8 +466,32 @@ export function PluginPanel({
 						{failed > 0 ? ` · ${failed} 失败` : ""}
 					</div>
 				</div>
-				<div className="actions">
-					<button type="button" disabled={busy} onClick={onRefresh}>
+				<div className="plugin-head__right">
+					<div className="plugin-switch" role="tablist" aria-label="插件视图">
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "plugins"}
+							className={activeTab === "plugins" ? "active" : undefined}
+							onClick={() => setActiveTab("plugins")}
+						>
+							已安装<span className="n">{view.plugins.length}</span>
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "docs"}
+							className={activeTab === "docs" ? "active" : undefined}
+							onClick={() => {
+								setActiveTab("docs");
+								closeDrawer();
+							}}
+						>
+							开发文档
+						</button>
+					</div>
+					<div className="actions">
+						<button type="button" disabled={busy} onClick={onRefresh}>
 						刷新
 					</button>
 					<button
@@ -484,9 +510,14 @@ export function PluginPanel({
 						onChange={choosePackage}
 						aria-label="插件包文件"
 					/>
+					</div>
 				</div>
 			</div>
 
+			{activeTab === "docs" ? (
+				<PluginDevDocs />
+			) : (
+				<>
 			{notice ? <div className="mcp-notice">{notice}</div> : null}
 
 			{permissionOn === false ? (
@@ -678,113 +709,13 @@ export function PluginPanel({
 				) : null}
 			</div>
 
-					<details className="plugin-docs">
-					<summary>插件开发文档</summary>
-					<div className="plugin-docs__body">
-						<p>
-							一个插件 = 一个 Docker 镜像 + 一个 <code>plugin.json</code>。镜像里跑一个 MCP server，插件主机负责拉镜像、起容器、健康检查，控制台把它的工具挂给 Agent。
-						</p>
-			
-						<h4>1. 包结构</h4>
-						<pre>{`my-plugin/
-			├── plugin.json
-			├── Dockerfile
-			└── README.md
-			
-			zip -r my-plugin.zip my-plugin/`}</pre>
-						<p>
-							上传 zip 时，控制台在根目录或一层子目录里找 <code>plugin.json</code>；也可以直接上传一个 <code>plugin.json</code>。包不会解压到磁盘。
-						</p>
-			
-						<h4>2. plugin.json 必填字段</h4>
-						<pre>{`{
-			  "schema": 1,
-			  "id": "com.example.recon",
-			  "name": "侦察工具集",
-			  "version": "0.1.0",
-			  "description": "做什么，一句话",
-			  "author": "github:someone",
-			  "source": "https://github.com/someone/sentinel-plugin-recon",
-			  "license": "MIT",
-			  "image": "ghcr.io/someone/recon@sha256:<64 位十六进制>",
-			  "mcp": {
-			    "transport": "http",
-			    "port": 7801,
-			    "path": "/mcp",
-			    "requestTimeoutMs": 300000
-			  }
-			}`}</pre>
-						<p>
-							<code>image</code> 必须带 digest，<code>latest</code> 会被拒绝；<code>source</code> 必须是公开仓库。可选字段：
-							<code>config</code>、<code>permissions</code>、<code>locality</code>、<code>resources</code>、<code>healthcheck</code>、<code>artifacts</code>、
-							<code>tools</code>（仅安装前预览）。
-						</p>
-			
-						<h4>3. MCP 接口要求</h4>
-						<ul>
-							<li>只支持流式 HTTP（streamable HTTP）：POST 到 <code>mcp.path</code>，返回普通 JSON 即可。stdio 与 SSE 需要插件作者自行转换。</li>
-							<li>实现 <code>initialize</code>、<code>tools/list</code>、<code>tools/call</code>。</li>
-							<li>工具名只用字母、数字、下划线和短横线；每个工具都要有 description 与 inputSchema。</li>
-							<li><code>healthcheck.path</code> 返回 2xx 才算启动成功。</li>
-							<li>
-								<code>mcp.requestTimeoutMs</code> 是单次工具调用的超时（毫秒，默认 300000）；长任务按需调大，最大 30 分钟。
-							</li>
-						</ul>
-			
-						<h4>4. 构建与发布</h4>
-						<pre>{`docker build -t ghcr.io/<账号>/sentinel-plugin-recon:0.1.0 .
-			docker push ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
-			docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<账号>/sentinel-plugin-recon:0.1.0`}</pre>
-						<p>把最后一条命令的输出原样粘进 <code>image</code>。</p>
-			
-						<h4>5. 配置与密钥</h4>
-						<p>
-							<code>config</code> 里的字段以 <code>PLUGIN_&lt;KEY&gt;</code> 环境变量注入容器。类型为 <code>secret</code> 的值只存宿主机的
-							<code>config.json</code>（0600），不回显、不进审计。安装后可在插件页改配置，保存会重建容器。
-						</p>
-			
-						<h4>6. 产物</h4>
-						<p>
-							大输出写 <code>/artifacts/&lt;run-id&gt;/</code>，工具返回值只放摘要，并在 <code>_meta.artifacts</code> 里声明相对路径。操作员可以在插件页把产物拉进当前项目的
-							<code>evidence/plugin/</code>。单文件上限由 manifest 的 <code>artifacts.maxFileBytes</code> 决定。
-						</p>
-			
-						<h4>7. 权限与 locality</h4>
-						<ul>
-							<li>
-								<code>network: bridge</code> 默认，能出网，不能被外部直接访问；<code>host</code> 共享宿主网络栈，安装时单独确认。
-							</li>
-							<li>
-								<code>capAdd</code> 只允许 <code>NET_RAW</code>、<code>NET_ADMIN</code>、<code>NET_BIND_SERVICE</code>、<code>SYS_PTRACE</code>。
-							</li>
-							<li>
-								<code>privileged</code> 等于宿主 root，强烈不建议。
-							</li>
-							<li>
-								<code>locality</code>：<code>local-only</code> 需要本地网络视角，<code>remote-only</code> 需要公网出口，<code>any</code> 两端都行；装错位置会在安装时被拒绝。
-							</li>
-						</ul>
-			
-						<h4>8. 示例与完整文档</h4>
-						<p>
-							最小实现见 <code>examples/plugins/hello-world</code>，CLI 包装见 <code>examples/plugins/recon</code>。字段细节、调试方式与检查清单见
-							<code>docs/plugin-authoring.md</code>，架构说明见 <code>docs/plugin-center.md</code>。
-						</p>
-			
-						<h4>9. 发布前检查</h4>
-						<ul>
-							<li>plugin.json 能通过安装时的校验（错误会一次列全）</li>
-							<li>image 是刚推送那一版的 digest</li>
-							<li>healthcheck 在 20 秒内可用</li>
-							<li>密钥走 config，没有硬编码</li>
-							<li>大输出写 /artifacts，返回值只有摘要</li>
-						</ul>
-					</div>
-				</details>
+		
 
 			<p className="mcp-footnote">
 				工具调用不逐条拦截，只记审计；管理操作写入 <code>plugin-audit.jsonl</code>。启用开关只影响挂载，不会停止容器；卸载默认保留数据目录。
 			</p>
+				</>
+			)}
 
 			{drawerOpen ? (
 				<div className="plugin-drawer-layer">

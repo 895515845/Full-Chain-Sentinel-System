@@ -10550,90 +10550,18 @@ button.link {
 	line-height: 1.7;
 }
 
-.plugin-docs {
-	margin: 18px 0 0;
-	padding: 12px 14px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--raised);
-}
 
-.plugin-docs > summary {
-	cursor: pointer;
-	color: var(--text);
-	font-size: 12.5px;
-	font-weight: 600;
-	list-style: none;
-	user-select: none;
-}
 
-.plugin-docs > summary::-webkit-details-marker {
-	display: none;
-}
 
-.plugin-docs > summary::before {
-	content: "▸";
-	margin-right: 6px;
-	color: var(--muted);
-}
 
-.plugin-docs[open] > summary::before {
-	content: "▾";
-}
 
-.plugin-docs__body {
-	margin-top: 10px;
-	color: var(--text);
-	font-size: 12px;
-	line-height: 1.7;
-}
 
-.plugin-docs__body h4 {
-	margin: 18px 0 6px;
-	color: var(--text);
-	font-size: 12.5px;
-	font-weight: 600;
-}
 
-.plugin-docs__body h4:first-of-type {
-	margin-top: 12px;
-}
 
-.plugin-docs__body p,
-.plugin-docs__body li {
-	color: var(--dim);
-}
 
-.plugin-docs__body ul {
-	margin: 6px 0;
-	padding-left: 18px;
-}
 
-.plugin-docs__body li + li {
-	margin-top: 4px;
-}
 
-.plugin-docs__body code {
-	padding: 1px 4px;
-	border-radius: 3px;
-	background: var(--bg);
-	color: var(--text);
-	font-family: var(--mono);
-	font-size: 11px;
-}
 
-.plugin-docs__body pre {
-	margin: 6px 0;
-	padding: 10px 12px;
-	overflow: auto;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--bg);
-	color: var(--text);
-	font-family: var(--mono);
-	font-size: 11px;
-	line-height: 1.6;
-}
 
 /* 插件中心：表格 + 抽屉 */
 .plugin-head {
@@ -10826,85 +10754,20 @@ button.link {
 	flex: 1;
 }
 
-.plugin-table-wrap {
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-}
 
-.plugin-table {
-	width: 100%;
-	border-collapse: collapse;
-	font-size: 12.5px;
-}
 
-.plugin-table th {
-	padding: 8px;
-	border-bottom: 1px solid var(--border);
-	background: var(--raised);
-	color: var(--muted);
-	font-size: 11.5px;
-	font-weight: 600;
-	text-align: left;
-	white-space: nowrap;
-}
 
-.plugin-table td {
-	padding: 9px 8px;
-	border-bottom: 1px solid var(--border);
-	vertical-align: middle;
-}
 
-.plugin-table tbody tr {
-	cursor: pointer;
-}
 
-.plugin-table tbody tr:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: -2px;
-}
 
-.plugin-table tbody tr:hover {
-	background: #fafcff;
-}
 
-.plugin-table tbody tr.is-selected {
-	background: #f0f7ff;
-	box-shadow: inset 2px 0 0 var(--accent);
-}
 
-.plugin-table tbody tr:last-child td {
-	border-bottom: 0;
-}
 
-.plugin-table .num {
-	text-align: right;
-}
 
-.plugin-table__name {
-	font-weight: 600;
-}
 
-.plugin-table__id {
-	margin-top: 2px;
-	color: var(--muted);
-	font-size: 10.5px;
-}
 
-.plugin-table__error {
-	margin-left: 6px;
-	color: var(--danger);
-	font-size: 11px;
-}
 
-.plugin-table__ops {
-	text-align: right;
-	white-space: nowrap;
-}
 
-.plugin-table__ops .link {
-	margin-left: 10px;
-}
 
 .plugin-empty {
 	padding: 26px 12px;
@@ -11316,4 +11179,226 @@ button.link {
 	width: 100%;
 	border: 0;
 	background: var(--card);
+}
+
+
+
+
+/* 插件开发文档页：一整段可复制的 AI 任务说明 */
+
+.plugin-dev-md {
+	color: var(--text);
+	font-size: 12.5px;
+	line-height: 1.75;
+}
+
+.plugin-dev-md h1 {
+	margin: 4px 0 12px;
+	font-size: 17px;
+}
+
+.plugin-dev-md h2 {
+	margin: 20px 0 8px;
+	padding-bottom: 5px;
+	border-bottom: 1px solid var(--border);
+	font-size: 14px;
+}
+
+.plugin-dev-md p {
+	margin: 8px 0;
+	color: var(--dim);
+}
+
+.plugin-dev-md ul {
+	margin: 8px 0;
+	padding-left: 20px;
+	color: var(--dim);
+}
+
+.plugin-dev-md li {
+	margin: 3px 0;
+}
+
+.plugin-dev-md li input {
+	margin-right: 6px;
+}
+
+.plugin-dev-md code {
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: #476582;
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.plugin-dev-md pre {
+	margin: 8px 0;
+	padding: 12px 14px;
+	overflow: auto;
+	border-radius: var(--radius);
+	background: #0b0f14;
+	color: #c9d1d9;
+	font: 11.5px/1.65 var(--mono);
+}
+
+.plugin-dev-md pre code {
+	padding: 0;
+	background: transparent;
+	color: inherit;
+	font-size: inherit;
+}
+
+.plugin-dev-md a {
+	color: var(--accent);
+}
+
+/* 插件页内的两个子页：已安装 / 开发文档 */
+
+
+
+
+
+.plugin-dev-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 0 0 12px;
+}
+
+.plugin-dev-bar .hint {
+	margin: 0;
+}
+
+.plugin-dev-docs {
+	max-width: 1040px;
+}
+
+/* 插件页视图切换：紧凑分段控件，放在页头右侧，不再单独占一行 */
+.plugin-head__right {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.plugin-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--raised);
+}
+
+.plugin-switch button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 26px;
+	padding: 0 11px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--dim);
+	font-family: var(--sans);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.plugin-switch button:hover {
+	color: var(--text);
+}
+
+.plugin-switch button.active {
+	background: var(--card);
+	color: var(--text);
+	font-weight: 600;
+	box-shadow: 0 1px 2px #00000014;
+}
+
+.plugin-switch .n {
+	min-width: 16px;
+	padding: 0 5px;
+	border-radius: 8px;
+	background: var(--border);
+	color: var(--dim);
+	font-size: 10.5px;
+	font-weight: 400;
+	line-height: 16px;
+	text-align: center;
+}
+
+.plugin-switch button.active .n {
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+.plugin-table-wrap {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+.plugin-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12.5px;
+}
+.plugin-table th {
+	padding: 8px;
+	border-bottom: 1px solid var(--border);
+	background: var(--raised);
+	color: var(--muted);
+	font-size: 11.5px;
+	font-weight: 600;
+	text-align: left;
+	white-space: nowrap;
+}
+.plugin-table td {
+	padding: 9px 8px;
+	border-bottom: 1px solid var(--border);
+	vertical-align: middle;
+}
+.plugin-table tbody tr {
+	cursor: pointer;
+}
+.plugin-table tbody tr:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+.plugin-table tbody tr:hover {
+	background: #fafcff;
+}
+.plugin-table tbody tr.is-selected {
+	background: #f0f7ff;
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+.plugin-table tbody tr:last-child td {
+	border-bottom: 0;
+}
+.plugin-table .num {
+	text-align: right;
+}
+.plugin-table__name {
+	font-weight: 600;
+}
+.plugin-table__id {
+	margin-top: 2px;
+	color: var(--muted);
+	font-size: 10.5px;
+}
+.plugin-table__error {
+	margin-left: 6px;
+	color: var(--danger);
+	font-size: 11px;
+}
+.plugin-table__ops {
+	text-align: right;
+	white-space: nowrap;
+}
+.plugin-table__ops .link {
+	margin-left: 10px;
 }
