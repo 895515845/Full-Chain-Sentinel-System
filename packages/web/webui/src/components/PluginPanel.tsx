@@ -118,6 +118,7 @@ export function PluginPanel({
 	onListArtifacts,
 	onCloseArtifacts,
 	onFetchArtifact,
+	onOpenUi,
 	onCloseManifest,
 }: {
 	view: SentinelPluginsView;
@@ -152,6 +153,8 @@ export function PluginPanel({
 	onListArtifacts: (hostId: string, pluginId: string) => void;
 	onCloseArtifacts: () => void;
 	onFetchArtifact: (hostId: string, pluginId: string, path: string) => void;
+	/** Open the plugin's own frontend, when it ships one. */
+	onOpenUi: (plugin: SentinelPluginView) => void;
 	/** Close the install drawer by dropping the uploaded manifest. */
 	onCloseManifest: () => void;
 }) {
@@ -1261,6 +1264,11 @@ export function PluginPanel({
 									>
 										产物
 									</button>
+									{selected.manifest.ui ? (
+										<button type="button" className="primary" disabled={busy} onClick={() => onOpenUi(selected)}>
+											打开界面
+										</button>
+									) : null}
 									<button
 										type="button"
 										className="danger"

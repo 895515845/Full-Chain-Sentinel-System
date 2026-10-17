@@ -13,13 +13,22 @@
  */
 
 import { createServer } from "node:http";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PORT = Number(process.env.PORT ?? 7801);
 const ARTIFACTS_DIR = process.env.PLUGIN_ARTIFACTS_DIR ?? "/artifacts";
 const GREETING = process.env.PLUGIN_GREETING ?? "hello";
 const PROTOCOL_VERSION = "2025-03-26";
+const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), "ui");
+const UI_TYPES = {
+	".html": "text/html; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".js": "text/javascript; charset=utf-8",
+	".png": "image/png",
+	".svg": "image/svg+xml",
+};
 
 const TOOLS = [
 	{
@@ -108,6 +117,28 @@ function handleRpc(message) {
 const server = createServer((request, response) => {
 	if (request.method === "GET" && request.url === "/healthz") {
 		sendJson(response, 200, { ok: true });
+		return;
+	}
+	if (request.method === "GET" && request.url.startsWith("/ui/")) {
+		const relative = decodeURIComponent((request.url.split("?")[0] ?? "").slice(4));
+		if (!relative || relative.split("/").includes("..")) {
+			response.writeHead(404).end();
+			return;
+		}
+		const file = join(UI_DIR, relative);
+		if (!file.startsWith(UI_DIR) || !existsSync(file) || !statSync(file).isFile()) {
+			response.writeHead(404).end();
+			return;
+		}
+		const body = readFileSync(file);
+		const dot = relative.lastIndexOf(".");
+		const type = (dot >= 0 ? UI_TYPES[relative.slice(dot)] : undefined) ?? "application/octet-stream";
+		response.writeHead(200, {
+			"content-type": type,
+			"content-length": String(body.length),
+			"cache-control": "no-store",
+		});
+		response.end(body);
 		return;
 	}
 	if (request.url === "/mcp" && request.method === "GET") {

@@ -35,6 +35,37 @@ zip -r my-plugin.zip my-plugin/
 可以直接抄 `examples/plugins/hello-world/server.mjs`（Node，无依赖）或
 `examples/plugins/recon/server.py`（Python，包一层 CLI）作为起点。
 
+## 插件界面（可选）
+
+插件可以在镜像里带一个前端，由控制台以沙箱 iframe 打开：
+
+```json
+"ui": { "entry": "/ui/index.html", "title": "侦察面板", "protocol": 1 }
+```
+
+静态文件放在镜像的 `/ui/`，用相对路径互相引用。HTTP server 需要把 `/ui/*` 当静态文件返回，
+参考 `examples/plugins/hello-world/server.mjs`。
+
+页面里引入同目录的 `sdk.js`，然后：
+
+```js
+const ui = await SentinelPlugin.connect();
+ui.context;                        // 插件、host、项目、工具、已配置的键
+await ui.callTool("subfinder_enum", { domain: "example.com" });
+await ui.listArtifacts();
+await ui.saveConfig({ DEFAULT_RATE: "1000" });
+await ui.storage.set("lastDomain", "example.com");
+```
+
+约束：
+
+- iframe 是 `sandbox="allow-scripts"` 的 opaque origin：不能读控制台 Cookie/DOM，不能直接 fetch 控制台接口，所有数据走 SDK。
+- 页面资源必须用相对路径，最终前缀是 `/plugin-ui/<hostId>/<pluginId>/`。
+- 单个产物读取上限 1MB；更大的文件让操作员在插件页下载。
+- `ui.protocol` 当前只支持 `1`；`network: true` 会被拒绝（外网请求应由插件容器发起）。
+- 模板：`templates/plugin-ui-vanilla`（零构建）与 `templates/plugin-ui-react`（Vite）。
+  完整说明见 [plugin-ui.md](./plugin-ui.md)。
+
 ## 构建与发布
 
 ```sh

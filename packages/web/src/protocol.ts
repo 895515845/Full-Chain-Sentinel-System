@@ -1130,6 +1130,17 @@ export type SentinelClientMessage =
 	| { type: "list_plugin_artifacts"; hostId: string; pluginId: string }
 	/** Pull one artifact into the active project's evidence directory. */
 	| { type: "fetch_plugin_artifact"; hostId: string; pluginId: string; path: string }
+	/** The plugin's own frontend was opened; recorded in the audit log. */
+	| { type: "plugin_ui_open"; hostId: string; pluginId: string }
+	/** One bridge call from the plugin frontend; the server validates the method. */
+	| {
+			type: "plugin_ui_call";
+			requestId: string;
+			hostId: string;
+			pluginId: string;
+			method: string;
+			params: unknown;
+	  }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	/** Change an engine's command gate; refused while a task is in flight. */
@@ -1280,6 +1291,7 @@ export type SentinelServerMessage =
 	| { type: "plugin_logs"; hostId: string; pluginId: string; logs: string }
 	| { type: "plugin_artifacts"; hostId: string; pluginId: string; artifacts: SentinelPluginArtifact[] }
 	| { type: "plugin_artifact_saved"; hostId: string; pluginId: string; path: string; savedTo: string }
+	| { type: "plugin_ui_result"; requestId: string; ok: boolean; result?: unknown; error?: string }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelEngineEvent }

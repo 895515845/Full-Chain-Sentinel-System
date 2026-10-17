@@ -37,6 +37,7 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
 		permissions: { network: "bridge" },
 		locality: "any",
 		healthcheck: { path: "/healthz", intervalMs: 50, timeoutMs: 500, retries: 3 },
+		ui: { entry: "/ui/index.html", title: "侦察面板", protocol: 1 },
 		...overrides,
 	};
 }
@@ -124,6 +125,28 @@ function startFakePlugin(): Promise<{
 				const status = state.failHealth ? 500 : 200;
 				response.writeHead(status, { "content-type": "application/json" });
 				response.end(JSON.stringify({ ok: !state.failHealth }));
+				return;
+			}
+			if (request.url === "/ui/index.html") {
+				response.writeHead(200, { "content-type": "text/html" });
+				response.end("<html><body>plugin ui</body></html>");
+				return;
+			}
+			if (request.url === "/mcp" && request.method === "POST") {
+				seen.push(`${request.method ?? ""} ${request.url ?? ""} auth=${request.headers.authorization ?? "none"}`);
+				let body = "";
+				request.on("data", (chunk: Buffer) => {
+					body += chunk.toString();
+				});
+				request.on("end", () => {
+					const message = JSON.parse(body) as { id?: number; method?: string };
+					const result =
+						message.method === "initialize"
+							? { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "fake", version: "1" } }
+							: { content: [{ type: "text", text: "tool ok" }], _meta: { artifacts: ["run/tool.txt"] } };
+					response.writeHead(200, { "content-type": "application/json" });
+					response.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+				});
 				return;
 			}
 			let body = "";
@@ -264,8 +287,8 @@ describe("plugin host API", () => {
 			body: JSON.stringify({ jsonrpc: "2.0", method: "tools/list" }),
 		});
 		expect(response.status).toBe(200);
-		const body = (await response.json()) as { path: string };
-		expect(body.path).toBe("/mcp");
+		const body = (await response.json()) as { jsonrpc: string };
+		expect(body.jsonrpc).toBe("2.0");
 		expect(plugin?.seen.at(-1)).toContain("auth=none");
 	});
 
@@ -411,6 +434,81 @@ describe("plugin host API", () => {
 		const response = await api("/v1/plugins/com.example.recon", { method: "DELETE" });
 		expect(response.status).toBe(200);
 		expect(readPluginRecord(join(root, "host"), "com.example.recon")).toBeNull();
+	});
+
+	test("serves the plugin frontend from the container with the sandbox headers", async () => {
+		await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest() }),
+		});
+		const response = await fetch(`${host?.url ?? ""}/plugins/com.example.recon/ui/index.html`, {
+			headers: { authorization: `Bearer ${TOKEN}` },
+		});
+		expect(response.status).toBe(200);
+		expect(await response.text()).toContain("plugin ui");
+		expect(response.headers.get("content-type")).toContain("text/html");
+		expect(response.headers.get("access-control-allow-origin")).toBe("*");
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+	});
+
+	test("refuses a traversal path in the frontend route", async () => {
+		await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest() }),
+		});
+		const response = await fetch(`${host?.url ?? ""}/plugins/com.example.recon/ui/%2e%2e%2fhost.json`, {
+			headers: { authorization: `Bearer ${TOKEN}` },
+		});
+		expect(response.status).toBe(400);
+	});
+
+	test("calls a tool on behalf of the plugin frontend", async () => {
+		await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest() }),
+		});
+		const response = await api("/v1/plugins/com.example.recon/call", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name: "hello_echo", arguments: { text: "hi" } }),
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { content: Array<{ text: string }>; isError: boolean };
+		expect(body.content[0]?.text).toBe("tool ok");
+		expect(body.isError).toBe(false);
+	});
+
+	test("stores the frontend's key-value state", async () => {
+		await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest() }),
+		});
+		const put = await api("/v1/plugins/com.example.recon/storage", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ key: "lastDomain", value: "example.com" }),
+		});
+		expect(put.status).toBe(200);
+		const get = await api("/v1/plugins/com.example.recon/storage?key=lastDomain");
+		expect(((await get.json()) as { value: string }).value).toBe("example.com");
+		const remove = await api("/v1/plugins/com.example.recon/storage?key=lastDomain", { method: "DELETE" });
+		expect(remove.status).toBe(200);
+		const after = await api("/v1/plugins/com.example.recon/storage?key=lastDomain");
+		expect(((await after.json()) as { value: string | null }).value).toBeNull();
+	});
+
+	test("rejects a storage key that is not a plain token", async () => {
+		await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest() }),
+		});
+		const response = await api("/v1/plugins/com.example.recon/storage?key=../x");
+		expect(response.status).toBe(400);
 	});
 
 	test("reports the host's Docker version and mode", async () => {

@@ -22,6 +22,9 @@
 /** Bump only when a field changes meaning; the parser accepts older versions. */
 export const PLUGIN_SCHEMA_VERSION = 1;
 
+/** Bridge protocol between the console frame and the plugin's SDK. */
+export const PLUGIN_UI_PROTOCOL = 1;
+
 export type SentinelPluginNetwork = "none" | "bridge" | "host";
 
 /**
@@ -90,6 +93,20 @@ export interface SentinelPluginArtifacts {
 	maxFileBytes: number;
 }
 
+/**
+ * The optional frontend. The console serves the plugin's `/ui/` files behind a
+ * sandboxed iframe; `entry` is the container path of the HTML document and every
+ * other asset is resolved relative to it.
+ */
+export interface SentinelPluginUi {
+	/** Container path of the entry document, e.g. `/ui/index.html`. */
+	entry: string;
+	/** Title shown in the console's frame around the iframe. */
+	title: string;
+	/** Bridge protocol; only 1 is understood for now. */
+	protocol: number;
+}
+
 /** A tool as advertised before install; the running MCP server remains authoritative. */
 export interface SentinelPluginToolHint {
 	name: string;
@@ -114,6 +131,8 @@ export interface SentinelPluginManifest {
 	healthcheck: SentinelPluginHealthcheck;
 	artifacts: SentinelPluginArtifacts;
 	tools: SentinelPluginToolHint[];
+	/** Null when the plugin ships no frontend. */
+	ui: SentinelPluginUi | null;
 }
 
 export type SentinelPluginParseResult =
@@ -137,6 +156,7 @@ export const PLUGIN_LIMITS = {
 	maxNameChars: 60,
 	maxDescriptionChars: 400,
 	maxConfigFields: 32,
+	maxUiEntryChars: 256,
 	maxToolHints: 64,
 	minCpus: 0.1,
 	maxCpus: 2,
@@ -258,6 +278,15 @@ function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 	const resourcesRaw = asRecord(raw.resources) ?? {};
 	const healthRaw = asRecord(raw.healthcheck) ?? {};
 	const artifactsRaw = asRecord(raw.artifacts) ?? {};
+	const uiRaw = asRecord(raw.ui);
+	const hasUi = raw.ui !== undefined && raw.ui !== null;
+	const ui: SentinelPluginUi | null = hasUi
+		? {
+				entry: asText(uiRaw?.entry),
+				title: asText(uiRaw?.title),
+				protocol: typeof uiRaw?.protocol === "number" ? Math.round(uiRaw.protocol) : PLUGIN_UI_PROTOCOL,
+			}
+		: null;
 	const network = permissionsRaw.network;
 	const locality = raw.locality;
 	return {
@@ -333,6 +362,7 @@ function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 					.filter((entry): entry is SentinelPluginToolHint => entry !== null)
 					.slice(0, PLUGIN_LIMITS.maxToolHints)
 			: [],
+		ui,
 	};
 }
 
@@ -440,6 +470,26 @@ export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 
 	for (const hint of manifest.tools) {
 		if (!TOOL_NAME_PATTERN.test(hint.name)) errors.push(`tools 里的工具名 "${hint.name}" 非法`);
+	}
+
+	if (manifest.ui) {
+		if (!manifest.ui.title) manifest.ui.title = manifest.name;
+		const entry = manifest.ui.entry;
+		if (!entry) errors.push("ui.entry 不能为空");
+		else if (!entry.startsWith("/") || !entry.endsWith(".html")) {
+			errors.push("ui.entry 必须是容器内的绝对路径，并以 .html 结尾");
+		} else if (entry.length > PLUGIN_LIMITS.maxUiEntryChars) {
+			errors.push(`ui.entry 不能超过 ${PLUGIN_LIMITS.maxUiEntryChars} 个字符`);
+		} else if (/\s/.test(entry) || entry.split("/").includes("..")) {
+			errors.push("ui.entry 不能包含空白或 .. 路径段");
+		}
+		if (manifest.ui.protocol !== PLUGIN_UI_PROTOCOL) {
+			errors.push(`ui.protocol 只支持 ${PLUGIN_UI_PROTOCOL}`);
+		}
+		const uiRaw = asRecord(raw.ui);
+		if (uiRaw?.network === true) {
+			errors.push("v1 不支持插件界面直接访问外网；需要外网时由插件容器自己请求");
+		}
 	}
 
 	return errors.length > 0 ? { ok: false, errors } : { ok: true, manifest };

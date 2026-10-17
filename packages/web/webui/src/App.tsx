@@ -24,6 +24,7 @@ import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
 import { PluginPanel } from "./components/PluginPanel.tsx";
+import { PluginUiOverlay, type PluginUiCallResult, type PluginUiContext } from "./components/PluginUiOverlay.tsx";
 import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
 import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
 import { type PresetImportNotice, PresetPanel } from "./components/PresetPanel.tsx";
@@ -86,6 +87,7 @@ import type {
 	SentinelPluginHostInput,
 	SentinelPluginLogsView,
 	SentinelPluginManifestView,
+	SentinelPluginView,
 	SentinelPluginsView,
 	SentinelPresetView,
 	SentinelProjectInfo,
@@ -212,6 +214,10 @@ export function App() {
 	const [pluginLogs, setPluginLogs] = useState<SentinelPluginLogsView | null>(null);
 	const [pluginArtifacts, setPluginArtifacts] = useState<SentinelPluginArtifactsView | null>(null);
 	const [pendingManifest, setPendingManifest] = useState<SentinelPluginManifestView | null>(null);
+	const [pluginUi, setPluginUi] = useState<{ plugin: SentinelPluginView; nonce: string } | null>(null);
+	const pluginUiResolvers = useRef(
+		new Map<string, (message: Extract<SentinelServerMessage, { type: "plugin_ui_result" }>) => void>(),
+	);
 	const [pluginNotice, setPluginNotice] = useState<string | null>(null);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
 	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
@@ -522,6 +528,14 @@ export function App() {
 					});
 					setPluginsBusy(false);
 					break;
+				case "plugin_ui_result": {
+					const resolve = pluginUiResolvers.current.get(message.requestId);
+					if (resolve) {
+						pluginUiResolvers.current.delete(message.requestId);
+						resolve(message);
+					}
+					break;
+				}
 				case "plugin_artifact_saved":
 					setPluginsBusy(false);
 					setPluginNotice(`产物已保存到 ${message.savedTo}`);
@@ -1157,6 +1171,70 @@ export function App() {
 		},
 		[send],
 	);
+
+
+	/** Open one plugin's frontend in the sandboxed overlay. */
+	const openPluginUi = useCallback(
+		(plugin: SentinelPluginView): void => {
+			const nonce =
+				typeof crypto !== "undefined" && "randomUUID" in crypto
+					? crypto.randomUUID()
+					: `nonce-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			setPluginUi({ plugin, nonce });
+			send({ type: "plugin_ui_open", hostId: plugin.hostId, pluginId: plugin.manifest.id });
+		},
+		[send],
+	);
+
+	/**
+	 * One bridge call from the iframe. The server validates the method and the
+	 * capability again; this side only correlates the request id.
+	 */
+	const callPluginUi = useCallback(
+		(method: string, params: unknown): Promise<PluginUiCallResult> => {
+			if (!pluginUi) return Promise.resolve({ ok: false, error: "插件界面未打开" });
+			const requestId =
+				typeof crypto !== "undefined" && "randomUUID" in crypto
+					? crypto.randomUUID()
+					: `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			return new Promise((resolve) => {
+				const timer = window.setTimeout(() => {
+					pluginUiResolvers.current.delete(requestId);
+					resolve({ ok: false, error: "插件界面请求超时" });
+				}, 600000);
+				pluginUiResolvers.current.set(requestId, (message) => {
+					window.clearTimeout(timer);
+					resolve({ ok: message.ok, result: message.result, error: message.error });
+				});
+				send({
+					type: "plugin_ui_call",
+					requestId,
+					hostId: pluginUi.plugin.hostId,
+					pluginId: pluginUi.plugin.manifest.id,
+					method,
+					params,
+				});
+			});
+		},
+		[pluginUi, send],
+	);
+
+	const pluginUiContext = useMemo<PluginUiContext | null>(() => {
+		if (!pluginUi) return null;
+		const plugin = pluginUi.plugin;
+		return {
+			plugin: {
+				id: plugin.manifest.id,
+				name: plugin.manifest.name,
+				version: plugin.manifest.version,
+				author: plugin.manifest.author,
+			},
+			host: { id: plugin.hostId, name: plugin.hostName },
+			project: snapshot?.project?.name ?? null,
+			tools: plugin.manifest.tools,
+			configKeys: plugin.configured,
+		};
+	}, [pluginUi, snapshot?.project?.name]);
 
 	/** Re-read whatever the active page (or overlay) is showing. */
 	const refreshPage = useCallback(() => {
@@ -2423,6 +2501,7 @@ export function App() {
 										onFetchArtifact={(hostId, pluginId, path) =>
 											runPluginAction({ type: "fetch_plugin_artifact", hostId, pluginId, path })
 										}
+										onOpenUi={openPluginUi}
 									/>
 								) : (
 									<div className="ws-empty">
@@ -2579,6 +2658,15 @@ export function App() {
 							roundLimit,
 						})
 					}
+				/>
+			) : null}
+			{pluginUi && pluginUiContext ? (
+				<PluginUiOverlay
+					plugin={pluginUi.plugin}
+					nonce={pluginUi.nonce}
+					context={pluginUiContext}
+					onCall={callPluginUi}
+					onClose={() => setPluginUi(null)}
 				/>
 			) : null}
 			<div className="toasts">

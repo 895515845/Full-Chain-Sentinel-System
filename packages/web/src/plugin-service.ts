@@ -460,6 +460,97 @@ export interface PluginArtifact {
 	size: number;
 }
 
+export interface PluginToolResult {
+	content: unknown[];
+	isError: boolean;
+	meta: unknown;
+}
+
+/** Call one of the plugin's own tools on behalf of its frontend. */
+export async function callPluginTool(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	name: string,
+	args: Record<string, unknown>,
+): Promise<PluginToolResult> {
+	if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new PluginServiceError("工具名非法", 400);
+	const host = findHost(agentDir, hostId);
+	return audited(
+		agentDir,
+		{ action: "ui-tool", hostId, pluginId, detail: { tool: name, argKeys: Object.keys(args) } },
+		() =>
+			hostJson<PluginToolResult>(
+				host,
+				`/v1/plugins/${encodeURIComponent(pluginId)}/call`,
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name, arguments: args }),
+				},
+				LONG_TIMEOUT_MS,
+			),
+	);
+}
+
+/** Non-secret config values of one installed plugin, for its own frontend. */
+export async function getPluginValues(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+): Promise<Record<string, string>> {
+	const host = findHost(agentDir, hostId);
+	const payload = await hostJson<{ plugins: HostPluginView[] }>(host, "/v1/plugins");
+	const plugin = payload.plugins.find((entry) => entry.manifest.id === pluginId);
+	if (!plugin) throw new PluginServiceError(`未找到插件 ${pluginId}`, 404);
+	return plugin.values;
+}
+
+export async function getPluginUiStorage(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	key: string,
+): Promise<string | null> {
+	const host = findHost(agentDir, hostId);
+	const payload = await hostJson<{ value: string | null }>(
+		host,
+		`/v1/plugins/${encodeURIComponent(pluginId)}/storage?key=${encodeURIComponent(key)}`,
+	);
+	return payload.value;
+}
+
+export async function setPluginUiStorage(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	key: string,
+	value: string,
+): Promise<void> {
+	const host = findHost(agentDir, hostId);
+	await audited(agentDir, { action: "ui-storage", hostId, pluginId, detail: { key } }, () =>
+		hostJson(host, `/v1/plugins/${encodeURIComponent(pluginId)}/storage`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ key, value }),
+		}),
+	);
+}
+
+export async function deletePluginUiStorage(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	key: string,
+): Promise<void> {
+	const host = findHost(agentDir, hostId);
+	await audited(agentDir, { action: "ui-storage", hostId, pluginId, detail: { key } }, () =>
+		hostJson(host, `/v1/plugins/${encodeURIComponent(pluginId)}/storage?key=${encodeURIComponent(key)}`, {
+			method: "DELETE",
+		}),
+	);
+}
+
 export async function listPluginArtifacts(
 	agentDir: string,
 	hostId: string,

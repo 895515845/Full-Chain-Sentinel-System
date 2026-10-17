@@ -151,6 +151,34 @@ describe("parsePluginManifest", () => {
 		expect(valid.ok && valid.manifest.mcp.requestTimeoutMs).toBe(600000);
 	});
 
+	test("accepts an optional frontend and defaults its title", () => {
+		const result = parsePluginManifest(validManifest({ ui: { entry: "/ui/index.html", protocol: 1 } }));
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.manifest.ui).toEqual({
+			entry: "/ui/index.html",
+			title: "侦察工具集",
+			protocol: 1,
+		});
+		expect(parsePluginManifest(validManifest()).ok).toBe(true);
+		const without = parsePluginManifest(validManifest());
+		expect(without.ok && without.manifest.ui).toBeNull();
+	});
+
+	test("rejects a frontend entry that is not an absolute html path", () => {
+		for (const entry of ["ui/index.html", "/ui/app.js", "/ui/../index.html", "/ui/index html.html"]) {
+			const result = parsePluginManifest(validManifest({ ui: { entry, protocol: 1 } }));
+			expect(result.ok, entry).toBe(false);
+		}
+	});
+
+	test("rejects an unknown bridge protocol and direct network access", () => {
+		expect(parsePluginManifest(validManifest({ ui: { entry: "/ui/index.html", protocol: 2 } })).ok).toBe(false);
+		expect(
+			parsePluginManifest(validManifest({ ui: { entry: "/ui/index.html", protocol: 1, network: true } })).ok,
+		).toBe(false);
+	});
+
 	test("rejects a relative artifacts path", () => {
 		expect(parsePluginManifest(validManifest({ artifacts: { path: "artifacts" } })).ok).toBe(false);
 	});

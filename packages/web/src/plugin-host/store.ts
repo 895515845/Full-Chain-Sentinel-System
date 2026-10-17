@@ -93,6 +93,11 @@ export function pluginConfigPath(dataDir: string, id: string): string {
 	return join(pluginDir(dataDir, id), "config.json");
 }
 
+/** Key-value state written by the plugin's own frontend. */
+export function uiStoragePath(dataDir: string, id: string): string {
+	return join(pluginDir(dataDir, id), "ui-storage.json");
+}
+
 export function pluginDataDir(dataDir: string, id: string): string {
 	return join(pluginDir(dataDir, id), "data");
 }
@@ -217,6 +222,24 @@ export function readPluginConfigValues(dataDir: string, id: string): Record<stri
 export function writePluginConfigValues(dataDir: string, id: string, values: Record<string, string>): void {
 	mkdirSync(pluginDir(dataDir, id), { recursive: true });
 	writeFileAtomic(pluginConfigPath(dataDir, id), `${JSON.stringify({ values }, null, "\t")}\n`, 0o600);
+}
+
+/** The frontend's key-value store; values are strings, keys are validated by the server. */
+export function readUiStorage(dataDir: string, id: string): Record<string, string> {
+	const raw = readJson(uiStoragePath(dataDir, id));
+	if (!raw || typeof raw !== "object") return {};
+	const values = (raw as { values?: unknown }).values;
+	if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(values as Record<string, unknown>)) {
+		if (typeof value === "string") result[key] = value;
+	}
+	return result;
+}
+
+export function writeUiStorage(dataDir: string, id: string, values: Record<string, string>): void {
+	mkdirSync(pluginDir(dataDir, id), { recursive: true });
+	writeFileAtomic(uiStoragePath(dataDir, id), `${JSON.stringify({ values }, null, "\t")}\n`, 0o600);
 }
 
 /** Which declared keys have a stored value; the console shows this instead of the values. */

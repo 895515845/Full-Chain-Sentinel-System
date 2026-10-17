@@ -96,6 +96,27 @@ function startFakePlugin(): Promise<{ server: Server; port: number }> {
 				response.end('{"ok":true}');
 				return;
 			}
+			if (request.url === "/ui/index.html") {
+				response.writeHead(200, { "content-type": "text/html" });
+				response.end("<!doctype html><title>plugin ui</title><p>hello from the plugin</p>");
+				return;
+			}
+			if (request.url === "/mcp" && request.method === "POST") {
+				let body = "";
+				request.on("data", (chunk: Buffer) => {
+					body += chunk.toString();
+				});
+				request.on("end", () => {
+					const message = JSON.parse(body) as { id?: number; method?: string; params?: { name?: string } };
+					const result =
+						message.method === "initialize"
+							? { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "fake", version: "1" } }
+							: { content: [{ type: "text", text: `called ${message.params?.name ?? "?"}` }], _meta: {} };
+					response.writeHead(200, { "content-type": "application/json" });
+					response.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+				});
+				return;
+			}
 			response.writeHead(200, { "content-type": "application/json" });
 			response.end('{"jsonrpc":"2.0","id":1,"result":{}}');
 		});
@@ -125,6 +146,7 @@ const manifest = {
 	permissions: { network: "bridge" },
 	locality: "any",
 	healthcheck: { path: "/healthz", intervalMs: 200, timeoutMs: 1000 },
+	ui: { entry: "/ui/index.html", title: "侦察面板", protocol: 1 },
 };
 
 let root = "";
@@ -270,6 +292,13 @@ test("installs a plugin and mounts it on the next session", async () => {
 	expect(JSON.stringify(install?.detail)).not.toContain("secret");
 });
 
+test("serves the plugin frontend through the console origin", async () => {
+	const response = await fetch(`${consoleServer?.url ?? ""}/plugin-ui/${localHostId}/${PLUGIN_ID}/index.html`);
+	expect(response.status).toBe(200);
+	expect(await response.text()).toContain("hello from the plugin");
+	expect(response.headers.get("access-control-allow-origin")).toBe("*");
+});
+
 test("switching the plugin off removes it from the mount cache", async () => {
 	const list = await requestPlugins();
 	const plugin = list.view.plugins[0];
@@ -279,6 +308,65 @@ test("switching the plugin off removes it from the mount cache", async () => {
 	send({ type: "set_plugin_enabled", hostId: plugin.hostId, pluginId: plugin.manifest.id, enabled: false });
 	await pending;
 	expect(loadSentinelMcpConfig(agentDir).servers).toEqual([]);
+});
+
+test("answers bridge calls from the plugin frontend", async () => {
+	const list = await requestPlugins();
+	const plugin = list.view.plugins[0];
+	expect(plugin).toBeDefined();
+	if (!plugin) return;
+
+	const call = waitFor((message) => message.type === "plugin_ui_result" && message.requestId === "r1");
+	send({
+		type: "plugin_ui_call",
+		requestId: "r1",
+		hostId: plugin.hostId,
+		pluginId: plugin.manifest.id,
+		method: "tool.call",
+		params: { name: "hello_echo", arguments: { text: "hi" } },
+	});
+	const message = await call;
+	expect(message.type).toBe("plugin_ui_result");
+	if (message.type !== "plugin_ui_result") return;
+	expect(message.ok).toBe(true);
+	const result = message.result as { content: Array<{ text: string }>; isError: boolean };
+	expect(result.content[0]?.text).toBe("called hello_echo");
+
+	const store = waitFor((entry) => entry.type === "plugin_ui_result" && entry.requestId === "r2");
+	send({
+		type: "plugin_ui_call",
+		requestId: "r2",
+		hostId: plugin.hostId,
+		pluginId: plugin.manifest.id,
+		method: "storage.set",
+		params: { key: "lastRun", value: "r-1" },
+	});
+	const stored = await store;
+	expect(stored.type === "plugin_ui_result" ? stored.ok : false).toBe(true);
+
+	const get = waitFor((entry) => entry.type === "plugin_ui_result" && entry.requestId === "r3");
+	send({
+		type: "plugin_ui_call",
+		requestId: "r3",
+		hostId: plugin.hostId,
+		pluginId: plugin.manifest.id,
+		method: "storage.get",
+		params: { key: "lastRun" },
+	});
+	const read = await get;
+	expect(read.type === "plugin_ui_result" ? read.result : null).toBe("r-1");
+
+	const denied = waitFor((entry) => entry.type === "plugin_ui_result" && entry.requestId === "r4");
+	send({
+		type: "plugin_ui_call",
+		requestId: "r4",
+		hostId: plugin.hostId,
+		pluginId: plugin.manifest.id,
+		method: "host.exec",
+		params: {},
+	});
+	const refused = await denied;
+	expect(refused.type === "plugin_ui_result" ? refused.ok : true).toBe(false);
 });
 
 test("reads logs and uninstalls", async () => {

@@ -16,7 +16,7 @@ import { createReadStream, existsSync, readdirSync, realpathSync, statSync } fro
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
 	PLUGIN_ID_PATTERN,
 	parsePluginManifest,
@@ -41,6 +41,7 @@ import {
 	stopContainer,
 	waitHealthy,
 } from "./docker.ts";
+import { callPluginTool } from "./mcp-client.ts";
 import { proxyToPlugin } from "./proxy.ts";
 import {
 	configuredKeys,
@@ -52,15 +53,67 @@ import {
 	pluginDataDir,
 	readPluginConfigValues,
 	readPluginRecord,
+	readUiStorage,
 	type StoredPluginRecord,
 	writePluginConfigValues,
 	writePluginRecord,
+	writeUiStorage,
 } from "./store.ts";
 
 export const PLUGIN_HOST_VERSION = 1;
 export const MAX_PLUGINS = 32;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_ARTIFACT_ENTRIES = 500;
+const MAX_UI_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_UI_STORAGE_BYTES = 256 * 1024;
+const MAX_UI_STORAGE_VALUE_BYTES = 32 * 1024;
+const MAX_UI_STORAGE_KEYS = 64;
+const UI_STORAGE_KEY = /^[A-Za-z0-9._-]{1,64}$/;
+
+const UI_CONTENT_TYPES: Record<string, string> = {
+	".html": "text/html; charset=utf-8",
+	".htm": "text/html; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".js": "text/javascript; charset=utf-8",
+	".mjs": "text/javascript; charset=utf-8",
+	".json": "application/json; charset=utf-8",
+	".map": "application/json; charset=utf-8",
+	".svg": "image/svg+xml",
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif": "image/gif",
+	".webp": "image/webp",
+	".ico": "image/x-icon",
+	".woff": "font/woff",
+	".woff2": "font/woff2",
+	".ttf": "font/ttf",
+	".txt": "text/plain; charset=utf-8",
+	".wasm": "application/wasm",
+};
+
+function uiContentType(path: string): string {
+	const dot = path.lastIndexOf(".");
+	return (dot >= 0 ? UI_CONTENT_TYPES[path.slice(dot).toLowerCase()] : undefined) ?? "application/octet-stream";
+}
+
+/** Decode path segments and refuse anything that could leave the UI directory. */
+function uiPathSegments(raw: string[]): string[] | null {
+	const segments: string[] = [];
+	for (const part of raw) {
+		let decoded: string;
+		try {
+			decoded = decodeURIComponent(part);
+		} catch {
+			return null;
+		}
+		if (!decoded || decoded === "." || decoded === ".." || decoded.includes("\\") || decoded.includes("/")) {
+			return null;
+		}
+		segments.push(decoded);
+	}
+	return segments;
+}
 
 export interface PluginHostOptions {
 	dataDir: string;
@@ -454,6 +507,82 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		createReadStream(target).pipe(response);
 	}
 
+	/** A tool call from the plugin's own frontend; it has no session to borrow. */
+	async function handleCall(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const url = new URL(request.url ?? "/", "http://localhost");
+		const id = url.pathname.split("/")[3] ?? "";
+		const record = loadRecord(id);
+		const body = asRecord(await readJsonBody(request));
+		const name = typeof body.name === "string" ? body.name.trim() : "";
+		if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new HttpError(400, "工具名非法");
+		const args = asRecord(body.arguments);
+		const state = await inspectContainer(docker, record.containerName);
+		if (!state?.running) throw new HttpError(503, "插件未运行");
+		const port = record.hostPort ?? (await containerHostPort(docker, record.containerName, record.manifest.mcp.port));
+		if (port === null) throw new HttpError(503, "插件没有可用的端口");
+		let outcome: Awaited<ReturnType<typeof callPluginTool>>;
+		try {
+			outcome = await callPluginTool(
+				port,
+				record.manifest.mcp.path,
+				name,
+				args,
+				record.manifest.mcp.requestTimeoutMs,
+			);
+		} catch (error) {
+			throw new HttpError(502, error instanceof Error ? error.message : String(error));
+		}
+		sendJson(response, 200, {
+			content: outcome.content,
+			isError: outcome.isError,
+			meta: outcome.meta,
+		});
+	}
+
+	/** The frontend's key-value store, scoped to one plugin. */
+	async function handleStorage(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const url = new URL(request.url ?? "/", "http://localhost");
+		const id = url.pathname.split("/")[3] ?? "";
+		const record = loadRecord(id);
+		const values = readUiStorage(options.dataDir, record.manifest.id);
+		if (request.method === "GET") {
+			const key = url.searchParams.get("key") ?? "";
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
+			sendJson(response, 200, { value: values[key] ?? null });
+			return;
+		}
+		if (request.method === "DELETE") {
+			const key = url.searchParams.get("key") ?? "";
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
+			delete values[key];
+			writeUiStorage(options.dataDir, record.manifest.id, values);
+			sendJson(response, 200, { ok: true });
+			return;
+		}
+		if (request.method === "PUT") {
+			const body = asRecord(await readJsonBody(request));
+			const key = typeof body.key === "string" ? body.key : "";
+			const value = typeof body.value === "string" ? body.value : null;
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
+			if (value === null) throw new HttpError(400, "storage value 必须是字符串");
+			if (Buffer.byteLength(value, "utf-8") > MAX_UI_STORAGE_VALUE_BYTES) {
+				throw new HttpError(413, "单个 storage 值超过 32KB");
+			}
+			if (!(key in values) && Object.keys(values).length >= MAX_UI_STORAGE_KEYS) {
+				throw new HttpError(409, `storage 最多 ${MAX_UI_STORAGE_KEYS} 个键`);
+			}
+			values[key] = value;
+			const serialized = JSON.stringify({ values });
+			if (Buffer.byteLength(serialized, "utf-8") > MAX_UI_STORAGE_BYTES) {
+				throw new HttpError(413, "storage 总量超过 256KB");
+			}
+			writeUiStorage(options.dataDir, record.manifest.id, values);
+			sendJson(response, 200, { ok: true });
+			return;
+		}
+		throw new HttpError(405, "不支持的方法");
+	}
+
 	async function handleHostInfo(response: ServerResponse): Promise<void> {
 		const dockerInfo = await dockerVersion(docker).catch((error: unknown) => ({
 			ok: false,
@@ -527,6 +656,54 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 				await handleArtifacts(request, response);
 				return;
 			}
+			if (parts[3] === "call" && request.method === "POST") {
+				await handleCall(request, response);
+				return;
+			}
+			if (parts[3] === "storage") {
+				await handleStorage(request, response);
+				return;
+			}
+		}
+
+		// The plugin's static frontend, served from the container's /ui directory.
+		if (parts[0] === "plugins" && parts[1] && parts[2] === "ui") {
+			const id = parts[1];
+			if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
+			if (request.method !== "GET" && request.method !== "HEAD") throw new HttpError(405, "只支持 GET");
+			const record = readPluginRecord(options.dataDir, id);
+			if (!record) throw new HttpError(404, "未安装插件");
+			if (!record.manifest.ui) throw new HttpError(404, "该插件没有界面");
+			const state = await inspectContainer(docker, record.containerName);
+			if (!state?.running) throw new HttpError(503, "插件未运行");
+			const port =
+				record.hostPort ?? (await containerHostPort(docker, record.containerName, record.manifest.mcp.port));
+			if (port === null) throw new HttpError(503, "插件没有可用的端口");
+			const segments = uiPathSegments(parts.slice(3));
+			if (!segments) throw new HttpError(400, "界面路径非法");
+			const base = dirname(record.manifest.ui.entry);
+			const target = segments.length > 0 ? `${base}/${segments.join("/")}` : record.manifest.ui.entry;
+			const upstream = await fetch(`http://127.0.0.1:${port}${target}${url.search}`, {
+				method: request.method,
+				signal: AbortSignal.timeout(15000),
+			}).catch((error: unknown) => {
+				throw new HttpError(502, `读取界面文件失败：${error instanceof Error ? error.message : String(error)}`);
+			});
+			const declared = Number(upstream.headers.get("content-length") ?? "0");
+			if (Number.isFinite(declared) && declared > MAX_UI_FILE_BYTES) {
+				throw new HttpError(413, "界面文件超过 20MB 上限");
+			}
+			const body = request.method === "HEAD" ? null : Buffer.from(await upstream.arrayBuffer());
+			if (body && body.length > MAX_UI_FILE_BYTES) throw new HttpError(413, "界面文件超过 20MB 上限");
+			response.writeHead(upstream.status, {
+				"content-type": uiContentType(target),
+				"content-length": String(body?.length ?? declared),
+				"cache-control": "no-store",
+				"x-content-type-options": "nosniff",
+				"access-control-allow-origin": "*",
+			});
+			response.end(body ?? undefined);
+			return;
 		}
 
 		// The MCP endpoint. Only streamable HTTP is part of the plugin contract.

@@ -1,6 +1,6 @@
 # 插件前端界面设计（v0）
 
-- 状态：方案，待评审
+- 状态：U0–U3 已实现（v1 只要声明 `ui` 即可使用全部桥方法）
 - 日期：2026-10-17
 - 范围：`packages/web`（控制台 + 插件主机）、插件镜像内的 `/ui/`、官方模板
 
@@ -56,6 +56,8 @@
   "protocol": 1
 }
 ```
+
+v1 不再细分 `ui.permissions`：插件一旦声明界面，就获得 `context`、`artifact.read`、`tool.call`、`config.write`、`storage` 五类方法。`network` 显式写 `true` 会被校验拒绝。
 
 规则：
 
@@ -135,11 +137,11 @@ parent → iframe  { kind: "sentinel-ui:result", id, ok, result? , error? }
 
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `context.get` | — | 插件 id/版本、host、项目名、配置键、工具预览 | 始终允许 |
-| `artifact.list` | — | `[{path,size}]` | 需 `artifact.read` |
+| `context` | 握手时随 `init` 下发 | 插件 id/版本、host、项目名、配置键、工具预览 | 始终允许 |
+| `artifact.list` | — | `[{path,size}]` | 只列本插件产物 |
 | `artifact.read` | `{path, encoding}` | 文本或 base64 | 单文件上限 1MB，超过报错 |
 | `tool.call` | `{name, arguments}` | MCP `content` + `_meta` | 只能调本插件工具 |
-| `config.get` | — | 非密钥值 | 需 `config.write`（顺带给读） |
+| `config.get` | — | 非密钥值 | 密钥只出现在 `context.configKeys` |
 | `config.save` | `{values}` | 新的配置键列表 | 非密钥；密钥只写不读 |
 | `storage.get` | `{key}` | 字符串或 null | 插件级命名空间 |
 | `storage.set` | `{key, value}` | ok | ≤32KB/值，≤64 键 |
@@ -210,13 +212,13 @@ templates/plugin-ui-react/
 
 ## 10. 里程碑
 
-| 阶段 | 内容 | 估算 |
+| 阶段 | 内容 | 状态 |
 |---|---|---|
-| U0 | manifest `ui` 校验、host 静态代理、控制台反代、沙箱 iframe 浮层、SDK 握手、hello-world 界面 | 3–4 天 |
-| U1 | `context.get`、`artifact.list/read`、审计 | 2 天 |
-| U2 | `tool.call`（host `/call`）、`config.get/save`、`storage`、限流与上限 | 3 天 |
-| U3 | vanilla/React 模板、`docs/plugin-ui.md` 作者章节、安装页显示「有界面」 | 2–3 天 |
-| U4 | 独立页面/侧栏固定、开发模式热更新、多实例 | 可选 |
+| U0 | manifest `ui` 校验、host 静态代理、控制台反代、沙箱 iframe 浮层、SDK 握手、hello-world 界面 | 完成 |
+| U1 | `context`、`artifact.list/read`、审计 | 完成 |
+| U2 | `tool.call`（host `/call`）、`config.get/save`、`storage`、上限 | 完成 |
+| U3 | vanilla/React 模板、作者文档、hello-world 示例界面 | 完成 |
+| U4 | 独立页面/侧栏固定、开发模式热更新、多实例 | 未做 |
 
 U0 完成即可验证「插件可以带界面」；U2 完成才是可用的管理面板。
 
@@ -236,6 +238,6 @@ U0 完成即可验证「插件可以带界面」；U2 完成才是可用的管�
 
 1. 是否需要在安装页预览插件的 UI 截图（静态截图需作者提供）。
 2. `tool.call` 是否要同时把结果写进当前会话的审计叙述，还是只写 `plugin-audit.jsonl`。
-3. 多实例（同一插件开两个面板）是否共享 storage；v1 建议共享。
+3. 多实例（同一插件开两个面板）：当前浮层一次只开一个；storage 按插件共享。
 4. UI 资源是否需要 ETag/版本查询参数，减少重复拉取；v1 统一 `no-store`。
 5. 是否给 iframe 加 `allow-downloads`（产物导出）——v1 用桥下载，不给。

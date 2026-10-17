@@ -959,6 +959,15 @@ export type SentinelClientMessage =
 	| { type: "get_plugin_logs"; hostId: string; pluginId: string }
 	| { type: "list_plugin_artifacts"; hostId: string; pluginId: string }
 	| { type: "fetch_plugin_artifact"; hostId: string; pluginId: string; path: string }
+	| { type: "plugin_ui_open"; hostId: string; pluginId: string }
+	| {
+			type: "plugin_ui_call";
+			requestId: string;
+			hostId: string;
+			pluginId: string;
+			method: string;
+			params: unknown;
+	  }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	| { type: "engine_pause"; id: string }
@@ -1087,6 +1096,7 @@ export type SentinelServerMessage =
 	| { type: "plugin_logs"; hostId: string; pluginId: string; logs: string }
 	| { type: "plugin_artifacts"; hostId: string; pluginId: string; artifacts: SentinelPluginArtifact[] }
 	| { type: "plugin_artifact_saved"; hostId: string; pluginId: string; path: string; savedTo: string }
+	| { type: "plugin_ui_result"; requestId: string; ok: boolean; result?: unknown; error?: string }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelSubagentEvent }
@@ -1360,6 +1370,16 @@ export interface SentinelPluginArtifacts {
 	maxFileBytes: number;
 }
 
+/** Optional frontend served from the plugin image under `/ui/`. */
+export interface SentinelPluginUi {
+	/** Container path of the entry document, e.g. `/ui/index.html`. */
+	entry: string;
+	/** Title shown in the console frame around the iframe. */
+	title: string;
+	/** Bridge protocol; only 1 is understood. */
+	protocol: number;
+}
+
 /** A tool as advertised before install; the running MCP server remains authoritative. */
 export interface SentinelPluginToolHint {
 	name: string;
@@ -1385,6 +1405,8 @@ export interface SentinelPluginManifest {
 	healthcheck: SentinelPluginHealthcheck;
 	artifacts: SentinelPluginArtifacts;
 	tools: SentinelPluginToolHint[];
+	/** Null when the plugin ships no frontend. */
+	ui: SentinelPluginUi | null;
 }
 
 /**

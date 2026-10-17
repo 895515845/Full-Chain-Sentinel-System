@@ -54,5 +54,10 @@
 			"name": "hello_artifact",
 			"description": "写一个文本产物到 /artifacts"
 		}
-	]
+	],
+	"ui": {
+		"entry": "/ui/index.html",
+		"title": "Hello World 控制台",
+		"protocol": 1
+	}
 }

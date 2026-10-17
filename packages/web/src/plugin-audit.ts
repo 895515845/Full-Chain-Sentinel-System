@@ -26,6 +26,10 @@ export interface PluginAuditEntry {
 		| "disable"
 		| "config"
 		| "artifact"
+		| "ui-open"
+		| "ui-tool"
+		| "ui-artifact"
+		| "ui-storage"
 		| "host-add"
 		| "host-remove";
 	hostId?: string;

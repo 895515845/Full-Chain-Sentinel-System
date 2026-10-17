@@ -85,6 +85,7 @@ import {
 } from "./container-network.ts";
 import { gateCookieHeader, generateGateToken, hasValidGate, isGateEntry, sendGateNotFound } from "./gate.ts";
 import { readPluginPackage } from "./plugin-package.ts";
+import { effectivePluginHosts } from "./plugin-store.ts";
 import { SentinelRuntime } from "./sentinel-session.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { storeUpload } from "./upload.ts";
@@ -146,6 +147,78 @@ export interface SentinelServerOptions {
 export function webuiDistDir(): string {
 	// dist/server.js -> package root -> webui/dist
 	return resolve(dirname(fileURLToPath(import.meta.url)), "..", "webui", "dist");
+}
+
+/**
+ * Serve a plugin's frontend through the console's own origin.
+ *
+ * The iframe cannot point at `http://127.0.0.1:<port>`: the console is HTTPS, so
+ * the browser would block it as mixed content. Proxying under the console origin
+ * also means the host token and the plugin container port never reach the page.
+ * The response is a static asset, nothing else; the bridge is postMessage.
+ */
+async function servePluginUi(agentDir: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+	const url = new URL(request.url ?? "/", "http://localhost");
+	const parts = url.pathname.split("/").filter(Boolean);
+	let hostId = "";
+	try {
+		hostId = parts[1] ? decodeURIComponent(parts[1]) : "";
+	} catch {
+		sendJson(response, { error: "插件主机 id 非法" }, 400);
+		return;
+	}
+	let pluginId = "";
+	try {
+		pluginId = parts[2] ? decodeURIComponent(parts[2]) : "";
+	} catch {
+		sendJson(response, { error: "插件 id 非法" }, 400);
+		return;
+	}
+	if (!hostId || !pluginId) {
+		sendJson(response, { error: "没有这个界面" }, 404);
+		return;
+	}
+	const host = effectivePluginHosts(agentDir).find((entry) => entry.id === hostId);
+	if (!host) {
+		sendJson(response, { error: "插件主机不存在" }, 404);
+		return;
+	}
+	const rest: string[] = [];
+	for (const raw of parts.slice(3)) {
+		let segment: string;
+		try {
+			segment = decodeURIComponent(raw);
+		} catch {
+			sendJson(response, { error: "界面路径非法" }, 400);
+			return;
+		}
+		if (!segment || segment === "." || segment === ".." || segment.includes("/") || segment.includes("\\")) {
+			sendJson(response, { error: "界面路径非法" }, 400);
+			return;
+		}
+		rest.push(encodeURIComponent(segment));
+	}
+	const upstreamPath = `/plugins/${encodeURIComponent(pluginId)}/ui/${rest.join("/")}`;
+	let upstream: Response;
+	try {
+		upstream = await fetch(`${host.url}${upstreamPath}${url.search}`, {
+			headers: { authorization: `Bearer ${host.token}` },
+			signal: AbortSignal.timeout(20000),
+		});
+	} catch (error) {
+		sendJson(response, { error: `读取插件界面失败：${error instanceof Error ? error.message : String(error)}` }, 502);
+		return;
+	}
+	const body = Buffer.from(await upstream.arrayBuffer());
+	response.writeHead(upstream.status, {
+		"content-type": upstream.headers.get("content-type") ?? "application/octet-stream",
+		"content-length": String(body.length),
+		"cache-control": "no-store",
+		"x-content-type-options": "nosniff",
+		// A module script loaded from a sandboxed (opaque) origin is a CORS request.
+		"access-control-allow-origin": "*",
+	});
+	response.end(body);
 }
 
 function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
@@ -718,6 +791,14 @@ export async function startSentinelServer(
 				void handleChangePassword(request, response, auth);
 				return;
 			}
+			if (path.startsWith("/plugin-ui/")) {
+				if (!agentDir) {
+					sendJson(response, { error: "控制台没有配置目录，无法读取插件界面" }, 503);
+					return;
+				}
+				void servePluginUi(agentDir, request, response);
+				return;
+			}
 			// One chat attachment: the raw body is the file, `name` is what to call
 			// it. It lands in the active project's work dir, which is the directory
 			// the agent reads in a container session and in a host session alike.
@@ -745,7 +826,7 @@ export async function startSentinelServer(
 				void handleConsentAccept(request, response, auth.username);
 				return;
 			}
-		} else if (path.startsWith("/api/")) {
+		} else if (path.startsWith("/api/") || path.startsWith("/plugin-ui/")) {
 			sendJson(response, { error: "未登录" }, 401);
 			return;
 		}
@@ -1379,6 +1460,38 @@ export async function startSentinelServer(
 						});
 					} catch (error) {
 						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "plugin_ui_open": {
+					try {
+						runtime.pluginUiOpen(message.hostId, message.pluginId);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "plugin_ui_call": {
+					try {
+						const result = await runtime.pluginUiCall(
+							message.hostId,
+							message.pluginId,
+							message.method,
+							message.params,
+						);
+						sendTo(socket, {
+							type: "plugin_ui_result",
+							requestId: message.requestId,
+							ok: true,
+							result,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendTo(socket, {
+							type: "plugin_ui_result",
+							requestId: message.requestId,
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						} satisfies SentinelServerMessage);
 					}
 					return;
 				}

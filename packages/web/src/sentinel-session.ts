@@ -164,6 +164,7 @@ import {
 	type SentinelPermissionsConfig,
 	writePermissionsConfig,
 } from "./permissions.ts";
+import { appendPluginAudit } from "./plugin-audit.ts";
 import * as pluginService from "./plugin-service.ts";
 import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
@@ -428,6 +429,9 @@ interface BashGateContext {
 	projectName: string | null;
 	sessionId: () => string | null;
 }
+
+/** Largest artifact a plugin frontend may read in one bridge call. */
+const MAX_UI_ARTIFACT_BYTES = 1024 * 1024;
 
 export class SentinelRuntime {
 	private cwd: string;
@@ -1999,6 +2003,85 @@ export class SentinelRuntime {
 		await pluginService.stopPlugin(this.agentDir, hostId, pluginId);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
+	}
+
+	/** Record that the plugin's frontend was opened; the page itself is static. */
+	pluginUiOpen(hostId: string, pluginId: string): void {
+		appendPluginAudit(this.agentDir, { action: "ui-open", hostId, pluginId, ok: true });
+	}
+
+	/**
+	 * One call from a plugin's frontend. The method names are a closed set: the
+	 * iframe cannot ask the console to run arbitrary host commands. Every branch
+	 * lands on an existing service function, so the same host token, path checks,
+	 * and audit trail apply.
+	 */
+	async pluginUiCall(hostId: string, pluginId: string, method: string, raw: unknown): Promise<unknown> {
+		const params = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+		const asText = (value: unknown): string => (typeof value === "string" ? value : "");
+		switch (method) {
+			case "artifact.list":
+				return pluginService.listPluginArtifacts(this.agentDir, hostId, pluginId);
+			case "artifact.read": {
+				const path = asText(params.path);
+				if (!path) throw new Error("artifact.read 需要 path");
+				const data = await pluginService.downloadPluginArtifact(this.agentDir, hostId, pluginId, path);
+				if (data.length > MAX_UI_ARTIFACT_BYTES) {
+					throw new Error("单个产物超过 1MB，请在插件页下载");
+				}
+				appendPluginAudit(this.agentDir, {
+					action: "ui-artifact",
+					hostId,
+					pluginId,
+					ok: true,
+					detail: { path, bytes: data.length },
+				});
+				const encoding = params.encoding === "base64" ? "base64" : "utf8";
+				return { path, size: data.length, encoding, data: data.toString(encoding) };
+			}
+			case "tool.call": {
+				const name = asText(params.name);
+				const args = (
+					params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments)
+						? params.arguments
+						: {}
+				) as Record<string, unknown>;
+				return pluginService.callPluginTool(this.agentDir, hostId, pluginId, name, args);
+			}
+			case "config.get":
+				return pluginService.getPluginValues(this.agentDir, hostId, pluginId);
+			case "config.save": {
+				const values = (
+					params.values && typeof params.values === "object" && !Array.isArray(params.values) ? params.values : {}
+				) as Record<string, unknown>;
+				const normalized: Record<string, string> = {};
+				for (const [key, value] of Object.entries(values)) {
+					if (typeof value === "string") normalized[key] = value;
+					else if (typeof value === "number" || typeof value === "boolean") normalized[key] = String(value);
+				}
+				this.assertNoRunningSession("插件配置");
+				await pluginService.updatePluginConfig(this.agentDir, hostId, pluginId, normalized);
+				await this.rebuildSessions();
+				return { ok: true };
+			}
+			case "storage.get": {
+				const key = asText(params.key);
+				return pluginService.getPluginUiStorage(this.agentDir, hostId, pluginId, key);
+			}
+			case "storage.set": {
+				const key = asText(params.key);
+				const value = asText(params.value);
+				await pluginService.setPluginUiStorage(this.agentDir, hostId, pluginId, key, value);
+				return { ok: true };
+			}
+			case "storage.delete": {
+				const key = asText(params.key);
+				await pluginService.deletePluginUiStorage(this.agentDir, hostId, pluginId, key);
+				return { ok: true };
+			}
+			default:
+				throw new Error(`不支持的界面方法 ${method}`);
+		}
 	}
 
 	/** The console-side switch: off unmounts the tools but leaves the container running. */
