@@ -21,7 +21,7 @@ RUN if [ "$APK_MIRROR" != "dl-cdn.alpinelinux.org" ]; then \
 	&& mkdir -p /app
 
 WORKDIR /app
-RUN curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 -o app.jar "$JAR_URL" \
+RUN curl -fL --retry 3 --retry-delay 2 --max-time 900 --connect-timeout 20 -o app.jar "$JAR_URL" \
 	&& test -s app.jar
 
 COPY server.mjs entrypoint.sh ./

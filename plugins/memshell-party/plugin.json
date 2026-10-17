@@ -9,7 +9,11 @@
 	"license": "MIT",
 	"build": {
 		"dockerfile": "Dockerfile",
-		"context": "."
+		"context": ".",
+		"args": {
+			"APK_MIRROR": "mirrors.tuna.tsinghua.edu.cn",
+			"JAR_URL": "https://ghfast.top/https://github.com/ReaJason/MemShellParty/releases/download/v2.10.0/boot-2.10.0.jar"
+		}
 	},
 	"mcp": {
 		"transport": "http",
