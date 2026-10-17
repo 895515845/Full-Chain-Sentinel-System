@@ -1,0 +1,24 @@
+# Offline build: put boot-2.10.0.jar at download/boot.jar first.
+ARG BASE_IMAGE=node:22-alpine
+FROM ${BASE_IMAGE}
+
+ARG APK_MIRROR=dl-cdn.alpinelinux.org
+
+RUN if [ "$APK_MIRROR" != "dl-cdn.alpinelinux.org" ]; then \
+		sed -i "s|dl-cdn.alpinelinux.org|${APK_MIRROR}|g" /etc/apk/repositories; \
+	fi \
+	&& apk add --no-cache openjdk21-jre-headless \
+	&& mkdir -p /app
+
+WORKDIR /app
+COPY download/boot.jar /app/app.jar
+COPY server.mjs entrypoint.sh ./
+COPY ui ./ui
+
+ENV MSP_URL=http://127.0.0.1:18080 \
+	PORT=7801 \
+	PLUGIN_ARTIFACTS_DIR=/artifacts \
+	PLUGIN_DATA_DIR=/data
+
+EXPOSE 7801
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>MemShellParty 调用历史</title>
+		<link rel="stylesheet" href="./app.css" />
+	</head>
+	<body>
+		<header class="head">
+			<div>
+				<h1>MemShellParty</h1>
+				<p id="meta" class="muted">正在连接控制台…</p>
+			</div>
+			<div class="head-actions">
+				<span id="status" class="badge">连接中</span>
+				<button id="refresh" type="button">刷新</button>
+			</div>
+		</header>
+
+		<section class="card">
+			<div class="card-head">
+				<h2>调用历史</h2>
+				<span id="count" class="muted"></span>
+			</div>
+			<table class="table">
+				<thead>
+					<tr>
+						<th>时间</th>
+						<th>工具</th>
+						<th>目标</th>
+						<th>结果</th>
+						<th class="num">耗时</th>
+						<th class="num">大小</th>
+						<th class="num">产物</th>
+					</tr>
+				</thead>
+				<tbody id="rows">
+					<tr><td colspan="7" class="muted">正在读取…</td></tr>
+				</tbody>
+			</table>
+			<p id="empty" class="hint" hidden>还没有调用记录。让 Agent 生成一次内存马后，这里会出现条目。</p>
+		</section>
+
+		<section id="detail-card" class="card" hidden>
+			<div class="card-head">
+				<h2>详情</h2>
+				<span id="detail-title" class="muted"></span>
+			</div>
+			<pre id="detail" class="output"></pre>
+		</section>
+
+		<p class="footnote">
+			参数里的密码、密钥与 class 字节码在历史里显示为 <code>***</code>。载荷保存在插件产物目录，可在「插件 → 产物」里拉取。
+		</p>
+
+		<script src="./sdk.js"></script>
+		<script src="./app.js"></script>
+	</body>
+</html>

@@ -1,0 +1,79 @@
+{
+	"schema": 1,
+	"id": "com.sentinel.memshell-party",
+	"name": "MemShellParty 内存马",
+	"version": "0.1.0",
+	"description": "生成 Java 内存马与探测马（Tomcat/Jetty/Spring 等），输出 Base64/JSP/Agent 等格式。仅限已授权的渗透测试与安全研究。",
+	"author": "github:zgsfsec",
+	"source": "https://github.com/zgsfsec/Full-Chain-Sentinel-System/tree/main/plugins/memshell-party",
+	"license": "MIT",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": "."
+	},
+	"mcp": {
+		"transport": "http",
+		"port": 7801,
+		"path": "/mcp",
+		"startupTimeoutMs": 120000,
+		"requestTimeoutMs": 120000
+	},
+	"config": [
+		{
+			"key": "MAX_INLINE_CHARS",
+			"label": "载荷内联上限（字符）",
+			"type": "number",
+			"required": false,
+			"default": 20000,
+			"description": "超过这个长度的载荷只写产物，不塞进模型上下文"
+		}
+	],
+	"permissions": {
+		"network": "bridge",
+		"capAdd": [],
+		"privileged": false
+	},
+	"locality": "any",
+	"resources": {
+		"cpus": 1,
+		"memory": "1g",
+		"pidsLimit": 256
+	},
+	"healthcheck": {
+		"path": "/healthz",
+		"intervalMs": 10000,
+		"timeoutMs": 3000,
+		"retries": 6
+	},
+	"artifacts": {
+		"path": "/artifacts",
+		"maxFileBytes": 52428800
+	},
+	"tools": [
+		{
+			"name": "list_servers",
+			"description": "支持的中间件、壳类型、打包器、探测项"
+		},
+		{
+			"name": "generate_memshell",
+			"description": "生成内存马载荷"
+		},
+		{
+			"name": "generate_probe",
+			"description": "生成探测马"
+		},
+		{
+			"name": "parse_class_name",
+			"description": "解析 class 字节码类名"
+		},
+		{
+			"name": "list_calls",
+			"description": "最近的生成记录"
+		}
+	],
+	"ui": {
+		"entry": "/ui/index.html",
+		"title": "调用历史",
+		"protocol": 1
+	}
+}
