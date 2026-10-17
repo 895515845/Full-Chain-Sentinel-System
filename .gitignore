@@ -64,3 +64,6 @@ packages/droid-apk/local.properties
 packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/doomgeneric_pi.c
 packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/*.o
 packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgeneric/*.bc
+
+# Obsidian editor config (local notes workspace)
+.obsidian/
