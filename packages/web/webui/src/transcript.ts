@@ -67,6 +67,8 @@ export function runDigest(prompt: AgentMessageView | undefined, body: readonly A
 	const parts: string[] = [];
 	if (tools > 0) parts.push(`${tools} 次工具调用`);
 	if (thinking > 0) parts.push(`${thinking} 段思考`);
+	const compactions = body.filter((message) => isSummaryMessage(message)).length;
+	if (compactions > 0) parts.push(`${compactions} 次压缩`);
 	// A stretch with no prompt of its own (what a compaction kept) still reports
 	// its elapsed time, measured from its own first timestamped message.
 	const started = messageTimestamp(prompt) ?? firstTimestamp(body);
@@ -91,7 +93,11 @@ export function formatSize(bytes: number): string {
 	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Whether a message is a summary that marks where the context was cut. */
+/**
+ * Whether a message is a summary that marks where the context was cut. Summaries
+ * are part of the run they happened in — the fold row reports them as 压缩 —
+ * they just render as their own folded card when the run is expanded.
+ */
 export function isSummaryMessage(message: AgentMessageView): boolean {
 	return message.role === "compactionSummary" || message.role === "branchSummary";
 }
@@ -110,21 +116,20 @@ export interface RunGroup {
 	key: string;
 	/** The operator instruction this run answers; absent for a kept stretch with no prompt. */
 	prompt?: AgentMessageView;
-	/** A summary stands alone as a marker row instead of joining a run. */
-	marker?: AgentMessageView;
 	body: AgentMessageView[];
 }
 
 /**
  * Group the transcript into runs: a prompt and everything it produced, up to the
- * next prompt or summary marker. Grouping is what lets a finished run fold into
- * one row, and it also gives the run's tool calls their shared timeline rail.
+ * next prompt. Grouping is what lets a finished run fold into one row, and it
+ * also gives the run's tool calls their shared timeline rail.
  *
- * A summary is a boundary rather than a message inside a run: it ends the stretch
- * it summarizes and starts a new one, so no run ever has to fold around a marker
- * that is not its own last word. A goal row is a boundary for the same reason:
- * each automatic round is its own stretch, and folding one round into another
- * would hide where the agent continued on its own.
+ * A compaction summary stays inside the run it happened in: it is process, not a
+ * boundary — one task that went through N compactions folds into ONE row (the
+ * digest reports 压缩), and the summaries render as their own cards only when
+ * the run is expanded. A goal row is a boundary: each automatic round is its own
+ * stretch, and folding one round into another would hide where the agent
+ * continued on its own.
  */
 export function groupRuns(messages: readonly AgentMessageView[]): RunGroup[] {
 	const groups: RunGroup[] = [];
@@ -133,12 +138,8 @@ export function groupRuns(messages: readonly AgentMessageView[]): RunGroup[] {
 			groups.push({ key: `run-${messageKey(message)}`, prompt: message, body: [] });
 			continue;
 		}
-		if (isSummaryMessage(message)) {
-			groups.push({ key: `mark-${messageKey(message)}`, marker: message, body: [] });
-			continue;
-		}
 		const last = groups[groups.length - 1];
-		if (last && !last.marker) last.body.push(message);
+		if (last) last.body.push(message);
 		else groups.push({ key: `head-${messageKey(message)}`, body: [message] });
 	}
 	return groups;
@@ -178,7 +179,7 @@ export function runFoldState(options: {
 }): { collapsed: boolean; digest: string } | undefined {
 	const { groups, index, streaming, expanded } = options;
 	const group = groups[index];
-	if (!group || group.marker || group.body.length === 0) return undefined;
+	if (!group || group.body.length === 0) return undefined;
 	if (streaming && index === groups.length - 1) return undefined;
 	const last = group.body[group.body.length - 1];
 	// Skip a trailing notice and judge the run by its substantive last word; a

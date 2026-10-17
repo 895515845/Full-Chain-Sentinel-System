@@ -1626,31 +1626,8 @@ export function App() {
 										</div>
 									) : null}
 									{runGroups.map((group, groupIndex) => {
-										// A compaction or branch summary marks where the model's
-										// context was cut; it stands between two stretches and never
-										// folds, because it is the boundary, not a process step.
-										if (group.marker) {
-											return (
-												<div className="run-group run-marker" key={group.key}>
-													<MessageView
-														message={group.marker}
-														onFullscreen={openViewer}
-														// A continuation badge shows how long the round it
-														// closed took: the stretch since the previous
-														// boundary (prompt or earlier round) started.
-														{...((group.marker as { customType?: string }).customType === "zg-goal" &&
-														goalMarkerElapsed(snapshotRef.current?.messages ?? [], group.marker)
-															? {
-																	goalElapsedMs: goalMarkerElapsed(
-																		snapshotRef.current?.messages ?? [],
-																		group.marker,
-																	),
-																}
-															: {})}
-													/>
-												</div>
-											);
-										}
+										// Compaction summaries live inside the run they happened
+										// in: process, folded with everything else.
 										const fold = runFold(groupIndex);
 										const live = streaming && groupIndex === runGroups.length - 1;
 										const summary = group.body[group.body.length - 1];

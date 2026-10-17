@@ -55,7 +55,7 @@ test("groupRuns puts a prompt and its output in one run", () => {
 	expect(fold(groups, 0, [groups[0].key])).toEqual({ collapsed: false, digest: "1 次工具调用 · 2.0s" });
 });
 
-test("groupRuns keeps a compaction marker as its own group and folds what follows it", () => {
+test("a compaction summary stays inside its run and the run reports it", () => {
 	const groups = groupRuns([
 		user("侦察 10.10.10.5", 1000),
 		assistant("开放 22/80", 2000),
@@ -64,29 +64,36 @@ test("groupRuns keeps a compaction marker as its own group and folds what follow
 		assistant("继续扫描 443", 4000),
 	]);
 
-	expect(groups.map((group) => group.marker?.role ?? group.prompt?.role ?? "head")).toEqual([
-		"user",
-		"compactionSummary",
-		"head",
-	]);
-	// The marker never folds: it is the boundary, not a process step.
-	expect(fold(groups, 1)).toBeUndefined();
-	// The kept stretch folds even though its prompt is gone, and it still reports
-	// its own elapsed time, measured from its first message.
-	expect(fold(groups, 2)).toEqual({ collapsed: true, digest: "1 次工具调用 · 1.0s" });
+	// One run: the summary is process, not a boundary.
+	expect(groups).toHaveLength(1);
+	expect(groups[0].prompt).toMatchObject({ role: "user" });
+	expect(groups[0].body).toHaveLength(4);
+	// The fold row reports the compaction alongside tools and elapsed time.
+	expect(fold(groups, 0)).toEqual({ collapsed: true, digest: "1 次工具调用 · 1 次压缩 · 3.0s" });
 });
 
-test("groupRuns starts a new stretch after each marker", () => {
+test("multiple compactions across one task fold into the same row", () => {
 	const groups = groupRuns([
 		user("a", 1000),
-		marker("m1", 10),
 		assistant("b", 2000),
+		marker("m1", 10),
+		toolResult(3000),
+		assistant("c", 4000, { stopReason: "aborted" }),
 		marker("m2", 20),
-		assistant("c", 3000),
+		assistant("d", 5000),
 	]);
-	expect(groups).toHaveLength(5);
-	expect(groups[3].marker).toMatchObject({ summary: "m2" });
-	expect(groups[4].body).toHaveLength(1);
+	expect(groups).toHaveLength(1);
+	expect(fold(groups, 0)).toEqual({
+		collapsed: true,
+		digest: "1 次工具调用 · 2 次压缩 · 4.0s",
+	});
+});
+
+test("a kept stretch before any prompt folds with its summaries", () => {
+	const groups = groupRuns([toolResult(3000), marker("m1", 10), assistant("c", 5000)]);
+	expect(groups).toHaveLength(1);
+	expect(groups[0].prompt).toBeUndefined();
+	expect(fold(groups, 0)).toEqual({ collapsed: true, digest: "1 次工具调用 · 1 次压缩 · 2.0s" });
 });
 
 test("runFoldState keeps failures and the run in flight visible", () => {
