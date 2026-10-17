@@ -4241,6 +4241,18 @@ svg.lucide {
 .loop-guard-row {
 	margin: 2px 0 6px;
 	border-left: 2px solid var(--border);
+	/* The notice text is model-generated and can be long: keep the card from
+	   being widened past the transcript, and clip instead of spilling. */
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.loop-guard-row > pre,
+.modeling-row > pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 .loop-guard-row .loop-guard-stutter {
