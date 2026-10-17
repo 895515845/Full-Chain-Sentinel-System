@@ -259,7 +259,7 @@ https://www.qianwenai.com/models/qwen-flash
 
 建议使用 screen -R sentinel
 
-![[images/Pasted image 20261017133338.png]]
+![](images/Pasted%20image%2020261017133338.png)
 
 然后 ctrl +a ,键入 d 即可，更多用法自行学习 screen
 
