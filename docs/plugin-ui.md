@@ -30,7 +30,7 @@
 ```
 控制台 https://console/
   └─ iframe sandbox="allow-scripts"
-       src="https://console/plugin-ui/<hostId>/<pluginId>/<ui.entry>#nonce=..."
+       src="https://console/plugin-ui/<token>/<hostId>/<pluginId>/<ui.entry>#nonce=..."
               │
               ├─ 控制台静态反代（带控制台会话）
               │     └─ plugin-host GET /plugins/<id>/ui/*
@@ -39,6 +39,10 @@
               └─ postMessage ⇄ 控制台桥
                     └─ plugin-host /v1/...（artifacts/config/storage/tool call）
 ```
+
+第三个原因：iframe 是 opaque origin，浏览器不会随它的 `<script>` / `<link>` 请求发送控制台的 gate
+与登录 cookie。控制台在已登录的 WebSocket 上收到 `plugin_ui_open` 后签发一个 12 小时有效的随机
+token，放进 iframe 路径；静态资源请求靠这个 token 通过校验，不依赖 cookie。插件不需要处理它。
 
 两个必须由控制台反代的原因：
 
@@ -57,14 +61,27 @@
 }
 ```
 
+浮层由控制台负责标题、版本、连接状态（连接中/已连接/未连接）、重载和关闭；12 秒内没有收到 SDK 握手会显示错误与「重试」。插件未运行时「打开界面」不可用。
+
 v1 不再细分 `ui.permissions`：插件一旦声明界面，就获得 `context`、`artifact.read`、`tool.call`、`config.write`、`storage` 五类方法。`network` 显式写 `true` 会被校验拒绝。
 
 规则：
 
-- `entry` 必须是容器内的绝对路径，以 `.html` 结尾；其余资源相对 `entry` 所在目录。
+- `entry` 必须是容器内的绝对路径，以 `.html` 结尾；其余资源相对 `entry` 所在目录。控制台会保留 `/ui/` 之后的完整路径，例如 `/ui/panel/index.html` 会代理到 `/plugins/<id>/ui/panel/index.html`，`./app.js` 也在 `panel/` 下解析。
 - `protocol` 当前为 1；控制台只接受认识的值。
 - 不声明 `ui` 的插件没有「打开界面」入口。
 - v1 不允许 `network` / 自定义 `sandbox`；需要外网时由插件容器自己请求，再把结果通过工具或产物交给 UI。
+
+## 4.1 官方基础样式
+
+插件界面运行在 `sandbox="allow-scripts"` 的 opaque origin 里，拿不到控制台的全局 CSS。为了避免每个插件各写一套字体、颜色和间距，官方提供一份基线样式：
+
+- 位置：`templates/plugin-ui-shared/base.css`
+- 用法：复制到插件的 `/ui/base.css`，在入口页里 `<link rel="stylesheet" href="./base.css" />`
+- 组件：`pui-page`、`pui-bar`、`pui-card`、`pui-table`、`pui-btn`、`pui-field`、`pui-input`、`pui-pill`、`pui-output`、`pui-empty` 等
+- 页面只放业务内容，不要再定义一套 `:root` 颜色；需要覆盖时写在 `app.css`，按页面加载顺序放在 `base.css` 之后
+
+`hello-world`、`memshell-party` 和两个官方模板都已使用这份基线。控制台的浮层负责标题、连接状态、重载和关闭；插件页面从工具栏开始，不要重复大标题。
 
 ## 5. 资源与代理
 

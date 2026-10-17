@@ -4,37 +4,44 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>插件界面</title>
-		<link rel="stylesheet" href="./app.css" />
+		<link rel="stylesheet" href="./base.css" />
 	</head>
 	<body>
-		<header>
-			<h1 id="title">插件界面</h1>
-			<p id="meta" class="muted">正在连接控制台…</p>
-		</header>
+		<div class="pui-page">
+			<div class="pui-bar">
+				<div>
+					<h1 id="title">插件界面</h1>
+					<p id="meta" class="pui-sub">正在连接控制台…</p>
+				</div>
+				<span id="status" class="pui-pill">连接中</span>
+			</div>
 
-		<section class="card">
-			<h2>上下文</h2>
-			<pre id="context" class="output"></pre>
-		</section>
+			<section class="pui-card">
+				<h2>上下文</h2>
+				<pre id="context" class="pui-output"></pre>
+			</section>
 
-		<section class="card">
-			<h2>调用工具</h2>
-			<label>
-				工具名
-				<select id="tool"></select>
-			</label>
-			<label>
-				参数（JSON）
-				<textarea id="args" rows="4">{}</textarea>
-			</label>
-			<button id="run" class="primary">调用</button>
-			<p class="hint">只能调用本插件自己的工具；调用会写入控制台审计。</p>
-		</section>
+			<section class="pui-card">
+				<h2>调用工具</h2>
+				<label class="pui-field">
+					<span class="pui-label">工具名</span>
+					<select id="tool" class="pui-select"></select>
+				</label>
+				<label class="pui-field">
+					<span class="pui-label">参数（JSON）</span>
+					<textarea id="args" class="pui-textarea" rows="4">{}</textarea>
+				</label>
+				<div class="pui-row">
+					<button id="run" class="pui-btn primary">调用</button>
+				</div>
+				<p class="pui-hint">只能调用本插件自己的工具；调用会写入控制台审计。</p>
+			</section>
 
-		<section class="card">
-			<h2>结果</h2>
-			<pre id="result" class="output">等待一次调用…</pre>
-		</section>
+			<section class="pui-card">
+				<h2>结果</h2>
+				<pre id="result" class="pui-output">等待一次调用…</pre>
+			</section>
+		</div>
 
 		<script src="./sdk.js"></script>
 		<script src="./app.js"></script>

@@ -6,6 +6,7 @@
  * local operator; every connected console receives the same event stream.
  */
 
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createSecureServer } from "node:https";
 import { networkInterfaces } from "node:os";
@@ -150,6 +151,29 @@ export function webuiDistDir(): string {
 }
 
 /**
+ * Capability tokens for plugin UI assets.
+ *
+ * The iframe is sandboxed without allow-same-origin, so its document has an
+ * opaque origin and the browser does not send the console's gate or session
+ * cookie with its subresource requests. A cookie-protected /plugin-ui would
+ * answer 404 for every script and stylesheet. Instead the console issues a
+ * random token when the authenticated WebSocket asks to open a UI, and the
+ * iframe URL carries it in the path so relative assets inherit it.
+ */
+const PLUGIN_UI_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const pluginUiTokens = new Map<string, { hostId: string; pluginId: string; expiresAt: number }>();
+
+function issuePluginUiToken(hostId: string, pluginId: string): string {
+	const now = Date.now();
+	for (const [token, entry] of pluginUiTokens) {
+		if (entry.expiresAt <= now) pluginUiTokens.delete(token);
+	}
+	const token = randomBytes(24).toString("base64url");
+	pluginUiTokens.set(token, { hostId, pluginId, expiresAt: now + PLUGIN_UI_TOKEN_TTL_MS });
+	return token;
+}
+
+/**
  * Serve a plugin's frontend through the console's own origin.
  *
  * The iframe cannot point at `http://127.0.0.1:<port>`: the console is HTTPS, so
@@ -160,21 +184,27 @@ export function webuiDistDir(): string {
 async function servePluginUi(agentDir: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
 	const url = new URL(request.url ?? "/", "http://localhost");
 	const parts = url.pathname.split("/").filter(Boolean);
+	const token = parts[1] ?? "";
+	const grant = pluginUiTokens.get(token);
+	if (!grant || grant.expiresAt <= Date.now()) {
+		sendJson(response, { error: "没有这个界面" }, 404);
+		return;
+	}
 	let hostId = "";
 	try {
-		hostId = parts[1] ? decodeURIComponent(parts[1]) : "";
+		hostId = parts[2] ? decodeURIComponent(parts[2]) : "";
 	} catch {
 		sendJson(response, { error: "插件主机 id 非法" }, 400);
 		return;
 	}
 	let pluginId = "";
 	try {
-		pluginId = parts[2] ? decodeURIComponent(parts[2]) : "";
+		pluginId = parts[3] ? decodeURIComponent(parts[3]) : "";
 	} catch {
 		sendJson(response, { error: "插件 id 非法" }, 400);
 		return;
 	}
-	if (!hostId || !pluginId) {
+	if (!hostId || !pluginId || grant.hostId !== hostId || grant.pluginId !== pluginId) {
 		sendJson(response, { error: "没有这个界面" }, 404);
 		return;
 	}
@@ -184,7 +214,7 @@ async function servePluginUi(agentDir: string, request: IncomingMessage, respons
 		return;
 	}
 	const rest: string[] = [];
-	for (const raw of parts.slice(3)) {
+	for (const raw of parts.slice(4)) {
 		let segment: string;
 		try {
 			segment = decodeURIComponent(raw);
@@ -736,7 +766,7 @@ export async function startSentinelServer(
 				response.end();
 				return;
 			}
-			if (!hasValidGate(request, gateToken)) {
+			if (!hasValidGate(request, gateToken) && !path.startsWith("/plugin-ui/")) {
 				sendGateNotFound(response);
 				return;
 			}
@@ -765,6 +795,16 @@ export async function startSentinelServer(
 			}
 		}
 		const authorized = authEnabled ? hasValidSession(auth, request) : true;
+		// Plugin UI assets are authenticated by the capability token in the path;
+		// the sandboxed iframe cannot present the console cookie.
+		if (path.startsWith("/plugin-ui/")) {
+			if (!agentDir) {
+				sendJson(response, { error: "控制台没有配置目录，无法读取插件界面" }, 503);
+				return;
+			}
+			void servePluginUi(agentDir, request, response);
+			return;
+		}
 		if (authorized) {
 			// The promise comes before every other route: until it is recorded, the
 			// console answers 403 and only the statement itself, the promise that
@@ -789,14 +829,6 @@ export async function startSentinelServer(
 					return;
 				}
 				void handleChangePassword(request, response, auth);
-				return;
-			}
-			if (path.startsWith("/plugin-ui/")) {
-				if (!agentDir) {
-					sendJson(response, { error: "控制台没有配置目录，无法读取插件界面" }, 503);
-					return;
-				}
-				void servePluginUi(agentDir, request, response);
 				return;
 			}
 			// One chat attachment: the raw body is the file, `name` is what to call
@@ -826,7 +858,7 @@ export async function startSentinelServer(
 				void handleConsentAccept(request, response, auth.username);
 				return;
 			}
-		} else if (path.startsWith("/api/") || path.startsWith("/plugin-ui/")) {
+		} else if (path.startsWith("/api/")) {
 			sendJson(response, { error: "未登录" }, 401);
 			return;
 		}
@@ -1468,6 +1500,10 @@ export async function startSentinelServer(
 				case "plugin_ui_open": {
 					try {
 						runtime.pluginUiOpen(message.hostId, message.pluginId);
+						sendTo(socket, {
+							type: "plugin_ui_opened",
+							token: issuePluginUiToken(message.hostId, message.pluginId),
+						});
 					} catch (error) {
 						sendError(socket, error instanceof Error ? error.message : String(error));
 					}

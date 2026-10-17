@@ -80,6 +80,9 @@ my-plugin/
 ## 3. Dockerfile 要求
 
 - 构建发生在插件主机上，使用主机的 Docker 守护进程；基础镜像必须能从主机访问的仓库拉到。
+- 所有镜像源必须使用中国大陆可访问的源：Docker 用 docker.1ms.run/library/... 或 ghcr.nju.edu.cn/...，
+  apk 用 mirrors.tuna.tsinghua.edu.cn，npm 用 registry.npmmirror.com，pip 用 pypi.tuna.tsinghua.edu.cn，
+  Go 用 goproxy.cn，Maven 用 maven.aliyun.com。不要依赖 Docker Hub、npmjs、pypi.org 直连。
 - 不要把依赖放在宿主机路径里，构建上下文就是你包里能 COPY 到的所有东西。
 - 容器里必须启动 MCP server，监听 0.0.0.0:<mcp.port>；只绑 127.0.0.1 会导致端口映射不可达。
 - 需要 JDK/JRE、Python、Node 的，自己在 Dockerfile 里装；不要假设宿主有。
@@ -90,7 +93,7 @@ my-plugin/
 最小示例：
 
 ~~~dockerfile
-FROM node:22-alpine
+FROM docker.1ms.run/library/node:22-alpine
 WORKDIR /app
 COPY server.mjs .
 COPY ui ./ui
@@ -175,7 +178,7 @@ createServer((req, res) => {
 
 ## 6. 产物
 
-- 大输出写 /artifacts/<run-id>/，工具返回值只放摘要。
+- 大输出写 /artifacts/<run-id>/，工具返回值只放摘要。控制台按每页 10 个展示，单插件最多索引 2000 个文件。
 - 在 result._meta.artifacts 里给相对路径，例如 ["run-1/result.txt"]。
 - 单文件默认上限 50MB，由 artifacts.maxFileBytes 控制。
 
@@ -186,6 +189,10 @@ createServer((req, res) => {
 规则：
 - 入口是 ui.entry 指向的 HTML；其余资源用相对路径（./app.js），不能用绝对路径 /app.js。
 - 必须在页面里引入同目录的 sdk.js，并等 SentinelPlugin.connect() 返回后再发请求。
+- 控制台浮层已经有插件名、版本、连接状态、重载和关闭；页面从工具栏开始，不要重复宿主标题。
+- 页面是 opaque origin，不要依赖控制台 cookie；静态资源用相对路径，控制台会自动带上本次打开的能力 token。
+- 从 templates/plugin-ui-shared/base.css 复制一份 base.css 到 /ui/，用 pui-page / pui-bar / pui-card /
+  pui-table / pui-btn / pui-input / pui-pill / pui-output 这些 class 组织页面；不要自己再定义一套字体和颜色。
 - iframe 是 sandbox="allow-scripts" 的 opaque origin：读不到控制台 Cookie/DOM/localStorage，不能直接 fetch 控制台接口，不能提交表单到控制台，不能打开顶层页面。
 - v1 不允许界面访问外网（manifest 里写 network:true 会被拒绝）。需要外网时由插件容器请求，把结果通过工具/产物给界面。
 - 单次读取产物上限 1MB；storage 总量 256KB、单值 32KB、最多 64 键。

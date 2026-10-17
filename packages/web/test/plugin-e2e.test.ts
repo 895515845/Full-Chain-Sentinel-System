@@ -337,11 +337,23 @@ test("installs a plugin and mounts it on the next session", async () => {
 	expect(JSON.stringify(install?.detail)).not.toContain("secret");
 });
 
-test("serves the plugin frontend through the console origin", async () => {
-	const response = await fetch(`${consoleServer?.url ?? ""}/plugin-ui/${localHostId}/${PLUGIN_ID}/index.html`);
+test("serves the plugin frontend through a capability URL", async () => {
+	const opened = waitFor((message) => message.type === "plugin_ui_opened");
+	send({ type: "plugin_ui_open", hostId: localHostId, pluginId: PLUGIN_ID });
+	const grant = await opened;
+	if (grant.type !== "plugin_ui_opened") return;
+
+	const response = await fetch(
+		`${consoleServer?.url ?? ""}/plugin-ui/${grant.token}/${localHostId}/${PLUGIN_ID}/index.html`,
+	);
 	expect(response.status).toBe(200);
 	expect(await response.text()).toContain("hello from the plugin");
 	expect(response.headers.get("access-control-allow-origin")).toBe("*");
+
+	const denied = await fetch(
+		`${consoleServer?.url ?? ""}/plugin-ui/not-a-token/${localHostId}/${PLUGIN_ID}/index.html`,
+	);
+	expect(denied.status).toBe(404);
 });
 
 test("switching the plugin off removes it from the mount cache", async () => {

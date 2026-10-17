@@ -174,6 +174,8 @@ export function PluginPanel({
 	const [editValues, setEditValues] = useState<Record<string, string>>({});
 	const [selectedKey, setSelectedKey] = useState<string | null>(null);
 	const [drawerTab, setDrawerTab] = useState<DrawerTab>("config");
+	const [artifactPage, setArtifactPage] = useState(0);
+	const [artifactQuery, setArtifactQuery] = useState("");
 	const [query, setQuery] = useState("");
 	const [hostFilter, setHostFilter] = useState("all");
 	const [stateFilter, setStateFilter] = useState("all");
@@ -292,6 +294,8 @@ export function PluginPanel({
 		setSelectedKey(pluginKeyOf(plugin));
 		setEditingPlugin(null);
 		setDrawerTab("config");
+		setArtifactPage(0);
+		setArtifactQuery("");
 		onCloseLogs();
 		onCloseArtifacts();
 		if (pendingManifest) onCloseManifest();
@@ -465,6 +469,18 @@ export function PluginPanel({
 		selected && artifacts && artifacts.hostId === selected.hostId && artifacts.pluginId === selected.manifest.id
 			? artifacts
 			: null;
+	const ARTIFACT_PAGE_SIZE = 10;
+	const allArtifacts = selectedArtifacts?.items ?? [];
+	const filteredArtifacts = allArtifacts
+		.filter((artifact) => !artifactQuery || artifact.path.toLowerCase().includes(artifactQuery.toLowerCase()))
+		.slice()
+		.sort((left, right) => right.path.localeCompare(left.path));
+	const artifactPageCount = Math.max(1, Math.ceil(filteredArtifacts.length / ARTIFACT_PAGE_SIZE));
+	const artifactPageIndex = Math.min(artifactPage, artifactPageCount - 1);
+	const visibleArtifacts = filteredArtifacts.slice(
+		artifactPageIndex * ARTIFACT_PAGE_SIZE,
+		artifactPageIndex * ARTIFACT_PAGE_SIZE + ARTIFACT_PAGE_SIZE,
+	);
 
 	return (
 		<div className="mcp-page plugin-page">
@@ -1153,35 +1169,80 @@ export function PluginPanel({
 
 									{drawerTab === "artifacts" ? (
 										<div className="drawer-tab">
-											<div className="drawer-actions">
+											<div className="drawer-artifacts__toolbar">
+												<input
+													type="search"
+													className="plugin-search"
+													value={artifactQuery}
+													placeholder="筛选产物路径"
+													onChange={(event) => {
+														setArtifactQuery(event.target.value);
+														setArtifactPage(0);
+													}}
+												/>
 												<button
 													type="button"
 													disabled={busy}
-													onClick={() => onListArtifacts(selected.hostId, selected.manifest.id)}
+													onClick={() => {
+														setArtifactPage(0);
+														onListArtifacts(selected.hostId, selected.manifest.id);
+													}}
 												>
 													{selectedArtifacts ? "刷新产物" : "加载产物"}
 												</button>
 											</div>
 											{selectedArtifacts ? (
-												selectedArtifacts.items.length === 0 ? (
+												allArtifacts.length === 0 ? (
 													<p className="muted">还没有产物。</p>
+												) : filteredArtifacts.length === 0 ? (
+													<p className="muted">没有匹配「{artifactQuery}」的产物。</p>
 												) : (
-													selectedArtifacts.items.map((artifact) => (
-														<div className="drawer-artifact" key={artifact.path}>
-															<code>{artifact.path}</code>
-															<span className="muted">{formatSize(artifact.size)}</span>
-															<button
-																type="button"
-																className="link"
-																disabled={busy}
-																onClick={() =>
-																	onFetchArtifact(selected.hostId, selected.manifest.id, artifact.path)
-																}
-															>
-																拉取
-															</button>
+													<>
+														<div className="drawer-artifacts__pager">
+															<span className="muted">
+																共 {filteredArtifacts.length} 个
+																{artifactQuery ? `（全部 ${allArtifacts.length} 个）` : ""}
+															</span>
+															<div className="drawer-pager">
+																<button
+																	type="button"
+																	disabled={artifactPageIndex === 0}
+																	onClick={() => setArtifactPage(artifactPageIndex - 1)}
+																>
+																	上一页
+																</button>
+																<span className="muted">
+																	{artifactPageIndex + 1} / {artifactPageCount}
+																</span>
+																<button
+																	type="button"
+																	disabled={artifactPageIndex >= artifactPageCount - 1}
+																	onClick={() => setArtifactPage(artifactPageIndex + 1)}
+																>
+																	下一页
+																</button>
+															</div>
 														</div>
-													))
+														{visibleArtifacts.map((artifact) => (
+															<div className="drawer-artifact" key={artifact.path}>
+																<code>{artifact.path}</code>
+																<span className="muted">{formatSize(artifact.size)}</span>
+																<button
+																	type="button"
+																	className="link"
+																	disabled={busy}
+																	onClick={() =>
+																		onFetchArtifact(selected.hostId, selected.manifest.id, artifact.path)
+																	}
+																>
+																	拉取
+																</button>
+															</div>
+														))}
+														{allArtifacts.length >= 2000 ? (
+															<p className="hint">最多列出 2000 个产物，更早的文件请先清理。</p>
+														) : null}
+													</>
 												)
 											) : (
 												<p className="muted">点上面的按钮读取产物列表。</p>
@@ -1223,7 +1284,13 @@ export function PluginPanel({
 										产物
 									</button>
 									{selected.manifest.ui ? (
-										<button type="button" className="primary" disabled={busy} onClick={() => onOpenUi(selected)}>
+										<button
+											type="button"
+											className="primary"
+											disabled={busy || selected.state !== "running"}
+											title={selected.state === "running" ? "在沙箱里打开插件界面" : "插件未运行，先启动再打开界面"}
+											onClick={() => onOpenUi(selected)}
+										>
 											打开界面
 										</button>
 									) : null}

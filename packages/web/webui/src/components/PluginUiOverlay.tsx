@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SentinelPluginView } from "../types.ts";
 
 /** Everything the iframe may know at handshake time. Keep it non-secret. */
@@ -30,12 +30,15 @@ export interface PluginUiCallResult {
 export function PluginUiOverlay({
 	plugin,
 	nonce,
+	token,
 	context,
 	onCall,
 	onClose,
 }: {
 	plugin: SentinelPluginView;
 	nonce: string;
+	/** Capability token from the console; authenticated the static assets. */
+	token: string;
 	context: PluginUiContext;
 	onCall: (method: string, params: unknown) => Promise<PluginUiCallResult>;
 	onClose: () => void;
@@ -43,13 +46,36 @@ export function PluginUiOverlay({
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const callRef = useRef(onCall);
 	callRef.current = onCall;
+	const readyRef = useRef(false);
+	const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+	const [error, setError] = useState("");
+	const [attempt, setAttempt] = useState(0);
 
 	const ui = plugin.manifest.ui;
 	const src = useMemo(() => {
 		const entry = ui?.entry ?? "/ui/index.html";
-		const file = entry.split("/").filter(Boolean).pop() ?? "index.html";
-		return `/plugin-ui/${encodeURIComponent(plugin.hostId)}/${encodeURIComponent(plugin.manifest.id)}/${encodeURIComponent(file)}#nonce=${encodeURIComponent(nonce)}`;
-	}, [plugin.hostId, plugin.manifest.id, ui?.entry, nonce]);
+		// Keep the whole path below /ui/: a plugin may ship sub/panel.html and
+		// expect ./app.js to resolve next to it.
+		const relative = entry.replace(/^\/+/, "").replace(/^ui\//, "");
+		const path = (relative || "index.html").split("/").map(encodeURIComponent).join("/");
+		return `/plugin-ui/${encodeURIComponent(token)}/${encodeURIComponent(plugin.hostId)}/${encodeURIComponent(plugin.manifest.id)}/${path}#nonce=${encodeURIComponent(nonce)}`;
+	}, [plugin.hostId, plugin.manifest.id, ui?.entry, nonce, token]);
+
+	useEffect(() => {
+		readyRef.current = false;
+		setStatus("loading");
+		setError("");
+		const timer = window.setTimeout(() => {
+			if (readyRef.current) return;
+			setStatus("error");
+			setError("界面在 12 秒内没有连上控制台。常见原因：入口页没有引入 sdk.js、脚本报错，或入口文件路径不对。");
+		}, 12000);
+		return () => window.clearTimeout(timer);
+	}, [attempt, src]);
+
+	const retry = (): void => {
+		setAttempt((value) => value + 1);
+	};
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent): void => {
@@ -71,6 +97,9 @@ export function PluginUiOverlay({
 				// The origin is opaque ("null") by design, so the nonce, the protocol,
 				// and the source window are the identity check.
 				if (data.protocol !== 1 || data.nonce !== nonce) return;
+				readyRef.current = true;
+				setStatus("ready");
+				setError("");
 				target.postMessage({ kind: "sentinel-ui:init", protocol: 1, context }, "*");
 				return;
 			}
@@ -123,7 +152,7 @@ export function PluginUiOverlay({
 			<div className="plugin-ui-head">
 				<div className="plugin-ui-id">
 					<div className="plugin-ui-title">
-						{ui?.title || plugin.manifest.name}
+						{plugin.manifest.name}
 						<span className="plugin-ui-version mono">v{plugin.manifest.version}</span>
 					</div>
 					<div className="plugin-ui-sub">
@@ -131,18 +160,52 @@ export function PluginUiOverlay({
 						{plugin.hostLocal ? "（本机）" : ""} · 第三方插件界面，不要在这里输入控制台密码
 					</div>
 				</div>
-				<button type="button" className="plugin-ui-close" onClick={onClose}>
-					关闭
-				</button>
+				<div className="plugin-ui-head__right">
+					<span className={`plugin-ui-state-dot ${status}`}>
+						{status === "ready" ? "已连接" : status === "error" ? "未连接" : "连接中"}
+					</span>
+					<button type="button" className="plugin-ui-reload" onClick={retry} title="重新加载界面">
+						重载
+					</button>
+					<button type="button" className="plugin-ui-close" onClick={onClose}>
+						关闭
+					</button>
+				</div>
 			</div>
-			<iframe
-				ref={frame}
-				className="plugin-ui-frame"
-				title={`${plugin.manifest.name} 界面`}
-				sandbox="allow-scripts"
-				referrerPolicy="no-referrer"
-				src={src}
-			/>
+			<div className="plugin-ui-body">
+				<iframe
+					key={attempt}
+					ref={frame}
+					className={`plugin-ui-frame${status === "ready" ? "" : " is-hidden"}`}
+					title={`${plugin.manifest.name} 界面`}
+					sandbox="allow-scripts"
+					referrerPolicy="no-referrer"
+					src={src}
+				/>
+				{status === "loading" ? (
+					<div className="plugin-ui-state">
+						<span className="plugin-ui-spinner" aria-hidden="true" />
+						<h3>正在加载插件界面</h3>
+						<p className="muted">首次打开会向插件主机取静态资源。</p>
+					</div>
+				) : null}
+				{status === "error" ? (
+					<div className="plugin-ui-state">
+						<span className="plugin-ui-state-mark">!</span>
+						<h3>插件界面没有响应</h3>
+						<p>{error}</p>
+						<p className="muted mono">{ui?.entry ?? "/ui/index.html"}</p>
+						<div className="plugin-ui-state-actions">
+							<button type="button" className="primary" onClick={retry}>
+								重试
+							</button>
+							<button type="button" onClick={onClose}>
+								关闭
+							</button>
+						</div>
+					</div>
+				) : null}
+			</div>
 		</div>
 	);
 }

@@ -215,7 +215,12 @@ export function App() {
 	const [pluginArtifacts, setPluginArtifacts] = useState<SentinelPluginArtifactsView | null>(null);
 	const [pendingManifest, setPendingManifest] = useState<SentinelPluginManifestView | null>(null);
 	const [pendingPackage, setPendingPackage] = useState<string | null>(null);
-	const [pluginUi, setPluginUi] = useState<{ plugin: SentinelPluginView; nonce: string } | null>(null);
+	const [pluginUi, setPluginUi] = useState<{
+		plugin: SentinelPluginView;
+		nonce: string;
+		token: string;
+	} | null>(null);
+	const pendingPluginUi = useRef<{ plugin: SentinelPluginView; nonce: string } | null>(null);
 	const pluginUiResolvers = useRef(
 		new Map<string, (message: Extract<SentinelServerMessage, { type: "plugin_ui_result" }>) => void>(),
 	);
@@ -529,6 +534,13 @@ export function App() {
 					});
 					setPluginsBusy(false);
 					break;
+				case "plugin_ui_opened": {
+					const pending = pendingPluginUi.current;
+					if (!pending) break;
+					pendingPluginUi.current = null;
+					setPluginUi({ ...pending, token: message.token });
+					break;
+				}
 				case "plugin_ui_result": {
 					const resolve = pluginUiResolvers.current.get(message.requestId);
 					if (resolve) {
@@ -1181,7 +1193,7 @@ export function App() {
 				typeof crypto !== "undefined" && "randomUUID" in crypto
 					? crypto.randomUUID()
 					: `nonce-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-			setPluginUi({ plugin, nonce });
+			pendingPluginUi.current = { plugin, nonce };
 			send({ type: "plugin_ui_open", hostId: plugin.hostId, pluginId: plugin.manifest.id });
 		},
 		[send],
@@ -2673,9 +2685,13 @@ export function App() {
 				<PluginUiOverlay
 					plugin={pluginUi.plugin}
 					nonce={pluginUi.nonce}
+					token={pluginUi.token}
 					context={pluginUiContext}
 					onCall={callPluginUi}
-					onClose={() => setPluginUi(null)}
+					onClose={() => {
+						setPluginUi(null);
+						pendingPluginUi.current = null;
+					}}
 				/>
 			) : null}
 			<div className="toasts">

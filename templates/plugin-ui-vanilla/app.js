@@ -22,6 +22,8 @@
 			var context = ui.context;
 
 			document.getElementById("title").textContent = context.plugin.name;
+			document.getElementById("status").className = "pui-pill ok";
+			document.getElementById("status").textContent = "已连接";
 			document.getElementById("meta").textContent =
 				context.plugin.id + " v" + context.plugin.version + " · " + context.host.name;
 			contextView.textContent = JSON.stringify(context, null, 2);

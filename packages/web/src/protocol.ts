@@ -1295,6 +1295,8 @@ export type SentinelServerMessage =
 	| { type: "plugin_logs"; hostId: string; pluginId: string; logs: string }
 	| { type: "plugin_artifacts"; hostId: string; pluginId: string; artifacts: SentinelPluginArtifact[] }
 	| { type: "plugin_artifact_saved"; hostId: string; pluginId: string; path: string; savedTo: string }
+	/** Capability token for the iframe URL, issued after an authenticated open. */
+	| { type: "plugin_ui_opened"; token: string }
 	| { type: "plugin_ui_result"; requestId: string; ok: boolean; result?: unknown; error?: string }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }

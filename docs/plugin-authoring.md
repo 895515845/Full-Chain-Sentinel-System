@@ -45,7 +45,8 @@ zip -r my-plugin.zip my-plugin/
 "ui": { "entry": "/ui/index.html", "title": "侦察面板", "protocol": 1 }
 ```
 
-静态文件放在镜像的 `/ui/`，用相对路径互相引用。HTTP server 需要把 `/ui/*` 当静态文件返回，
+静态文件放在镜像的 `/ui/`，用相对路径互相引用。视觉基线用 `templates/plugin-ui-shared/base.css`
+（复制成 `ui/base.css`，`pui-*` class）；不要自己另写一套 `:root` 颜色。HTTP server 需要把 `/ui/*` 当静态文件返回，
 参考 `examples/plugins/hello-world/server.mjs`。
 
 页面里引入同目录的 `sdk.js`，然后：
@@ -86,6 +87,21 @@ zip -r my-plugin.zip my-plugin/
 - Dockerfile 可以 `RUN` 任意命令，这是构建的固有权限；插件页会在安装前明确征得同意。
 - 写 `image` 字段会被拒绝，包只从上传的上下文构建。
 - 需要在构建时换镜像源/传参数，用 `build.args`（键是 `[A-Z][A-Z0-9_]*`，最多 16 项），host 会转成 `--build-arg`。
+
+### 镜像源（强制）
+
+所有镜像源必须使用中国大陆可访问的源，不得依赖 Docker Hub、npmjs、pypi.org 等直连：
+
+| 用途 | 推荐 |
+|---|---|
+| Docker 基础镜像 | `docker.1ms.run/library/...` 或 `ghcr.nju.edu.cn/...` |
+| Alpine apk | `mirrors.tuna.tsinghua.edu.cn` |
+| npm | `registry.npmmirror.com` |
+| pip | `pypi.tuna.tsinghua.edu.cn/simple` |
+| Go module | `goproxy.cn` |
+| Maven | `maven.aliyun.com/repository/public` |
+
+Dockerfile 里显式写镜像源，或者在 `build.args` 里传进去；`Dockerfile` 的默认值也要是大陆源，不能只在 CI 里覆盖。
 
 ## 本地调试
 
@@ -138,6 +154,8 @@ npm run plugin-host -- --local --data-dir /tmp/sph-dev
 ```
 
 操作员在插件页可以把产物拉进当前项目的 `evidence/plugin/`。单文件超过 `artifacts.maxFileBytes` 会被 host 拒绝。
+
+控制台按路径倒序、每页 10 个展示，单插件最多索引 2000 个文件；产物不要无限堆积，按 run 定期清理。
 
 ## 权限声明
 

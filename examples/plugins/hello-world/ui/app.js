@@ -16,7 +16,7 @@
 		list.textContent = "";
 		if (!items || items.length === 0) {
 			var empty = document.createElement("li");
-			empty.className = "muted";
+			empty.className = "pui-empty";
 			empty.textContent = "还没有产物";
 			list.appendChild(empty);
 			return;
@@ -26,7 +26,7 @@
 			var name = document.createElement("code");
 			name.textContent = item.path;
 			var size = document.createElement("span");
-			size.className = "muted";
+			size.className = "pui-sub";
 			size.textContent = item.size + " B";
 			row.appendChild(name);
 			row.appendChild(size);
@@ -36,7 +36,6 @@
 
 	function renderContext(ui) {
 		var context = ui.context;
-		document.getElementById("name").textContent = context.plugin.name + " v" + context.plugin.version;
 		document.getElementById("meta").textContent =
 			context.plugin.id + " · " + context.host.name + " · 项目 " + (context.project || "未选择");
 		var dl = document.getElementById("context");
@@ -62,6 +61,8 @@
 	(async function () {
 		try {
 			var ui = await SentinelPlugin.connect();
+			document.getElementById("status").className = "pui-pill ok";
+			document.getElementById("status").textContent = "已连接";
 			renderContext(ui);
 			show("已连接控制台桥。点上面的按钮试试。");
 

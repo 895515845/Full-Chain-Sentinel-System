@@ -4,52 +4,61 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>Hello World 插件</title>
-		<link rel="stylesheet" href="./app.css" />
+		<link rel="stylesheet" href="./base.css" />
 	</head>
 	<body>
-		<header class="head">
-			<div>
-				<h1 id="name">Hello World 插件</h1>
-				<p id="meta" class="muted">正在连接控制台…</p>
-			</div>
-			<span class="badge">sandbox</span>
-		</header>
-
-		<main class="grid">
-			<section class="card">
-				<h2>插件信息</h2>
-				<dl id="context" class="kv">
-					<dt>状态</dt>
-					<dd>等待握手</dd>
-				</dl>
-			</section>
-
-			<section class="card">
-				<h2>调用 hello_echo</h2>
-				<label>
-					文本
-					<input id="text" value="hello from the plugin UI" />
-				</label>
-				<button id="echo" class="primary">调用工具</button>
-				<p class="hint">工具由插件容器执行，调用会写入控制台审计。</p>
-			</section>
-
-			<section class="card">
-				<h2>产物</h2>
-				<div class="row">
-					<button id="write">写一个产物</button>
-					<button id="list">刷新列表</button>
+		<div class="pui-page">
+			<div class="pui-bar">
+				<div>
+					<h1>示例面板</h1>
+					<p id="meta" class="pui-sub">正在连接控制台…</p>
 				</div>
-				<ul id="artifacts" class="list">
-					<li class="muted">还没有加载</li>
+				<div class="pui-actions">
+					<span id="status" class="pui-pill">连接中</span>
+					<span class="pui-pill plain">sandbox</span>
+				</div>
+			</div>
+
+			<div class="pui-grid pui-grid--2">
+				<section class="pui-card">
+					<h2>插件信息</h2>
+					<dl id="context" class="pui-kv">
+						<dt>状态</dt>
+						<dd>等待握手</dd>
+					</dl>
+				</section>
+
+				<section class="pui-card">
+					<h2>调用 hello_echo</h2>
+					<label class="pui-field">
+						<span class="pui-label">文本</span>
+						<input id="text" class="pui-input" value="hello from the plugin UI" />
+					</label>
+					<div class="pui-row">
+						<button id="echo" class="pui-btn primary">调用工具</button>
+					</div>
+					<p class="pui-hint">工具由插件容器执行，调用会写入控制台审计。</p>
+				</section>
+			</div>
+
+			<section class="pui-card">
+				<div class="pui-card-head">
+					<h2>产物</h2>
+					<div class="pui-actions">
+						<button id="write" class="pui-btn">写一个产物</button>
+						<button id="list" class="pui-btn">刷新列表</button>
+					</div>
+				</div>
+				<ul id="artifacts" class="pui-list">
+					<li class="pui-empty">还没有加载</li>
 				</ul>
 			</section>
 
-			<section class="card is-wide">
+			<section class="pui-card">
 				<h2>输出</h2>
-				<pre id="output" class="output">等待一次调用…</pre>
+				<pre id="output" class="pui-output">等待一次调用…</pre>
 			</section>
-		</main>
+		</div>
 
 		<script src="./sdk.js"></script>
 		<script src="./app.js"></script>
