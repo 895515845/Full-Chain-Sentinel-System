@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { readFileBase64 } from "./PocPage.tsx";
 import type {
 	SentinelPluginArtifactsView,
@@ -43,6 +43,8 @@ const NETWORK_LABELS: Record<SentinelPluginNetwork, string> = {
 	host: "host（宿主网络栈）",
 };
 
+const MAX_PLUGIN_PACKAGE_BYTES = 8 * 1024 * 1024;
+
 /** The host editor's working copy; `original` is set while editing an existing host. */
 interface HostDraft {
 	original?: string;
@@ -53,6 +55,8 @@ interface HostDraft {
 
 const EMPTY_HOST_DRAFT: HostDraft = { name: "", url: "", token: "" };
 
+type DrawerTab = "config" | "logs" | "artifacts";
+
 function formatWhen(at: number | null): string {
 	if (at === null) return "尚未连接";
 	const date = new Date(at);
@@ -60,21 +64,34 @@ function formatWhen(at: number | null): string {
 	return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const MAX_PLUGIN_PACKAGE_BYTES = 8 * 1024 * 1024;
-
 function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function pluginKeyOf(plugin: SentinelPluginView): string {
+	return `${plugin.hostId}/${plugin.manifest.id}`;
+}
+
+function StateChip({ state }: { state: SentinelPluginState }): React.ReactElement {
+	const tone = STATE_TONES[state];
+	return (
+		<span className={`chip ${tone === "off" ? "" : tone}`}>
+			<span className={`dot ${tone === "off" ? "" : tone}`} />
+			{STATE_LABELS[state]}
+		</span>
+	);
+}
+
 /**
  * The 设置 → 插件 section.
  *
  * A plugin is one Docker image on one plugin host, mounted as an MCP server for
- * the agent. This page owns the host list, the lifecycle of installed plugins,
- * and the install form: it reads `plugin.json` from a local directory first, so
- * the declared permissions and configuration are visible before anything runs.
+ * the agent. The page is a dense table plus one drawer: rows are for scanning
+ * state, the drawer is where a plugin is installed, configured, started, and
+ * inspected. The table stays readable with a hundred plugins; the drawer keeps
+ * every destructive action one deliberate click away from a row.
  */
 export function PluginPanel({
 	view,
@@ -101,6 +118,7 @@ export function PluginPanel({
 	onListArtifacts,
 	onCloseArtifacts,
 	onFetchArtifact,
+	onCloseManifest,
 }: {
 	view: SentinelPluginsView;
 	busy: boolean;
@@ -134,6 +152,8 @@ export function PluginPanel({
 	onListArtifacts: (hostId: string, pluginId: string) => void;
 	onCloseArtifacts: () => void;
 	onFetchArtifact: (hostId: string, pluginId: string, path: string) => void;
+	/** Close the install drawer by dropping the uploaded manifest. */
+	onCloseManifest: () => void;
 }) {
 	const [hostDraft, setHostDraft] = useState<HostDraft | null>(null);
 	const [packageFile, setPackageFile] = useState<{ name: string; size: number } | null>(null);
@@ -145,8 +165,15 @@ export function PluginPanel({
 	const [installPending, setInstallPending] = useState(false);
 	const [editingPlugin, setEditingPlugin] = useState<string | null>(null);
 	const [editValues, setEditValues] = useState<Record<string, string>>({});
+	const [selectedKey, setSelectedKey] = useState<string | null>(null);
+	const [drawerTab, setDrawerTab] = useState<DrawerTab>("config");
+	const [query, setQuery] = useState("");
+	const [hostFilter, setHostFilter] = useState("all");
+	const [stateFilter, setStateFilter] = useState("all");
+	const fileInput = useRef<HTMLInputElement | null>(null);
 
 	const running = view.plugins.filter((plugin) => plugin.state === "running").length;
+	const failed = view.plugins.filter((plugin) => plugin.state === "failed").length;
 	const localHost = view.hosts.find((host) => host.local);
 	// A local host is only absent when the daemon was never started, or when it
 	// answered once and then stopped; both have the same one-line fix.
@@ -154,7 +181,7 @@ export function PluginPanel({
 
 	// A new manifest resets the acknowledgement boxes and the config form: the
 	// declarations belong to that manifest, and a stale "host network allowed"
-	// from a previous directory must never carry over.
+	// from a previous upload must never carry over.
 	useEffect(() => {
 		if (!pendingManifest) return;
 		const next: Record<string, string> = {};
@@ -166,6 +193,8 @@ export function PluginPanel({
 		setConfigValues(next);
 		setAllowHostNetwork(false);
 		setAllowPrivileged(false);
+		setSelectedKey(null);
+		setHostDraft(null);
 	}, [pendingManifest]);
 
 	// Keep the install target pointing at a host that still exists.
@@ -180,11 +209,96 @@ export function PluginPanel({
 		if (!busy) setInstallPending(false);
 	}, [busy]);
 
+	// A plugin that vanished (uninstalled here or on another console) must not
+	// leave a drawer open on a row that no longer exists.
+	useEffect(() => {
+		if (!selectedKey) return;
+		if (view.plugins.some((plugin) => pluginKeyOf(plugin) === selectedKey)) return;
+		setSelectedKey(null);
+		setEditingPlugin(null);
+	}, [view.plugins, selectedKey]);
+
+	const manifest = pendingManifest?.manifest ?? null;
+	const selected = view.plugins.find((plugin) => pluginKeyOf(plugin) === selectedKey) ?? null;
+	const drawerOpen = Boolean(pendingManifest || hostDraft || selected);
+
+	const configComplete =
+		manifest === null ||
+		manifest.config.every(
+			(field) => !field.required || (configValues[field.key] ?? "").trim().length > 0,
+		);
+	const permissionsAllowed =
+		manifest === null ||
+		((manifest.permissions.network !== "host" || allowHostNetwork) &&
+			(!manifest.permissions.privileged || allowPrivileged));
+	const installReady = manifest !== null && installHostId !== "" && configComplete && permissionsAllowed;
 	const hostValid =
 		hostDraft !== null &&
 		hostDraft.name.trim().length > 0 &&
 		hostDraft.url.trim().length > 0 &&
 		(hostDraft.original !== undefined || hostDraft.token.trim().length > 0);
+
+	const filtered = view.plugins.filter((plugin) => {
+		if (hostFilter !== "all" && plugin.hostId !== hostFilter) return false;
+		if (stateFilter !== "all" && plugin.state !== stateFilter) return false;
+		const needle = query.trim().toLowerCase();
+		if (!needle) return true;
+		const haystack = [
+			plugin.manifest.name,
+			plugin.manifest.id,
+			plugin.hostName,
+			...plugin.manifest.tools.map((tool) => tool.name),
+		]
+			.join(" ")
+			.toLowerCase();
+		return haystack.includes(needle);
+	});
+
+	const closeDrawer = (): void => {
+		setSelectedKey(null);
+		setHostDraft(null);
+		setEditingPlugin(null);
+		onCloseLogs();
+		onCloseArtifacts();
+		if (pendingManifest) onCloseManifest();
+	};
+
+	// The drawer is modal: the page behind it must not scroll, and Escape closes it.
+	useEffect(() => {
+		if (!drawerOpen) return;
+		const previous = document.body.style.overflow;
+		document.body.style.overflow = "hidden";
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") closeDrawer();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.body.style.overflow = previous;
+			window.removeEventListener("keydown", onKeyDown);
+		};
+	}, [drawerOpen]);
+
+	const openPlugin = (plugin: SentinelPluginView): void => {
+		setHostDraft(null);
+		setSelectedKey(pluginKeyOf(plugin));
+		setEditingPlugin(null);
+		setDrawerTab("config");
+		onCloseLogs();
+		onCloseArtifacts();
+		if (pendingManifest) onCloseManifest();
+	};
+
+	const startAddHost = (): void => {
+		setSelectedKey(null);
+		if (pendingManifest) onCloseManifest();
+		setHostDraft({ ...EMPTY_HOST_DRAFT });
+	};
+
+	const startEditHost = (host: SentinelPluginHostView): void => {
+		setSelectedKey(null);
+		if (pendingManifest) onCloseManifest();
+		setHostDraft({ original: host.id, name: host.name, url: host.url, token: "" });
+	};
 
 	const submitHost = (): void => {
 		if (!hostDraft || !hostValid) return;
@@ -215,6 +329,17 @@ export function PluginPanel({
 			.catch((error: unknown) => setPackageError(error instanceof Error ? error.message : String(error)));
 	};
 
+	const install = (): void => {
+		if (!manifest || !installReady) return;
+		const config: Record<string, string> = {};
+		for (const field of manifest.config) {
+			const value = configValues[field.key];
+			if (value !== undefined && value !== "") config[field.key] = value;
+		}
+		setInstallPending(true);
+		onInstall({ hostId: installHostId, manifest, allowHostNetwork, allowPrivileged, config });
+	};
+
 	const uninstall = (plugin: SentinelPluginView): void => {
 		if (!window.confirm(`卸载插件「${plugin.manifest.name}」？`)) return;
 		// A second question is the purge decision: keeping the data directory is
@@ -223,6 +348,7 @@ export function PluginPanel({
 			"是否同时删除该插件的数据？\n确定 = 删除容器配置与产物；取消 = 保留数据目录。",
 		);
 		onUninstall(plugin.hostId, plugin.manifest.id, purge);
+		closeDrawer();
 	};
 
 	const renderConfigField = (
@@ -230,7 +356,7 @@ export function PluginPanel({
 		value: string,
 		set: (next: string) => void,
 		secretHint: string,
-	) => {
+	): React.ReactElement => {
 		const hint = [field.description, field.required ? "必填" : ""].filter(Boolean).join(" · ");
 
 		if (field.type === "boolean") {
@@ -293,10 +419,8 @@ export function PluginPanel({
 			"不会回显已保存的值",
 		);
 
-	const editKeyOf = (plugin: SentinelPluginView): string => `${plugin.hostId}/${plugin.manifest.id}`;
-
 	const openConfig = (plugin: SentinelPluginView): void => {
-		const key = editKeyOf(plugin);
+		const key = pluginKeyOf(plugin);
 		if (editingPlugin === key) {
 			setEditingPlugin(null);
 			return;
@@ -308,6 +432,7 @@ export function PluginPanel({
 		}
 		setEditValues(next);
 		setEditingPlugin(key);
+		setDrawerTab("config");
 	};
 
 	const editComplete = (plugin: SentinelPluginView): boolean =>
@@ -318,41 +443,45 @@ export function PluginPanel({
 			return field.type === "secret" && plugin.configured.includes(field.key);
 		});
 
-	const manifest = pendingManifest?.manifest ?? null;
-	const configComplete =
-		manifest === null ||
-		manifest.config.every((field) => !field.required || (configValues[field.key] ?? "").trim().length > 0);
-	const permissionsAllowed =
-		manifest === null ||
-		((manifest.permissions.network !== "host" || allowHostNetwork) &&
-			(!manifest.permissions.privileged || allowPrivileged));
-	const installReady = manifest !== null && installHostId !== "" && configComplete && permissionsAllowed;
-
-	const install = (): void => {
-		if (!manifest || !installReady) return;
-		const config: Record<string, string> = {};
-		for (const field of manifest.config) {
-			const value = configValues[field.key];
-			if (value !== undefined && value !== "") config[field.key] = value;
-		}
-		setInstallPending(true);
-		onInstall({
-			hostId: installHostId,
-			manifest,
-			allowHostNetwork,
-			allowPrivileged,
-			config,
-		});
-	};
-
-	const hostStatusTone = (host: SentinelPluginHostView): "ok" | "bad" | "off" =>
-		host.status.at === null ? "off" : host.status.ok ? "ok" : "bad";
+	const selectedLogs =
+		selected && logs && logs.hostId === selected.hostId && logs.pluginId === selected.manifest.id ? logs : null;
+	const selectedArtifacts =
+		selected && artifacts && artifacts.hostId === selected.hostId && artifacts.pluginId === selected.manifest.id
+			? artifacts
+			: null;
 
 	return (
 		<div className="mcp-page plugin-page">
-			<div className="mcp-notice">
-				<b>插件在 Docker 中运行</b>
-				每个插件是一个独立容器，通过 MCP 把工具挂给 Agent。挂载受「权限 → MCP」总开关约束：总开关关闭时，已安装的插件也不会出现在工具列表里。
+			<div className="plugin-head">
+				<div>
+					<h3 className="plugin-head__title">插件</h3>
+					<div className="plugin-head__sub">
+						{view.plugins.length} 个已安装 · {view.hosts.length} 个主机
+						{running > 0 ? ` · ${running} 运行` : ""}
+						{failed > 0 ? ` · ${failed} 失败` : ""}
+					</div>
+				</div>
+				<div className="actions">
+					<button type="button" disabled={busy} onClick={onRefresh}>
+						刷新
+					</button>
+					<button
+						type="button"
+						className="primary"
+						disabled={busy}
+						onClick={() => fileInput.current?.click()}
+					>
+						＋ 上传插件包
+					</button>
+					<input
+						ref={fileInput}
+						type="file"
+						accept=".zip,.json"
+						hidden
+						onChange={choosePackage}
+						aria-label="插件包文件"
+					/>
+				</div>
 			</div>
 
 			{notice ? <div className="mcp-notice">{notice}</div> : null}
@@ -367,681 +496,785 @@ export function PluginPanel({
 				</div>
 			) : null}
 
+			{packageError ? <div className="plugin-error">{packageError}</div> : null}
+
 			{view.problems.length > 0 ? (
-				<div className="mcp-notice is-warn">
-					<b>主机未响应</b>
-					下列主机本次没有返回状态，页面其余部分仍可用：
-					<ul className="plugin-problems">
-						{view.problems.map((problem) => (
-							<li key={problem}>{problem}</li>
-						))}
-					</ul>
-				</div>
+				<ul className="plugin-problems">
+					{view.problems.map((problem) => (
+						<li key={problem}>{problem}</li>
+					))}
+				</ul>
 			) : null}
+
+			<div className="plugin-hosts">
+				{view.hosts.map((host) => (
+					<div className="plugin-host-chip" key={host.id}>
+						<span
+							className={`dot ${
+								host.status.at === null ? "" : host.status.ok ? "ok" : "bad"
+							}`}
+						/>
+						<b>{host.name}</b>
+						<span className="mono muted">{host.url.replace(/^https?:\/\//, "")}</span>
+						{host.local ? <span className="chip">自动发现</span> : null}
+						<span className="plugin-host-chip__state">
+							{host.status.at === null
+								? "未测试"
+								: host.status.ok
+									? `已连接 · ${formatWhen(host.status.at)}`
+									: host.status.error || "连接失败"}
+						</span>
+						<button type="button" className="link" disabled={busy} onClick={() => onTestHost(host.id)}>
+							测试
+						</button>
+						{!host.local ? (
+							<button type="button" className="link" disabled={busy} onClick={() => startEditHost(host)}>
+								编辑
+							</button>
+						) : null}
+						{!host.local ? (
+							<button
+								type="button"
+								className="link danger"
+								disabled={busy}
+								onClick={() => {
+									if (window.confirm(`删除插件主机「${host.name}」？它上面的插件将从控制台消失。`)) {
+										onDeleteHost(host.id);
+									}
+								}}
+							>
+								删除
+							</button>
+						) : null}
+					</div>
+				))}
+				<button type="button" className="link" disabled={busy} onClick={startAddHost}>
+					＋ 添加主机
+				</button>
+			</div>
 
 			{localHostDown ? (
-				<div className="mcp-notice">
-					<b>本地 host 未运行</b>
-					需要在本机执行插件时，在终端运行 <code>sentinel-web plugin-host --local</code>，控制台会自动发现它。
-				</div>
+				<p className="plugin-host-hint">
+					本机还没有可用的插件主机。在终端运行 <code>sentinel-web plugin-host --local</code>，或
+					<code>npm run plugin-host -- --local</code>，控制台会自动发现它。
+				</p>
 			) : null}
 
-			<div className="mcp-toolbar">
-				<div className="mcp-toolbar__stats">
-					主机 <b>{view.hosts.length}</b> 个 · 插件 <b>{view.plugins.length}</b> 个 · 运行中 <b>{running}</b> 个
-				</div>
-				<div className="mcp-toolbar__spacer" />
-				<button type="button" disabled={busy} onClick={onRefresh}>
-					刷新
-				</button>
-				<button type="button" className="primary" disabled={busy} onClick={() => setHostDraft({ ...EMPTY_HOST_DRAFT })}>
-					+ 添加主机
-				</button>
+			<div className="plugin-toolbar">
+				<input
+					className="plugin-search"
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					placeholder="搜索插件名、id、工具名"
+					spellCheck={false}
+					aria-label="搜索插件"
+				/>
+				<select value={hostFilter} onChange={(event) => setHostFilter(event.target.value)}>
+					<option value="all">全部主机</option>
+					{view.hosts.map((host) => (
+						<option value={host.id} key={host.id}>
+							{host.name}
+						</option>
+					))}
+				</select>
+				<select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+					<option value="all">全部状态</option>
+					<option value="running">运行中</option>
+					<option value="stopped">已停止</option>
+					<option value="failed">失败</option>
+				</select>
+				<div className="plugin-toolbar__spacer" />
+				<span className="chip ok">{running} 运行</span>
+				{failed > 0 ? <span className="chip bad">{failed} 失败</span> : null}
 			</div>
 
-			{hostDraft ? (
-				<div className="mcp-editor">
-					<h3 className="settings-section">
-						{hostDraft.original === undefined ? "添加插件主机" : `编辑主机 ${hostDraft.original}`}
-					</h3>
-					<div className="mcp-editor__grid">
-						<label>
-							名称
-							<input
-								value={hostDraft.name}
-								onChange={(event) => setHostDraft({ ...hostDraft, name: event.target.value })}
-								placeholder="本机 / 扫描 VPS"
-								spellCheck={false}
-							/>
-						</label>
-						<label>
-							URL
-							<input
-								value={hostDraft.url}
-								onChange={(event) => setHostDraft({ ...hostDraft, url: event.target.value })}
-								placeholder="http://127.0.0.1:7800"
-								spellCheck={false}
-							/>
-							<span className="hint">非回环地址必须用 HTTPS，token 不会走明文。</span>
-						</label>
-					</div>
-					<label className="mcp-editor__wide">
-						token
-						<input
-							type="password"
-							value={hostDraft.token}
-							onChange={(event) => setHostDraft({ ...hostDraft, token: event.target.value })}
-							placeholder={hostDraft.original === undefined ? "plugin-host 启动时打印的 token" : "留空表示沿用已保存的 token"}
-							spellCheck={false}
-							autoComplete="off"
-						/>
-						<span className="hint">
-							{hostDraft.original === undefined
-								? "token 在 plugin-host 启动时打印。"
-								: "留空表示沿用已保存的 token；填写则替换。"}
-						</span>
-					</label>
-					<div className="mcp-editor__actions">
-						<button type="button" className="primary" disabled={busy || !hostValid} onClick={submitHost}>
-							保存
-						</button>
-						<button type="button" onClick={() => setHostDraft(null)}>
-							取消
-						</button>
-					</div>
-				</div>
-			) : null}
-
-			<div className="plugin-section">
-				<div className="plugin-section__head">
-					<h3 className="settings-section">插件主机</h3>
-					<div className="mcp-toolbar__spacer" />
-					<span className="hint">host 是运行插件容器的机器；本机 host 由 plugin-host --local 提供。</span>
-				</div>
-
-				{view.hosts.length === 0 ? (
-					<p className="settings-hint">
-						还没有插件主机。先启动一个 host，再用上面的「添加主机」填入地址和 token；本机可以用{" "}
-						<code>sentinel-web plugin-host --local</code> 自动被发现。
-					</p>
-				) : (
-					<div className="mcp-table plugin-hosts">
-						<div className="mcp-row plugin-host-row mcp-row--head">
-							<div>主机</div>
-							<div>地址</div>
-							<div>状态</div>
-							<div>最近连接</div>
-							<div className="mcp-ops">操作</div>
-						</div>
-						{view.hosts.map((host) => {
-							const tone = hostStatusTone(host);
-							const error =
-								host.status.error ??
-								(host.status.docker && !host.status.docker.ok ? host.status.docker.error : undefined);
+			<div className="plugin-table-wrap">
+				<table className="plugin-table">
+					<thead>
+						<tr>
+							<th aria-label="状态" />
+							<th>插件</th>
+							<th>版本</th>
+							<th>主机</th>
+							<th>网络</th>
+							<th className="num">工具</th>
+							<th>状态</th>
+							<th>安装时间</th>
+							<th aria-label="操作" />
+						</tr>
+					</thead>
+					<tbody>
+						{filtered.map((plugin) => {
+							const key = pluginKeyOf(plugin);
+							const tone = STATE_TONES[plugin.state];
 							return (
-								<div className={`mcp-group${tone === "off" ? "" : ` is-${tone}`}`} key={host.id}>
-									<div className="mcp-row plugin-host-row">
-										<div className="mcp-name__text">
-											<div className="mcp-name__title">
-												{host.name}
-												{host.local ? <span className="plugin-tag">本机</span> : null}
-											</div>
-											<div className="mcp-name__target">{host.id}</div>
-										</div>
-										<div className="mcp-cell plugin-host-url">{host.url}</div>
-										<div className="mcp-state">
-											<span className={`plugin-dot is-${tone}`} />
-											<span>
-												{host.status.at === null ? "尚未连接" : host.status.ok ? "正常" : "失败"}
-												{host.status.version ? ` · v${host.status.version}` : ""}
-												{host.status.mode ? ` · ${host.status.mode}` : ""}
+								<tr
+									key={key}
+									tabIndex={0}
+									className={selectedKey === key ? "is-selected" : undefined}
+									onClick={() => openPlugin(plugin)}
+									onKeyDown={(event) => {
+										if (event.key !== "Enter" && event.key !== " ") return;
+										event.preventDefault();
+										openPlugin(plugin);
+									}}
+								>
+									<td>
+										<span className={`dot ${tone === "off" ? "" : tone}`} />
+									</td>
+									<td>
+										<div className="plugin-table__name">{plugin.manifest.name}</div>
+										<div className="plugin-table__id mono">{plugin.manifest.id}</div>
+									</td>
+									<td className="mono">v{plugin.manifest.version}</td>
+									<td>
+										{plugin.hostName}
+										{plugin.hostLocal ? "（本机）" : ""}
+									</td>
+									<td>
+										<span className="chip">{plugin.manifest.permissions.network}</span>
+									</td>
+									<td className="num">{plugin.manifest.tools.length}</td>
+									<td>
+										<StateChip state={plugin.state} />
+										{plugin.lastError ? (
+											<span className="plugin-table__error" title={plugin.lastError}>
+												有错误
 											</span>
-										</div>
-										<div className="mcp-cell mcp-cell--nowrap" title={error ?? ""}>
-											{formatWhen(host.status.at)}
-										</div>
-										<div className="mcp-ops">
-											<button
-												type="button"
-												disabled={busy}
-												onClick={() => {
-													onTestHost(host.id);
-												}}
-											>
-												测试连接
-											</button>
-											{host.local ? (
-												<span className="plugin-tag">本机自动发现</span>
-											) : (
-												<>
-													<button
-														type="button"
-														disabled={busy}
-														onClick={() =>
-															setHostDraft({
-																original: host.id,
-																name: host.name,
-																url: host.url,
-																token: "",
-															})
-														}
-													>
-														编辑
-													</button>
-													<button
-														type="button"
-														className="quiet"
-														disabled={busy}
-														onClick={() => {
-															if (window.confirm(`删除插件主机「${host.name}」？它上面的插件将从控制台消失。`)) {
-																onDeleteHost(host.id);
-															}
-														}}
-													>
-														删除
-													</button>
-												</>
-											)}
-										</div>
-									</div>
-									{error ? <div className="plugin-host-error">{error}</div> : null}
-								</div>
+										) : null}
+									</td>
+									<td className="mono muted">{formatWhen(plugin.installedAt)}</td>
+									<td className="plugin-table__ops" onClick={(event) => event.stopPropagation()}>
+										<button
+											type="button"
+											className="link"
+											disabled={busy}
+											onClick={() =>
+												plugin.state === "running"
+													? onStop(plugin.hostId, plugin.manifest.id)
+													: onStart(plugin.hostId, plugin.manifest.id)
+											}
+										>
+											{plugin.state === "running" ? "停止" : "启动"}
+										</button>
+										<button type="button" className="link" onClick={() => openPlugin(plugin)}>
+											详情
+										</button>
+									</td>
+								</tr>
 							);
 						})}
+					</tbody>
+				</table>
+				{filtered.length === 0 ? (
+					<div className="plugin-empty">
+						{view.plugins.length === 0
+							? "还没有安装插件。点右上角「上传插件包」开始。"
+							: "没有匹配的插件，换个关键字或筛选条件。"}
 					</div>
-				)}
+				) : null}
 			</div>
 
-			<div className="plugin-section">
-				<div className="plugin-section__head">
-					<h3 className="settings-section">已安装插件</h3>
-					<div className="mcp-toolbar__spacer" />
-					<span className="hint">启用只影响 Agent 是否挂载它的工具；停止会关掉容器。</span>
-				</div>
+					<details className="plugin-docs">
+					<summary>插件开发文档</summary>
+					<div className="plugin-docs__body">
+						<p>
+							一个插件 = 一个 Docker 镜像 + 一个 <code>plugin.json</code>。镜像里跑一个 MCP server，插件主机负责拉镜像、起容器、健康检查，控制台把它的工具挂给 Agent。
+						</p>
+			
+						<h4>1. 包结构</h4>
+						<pre>{`my-plugin/
+			├── plugin.json
+			├── Dockerfile
+			└── README.md
+			
+			zip -r my-plugin.zip my-plugin/`}</pre>
+						<p>
+							上传 zip 时，控制台在根目录或一层子目录里找 <code>plugin.json</code>；也可以直接上传一个 <code>plugin.json</code>。包不会解压到磁盘。
+						</p>
+			
+						<h4>2. plugin.json 必填字段</h4>
+						<pre>{`{
+			  "schema": 1,
+			  "id": "com.example.recon",
+			  "name": "侦察工具集",
+			  "version": "0.1.0",
+			  "description": "做什么，一句话",
+			  "author": "github:someone",
+			  "source": "https://github.com/someone/sentinel-plugin-recon",
+			  "license": "MIT",
+			  "image": "ghcr.io/someone/recon@sha256:<64 位十六进制>",
+			  "mcp": {
+			    "transport": "http",
+			    "port": 7801,
+			    "path": "/mcp",
+			    "requestTimeoutMs": 300000
+			  }
+			}`}</pre>
+						<p>
+							<code>image</code> 必须带 digest，<code>latest</code> 会被拒绝；<code>source</code> 必须是公开仓库。可选字段：
+							<code>config</code>、<code>permissions</code>、<code>locality</code>、<code>resources</code>、<code>healthcheck</code>、<code>artifacts</code>、
+							<code>tools</code>（仅安装前预览）。
+						</p>
+			
+						<h4>3. MCP 接口要求</h4>
+						<ul>
+							<li>只支持流式 HTTP（streamable HTTP）：POST 到 <code>mcp.path</code>，返回普通 JSON 即可。stdio 与 SSE 需要插件作者自行转换。</li>
+							<li>实现 <code>initialize</code>、<code>tools/list</code>、<code>tools/call</code>。</li>
+							<li>工具名只用字母、数字、下划线和短横线；每个工具都要有 description 与 inputSchema。</li>
+							<li><code>healthcheck.path</code> 返回 2xx 才算启动成功。</li>
+							<li>
+								<code>mcp.requestTimeoutMs</code> 是单次工具调用的超时（毫秒，默认 300000）；长任务按需调大，最大 30 分钟。
+							</li>
+						</ul>
+			
+						<h4>4. 构建与发布</h4>
+						<pre>{`docker build -t ghcr.io/<账号>/sentinel-plugin-recon:0.1.0 .
+			docker push ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
+			docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<账号>/sentinel-plugin-recon:0.1.0`}</pre>
+						<p>把最后一条命令的输出原样粘进 <code>image</code>。</p>
+			
+						<h4>5. 配置与密钥</h4>
+						<p>
+							<code>config</code> 里的字段以 <code>PLUGIN_&lt;KEY&gt;</code> 环境变量注入容器。类型为 <code>secret</code> 的值只存宿主机的
+							<code>config.json</code>（0600），不回显、不进审计。安装后可在插件页改配置，保存会重建容器。
+						</p>
+			
+						<h4>6. 产物</h4>
+						<p>
+							大输出写 <code>/artifacts/&lt;run-id&gt;/</code>，工具返回值只放摘要，并在 <code>_meta.artifacts</code> 里声明相对路径。操作员可以在插件页把产物拉进当前项目的
+							<code>evidence/plugin/</code>。单文件上限由 manifest 的 <code>artifacts.maxFileBytes</code> 决定。
+						</p>
+			
+						<h4>7. 权限与 locality</h4>
+						<ul>
+							<li>
+								<code>network: bridge</code> 默认，能出网，不能被外部直接访问；<code>host</code> 共享宿主网络栈，安装时单独确认。
+							</li>
+							<li>
+								<code>capAdd</code> 只允许 <code>NET_RAW</code>、<code>NET_ADMIN</code>、<code>NET_BIND_SERVICE</code>、<code>SYS_PTRACE</code>。
+							</li>
+							<li>
+								<code>privileged</code> 等于宿主 root，强烈不建议。
+							</li>
+							<li>
+								<code>locality</code>：<code>local-only</code> 需要本地网络视角，<code>remote-only</code> 需要公网出口，<code>any</code> 两端都行；装错位置会在安装时被拒绝。
+							</li>
+						</ul>
+			
+						<h4>8. 示例与完整文档</h4>
+						<p>
+							最小实现见 <code>examples/plugins/hello-world</code>，CLI 包装见 <code>examples/plugins/recon</code>。字段细节、调试方式与检查清单见
+							<code>docs/plugin-authoring.md</code>，架构说明见 <code>docs/plugin-center.md</code>。
+						</p>
+			
+						<h4>9. 发布前检查</h4>
+						<ul>
+							<li>plugin.json 能通过安装时的校验（错误会一次列全）</li>
+							<li>image 是刚推送那一版的 digest</li>
+							<li>healthcheck 在 20 秒内可用</li>
+							<li>密钥走 config，没有硬编码</li>
+							<li>大输出写 /artifacts，返回值只有摘要</li>
+						</ul>
+					</div>
+				</details>
 
-				{view.plugins.length === 0 ? (
-					<p className="settings-hint">还没有安装插件。在下方读取一个插件目录，确认权限后安装。</p>
-				) : (
-					view.plugins.map((plugin) => {
-						const id = plugin.manifest.id;
-						const tone = STATE_TONES[plugin.state];
-						const perms = plugin.manifest.permissions;
-						const toolNames = plugin.manifest.tools.map((tool) => tool.name);
-						const logsOpen = logs !== null && logs.hostId === plugin.hostId && logs.pluginId === id;
-						const artifactsOpen =
-							artifacts !== null && artifacts.hostId === plugin.hostId && artifacts.pluginId === id;
-						const active = plugin.state === "running" || plugin.state === "starting";
-						return (
-							<div className={`plugin-card is-${tone}`} key={`${plugin.hostId}/${id}`}>
-								<div className="plugin-card__head">
-									<div className="plugin-card__id">
-										<div className="plugin-card__title">
-											{plugin.manifest.name}
-											<span className="plugin-version">v{plugin.manifest.version}</span>
+			<p className="mcp-footnote">
+				工具调用不逐条拦截，只记审计；管理操作写入 <code>plugin-audit.jsonl</code>。启用开关只影响挂载，不会停止容器；卸载默认保留数据目录。
+			</p>
+
+			{drawerOpen ? (
+				<div className="plugin-drawer-layer">
+					<div className="plugin-drawer-mask" onClick={closeDrawer} />
+					<aside className="plugin-drawer" role="dialog" aria-modal="true">
+						{pendingManifest ? (
+							<>
+								<div className="plugin-drawer__head">
+									<div>
+										<div className="plugin-drawer__title">安装插件包</div>
+										<div className="plugin-drawer__sub">
+											{pendingManifest.source}
+											{packageFile ? ` · ${formatSize(packageFile.size)}` : ""}
 										</div>
-										<div className="plugin-card__sub">
-											{id} · {plugin.hostName}
-											{plugin.hostLocal ? "（本机）" : ""}
-											{plugin.hostPort === null ? "" : ` · 端口 ${plugin.hostPort}`}
-											{` · 安装于 ${formatWhen(plugin.installedAt)}`}
-										</div>
-										{plugin.manifest.description ? (
-											<div className="plugin-card__desc">{plugin.manifest.description}</div>
-										) : null}
 									</div>
-									<div className="plugin-card__state">
-										<span className={`mcp-pill is-${tone}`}>{STATE_LABELS[plugin.state]}</span>
-										{plugin.state === "running" ? (
-											<span className={`plugin-health is-${plugin.healthy ? "ok" : "bad"}`}>
-												{plugin.healthy ? "健康" : "不健康"}
+									<button type="button" className="plugin-drawer__close" onClick={closeDrawer}>
+										×
+									</button>
+								</div>
+								<div className="plugin-drawer__body">
+									<div className="drawer-plugin">
+										<div className="drawer-plugin__icon">{manifest?.id.slice(0, 1).toUpperCase()}</div>
+										<div>
+											<div className="drawer-plugin__name">
+												{manifest?.name} <span className="mono muted">v{manifest?.version}</span>
+											</div>
+											<div className="muted">
+												{manifest?.id} · {manifest?.author}
+											</div>
+										</div>
+									</div>
+
+									<div className="drawer-kv">
+										<div>
+											<span>镜像</span>
+											<code>{manifest?.image}</code>
+										</div>
+										<div>
+											<span>locality</span>
+											<b>{manifest ? LOCALITY_LABELS[manifest.locality] : ""}</b>
+										</div>
+										<div>
+											<span>MCP</span>
+											<code>
+												{manifest?.mcp.port}
+												{manifest?.mcp.path}
+											</code>
+										</div>
+										<div>
+											<span>源码</span>
+											<a href={manifest?.source} target="_blank" rel="noreferrer">
+												{manifest?.source}
+											</a>
+										</div>
+									</div>
+
+									<div className="drawer-section">权限</div>
+									<div className="drawer-chips">
+										<span className="chip info">
+											network {manifest ? NETWORK_LABELS[manifest.permissions.network] : ""}
+										</span>
+										{manifest?.permissions.capAdd.map((cap) => (
+											<span className="chip warn" key={cap}>
+												{cap}
 											</span>
-										) : null}
-										<label className="mcp-switch" title={plugin.enabled ? "停用该插件" : "启用该插件"}>
+										))}
+										<span className={`chip ${manifest?.permissions.privileged ? "bad" : ""}`}>
+											privileged {manifest?.permissions.privileged ? "是" : "否"}
+										</span>
+									</div>
+
+									{manifest?.permissions.network === "host" ? (
+										<label className="mcp-editor__ack">
 											<input
 												type="checkbox"
-												checked={plugin.enabled}
+												checked={allowHostNetwork}
 												disabled={busy}
-												aria-label={`启用 ${plugin.manifest.name}`}
-												onChange={(event) => onSetEnabled(plugin.hostId, id, event.target.checked)}
+												onChange={(event) => setAllowHostNetwork(event.target.checked)}
 											/>
-											<span />
+											允许 host 网络：插件容器直接使用宿主网络栈，能访问本机所有监听端口。
 										</label>
-									</div>
-								</div>
-
-								<div className="plugin-card__row">
-									<span className="plugin-label">权限</span>
-									<span className="plugin-mono">
-										network: {NETWORK_LABELS[perms.network]} · privileged: {perms.privileged ? "是" : "否"} · capAdd:{" "}
-										{perms.capAdd.length > 0 ? perms.capAdd.join(", ") : "无"}
-									</span>
-								</div>
-								<div className="plugin-card__row">
-									<span className="plugin-label">locality</span>
-									<span>{LOCALITY_LABELS[plugin.manifest.locality]}</span>
-								</div>
-								<div className="plugin-card__row">
-									<span className="plugin-label">工具</span>
-									<span className="plugin-tools">
-										{toolNames.length > 0
-											? toolNames.map((name) => (
-													<code key={name}>{name}</code>
-												))
-											: "manifest 未声明工具"}
-									</span>
-								</div>
-								<div className="plugin-card__row">
-									<span className="plugin-label">配置</span>
-									<span>
-										{plugin.configured.length > 0
-											? `已配置 ${plugin.configured.length} 项：${plugin.configured.join(", ")}`
-											: "未配置"}
-									</span>
-								</div>
-
-								{plugin.lastError ? <div className="plugin-error">最后错误：{plugin.lastError}</div> : null}
-
-								<div className="mcp-ops plugin-card__ops">
-									{active ? (
-										<button type="button" disabled={busy} onClick={() => onStop(plugin.hostId, id)}>
-											停止
-										</button>
-									) : (
-										<button type="button" disabled={busy} onClick={() => onStart(plugin.hostId, id)}>
-											启动
-										</button>
-									)}
-									<button type="button" disabled={busy} onClick={() => onLoadLogs(plugin.hostId, id)}>
-										日志
-									</button>
-									<button type="button" disabled={busy} onClick={() => onListArtifacts(plugin.hostId, id)}>
-										产物
-									</button>
-									{plugin.manifest.config.length > 0 ? (
-										<button type="button" disabled={busy} onClick={() => openConfig(plugin)}>
-											配置
-										</button>
 									) : null}
-									<button type="button" className="quiet" disabled={busy} onClick={() => uninstall(plugin)}>
-										卸载
-									</button>
+									{manifest?.permissions.privileged ? (
+										<label className="mcp-editor__ack">
+											<input
+												type="checkbox"
+												checked={allowPrivileged}
+												disabled={busy}
+												onChange={(event) => setAllowPrivileged(event.target.checked)}
+											/>
+											允许 privileged：容器获得全部 Linux 能力，隔离性显著降低。
+										</label>
+									) : null}
+
+									{manifest && manifest.config.length > 0 ? (
+										<>
+											<div className="drawer-section">配置</div>
+											<div className="mcp-editor__grid">
+												{manifest.config.map((field) => configInput(field))}
+											</div>
+										</>
+									) : null}
+
+									<div className="drawer-section">目标 host</div>
+									<select
+										className="drawer-select"
+										value={installHostId}
+										disabled={busy || view.hosts.length === 0}
+										onChange={(event) => setInstallHostId(event.target.value)}
+									>
+										{view.hosts.map((host) => (
+											<option value={host.id} key={host.id}>
+												{host.name}
+												{host.local ? "（本机）" : ""}
+											</option>
+										))}
+									</select>
+									{view.hosts.length === 0 ? <p className="hint">先添加一个插件主机。</p> : null}
+
+									{!configComplete ? <p className="hint">还有必填配置没有填写。</p> : null}
+									{!permissionsAllowed ? (
+										<p className="hint">需要先勾选上面声明的权限才能安装。</p>
+									) : null}
+									{installPending && busy ? (
+										<p className="plugin-install__progress">
+											正在拉取镜像并等待健康检查，可能需要几分钟。
+										</p>
+									) : null}
 								</div>
-
-								{logsOpen && logs ? (
-									<div className="plugin-block">
-										<div className="plugin-block__head">
-											<span>日志 · {plugin.manifest.name}</span>
-											<div className="plugin-block__ops">
-												<button
-													type="button"
-													disabled={busy}
-													onClick={() => onLoadLogs(plugin.hostId, id)}
-												>
-													刷新
-												</button>
-												<button type="button" onClick={onCloseLogs}>
-													关闭
-												</button>
-											</div>
-										</div>
-										<pre className="plugin-logs">{logs.logs || "（没有日志）"}</pre>
-									</div>
-								) : null}
-
-								{editingPlugin === editKeyOf(plugin) ? (
-									<div className="plugin-block">
-										<div className="plugin-block__head">
-											<span>配置 · {plugin.manifest.name}</span>
-											<div className="plugin-block__ops">
-												<button
-													type="button"
-													disabled={busy || !editComplete(plugin)}
-													onClick={() => {
-														onSaveConfig(plugin.hostId, plugin.manifest.id, editValues);
-														setEditingPlugin(null);
-													}}
-												>
-													保存并重启
-												</button>
-												<button type="button" onClick={() => setEditingPlugin(null)}>
-													取消
-												</button>
-											</div>
-										</div>
-										<div className="mcp-editor__grid">
-											{plugin.manifest.config.map((field) =>
-												renderConfigField(
-													field,
-													editValues[field.key] ?? "",
-													(next) => setEditValues((prev) => ({ ...prev, [field.key]: next })),
-													plugin.configured.includes(field.key) ? "已保存，留空保持不变" : "尚未设置",
-												),
-											)}
-										</div>
-										<p className="hint">
-											保存会重建容器使新环境变量生效；密钥留空表示保持已保存的值。
-										</p>
-									</div>
-								) : null}
-
-								{artifactsOpen && artifacts ? (
-									<div className="plugin-block">
-										<div className="plugin-block__head">
-											<span>产物 · {plugin.manifest.name}</span>
-											<div className="plugin-block__ops">
-												<button
-													type="button"
-													disabled={busy}
-													onClick={() => onListArtifacts(plugin.hostId, id)}
-												>
-													刷新
-												</button>
-												<button type="button" onClick={onCloseArtifacts}>
-													关闭
-												</button>
-											</div>
-										</div>
-										{artifacts.items.length === 0 ? (
-											<p className="plugin-artifacts__empty">还没有产物</p>
-										) : (
-											artifacts.items.map((artifact) => (
-												<div className="plugin-artifact" key={artifact.path}>
-													<code>{artifact.path}</code>
-													<span className="plugin-artifact__size">{formatSize(artifact.size)}</span>
-													<button
-														type="button"
-														disabled={busy}
-														onClick={() => onFetchArtifact(plugin.hostId, id, artifact.path)}
-													>
-														拉取到证据目录
-													</button>
-												</div>
-											))
-										)}
-										<p className="hint">
-											拉取的文件会保存到当前项目的 <code>evidence/plugin/</code> 下。
-										</p>
-									</div>
-								) : null}
-							</div>
-						);
-					})
-				)}
-			</div>
-
-			<div className="plugin-section">
-				<div className="plugin-section__head">
-					<h3 className="settings-section">上传插件包安装</h3>
-					<div className="mcp-toolbar__spacer" />
-					<span className="hint">支持 .zip（根目录或一层子目录里有 plugin.json）或直接上传 plugin.json，最大 8MB。</span>
-				</div>
-
-				<div className="plugin-dir-row">
-					<input
-						type="file"
-						accept=".zip,.json"
-						disabled={busy}
-						onChange={choosePackage}
-						aria-label="插件包文件"
-					/>
-					<span className="hint">
-						{packageFile
-							? `${packageFile.name} · ${formatSize(packageFile.size)}`
-							: "包不会被解压到磁盘，只读取 plugin.json；镜像仍按 digest 从仓库拉取。"}
-					</span>
-				</div>
-				{packageError ? <div className="plugin-error">{packageError}</div> : null}
-
-				{manifest && pendingManifest ? (
-					<div className="mcp-editor plugin-install">
-						<h3 className="settings-section">待安装：{manifest.name}</h3>
-						<div className="plugin-manifest__sub">来源</div>
-						<div className="plugin-mono">{pendingManifest.source}</div>
-
-						<div className="plugin-manifest__grid">
-							<div>
-								<span>id</span>
-								<code>{manifest.id}</code>
-							</div>
-							<div>
-								<span>版本</span>
-								{manifest.version}
-							</div>
-							<div>
-								<span>镜像</span>
-								<code className="plugin-manifest__image">{manifest.image}</code>
-							</div>
-							<div>
-								<span>来源</span>
-								<a href={manifest.source} target="_blank" rel="noreferrer">
-									{manifest.source}
-								</a>
-							</div>
-							<div>
-								<span>许可证</span>
-								{manifest.license}
-							</div>
-							<div>
-								<span>作者</span>
-								{manifest.author}
-							</div>
-							<div>
-								<span>locality</span>
-								{LOCALITY_LABELS[manifest.locality]}
-							</div>
-							<div>
-								<span>MCP</span>
-								{manifest.mcp.transport} · :{manifest.mcp.port}
-								{manifest.mcp.path}
-							</div>
-							<div>
-								<span>资源</span>
-								{manifest.resources.cpus} CPU · {manifest.resources.memory} · pids {manifest.resources.pidsLimit}
-							</div>
-							<div>
-								<span>产物目录</span>
-								<code>{manifest.artifacts.path}</code>
-							</div>
-							<div>
-								<span>工具</span>
-								{manifest.tools.length > 0
-									? manifest.tools.map((tool) => tool.name).join(", ")
-									: "未声明"}
-							</div>
-						</div>
-
-						{manifest.description ? <p className="plugin-manifest__desc">{manifest.description}</p> : null}
-
-						<div className="plugin-manifest__sub">声明的权限</div>
-						<div className="plugin-perms">
-							<span>
-								network: <code>{manifest.permissions.network}</code>
-							</span>
-							<span>
-								privileged: <code>{manifest.permissions.privileged ? "true" : "false"}</code>
-							</span>
-							<span>
-								capAdd:{" "}
-								<code>
-									{manifest.permissions.capAdd.length > 0 ? manifest.permissions.capAdd.join(", ") : "无"}
-								</code>
-							</span>
-						</div>
-
-						{manifest.permissions.network === "host" ? (
-							<label className="mcp-editor__ack">
-								<input
-									type="checkbox"
-									checked={allowHostNetwork}
-									disabled={busy}
-									onChange={(event) => setAllowHostNetwork(event.target.checked)}
-								/>
-								允许 host 网络：插件容器直接使用宿主网络栈，能访问本机所有监听端口。
-							</label>
-						) : null}
-						{manifest.permissions.privileged ? (
-							<label className="mcp-editor__ack">
-								<input
-									type="checkbox"
-									checked={allowPrivileged}
-									disabled={busy}
-									onChange={(event) => setAllowPrivileged(event.target.checked)}
-								/>
-								允许 privileged：容器获得全部 Linux 能力，隔离性显著降低。
-							</label>
-						) : null}
-
-						{manifest.config.length > 0 ? (
-							<>
-								<div className="plugin-manifest__sub">配置</div>
-								<div className="mcp-editor__grid">
-									{manifest.config.map((field) => configInput(field))}
+								<div className="plugin-drawer__foot">
+									<button type="button" onClick={closeDrawer}>
+										取消
+									</button>
+									<button
+										type="button"
+										className="primary"
+										disabled={busy || !installReady}
+										onClick={install}
+									>
+										{installPending && busy ? "安装中…" : "安装"}
+									</button>
 								</div>
 							</>
 						) : null}
 
-						<div className="mcp-editor__grid plugin-install__target">
-							<label>
-								目标 host
-								<select
-									value={installHostId}
-									disabled={busy || view.hosts.length === 0}
-									onChange={(event) => setInstallHostId(event.target.value)}
-								>
-									{view.hosts.map((host) => (
-										<option value={host.id} key={host.id}>
-											{host.name}
-											{host.local ? "（本机）" : ""}
-										</option>
-									))}
-								</select>
-								{view.hosts.length === 0 ? <span className="hint">先添加一个插件主机。</span> : null}
-							</label>
-						</div>
-
-						<div className="mcp-editor__actions">
-							<button type="button" className="primary" disabled={busy || !installReady} onClick={install}>
-								{installPending && busy ? "安装中…" : "安装"}
-							</button>
-						</div>
-						{installPending && busy ? (
-							<p className="plugin-install__progress">正在拉取镜像并等待健康检查，可能需要几分钟。</p>
+						{hostDraft ? (
+							<>
+								<div className="plugin-drawer__head">
+									<div>
+										<div className="plugin-drawer__title">
+											{hostDraft.original ? "编辑插件主机" : "添加插件主机"}
+										</div>
+										<div className="plugin-drawer__sub">
+											host 是运行插件容器的机器；本机 host 由 plugin-host --local 自动发现。
+										</div>
+									</div>
+									<button type="button" className="plugin-drawer__close" onClick={() => setHostDraft(null)}>
+										×
+									</button>
+								</div>
+								<div className="plugin-drawer__body">
+									<div className="mcp-editor__grid">
+										<label>
+											名称
+											<input
+												value={hostDraft.name}
+												disabled={busy}
+												onChange={(event) =>
+													setHostDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))
+												}
+												placeholder="本机 / vps-hk"
+											/>
+										</label>
+										<label>
+											URL
+											<input
+												value={hostDraft.url}
+												disabled={busy}
+												onChange={(event) =>
+													setHostDraft((prev) => (prev ? { ...prev, url: event.target.value } : prev))
+												}
+												placeholder="https://sentinel.example.com"
+												spellCheck={false}
+											/>
+											<span className="hint">非回环地址必须 HTTPS，且证书要受信任。</span>
+										</label>
+										<label>
+											token
+											<input
+												type="password"
+												value={hostDraft.token}
+												disabled={busy}
+												onChange={(event) =>
+													setHostDraft((prev) => (prev ? { ...prev, token: event.target.value } : prev))
+												}
+												placeholder={hostDraft.original ? "留空保持已保存的 token" : "plugin-host 启动时打印的 token"}
+												autoComplete="off"
+											/>
+										</label>
+									</div>
+									<p className="hint">
+										本机 host 只需要运行 <code>sentinel-web plugin-host --local</code>，不用手填地址与
+										token。
+									</p>
+								</div>
+								<div className="plugin-drawer__foot">
+									<button type="button" onClick={() => setHostDraft(null)}>
+										取消
+									</button>
+									<button type="button" className="primary" disabled={busy || !hostValid} onClick={submitHost}>
+										保存
+									</button>
+								</div>
+							</>
 						) : null}
-						{!configComplete ? <p className="hint">还有必填配置没有填写。</p> : null}
-						{!permissionsAllowed ? <p className="hint">需要先勾选上面声明的权限才能安装。</p> : null}
-					</div>
-				) : (
-					<p className="hint">读取成功后在这里显示 manifest、声明的权限和配置表单。</p>
-				)}
-			</div>
 
-			<details className="plugin-docs">
-				<summary>插件开发文档</summary>
-				<div className="plugin-docs__body">
-					<p>
-						一个插件 = 一个 Docker 镜像 + 一个 <code>plugin.json</code>。镜像里跑一个 MCP server，插件主机负责拉镜像、起容器、健康检查，控制台把它的工具挂给 Agent。
-					</p>
+						{selected ? (
+							<>
+								<div className="plugin-drawer__head">
+									<div>
+										<div className="plugin-drawer__title">
+											{selected.manifest.name}{" "}
+											<span className="mono muted">v{selected.manifest.version}</span>
+										</div>
+										<div className="plugin-drawer__sub mono">
+											{selected.manifest.id} · {selected.hostName}
+											{selected.hostLocal ? "（本机）" : ""}
+										</div>
+									</div>
+									<button type="button" className="plugin-drawer__close" onClick={closeDrawer}>
+										×
+									</button>
+								</div>
+								<div className="plugin-drawer__body">
+									<div className="drawer-state">
+										<StateChip state={selected.state} />
+										<span className="muted">
+											{selected.state === "running"
+												? selected.healthy
+													? "健康"
+													: "不健康"
+												: formatWhen(selected.installedAt)}
+										</span>
+										<label className="mcp-switch" title={selected.enabled ? "停用该插件" : "启用该插件"}>
+											<input
+												type="checkbox"
+												checked={selected.enabled}
+												disabled={busy}
+												aria-label={`启用 ${selected.manifest.name}`}
+												onChange={(event) =>
+													onSetEnabled(selected.hostId, selected.manifest.id, event.target.checked)
+												}
+											/>
+											<span />
+										</label>
+										<span className="muted">{selected.enabled ? "已挂载" : "已停用"}</span>
+									</div>
 
-					<h4>1. 包结构</h4>
-					<pre>{`my-plugin/
-├── plugin.json
-├── Dockerfile
-└── README.md
+									{selected.manifest.description ? (
+										<p className="drawer-desc">{selected.manifest.description}</p>
+									) : null}
 
-zip -r my-plugin.zip my-plugin/`}</pre>
-					<p>
-						上传 zip 时，控制台在根目录或一层子目录里找 <code>plugin.json</code>；也可以直接上传一个 <code>plugin.json</code>。包不会解压到磁盘。
-					</p>
+									<div className="drawer-kv">
+										<div>
+											<span>镜像</span>
+											<code>{selected.manifest.image}</code>
+										</div>
+										<div>
+											<span>端口</span>
+											<code>{selected.hostPort === null ? "未分配" : `127.0.0.1:${selected.hostPort}`}</code>
+										</div>
+										<div>
+											<span>locality</span>
+											<b>{LOCALITY_LABELS[selected.manifest.locality]}</b>
+										</div>
+										<div>
+											<span>安装时间</span>
+											<b>{formatWhen(selected.installedAt)}</b>
+										</div>
+									</div>
 
-					<h4>2. plugin.json 必填字段</h4>
-					<pre>{`{
-  "schema": 1,
-  "id": "com.example.recon",
-  "name": "侦察工具集",
-  "version": "0.1.0",
-  "description": "做什么，一句话",
-  "author": "github:someone",
-  "source": "https://github.com/someone/sentinel-plugin-recon",
-  "license": "MIT",
-  "image": "ghcr.io/someone/recon@sha256:<64 位十六进制>",
-  "mcp": {
-    "transport": "http",
-    "port": 7801,
-    "path": "/mcp",
-    "requestTimeoutMs": 300000
-  }
-}`}</pre>
-					<p>
-						<code>image</code> 必须带 digest，<code>latest</code> 会被拒绝；<code>source</code> 必须是公开仓库。可选字段：
-						<code>config</code>、<code>permissions</code>、<code>locality</code>、<code>resources</code>、<code>healthcheck</code>、<code>artifacts</code>、
-						<code>tools</code>（仅安装前预览）。
-					</p>
+									{selected.lastError ? (
+										<div className="drawer-error">{selected.lastError}</div>
+									) : null}
 
-					<h4>3. MCP 接口要求</h4>
-					<ul>
-						<li>只支持流式 HTTP（streamable HTTP）：POST 到 <code>mcp.path</code>，返回普通 JSON 即可。stdio 与 SSE 需要插件作者自行转换。</li>
-						<li>实现 <code>initialize</code>、<code>tools/list</code>、<code>tools/call</code>。</li>
-						<li>工具名只用字母、数字、下划线和短横线；每个工具都要有 description 与 inputSchema。</li>
-						<li><code>healthcheck.path</code> 返回 2xx 才算启动成功。</li>
-						<li>
-							<code>mcp.requestTimeoutMs</code> 是单次工具调用的超时（毫秒，默认 300000）；长任务按需调大，最大 30 分钟。
-						</li>
-					</ul>
+									<div className="drawer-section">权限</div>
+									<div className="drawer-chips">
+										<span className="chip info">network {selected.manifest.permissions.network}</span>
+										{selected.manifest.permissions.capAdd.map((cap) => (
+											<span className="chip warn" key={cap}>
+												{cap}
+											</span>
+										))}
+										<span className={`chip ${selected.manifest.permissions.privileged ? "bad" : ""}`}>
+											privileged {selected.manifest.permissions.privileged ? "是" : "否"}
+										</span>
+									</div>
 
-					<h4>4. 构建与发布</h4>
-					<pre>{`docker build -t ghcr.io/<账号>/sentinel-plugin-recon:0.1.0 .
-docker push ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<账号>/sentinel-plugin-recon:0.1.0`}</pre>
-					<p>把最后一条命令的输出原样粘进 <code>image</code>。</p>
+									<div className="drawer-section">工具</div>
+									<div className="drawer-chips">
+										{selected.manifest.tools.length > 0 ? (
+											selected.manifest.tools.map((tool) => <code key={tool.name}>{tool.name}</code>)
+										) : (
+											<span className="muted">manifest 未声明工具</span>
+										)}
+									</div>
 
-					<h4>5. 配置与密钥</h4>
-					<p>
-						<code>config</code> 里的字段以 <code>PLUGIN_&lt;KEY&gt;</code> 环境变量注入容器。类型为 <code>secret</code> 的值只存宿主机的
-						<code>config.json</code>（0600），不回显、不进审计。安装后可在插件页改配置，保存会重建容器。
-					</p>
+									<div className="drawer-tabs">
+										<button
+											type="button"
+											className={drawerTab === "config" ? "active" : undefined}
+											onClick={() => setDrawerTab("config")}
+										>
+											配置
+										</button>
+										<button
+											type="button"
+											className={drawerTab === "logs" ? "active" : undefined}
+											onClick={() => setDrawerTab("logs")}
+										>
+											日志
+										</button>
+										<button
+											type="button"
+											className={drawerTab === "artifacts" ? "active" : undefined}
+											onClick={() => setDrawerTab("artifacts")}
+										>
+											产物
+										</button>
+									</div>
 
-					<h4>6. 产物</h4>
-					<p>
-						大输出写 <code>/artifacts/&lt;run-id&gt;/</code>，工具返回值只放摘要，并在 <code>_meta.artifacts</code> 里声明相对路径。操作员可以在插件页把产物拉进当前项目的
-						<code>evidence/plugin/</code>。单文件上限由 manifest 的 <code>artifacts.maxFileBytes</code> 决定。
-					</p>
+									{drawerTab === "config" ? (
+										<div className="drawer-tab">
+											{selected.manifest.config.length === 0 ? (
+												<p className="muted">这个插件没有配置项。</p>
+											) : editingPlugin === pluginKeyOf(selected) ? (
+												<>
+													<div className="mcp-editor__grid">
+														{selected.manifest.config.map((field) =>
+															renderConfigField(
+																field,
+																editValues[field.key] ?? "",
+																(next) => setEditValues((prev) => ({ ...prev, [field.key]: next })),
+																selected.configured.includes(field.key)
+																	? "已保存，留空保持不变"
+																	: "尚未设置",
+															),
+														)}
+													</div>
+													<p className="hint">
+														保存会重建容器使新环境变量生效；密钥留空表示保持已保存的值。
+													</p>
+													<div className="drawer-actions">
+														<button type="button" disabled={busy} onClick={() => setEditingPlugin(null)}>
+															取消
+														</button>
+														<button
+															type="button"
+															className="primary"
+															disabled={busy || !editComplete(selected)}
+															onClick={() => {
+																onSaveConfig(selected.hostId, selected.manifest.id, editValues);
+																setEditingPlugin(null);
+															}}
+														>
+															保存并重启
+														</button>
+													</div>
+												</>
+											) : (
+												<>
+													{selected.manifest.config.map((field) => (
+														<div className="drawer-cfg-row" key={field.key}>
+															<code>{field.key}</code>
+															<span className="muted">
+																{selected.configured.includes(field.key)
+																	? field.type === "secret"
+																		? "已设置，不回显"
+																		: selected.values[field.key] || "已设置"
+																	: "未设置"}
+															</span>
+														</div>
+													))}
+													<div className="drawer-actions">
+														<button type="button" disabled={busy} onClick={() => openConfig(selected)}>
+															改配置
+														</button>
+													</div>
+												</>
+											)}
+										</div>
+									) : null}
 
-					<h4>7. 权限与 locality</h4>
-					<ul>
-						<li>
-							<code>network: bridge</code> 默认，能出网，不能被外部直接访问；<code>host</code> 共享宿主网络栈，安装时单独确认。
-						</li>
-						<li>
-							<code>capAdd</code> 只允许 <code>NET_RAW</code>、<code>NET_ADMIN</code>、<code>NET_BIND_SERVICE</code>、<code>SYS_PTRACE</code>。
-						</li>
-						<li>
-							<code>privileged</code> 等于宿主 root，强烈不建议。
-						</li>
-						<li>
-							<code>locality</code>：<code>local-only</code> 需要本地网络视角，<code>remote-only</code> 需要公网出口，<code>any</code> 两端都行；装错位置会在安装时被拒绝。
-						</li>
-					</ul>
+									{drawerTab === "logs" ? (
+										<div className="drawer-tab">
+											<div className="drawer-actions">
+												<button
+													type="button"
+													disabled={busy}
+													onClick={() => onLoadLogs(selected.hostId, selected.manifest.id)}
+												>
+													{selectedLogs ? "刷新日志" : "加载日志"}
+												</button>
+											</div>
+											<pre className="plugin-logs">{selectedLogs?.logs || "还没有加载日志。"}</pre>
+										</div>
+									) : null}
 
-					<h4>8. 示例与完整文档</h4>
-					<p>
-						最小实现见 <code>examples/plugins/hello-world</code>，CLI 包装见 <code>examples/plugins/recon</code>。字段细节、调试方式与检查清单见
-						<code>docs/plugin-authoring.md</code>，架构说明见 <code>docs/plugin-center.md</code>。
-					</p>
-
-					<h4>9. 发布前检查</h4>
-					<ul>
-						<li>plugin.json 能通过安装时的校验（错误会一次列全）</li>
-						<li>image 是刚推送那一版的 digest</li>
-						<li>healthcheck 在 20 秒内可用</li>
-						<li>密钥走 config，没有硬编码</li>
-						<li>大输出写 /artifacts，返回值只有摘要</li>
-					</ul>
+									{drawerTab === "artifacts" ? (
+										<div className="drawer-tab">
+											<div className="drawer-actions">
+												<button
+													type="button"
+													disabled={busy}
+													onClick={() => onListArtifacts(selected.hostId, selected.manifest.id)}
+												>
+													{selectedArtifacts ? "刷新产物" : "加载产物"}
+												</button>
+											</div>
+											{selectedArtifacts ? (
+												selectedArtifacts.items.length === 0 ? (
+													<p className="muted">还没有产物。</p>
+												) : (
+													selectedArtifacts.items.map((artifact) => (
+														<div className="drawer-artifact" key={artifact.path}>
+															<code>{artifact.path}</code>
+															<span className="muted">{formatSize(artifact.size)}</span>
+															<button
+																type="button"
+																className="link"
+																disabled={busy}
+																onClick={() =>
+																	onFetchArtifact(selected.hostId, selected.manifest.id, artifact.path)
+																}
+															>
+																拉取
+															</button>
+														</div>
+													))
+												)
+											) : (
+												<p className="muted">点上面的按钮读取产物列表。</p>
+											)}
+											<p className="hint">拉取的文件保存到当前项目的 <code>evidence/plugin/</code> 下。</p>
+										</div>
+									) : null}
+								</div>
+								<div className="plugin-drawer__foot">
+									<button
+										type="button"
+										disabled={busy}
+										onClick={() =>
+											selected.state === "running"
+												? onStop(selected.hostId, selected.manifest.id)
+												: onStart(selected.hostId, selected.manifest.id)
+										}
+									>
+										{selected.state === "running" ? "停止" : "启动"}
+									</button>
+									<button
+										type="button"
+										disabled={busy}
+										onClick={() => {
+											setDrawerTab("logs");
+											onLoadLogs(selected.hostId, selected.manifest.id);
+										}}
+									>
+										日志
+									</button>
+									<button
+										type="button"
+										disabled={busy}
+										onClick={() => {
+											setDrawerTab("artifacts");
+											onListArtifacts(selected.hostId, selected.manifest.id);
+										}}
+									>
+										产物
+									</button>
+									<button
+										type="button"
+										className="danger"
+										disabled={busy}
+										onClick={() => uninstall(selected)}
+									>
+										卸载
+									</button>
+								</div>
+							</>
+						) : null}
+					</aside>
 				</div>
-			</details>
-
-			<p className="mcp-footnote">
-				插件容器由插件主机管理，控制台只负责下发安装与生命周期操作；启用状态保存在控制台，token 与配置保存在主机上，不回显。卸载默认保留数据目录，是否同时删除数据由二次确认决定。
-			</p>
+			) : null}
 		</div>
 	);
 }

@@ -2383,6 +2383,7 @@ export function App() {
 										}
 										onDeleteHost={(id) => runPluginAction({ type: "delete_plugin_host", id })}
 										onTestHost={(id) => runPluginAction({ type: "test_plugin_host", id })}
+										onCloseManifest={() => setPendingManifest(null)}
 										onInspectPackage={(name, data) => {
 											// The old manifest belongs to the previous upload; never let an
 											// install pair the new package with stale declarations.
