@@ -14,8 +14,6 @@ import {
 	validatePluginConfig,
 } from "../src/plugin-manifest.ts";
 
-const DIGEST = "a".repeat(64);
-
 function validManifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
 		schema: 1,
@@ -26,7 +24,7 @@ function validManifest(overrides: Record<string, unknown> = {}): Record<string, 
 		author: "github:someone",
 		source: "https://github.com/someone/sentinel-plugin-recon",
 		license: "MIT",
-		image: `ghcr.io/someone/recon@sha256:${DIGEST}`,
+		build: { dockerfile: "Dockerfile", context: "." },
 		mcp: { transport: "http", port: 7801, path: "/mcp" },
 		permissions: { network: "bridge" },
 		locality: "any",
@@ -47,17 +45,29 @@ describe("parsePluginManifest", () => {
 			startupTimeoutMs: 20000,
 			requestTimeoutMs: 300000,
 		});
+		expect(result.manifest.build).toEqual({ dockerfile: "Dockerfile", context: ".", args: {} });
 		expect(result.manifest.permissions).toEqual({ network: "bridge", capAdd: [], privileged: false });
 		expect(result.manifest.resources).toEqual({ cpus: 1, memory: "512m", pidsLimit: 256 });
 		expect(result.manifest.healthcheck.path).toBe("/healthz");
 		expect(result.manifest.artifacts.path).toBe("/artifacts");
 	});
 
-	test("rejects a tag-only image", () => {
-		const result = parsePluginManifest(validManifest({ image: "ghcr.io/someone/recon:latest" }));
+	test("rejects the old image field", () => {
+		const result = parsePluginManifest(validManifest({ image: `ghcr.io/someone/recon@sha256:${"a".repeat(64)}` }));
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
-		expect(result.errors.join("\n")).toContain("digest");
+		expect(result.errors.join("\n")).toContain("不再支持 image");
+	});
+
+	test("rejects a build path that leaves the package", () => {
+		for (const overrides of [
+			{ build: { dockerfile: "/Dockerfile", context: "." } },
+			{ build: { dockerfile: "../Dockerfile", context: "." } },
+			{ build: { dockerfile: "Dockerfile", context: "../" } },
+			{ build: { dockerfile: ".", context: "." } },
+		]) {
+			expect(parsePluginManifest(validManifest(overrides)).ok, JSON.stringify(overrides)).toBe(false);
+		}
 	});
 
 	test("rejects a missing source, because only open plugins are distributed", () => {

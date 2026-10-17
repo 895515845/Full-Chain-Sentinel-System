@@ -946,6 +946,8 @@ export type SentinelClientMessage =
 			type: "install_plugin";
 			hostId: string;
 			manifest: SentinelPluginManifest;
+			package: string;
+			allowBuild: boolean;
 			allowHostNetwork: boolean;
 			allowPrivileged: boolean;
 			config: Record<string, string>;
@@ -1370,6 +1372,13 @@ export interface SentinelPluginArtifacts {
 	maxFileBytes: number;
 }
 
+/** How the host builds the image from the uploaded package. */
+export interface SentinelPluginBuild {
+	dockerfile: string;
+	context: string;
+	args: Record<string, string>;
+}
+
 /** Optional frontend served from the plugin image under `/ui/`. */
 export interface SentinelPluginUi {
 	/** Container path of the entry document, e.g. `/ui/index.html`. */
@@ -1396,7 +1405,7 @@ export interface SentinelPluginManifest {
 	author: string;
 	source: string;
 	license: string;
-	image: string;
+	build: SentinelPluginBuild;
 	mcp: SentinelPluginMcp;
 	config: SentinelPluginConfigField[];
 	permissions: SentinelPluginPermissions;

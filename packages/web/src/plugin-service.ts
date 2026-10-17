@@ -30,8 +30,10 @@ import {
 } from "./plugin-store.ts";
 
 const DEFAULT_TIMEOUT_MS = 20000;
-/** Pulling an image and waiting for health can legitimately take minutes. */
+/** Starting a container and waiting for health can legitimately take minutes. */
 const LONG_TIMEOUT_MS = 900000;
+/** Building the image from the uploaded package is slower than any other call. */
+const INSTALL_TIMEOUT_MS = 1800000;
 
 export class PluginServiceError extends Error {
 	status: number;
@@ -276,6 +278,9 @@ export function deleteHost(agentDir: string, hostId: string): void {
 export interface InstallPluginInput {
 	hostId: string;
 	manifest: SentinelPluginManifest;
+	/** The uploaded zip, base64; the host extracts and builds it. */
+	package: string;
+	allowBuild: boolean;
 	allowHostNetwork: boolean;
 	allowPrivileged: boolean;
 	config: Record<string, string>;
@@ -313,6 +318,7 @@ export async function installPlugin(agentDir: string, input: InstallPluginInput)
 			// Never the config values: they may hold secrets.
 			detail: {
 				network: input.manifest.permissions.network,
+				allowBuild: input.allowBuild,
 				allowHostNetwork: input.allowHostNetwork,
 				allowPrivileged: input.allowPrivileged,
 				configKeys: Object.keys(input.config),
@@ -327,12 +333,14 @@ export async function installPlugin(agentDir: string, input: InstallPluginInput)
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
 						manifest: input.manifest,
+						package: input.package,
+						allowBuild: input.allowBuild,
 						allowHostNetwork: input.allowHostNetwork,
 						allowPrivileged: input.allowPrivileged,
 						config: input.config,
 					}),
 				},
-				LONG_TIMEOUT_MS,
+				INSTALL_TIMEOUT_MS,
 			),
 	);
 	rememberPluginStates(agentDir, [

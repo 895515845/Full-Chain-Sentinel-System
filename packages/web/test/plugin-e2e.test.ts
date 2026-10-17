@@ -20,7 +20,6 @@ import type { DockerRunner } from "../src/plugin-host/types.ts";
 import type { SentinelServerMessage } from "../src/protocol.ts";
 import { startSentinelServer } from "../src/server.ts";
 
-const DIGEST = "c".repeat(64);
 const TOKEN = "sph_e2e";
 const PLUGIN_ID = "com.example.recon";
 
@@ -30,12 +29,12 @@ interface FakeState {
 }
 
 function fakeDocker(state: FakeState): DockerRunner {
-	const image = `ghcr.io/example/recon@sha256:${DIGEST}`;
 	return async (args) => {
 		const [command] = args;
 		if (command === "pull") return { code: 0, stdout: "", stderr: "" };
 		if (command === "version") return { code: 0, stdout: "27.0.0\n", stderr: "" };
-		if (command === "image") return { code: 0, stdout: JSON.stringify([image]), stderr: "" };
+		if (command === "build") return { code: 0, stdout: "built", stderr: "" };
+		if (command === "rmi") return { code: 0, stdout: "", stderr: "" };
 		if (command === "rm") {
 			state.containers.delete(args[args.length - 1] ?? "");
 			return { code: 0, stdout: "", stderr: "" };
@@ -141,13 +140,57 @@ const manifest = {
 	author: "github:someone",
 	source: "https://github.com/someone/recon",
 	license: "MIT",
-	image: `ghcr.io/example/recon@sha256:${DIGEST}`,
+	build: { dockerfile: "Dockerfile", context: "." },
 	mcp: { transport: "http", port: 7801, path: "/mcp", startupTimeoutMs: 3000 },
 	permissions: { network: "bridge" },
 	locality: "any",
 	healthcheck: { path: "/healthz", intervalMs: 200, timeoutMs: 1000 },
 	ui: { entry: "/ui/index.html", title: "侦察面板", protocol: 1 },
 };
+
+/** Minimal stored-entry zip for the install package. */
+function buildZip(files: Array<{ name: string; data: Buffer }>): Buffer {
+	const locals: Buffer[] = [];
+	const centrals: Buffer[] = [];
+	let offset = 0;
+	for (const file of files) {
+		const name = Buffer.from(file.name, "utf8");
+		const local = Buffer.alloc(30 + name.length);
+		local.writeUInt32LE(0x04034b50, 0);
+		local.writeUInt16LE(20, 4);
+		local.writeUInt32LE(file.data.length, 18);
+		local.writeUInt32LE(file.data.length, 22);
+		local.writeUInt16LE(name.length, 26);
+		name.copy(local, 30);
+		locals.push(Buffer.concat([local, file.data]));
+
+		const central = Buffer.alloc(46 + name.length);
+		central.writeUInt32LE(0x02014b50, 0);
+		central.writeUInt16LE(20, 4);
+		central.writeUInt16LE(20, 6);
+		central.writeUInt32LE(file.data.length, 20);
+		central.writeUInt32LE(file.data.length, 24);
+		central.writeUInt16LE(name.length, 28);
+		central.writeUInt32LE(offset, 42);
+		name.copy(central, 46);
+		centrals.push(central);
+
+		offset += local.length + file.data.length;
+	}
+	const directory = Buffer.concat(centrals);
+	const eocd = Buffer.alloc(22);
+	eocd.writeUInt32LE(0x06054b50, 0);
+	eocd.writeUInt16LE(files.length, 8);
+	eocd.writeUInt16LE(files.length, 10);
+	eocd.writeUInt32LE(directory.length, 12);
+	eocd.writeUInt32LE(offset, 16);
+	return Buffer.concat([...locals, directory, eocd]);
+}
+
+const PACKAGE = buildZip([
+	{ name: "Dockerfile", data: Buffer.from("FROM scratch\n") },
+	{ name: "plugin.json", data: Buffer.from(JSON.stringify(manifest)) },
+]).toString("base64");
 
 let root = "";
 let agentDir = "";
@@ -250,16 +293,16 @@ test("discovers the local host and shows no plugins", async () => {
 
 test("reads an uploaded plugin package before installing", async () => {
 	const pending = waitFor((message) => message.type === "plugin_manifest");
-	send({
-		type: "inspect_plugin_package",
-		name: "plugin.json",
-		data: Buffer.from(JSON.stringify(manifest)).toString("base64"),
-	});
+	const zip = buildZip([
+		{ name: "Dockerfile", data: Buffer.from("FROM scratch\n") },
+		{ name: "plugin.json", data: Buffer.from(JSON.stringify(manifest)) },
+	]);
+	send({ type: "inspect_plugin_package", name: "recon.zip", data: zip.toString("base64") });
 	const message = await pending;
 	expect(message.type).toBe("plugin_manifest");
 	if (message.type !== "plugin_manifest") return;
 	expect(message.manifest.id).toBe(PLUGIN_ID);
-	expect(message.source).toBe("plugin.json");
+	expect(message.source).toBe("recon.zip");
 });
 
 test("installs a plugin and mounts it on the next session", async () => {
@@ -268,6 +311,8 @@ test("installs a plugin and mounts it on the next session", async () => {
 		type: "install_plugin",
 		hostId: localHostId,
 		manifest,
+		package: PACKAGE,
+		allowBuild: true,
 		allowHostNetwork: false,
 		allowPrivileged: false,
 		config: {},

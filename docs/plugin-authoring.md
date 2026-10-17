@@ -1,6 +1,6 @@
 # 插件作者指南
 
-一个插件就是一个 Docker 镜像加一个 `plugin.json`。镜像里跑一个 MCP server，监听 HTTP；插件主机负责拉镜像、起容器、健康检查，控制台把它的工具挂给 Agent。
+一个插件是一个 zip 包：`plugin.json` + `Dockerfile` + 构建上下文。安装时插件主机解压、执行 `docker build`、起容器，控制台把它的工具挂给 Agent。不需要镜像仓库，也不需要 digest。
 
 ## 最小结构
 
@@ -8,7 +8,9 @@
 my-plugin/
 ├── plugin.json
 ├── Dockerfile
-└── README.md
+├── .dockerignore
+├── server.mjs
+└── ui/               # 可选前端
 ```
 
 打包上传：
@@ -19,9 +21,9 @@ zip -r my-plugin.zip my-plugin/
 
 `plugin.json` 的字段与校验规则见 [plugin-center.md](./plugin-center.md#5-插件包)。三条硬性要求：
 
-1. `image` 带 `@sha256:` digest。`latest` 会被拒绝。
+1. `build.dockerfile` 和 `build.context` 指向包内的 Dockerfile 与上下文，不能越出插件目录。
 2. `source` 指向公开仓库。本项目只分发开源插件。
-3. 容器监听 `mcp.port`，`healthcheck.path` 返回 2xx 才算启动成功。
+3. 容器监听 `0.0.0.0:<mcp.port>`，`healthcheck.path` 返回 2xx 才算启动成功。
 
 ## MCP server 要求
 
@@ -66,15 +68,24 @@ await ui.storage.set("lastDomain", "example.com");
 - 模板：`templates/plugin-ui-vanilla`（零构建）与 `templates/plugin-ui-react`（Vite）。
   完整说明见 [plugin-ui.md](./plugin-ui.md)。
 
-## 构建与发布
+## 构建与安装
+
+不需要推仓库。插件主机会用上传包里的 Dockerfile 构建：
 
 ```sh
-docker build -t ghcr.io/<账号>/sentinel-plugin-recon:0.1.0 .
-docker push ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
+cd my-plugin
+docker build -t sentinel-plugin-local .   # 先在本地确认 Dockerfile 能过
+cd ..
+zip -r my-plugin.zip my-plugin/
 ```
 
-把输出写进 `plugin.json` 的 `image`。多架构用 `docker buildx build --platform linux/amd64,linux/arm64 --push`。
+控制台「设置 → 插件 → 上传插件包」选择 zip，确认权限，勾选「允许在插件主机上执行 Dockerfile
+构建」，安装。构建需要的基础镜像和依赖都在主机上下载，第一次会慢一些；失败时看构建日志。
+
+- 构建标签由主机生成：`sentinel-plugin/<id>:<version>`。
+- Dockerfile 可以 `RUN` 任意命令，这是构建的固有权限；插件页会在安装前明确征得同意。
+- 写 `image` 字段会被拒绝，包只从上传的上下文构建。
+- 需要在构建时换镜像源/传参数，用 `build.args`（键是 `[A-Z][A-Z0-9_]*`，最多 16 项），host 会转成 `--build-arg`。
 
 ## 本地调试
 
@@ -96,8 +107,8 @@ npm run plugin-host -- --local
 npm run plugin-host -- --local --data-dir /tmp/sph-dev
 ```
 
-控制台会自动发现它。然后在「设置 → 插件」上传 `my-plugin.zip`（或者直接把 `plugin.json` 拖进去），
-安装前会展示 manifest 与声明的权限。zip 的根目录或一层子目录里有 `plugin.json` 即可。
+控制台会自动发现它。然后在「设置 → 插件」上传 `my-plugin.zip`，安装前会展示 manifest、构建配置与
+声明的权限。zip 的根目录或一层子目录里有 `plugin.json`，且同级有 Dockerfile 与构建上下文。
 
 跑构建产物而不是源码时用 `node packages/web/dist/index.js plugin-host --local`（先 `npm run build:web`）。
 
@@ -150,7 +161,8 @@ npm run plugin-host -- --local --data-dir /tmp/sph-dev
 ## 发布检查清单
 
 - [ ] `plugin.json` 通过校验（控制台安装时的报错会列全）
-- [ ] 镜像 digest 是刚推送的那一版
+- [ ] Dockerfile 在本机能 `docker build` 成功，容器监听 `0.0.0.0`
+- [ ] zip 里的 Dockerfile 与 `build.context` 路径和 manifest 一致
 - [ ] `/healthz` 在容器启动后 20 秒内可用
 - [ ] 工具描述能让模型看懂什么时候调用
 - [ ] 密钥走 `config`，没有硬编码

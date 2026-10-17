@@ -7,7 +7,10 @@
 	"author": "github:example",
 	"source": "https://github.com/example/sentinel-plugins/tree/main/hello-world",
 	"license": "MIT",
-	"image": "ghcr.io/example/sentinel-plugin-hello@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": "."
+	},
 	"mcp": {
 		"transport": "http",
 		"port": 7801,

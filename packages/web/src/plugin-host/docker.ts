@@ -16,6 +16,7 @@
  *   for SYS_ADMIN is an install error, not a container.
  */
 
+import { join } from "node:path";
 import { runDocker } from "../docker.ts";
 import type { SentinelPluginManifest } from "../plugin-manifest.ts";
 import type { PluginRuntimeState, StoredPluginRecord } from "./store.ts";
@@ -34,7 +35,8 @@ const TIMEOUT = {
 	remove: 30000,
 	inspect: 15000,
 	logs: 15000,
-	pull: 600000,
+	build: 1800000,
+	removeImage: 60000,
 } as const;
 
 const defaultRunner: DockerRunner = (args, options) => runDocker(args, options);
@@ -50,41 +52,66 @@ function runnerOf(context: DockerContext): DockerRunner {
 export interface CreateContainerOptions {
 	manifest: SentinelPluginManifest;
 	record: StoredPluginRecord;
+	/** Local tag produced by the build on this host. */
+	imageTag: string;
 	dataDir: string;
 	artifactsDir: string;
 	env: Record<string, string>;
 }
 
+export interface BuildImageOptions {
+	/** Directory of the extracted package that contains plugin.json. */
+	root: string;
+	/** Dockerfile path relative to root. */
+	dockerfile: string;
+	/** Build context relative to root. */
+	context: string;
+	/** Local tag, e.g. sentinel-plugin/com.example.recon:0.1.0. */
+	tag: string;
+	/** Values for --build-arg, already validated by the manifest parser. */
+	args: Record<string, string>;
+}
+
 /**
- * Pull by digest and verify what arrived is what was asked for.
+ * Build the image from the uploaded package.
  *
- * `docker pull repo@sha256:...` already fails when the registry serves different
- * content, so the check is a second lock: it catches an image that was already
- * present locally under that tag from another pull.
+ * The Dockerfile runs with the daemon's privileges, so the console only calls
+ * this after the operator explicitly approved "run the build on this host".
+ * The last 2 KB of output is returned on failure; the full log is written by
+ * the caller, because a failed Go or JDK build is unreadable without it.
  */
-export async function pullPluginImage(context: DockerContext, image: string): Promise<string | undefined> {
-	const runner = runnerOf(context);
-	const pull = await runner(["pull", image], { timeoutMs: TIMEOUT.pull });
-	if (pull.code !== 0) {
-		return `镜像拉取失败：${(pull.stderr || pull.stdout).trim().slice(-600) || `退出码 ${pull.code}`}`;
-	}
-	const digest = image.slice(image.indexOf("@") + 1);
-	const inspect = await runner(["image", "inspect", "--format", "{{json .RepoDigests}}", image], {
-		timeoutMs: TIMEOUT.inspect,
-	});
-	if (inspect.code !== 0) return `镜像校验失败：${inspect.stderr.trim().slice(-400)}`;
-	try {
-		const digests = JSON.parse(inspect.stdout.trim()) as unknown;
-		if (
-			!Array.isArray(digests) ||
-			!digests.some((entry) => typeof entry === "string" && entry.endsWith(`@${digest}`))
-		) {
-			return `镜像 digest 不匹配：本地镜像的 RepoDigests 中没有 ${digest}`;
-		}
-	} catch {
-		return "镜像校验失败：无法解析 docker image inspect 的输出";
-	}
-	return undefined;
+export interface BuildResult {
+	ok: boolean;
+	/** Full build output, written to the plugin's build.log by the caller. */
+	output: string;
+	error?: string;
+}
+
+export async function buildPluginImage(context: DockerContext, options: BuildImageOptions): Promise<BuildResult> {
+	const result = await runnerOf(context)(
+		[
+			"build",
+			"-f",
+			join(options.root, options.dockerfile),
+			"-t",
+			options.tag,
+			...Object.entries(options.args).flatMap(([key, value]) => ["--build-arg", `${key}=${value}`]),
+			join(options.root, options.context),
+		],
+		{ timeoutMs: TIMEOUT.build },
+	);
+	const output = `${result.stdout}\n${result.stderr}`.trim();
+	if (result.code === 0) return { ok: true, output };
+	return {
+		ok: false,
+		output,
+		error: `镜像构建失败（退出码 ${result.code}）：\n${output.slice(-2000)}`,
+	};
+}
+
+/** Remove a locally built image; a missing image is not an error. */
+export async function removeImage(context: DockerContext, tag: string): Promise<void> {
+	await runnerOf(context)(["rmi", tag], { timeoutMs: TIMEOUT.removeImage });
 }
 
 /** Whether the daemon answers, for the host's own status line. */
@@ -132,7 +159,7 @@ export function createArgs(options: CreateContainerOptions): string[] {
 	if (manifest.permissions.privileged) args.push("--privileged");
 	args.push("-v", `${dataDir}:/data`, "-v", `${artifactsDir}:/artifacts`);
 	for (const [key, value] of Object.entries(env)) args.push("-e", `${key}=${value}`);
-	args.push(manifest.image);
+	args.push(options.imageTag);
 	return args;
 }
 
@@ -141,21 +168,22 @@ export async function removeContainer(context: DockerContext, name: string): Pro
 	await runnerOf(context)(["rm", "-f", name], { timeoutMs: TIMEOUT.remove });
 }
 
+/**
+ * Create the container. The published port is only assigned when it starts
+ * (Docker leaves HostPort empty at create time), so callers resolve it after
+ * startContainer rather than here.
+ */
 export async function createContainer(
 	context: DockerContext,
 	options: CreateContainerOptions,
-): Promise<{ hostPort: number | null } | { error: string }> {
+): Promise<string | undefined> {
 	const runner = runnerOf(context);
 	await removeContainer(context, options.record.containerName);
 	const created = await runner(createArgs(options), { timeoutMs: TIMEOUT.create });
 	if (created.code !== 0) {
-		return { error: `创建容器失败：${(created.stderr || created.stdout).trim().slice(-600)}` };
+		return `创建容器失败：${(created.stderr || created.stdout).trim().slice(-600)}`;
 	}
-	const port = await containerHostPort(context, options.record.containerName, options.manifest.mcp.port);
-	if (options.manifest.permissions.network === "bridge" && port === null) {
-		return { error: "容器已创建，但读不到映射到 127.0.0.1 的端口" };
-	}
-	return { hostPort: port };
+	return undefined;
 }
 
 /** The loopback port Docker assigned, or null when the port is not published. */

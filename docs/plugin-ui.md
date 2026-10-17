@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 | 打开方式 | v1 全屏浮层，从插件抽屉的「打开界面」进入 |
 | 2 | 能力范围 | 完整：context、artifact.read、tool.call、config.write、storage |
-| 3 | 资源位置 | 插件镜像内的 `/ui/`，与镜像 digest 同版本 |
+| 3 | 资源位置 | 插件镜像内的 `/ui/`，与本地构建的插件版本同源 |
 | 4 | 模板约束 | 固定入口与 SDK 协议，框架不限；官方提供 vanilla 与 React 两个模板 |
 | 5 | 外网访问 | 默认禁止；iframe 内不能直接 fetch 外网 |
 

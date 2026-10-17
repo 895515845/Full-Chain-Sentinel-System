@@ -48,6 +48,10 @@ export interface StoredPluginRecord {
 	allowHostNetwork: boolean;
 	containerName: string;
 	hostPort: number | null;
+	/** Local tag produced by the build on this host. */
+	imageTag: string;
+	/** SHA-256 of the uploaded package, so a rebuild is visible. */
+	packageHash: string;
 	lastError: string | null;
 }
 
@@ -179,6 +183,8 @@ export function readPluginRecord(dataDir: string, id: string): StoredPluginRecor
 		containerName:
 			typeof value.containerName === "string" ? value.containerName : containerNameFor(parsed.manifest.id),
 		hostPort: typeof value.hostPort === "number" ? value.hostPort : null,
+		imageTag: typeof value.imageTag === "string" ? value.imageTag : "",
+		packageHash: typeof value.packageHash === "string" ? value.packageHash : "",
 		lastError: typeof value.lastError === "string" ? value.lastError : null,
 	};
 }

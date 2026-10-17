@@ -12,7 +12,16 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
-import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+	createReadStream,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	realpathSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
@@ -27,14 +36,15 @@ import {
 import type { DockerContext } from "./docker.ts";
 import {
 	ALLOWED_CAPS,
+	buildPluginImage,
 	containerHostPort,
 	containerLogs,
 	createContainer,
 	dockerVersion,
 	inspectContainer,
 	probeHealth,
-	pullPluginImage,
 	removeContainer,
+	removeImage,
 	renameContainer,
 	runtimeState,
 	startContainer,
@@ -42,6 +52,7 @@ import {
 	waitHealthy,
 } from "./docker.ts";
 import { callPluginTool } from "./mcp-client.ts";
+import { extractPluginPackage, packageHash } from "./package.ts";
 import { proxyToPlugin } from "./proxy.ts";
 import {
 	configuredKeys,
@@ -51,6 +62,7 @@ import {
 	type PluginView,
 	pluginArtifactsDir,
 	pluginDataDir,
+	pluginDir,
 	readPluginConfigValues,
 	readPluginRecord,
 	readUiStorage,
@@ -62,7 +74,7 @@ import {
 
 export const PLUGIN_HOST_VERSION = 1;
 export const MAX_PLUGINS = 32;
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_ARTIFACT_ENTRIES = 500;
 const MAX_UI_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_UI_STORAGE_BYTES = 256 * 1024;
@@ -246,6 +258,13 @@ function resolveArtifact(root: string, requested: string): string | null {
 	}
 }
 
+/** Local tag for a plugin build; both parts are restricted to Docker's charset. */
+function imageTagFor(manifest: SentinelPluginManifest): string {
+	const repo = manifest.id.replace(/[^a-z0-9._-]+/g, "-");
+	const tag = manifest.version.replace(/[^A-Za-z0-9_.-]+/g, "-");
+	return `sentinel-plugin/${repo}:${tag}`;
+}
+
 export async function startPluginHost(options: PluginHostOptions): Promise<RunningPluginHost> {
 	const docker: DockerContext = options.docker ?? {};
 	const log = options.log ?? ((line: string) => console.error(`[plugin-host] ${line}`));
@@ -284,36 +303,45 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 	}
 
 	/**
-	 * Pull and start a candidate container under a temporary name, and only then
-	 * replace the canonical one. A failed upgrade therefore leaves the working
-	 * version running instead of deleting it before the new one is healthy.
+	 * Start a candidate container under a temporary name, and only then replace
+	 * the canonical one. A failed upgrade therefore leaves the working version
+	 * running; the image has already been built by the caller.
 	 */
 	async function deploy(record: StoredPluginRecord, values: Record<string, string>): Promise<void> {
 		const { manifest } = record;
-		const imageError = await pullPluginImage(docker, manifest.image);
-		if (imageError) throw new HttpError(502, imageError);
+		if (!record.imageTag) throw new HttpError(409, "插件还没有构建，请重新安装");
 		const containerName = record.containerName;
 		const candidateName = `${containerName}-next`;
 		// A leftover candidate from an interrupted run must not block this one.
 		await removeContainer(docker, candidateName);
 		const candidate: StoredPluginRecord = { ...record, containerName: candidateName, hostPort: null };
-		const created = await createContainer(docker, {
+		const createError = await createContainer(docker, {
 			manifest,
 			record: candidate,
+			imageTag: record.imageTag,
 			dataDir: pluginDataDir(options.dataDir, manifest.id),
 			artifactsDir: pluginArtifactsDir(options.dataDir, manifest.id),
 			env: pluginConfigEnv(manifest.config, values),
 		});
-		if ("error" in created) {
+		if (createError) {
 			await removeContainer(docker, candidateName);
-			throw new HttpError(502, created.error);
+			throw new HttpError(502, createError);
 		}
 		const started = await startContainer(docker, candidateName);
 		if (started) {
 			await removeContainer(docker, candidateName);
 			throw new HttpError(502, started);
 		}
-		const health = await waitHealthy(docker, candidate, created.hostPort);
+		// Docker assigns the random loopback port on start, not on create.
+		const hostPort =
+			manifest.permissions.network === "bridge"
+				? await containerHostPort(docker, candidateName, manifest.mcp.port)
+				: manifest.mcp.port;
+		if (manifest.permissions.network === "bridge" && hostPort === null) {
+			await removeContainer(docker, candidateName);
+			throw new HttpError(502, "容器已启动，但读不到映射到 127.0.0.1 的端口");
+		}
+		const health = await waitHealthy(docker, candidate, hostPort);
 		if (!health.ok) {
 			await removeContainer(docker, candidateName);
 			throw new HttpError(502, health.error ?? "健康检查未通过");
@@ -321,7 +349,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		await removeContainer(docker, containerName);
 		const renamed = await renameContainer(docker, candidateName, containerName);
 		if (renamed) throw new HttpError(502, renamed);
-		record.hostPort = created.hostPort;
+		record.hostPort = hostPort;
 		record.updatedAt = Date.now();
 		record.lastError = null;
 	}
@@ -346,6 +374,9 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		}
 		if (manifest.permissions.privileged && body.allowPrivileged !== true) {
 			throw new HttpError(403, "privileged 需要在安装时明确同意");
+		}
+		if (body.allowBuild !== true) {
+			throw new HttpError(403, "构建会在插件主机上执行插件包里的 Dockerfile，需要明确同意");
 		}
 		const others = records().filter((record) => record.manifest.id !== manifest.id).length;
 		if (others >= MAX_PLUGINS) throw new HttpError(409, `插件数量已达上限 ${MAX_PLUGINS}`);
@@ -377,6 +408,33 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const failure = validatePluginConfig(manifest.config, values);
 		if (failure) throw new HttpError(400, failure);
 
+		const packageInput = typeof body.package === "string" ? body.package : "";
+		if (!packageInput) throw new HttpError(400, "缺少插件包；安装需要包含 Dockerfile 的 zip");
+		const buffer = Buffer.from(packageInput, "base64");
+		const packageDir = join(options.dataDir, "packages", manifest.id);
+		let extracted: ReturnType<typeof extractPluginPackage>;
+		try {
+			extracted = extractPluginPackage(buffer, packageDir);
+		} catch (error) {
+			throw new HttpError(400, error instanceof Error ? error.message : String(error));
+		}
+		if (extracted.manifest.id !== manifest.id || extracted.manifest.version !== manifest.version) {
+			throw new HttpError(400, "插件包里的 plugin.json 与安装请求不一致");
+		}
+
+		const imageTag = imageTagFor(manifest);
+		const build = await buildPluginImage(docker, {
+			root: extracted.root,
+			dockerfile: manifest.build.dockerfile,
+			context: manifest.build.context,
+			tag: imageTag,
+			args: manifest.build.args,
+		});
+		const buildLog = join(pluginDir(options.dataDir, manifest.id), "build.log");
+		mkdirSync(dirname(buildLog), { recursive: true });
+		writeFileSync(buildLog, `${build.output}\n`);
+		if (!build.ok) throw new HttpError(502, build.error ?? "镜像构建失败");
+
 		const record: StoredPluginRecord = {
 			manifest,
 			installedAt: existing?.installedAt ?? Date.now(),
@@ -384,6 +442,8 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			allowHostNetwork: body.allowHostNetwork === true,
 			containerName: containerNameFor(manifest.id),
 			hostPort: null,
+			imageTag,
+			packageHash: packageHash(buffer),
 			lastError: null,
 		};
 		try {
@@ -391,6 +451,9 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		} catch (error) {
 			log(`install ${manifest.id} failed: ${error instanceof Error ? error.message : String(error)}`);
 			throw error;
+		}
+		if (existing?.imageTag && existing.imageTag !== imageTag) {
+			await removeImage(docker, existing.imageTag);
 		}
 		// Persist only after the new container is healthy: a failed install leaves the
 		// previous version's files (and container) untouched.
@@ -469,7 +532,10 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const id = url.pathname.split("/")[3] ?? "";
 		const record = loadRecord(id);
 		await removeContainer(docker, record.containerName);
-		deletePluginRecord(options.dataDir, id, url.searchParams.get("purge") === "1");
+		if (record.imageTag) await removeImage(docker, record.imageTag);
+		const purge = url.searchParams.get("purge") === "1";
+		if (purge) rmSync(join(options.dataDir, "packages", id), { recursive: true, force: true });
+		deletePluginRecord(options.dataDir, id, purge);
 		log(`uninstalled ${id}`);
 		sendJson(response, 200, { ok: true });
 	}

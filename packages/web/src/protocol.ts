@@ -1116,6 +1116,10 @@ export type SentinelClientMessage =
 			type: "install_plugin";
 			hostId: string;
 			manifest: SentinelPluginManifest;
+			/** The uploaded zip, base64. The host extracts and builds it. */
+			package: string;
+			/** Explicit consent to run the Dockerfile on the plugin host. */
+			allowBuild: boolean;
 			allowHostNetwork: boolean;
 			allowPrivileged: boolean;
 			config: Record<string, string>;

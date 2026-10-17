@@ -2,13 +2,9 @@
  * A plugin package as uploaded from the plugin center.
  *
  * A package is a zip whose root (or a single top-level directory) holds
- * `plugin.json`. Nothing is extracted to disk: the image comes from the
- * registry, so the archive only has to carry the manifest and the README. That
- * keeps the upload path free of path traversal and temp-file cleanup, and it
- * means a failed validation leaves nothing behind.
- *
- * A bare `.json` is accepted too, because the manifest is the only file the
- * install actually needs and that is what an author usually has at hand.
+ * `plugin.json` and the Dockerfile + build context declared by `build`. The
+ * console reads it for the install preview and forwards the same bytes to the
+ * plugin host, which extracts and builds it. Nothing is extracted here.
  */
 
 import { basename } from "node:path";
@@ -18,8 +14,8 @@ import { readZip } from "./poc-zip.ts";
 /** The zip is held in memory while it is read; a manifest package is kilobytes. */
 export const MAX_PLUGIN_PACKAGE_BYTES = 8 * 1024 * 1024;
 
-/** Enough for a manifest, README, Dockerfile, and a small icon. */
-export const MAX_PLUGIN_PACKAGE_FILES = 200;
+/** Enough for a manifest, source tree, UI, and a small icon. */
+export const MAX_PLUGIN_PACKAGE_FILES = 400;
 
 export interface PluginPackageContents {
 	manifest: SentinelPluginManifest;
@@ -80,15 +76,8 @@ export function readPluginPackage(name: string, base64: string): PluginPackageCo
 	const buffer = decodePackage(displayName, base64);
 	const lower = displayName.toLowerCase();
 
-	if (lower.endsWith(".json")) {
-		return {
-			manifest: parseManifestJson(buffer.toString("utf-8"), displayName),
-			name: displayName,
-			files: [],
-		};
-	}
 	if (!lower.endsWith(".zip")) {
-		throw new Error("只支持 .zip 插件包，或直接上传 plugin.json");
+		throw new Error("只支持 .zip：插件包必须包含 Dockerfile 和构建上下文");
 	}
 
 	const { entries } = readZip(buffer);
@@ -101,8 +90,18 @@ export function readPluginPackage(name: string, base64: string): PluginPackageCo
 		.sort((left, right) => depthOf(left.name) - depthOf(right.name));
 	const found = manifests[0];
 	if (!found) throw new Error("插件包的根目录（或一层子目录）里没有 plugin.json");
+	const manifest = parseManifestJson(found.data.toString("utf-8"), displayName);
+	const root = found.name.includes("/") ? found.name.slice(0, found.name.lastIndexOf("/") + 1) : "";
+	const dockerfile = `${root}${manifest.build.dockerfile}`;
+	if (!files.includes(dockerfile)) {
+		throw new Error(`插件包里没有 Dockerfile：${dockerfile}`);
+	}
+	const context = `${root}${manifest.build.context === "." ? "" : `${manifest.build.context}/`}`;
+	if (context && !files.some((entry) => entry.startsWith(context))) {
+		throw new Error(`插件包里没有构建上下文目录：${manifest.build.context}`);
+	}
 	return {
-		manifest: parseManifestJson(found.data.toString("utf-8"), displayName),
+		manifest,
 		name: displayName,
 		files,
 	};

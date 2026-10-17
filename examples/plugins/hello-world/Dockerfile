@@ -8,7 +8,7 @@ COPY ui ./ui
 ENV PORT=7801
 EXPOSE 7801
 
-# /artifacts and /data are mounted by the plugin host. Build the example with:
-#   docker build -t ghcr.io/<you>/sentinel-plugin-hello:0.1.0 examples/plugins/hello-world
-# then push and copy the digest into plugin.json.
+# /artifacts and /data are mounted by the plugin host. The host builds this
+# Dockerfile from the uploaded package; to check it locally:
+#   docker build -t sentinel-plugin-hello:0.1.0 examples/plugins/hello-world
 CMD ["node", "server.mjs"]

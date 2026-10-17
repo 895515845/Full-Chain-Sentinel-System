@@ -3,16 +3,19 @@
 把 subfinder 和 naabu 包成两个 MCP 工具，作为 M1 的验收用例。它验证的是长任务、
 大输出和产物回传：完整结果写文件，模型只拿到前 300 行摘要和产物路径。
 
-## 构建与发布
+## 打包与安装
+
+插件主机在安装时构建，不需要推镜像：
 
 ```sh
-docker build -t ghcr.io/<你的账号>/sentinel-plugin-recon:0.1.0 .
-docker push ghcr.io/<你的账号>/sentinel-plugin-recon:0.1.0
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<你的账号>/sentinel-plugin-recon:0.1.0
+docker build -t sentinel-plugin-recon:0.1.0 .   # 可选，本地校验
+cd ..
+zip -r recon.zip recon/
 ```
 
-把输出粘进 `plugin.json` 的 `image`。基础镜像用的是 projectdiscovery 官方镜像，
-拷贝的是 `/usr/local/bin` 下的二进制；如果上游改了路径，构建会直接失败，不会静默产出坏镜像。
+控制台「设置 → 插件 → 上传插件包」选择 zip，确认 `NET_RAW` 与构建同意。基础镜像用的是
+projectdiscovery 官方镜像，拷贝的是 `/usr/local/bin` 下的二进制；如果上游改了路径，构建会
+直接失败，不会静默产出坏镜像。
 
 ## 能力与限制
 

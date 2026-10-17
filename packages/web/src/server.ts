@@ -1404,6 +1404,8 @@ export async function startSentinelServer(
 						await runtime.installPlugin({
 							hostId: message.hostId,
 							manifest: message.manifest,
+							package: message.package,
+							allowBuild: message.allowBuild,
 							allowHostNetwork: message.allowHostNetwork,
 							allowPrivileged: message.allowPrivileged,
 							config: message.config,

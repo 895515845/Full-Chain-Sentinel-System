@@ -10,7 +10,7 @@
 2. 插件可以跑在用户自己的 VPS 上，本地控制台主动出站连接。
 3. 不建中心化市场：插件包由作者在开源仓库发布，用户下载后上传安装。
 
-v1 明确不做：代存镜像、代构建、账号体系、评分、自动更新、插件间通信、索引订阅。插件可以自带前端，但运行在沙箱 iframe 里，见 [plugin-ui.md](./plugin-ui.md)。
+v1 明确不做：代存镜像、账号体系、评分、自动更新、插件间通信、索引订阅。插件可以自带前端，但运行在沙箱 iframe 里，见 [plugin-ui.md](./plugin-ui.md)。
 
 ## 2. 前提：不需要反向隧道
 
@@ -26,7 +26,7 @@ v1 明确不做：代存镜像、代构建、账号体系、评分、自动更�
 | 2 | 插件边界 | 以工具/能力为主；可选的插件自带前端由控制台以沙箱 iframe 打开 |
 | 3 | 权限模型 | 安装时用户选择：受限容器或 host 网络 |
 | 4 | 市场形态 | 无中心，插件包由作者发布、用户上传安装 |
-| 5 | 包内容 | 只有 manifest，镜像由作者自己发，按 digest 拉取 |
+| 5 | 包内容 | manifest + Dockerfile + 构建上下文，安装时在 host 上本地构建 |
 | 6 | host 部署 | 同一镜像，本地与 VPS 都能跑 |
 | 7 | 产物 | 结果走 MCP，大文件走 artifacts 拉取接口 |
 | 8 | 审批 | 不拦截，只审计；靠安装时同意 + 一键停用 |
@@ -39,7 +39,7 @@ v1 明确不做：代存镜像、代构建、账号体系、评分、自动更�
 ┌─────────────────────────┐   HTTP(S) + Bearer token   ┌──────────────────────────┐
 │ 控制台 (sentinel-web)    │ ─────────────────────────▶ │ plugin-host (VPS 或本机)  │
 │  - 插件中心页            │                            │  - 容器生命周期           │
-│  - 虚拟 MCP 服务器        │ ◀───────────────────────── │  - 镜像拉取与校验         │
+│  - 虚拟 MCP 服务器        │ ◀───────────────────────── │  - 解包、构建与校验       │
 │  - 审计 / 证据            │   MCP over HTTP            │  - 反代 /plugins/<id>/mcp │
 └─────────────────────────┘                            │  - 健康检查 / 日志        │
                                                        └────────────┬─────────────┘
@@ -65,7 +65,10 @@ v1 明确不做：代存镜像、代构建、账号体系、评分、自动更�
 ```
 my-plugin/
 ├── plugin.json
-└── README.md
+├── Dockerfile
+├── .dockerignore
+├── server.mjs
+└── ui/                 # 可选
 
 zip -r my-plugin.zip my-plugin/
 ```
@@ -82,7 +85,7 @@ zip -r my-plugin.zip my-plugin/
   "author": "github:someone",
   "source": "https://github.com/someone/sentinel-plugin-recon",
   "license": "MIT",
-  "image": "ghcr.io/someone/sentinel-plugin-recon@sha256:0000",
+  "build": { "dockerfile": "Dockerfile", "context": "." },
   "mcp": {
     "transport": "http",
     "port": 7801,
@@ -115,7 +118,7 @@ zip -r my-plugin.zip my-plugin/
 | `author` | string | 是 | `github:<handle>` |
 | `source` | string | 是 | 源码仓库，纯开源项目不允许闭源镜像 |
 | `license` | string | 是 | 许可证标识 |
-| `image` | string | 是 | 必须带 `@sha256:` digest，拒绝 `latest` |
+| `build` | object | 是 | `dockerfile`、`context` 是插件包内的相对路径；`args` 可选，传给 `docker build --build-arg`；写 `image` 会被拒绝 |
 | `mcp` | object | 是 | `transport` 只能是 `http`（streamable HTTP）；`port` 为容器内端口；`requestTimeoutMs` 为单次工具调用超时 |
 | `config` | array | 否 | 配置项，控制台据此渲染表单 |
 | `permissions` | object | 是 | `network`：`none`/`bridge`/`host` |
@@ -127,7 +130,8 @@ zip -r my-plugin.zip my-plugin/
 
 ### 5.3 校验规则
 
-- 镜像必须带 digest，拉取后校验 `RepoDigests`，不匹配直接失败。
+- 安装包必须包含 `build.dockerfile` 与 `build.context`；host 解压后构建，构建失败不落记录。
+- 安装必须显式同意「在插件主机上执行 Dockerfile 构建」；没有同意返回 403。
 - `id` 在单个 host 内唯一；重复安装视为升级，需显式确认。
 - `source` 必填，UI 上展示为「未验证」。
 - `config.key` 必须匹配 `^[A-Z][A-Z0-9_]*$`，注入容器时加 `PLUGIN_` 前缀。
@@ -226,11 +230,13 @@ npm run plugin-host -- --help
 - 明文 HTTP 只允许回环地址；控制台保存 host 时会拒绝其它 http 地址。
 - token 轮换：`--rotate-token` 重启生效，旧 token 立即失效。
 
-### 6.5 镜像
+### 6.5 构建
 
-- 只拉 digest，不构建。
-- 支持镜像前缀镜像站：`SENTINEL_PLUGIN_REGISTRY_MIRROR=ghcr.nju.edu.cn/`（未实现，见未决项）。
-- 拉取失败保留上一次成功的镜像，不自动回退版本。
+- 不上传、不拉取镜像；host 解压插件包后执行 `docker build -f <dockerfile> -t sentinel-plugin/<id>:<version> <context>`。
+- 构建上下文来自包内，路径不能越出插件目录；构建日志写到 `plugins/<id>/build.log`。
+- 构建需要的基础镜像与依赖由 host 的 Docker 守护进程下载，第一次安装会慢一些。
+- 升级重新构建并覆盖同名 tag；卸载时删除本地镜像；`purge` 同时删除解压目录。
+- 构建按 host 架构进行；arm64 host 需要 Dockerfile 自身支持 arm64。
 
 ## 7. 控制台
 
@@ -238,16 +244,16 @@ npm run plugin-host -- --help
 
 - 插件中心（设置 → 插件）：host 列表、已安装插件、启停、卸载、日志、产物、改配置。改配置会重建容器；密钥字段留空表示保持已保存的值。
 - 插件界面（`ui`）：抽屉里的「打开界面」在全屏浮层中加载插件的 `/ui/`，iframe 走 `sandbox="allow-scripts"`，通过 postMessage 桥调用自己的工具、产物、配置与 storage。详见 [plugin-ui.md](./plugin-ui.md)。
-- 安装：上传插件包（`.zip` 或单个 `plugin.json`），读取其中的 manifest，展示权限后安装。包不会解压到磁盘。
+- 安装：上传 `.zip` 插件包（含 `plugin.json`、Dockerfile 与构建上下文），读取 manifest、展示权限与构建配置；勾选同意后 host 解压并构建。
 - 设置 → 插件主机：新增/编辑/测试/删除 host。
 
 ### 7.2 安装流程
 
-1. 上传 zip 或 plugin.json，读取其中的 manifest，展示 name、version、author、source（标注「未验证」）。zip 的根目录或一层子目录里有 `plugin.json` 即可。
+1. 上传 zip，读取其中的 manifest，展示 name、version、author、source（标注「未验证」）。包根目录或一层子目录里有 `plugin.json`，同级必须有所声明的 Dockerfile 与上下文。
 2. 展示权限差异：网络模式、capabilities、privileged、资源上限。
-3. 展示 `tools` 预览和那句同意文案。
-4. 用户选择受限 / host 网络，勾选 privileged（仅声明时出现），确定。
-5. host 拉镜像、校验 digest、起容器、等健康检查。
+3. 展示构建配置（Dockerfile、上下文）与 `tools` 预览。
+4. 用户选择受限 / host 网络，勾选 privileged（仅声明时出现），并勾选「允许在插件主机上执行 Dockerfile 构建」。
+5. host 解压、`docker build`、起容器、等健康检查；失败时返回构建日志尾部。
 6. 注册虚拟 MCP 服务器，默认启用，写入审计。
 
 ### 7.3 工具挂载
@@ -319,6 +325,6 @@ npm run plugin-host -- --help
 2. 多 host 下同名插件的展示与工具命名，当前后者跳过并报错，建议按 host 分组。
 3. 升级与回滚保留几个旧镜像，建议保留上一版并支持一键回滚。
 4. 卸载是否删除数据，当前默认保留，API 支持 `purge=1`。
-5. arm64 支持：镜像由作者提供多架构构建，host 侧无需改动。
+5. arm64 支持：构建在 host 本地进行，Dockerfile 需要兼容 host 架构。
 6. 镜像站前缀（`SENTINEL_PLUGIN_REGISTRY_MIRROR`）。
 7. 自动拉取 `_meta.artifacts`。

@@ -2,21 +2,22 @@
  * The community plugin manifest (`plugin.json`).
  *
  * A plugin is one Docker image exposing one MCP endpoint. The manifest is the
- * whole contract between the author, the plugin host and the console: the image
- * digest, the container's declared needs, the configuration form, and where the
- * container writes artifacts.
+ * whole contract between the author, the plugin host and the console: where the
+ * Dockerfile is, the container's declared needs, the configuration form, and
+ * where the container writes artifacts.
  *
  * Parsing is deliberately strict and total. It never throws: a manifest either
  * yields a complete, normalized record or a list of messages to show the
  * operator. Anything the manifest declares is shown before installation and is
  * applied by the host; nothing in it is trusted to enforce itself.
  *
- * Two rules exist because the alternative is a silent security hole:
+ * The package is built on the plugin host: the zip carries a Dockerfile and its
+ * context, and the host runs `docker build` before starting the container. There
+ * is no registry dependency, so a local plugin never needs a push.
  *
- * - The image must carry a digest. `latest` can be re-pushed, so a manifest that
- *   names a tag installs whatever the registry serves at that moment.
- * - The source repository is required. This project only distributes open
- *   plugins, and the console shows the link next to every install.
+ * The source repository is still required. The host executes the Dockerfile on
+ * the operator's machine, and an install shows the source link and asks for
+ * explicit approval before the build starts.
  */
 
 /** Bump only when a field changes meaning; the parser accepts older versions. */
@@ -107,6 +108,19 @@ export interface SentinelPluginUi {
 	protocol: number;
 }
 
+/**
+ * How the plugin host builds the image from the uploaded package. Paths are
+ * relative to the directory that contains `plugin.json`.
+ */
+export interface SentinelPluginBuild {
+	/** Dockerfile path inside the package. */
+	dockerfile: string;
+	/** Build context, relative to the plugin root. */
+	context: string;
+	/** Optional --build-arg values, e.g. a mirror for the base image. */
+	args: Record<string, string>;
+}
+
 /** A tool as advertised before install; the running MCP server remains authoritative. */
 export interface SentinelPluginToolHint {
 	name: string;
@@ -122,7 +136,7 @@ export interface SentinelPluginManifest {
 	author: string;
 	source: string;
 	license: string;
-	image: string;
+	build: SentinelPluginBuild;
 	mcp: SentinelPluginMcp;
 	config: SentinelPluginConfigField[];
 	permissions: SentinelPluginPermissions;
@@ -142,8 +156,11 @@ export type SentinelPluginParseResult =
 /** Reverse-DNS identifier; it is also the container's data directory name. */
 export const PLUGIN_ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
 
-/** Registry path with an explicit digest; tags are optional but never sufficient. */
-export const PLUGIN_IMAGE_PATTERN = /^[a-z0-9][a-z0-9._/:@-]*@sha256:[a-f0-9]{64}$/;
+/** Relative path inside the package: no absolute paths, no `..`. */
+const BUILD_PATH_PATTERN = /^[A-Za-z0-9._/-]+$/;
+const BUILD_ARG_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+const MAX_BUILD_ARGS = 16;
+const MAX_BUILD_ARG_CHARS = 300;
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const CONFIG_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
@@ -157,6 +174,7 @@ export const PLUGIN_LIMITS = {
 	maxDescriptionChars: 400,
 	maxConfigFields: 32,
 	maxUiEntryChars: 256,
+	maxBuildPathChars: 200,
 	maxToolHints: 64,
 	minCpus: 0.1,
 	maxCpus: 2,
@@ -173,6 +191,8 @@ export const PLUGIN_LIMITS = {
 } as const;
 
 export const PLUGIN_DEFAULTS = {
+	buildDockerfile: "Dockerfile",
+	buildContext: ".",
 	mcpPath: "/mcp",
 	mcpStartupTimeoutMs: 20000,
 	// Long enough for a real scan (subfinder + naabu), short enough that a hung
@@ -271,6 +291,15 @@ function normalizeToolHint(raw: unknown): SentinelPluginToolHint | null {
 	return { name, description: asText(value.description) };
 }
 
+function normalizeBuildArgs(value: unknown): Record<string, string> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const args: Record<string, string> = {};
+	for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+		if (typeof raw === "string") args[key] = raw;
+	}
+	return args;
+}
+
 /** The manifest as the host stores it: every optional field filled in. */
 function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 	const mcpRaw = asRecord(raw.mcp) ?? {};
@@ -278,6 +307,7 @@ function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 	const resourcesRaw = asRecord(raw.resources) ?? {};
 	const healthRaw = asRecord(raw.healthcheck) ?? {};
 	const artifactsRaw = asRecord(raw.artifacts) ?? {};
+	const buildRaw = asRecord(raw.build) ?? {};
 	const uiRaw = asRecord(raw.ui);
 	const hasUi = raw.ui !== undefined && raw.ui !== null;
 	const ui: SentinelPluginUi | null = hasUi
@@ -298,7 +328,11 @@ function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 		author: asText(raw.author),
 		source: asText(raw.source),
 		license: asText(raw.license),
-		image: asText(raw.image),
+		build: {
+			dockerfile: asText(buildRaw.dockerfile) || PLUGIN_DEFAULTS.buildDockerfile,
+			context: asText(buildRaw.context) || PLUGIN_DEFAULTS.buildContext,
+			args: normalizeBuildArgs(buildRaw.args),
+		},
 		mcp: {
 			transport: "http",
 			port: asPositiveInt(mcpRaw.port, 7801, 1, 65535),
@@ -408,9 +442,36 @@ export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 	if (!manifest.source) errors.push("缺少 source：本项目只分发带源码链接的开源插件");
 	else if (!isHttpUrl(manifest.source)) errors.push("source 必须是 http(s) 链接");
 	if (!manifest.license) errors.push("缺少 license");
-	if (!manifest.image) errors.push("缺少 image");
-	else if (!PLUGIN_IMAGE_PATTERN.test(manifest.image)) {
-		errors.push("image 必须带 @sha256:<64 位十六进制> digest，且仓库名只能小写");
+	if (raw.image !== undefined) {
+		errors.push("不再支持 image：插件包现在包含 Dockerfile，由插件主机本地构建");
+	}
+	const buildPaths: Array<[string, string]> = [
+		["build.dockerfile", manifest.build.dockerfile],
+		["build.context", manifest.build.context],
+	];
+	for (const [label, value] of buildPaths) {
+		if (!value) {
+			errors.push(`${label} 不能为空`);
+			continue;
+		}
+		if (value.startsWith("/") || value.split("/").includes("..") || !BUILD_PATH_PATTERN.test(value)) {
+			errors.push(`${label} 必须是插件包内的相对路径，不能以 / 开头或包含 ..`);
+			continue;
+		}
+		if (value.length > PLUGIN_LIMITS.maxBuildPathChars) {
+			errors.push(`${label} 不能超过 ${PLUGIN_LIMITS.maxBuildPathChars} 个字符`);
+		}
+	}
+	if (manifest.build.dockerfile === "." || manifest.build.dockerfile.endsWith("/")) {
+		errors.push("build.dockerfile 必须指向一个文件");
+	}
+	const buildArgEntries = Object.entries(manifest.build.args);
+	if (buildArgEntries.length > MAX_BUILD_ARGS) errors.push(`build.args 不能超过 ${MAX_BUILD_ARGS} 项`);
+	for (const [key, value] of buildArgEntries) {
+		if (!BUILD_ARG_KEY_PATTERN.test(key)) errors.push(`build.args 的键 ${key} 必须匹配 ^[A-Z][A-Z0-9_]*$`);
+		if (typeof value !== "string" || value.length > MAX_BUILD_ARG_CHARS || value.includes("\n")) {
+			errors.push(`build.args.${key} 必须是 ${MAX_BUILD_ARG_CHARS} 字符以内的单行字符串`);
+		}
 	}
 
 	if (!manifest.mcp.path.startsWith("/")) errors.push("mcp.path 必须以 / 开头");

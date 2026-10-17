@@ -140,6 +140,7 @@ export function PluginPanel({
 	onInstall: (input: {
 		hostId: string;
 		manifest: SentinelPluginManifest;
+		allowBuild: boolean;
 		allowHostNetwork: boolean;
 		allowPrivileged: boolean;
 		config: Record<string, string>;
@@ -165,6 +166,7 @@ export function PluginPanel({
 	const [activeTab, setActiveTab] = useState<"plugins" | "docs">("plugins");
 	const [installHostId, setInstallHostId] = useState("");
 	const [configValues, setConfigValues] = useState<Record<string, string>>({});
+	const [allowBuild, setAllowBuild] = useState(false);
 	const [allowHostNetwork, setAllowHostNetwork] = useState(false);
 	const [allowPrivileged, setAllowPrivileged] = useState(false);
 	const [installPending, setInstallPending] = useState(false);
@@ -196,6 +198,7 @@ export function PluginPanel({
 				value === null ? "" : typeof value === "boolean" ? (value ? "true" : "false") : String(value);
 		}
 		setConfigValues(next);
+		setAllowBuild(false);
 		setAllowHostNetwork(false);
 		setAllowPrivileged(false);
 		setSelectedKey(null);
@@ -236,7 +239,8 @@ export function PluginPanel({
 		manifest === null ||
 		((manifest.permissions.network !== "host" || allowHostNetwork) &&
 			(!manifest.permissions.privileged || allowPrivileged));
-	const installReady = manifest !== null && installHostId !== "" && configComplete && permissionsAllowed;
+	const installReady =
+		manifest !== null && installHostId !== "" && configComplete && permissionsAllowed && allowBuild;
 	const hostValid =
 		hostDraft !== null &&
 		hostDraft.name.trim().length > 0 &&
@@ -342,7 +346,14 @@ export function PluginPanel({
 			if (value !== undefined && value !== "") config[field.key] = value;
 		}
 		setInstallPending(true);
-		onInstall({ hostId: installHostId, manifest, allowHostNetwork, allowPrivileged, config });
+		onInstall({
+			hostId: installHostId,
+			manifest,
+			allowBuild,
+			allowHostNetwork,
+			allowPrivileged,
+			config,
+		});
 	};
 
 	const uninstall = (plugin: SentinelPluginView): void => {
@@ -505,7 +516,7 @@ export function PluginPanel({
 					<input
 						ref={fileInput}
 						type="file"
-						accept=".zip,.json"
+						accept=".zip"
 						hidden
 						onChange={choosePackage}
 						aria-label="插件包文件"
@@ -750,8 +761,12 @@ export function PluginPanel({
 
 									<div className="drawer-kv">
 										<div>
-											<span>镜像</span>
-											<code>{manifest?.image}</code>
+											<span>构建</span>
+											<code>{manifest?.build.dockerfile}</code>
+										</div>
+										<div>
+											<span>上下文</span>
+											<code>{manifest?.build.context}</code>
 										</div>
 										<div>
 											<span>locality</span>
@@ -787,6 +802,16 @@ export function PluginPanel({
 										</span>
 									</div>
 
+									<label className="mcp-editor__ack">
+										<input
+											type="checkbox"
+											checked={allowBuild}
+											disabled={busy}
+											onChange={(event) => setAllowBuild(event.target.checked)}
+										/>
+										允许在插件主机上执行插件包里的 Dockerfile：构建阶段可以运行任意命令，并以宿主机 Docker
+										守护进程的权限访问网络。
+									</label>
 									{manifest?.permissions.network === "host" ? (
 										<label className="mcp-editor__ack">
 											<input
@@ -841,7 +866,7 @@ export function PluginPanel({
 									) : null}
 									{installPending && busy ? (
 										<p className="plugin-install__progress">
-											正在拉取镜像并等待健康检查，可能需要几分钟。
+											正在构建镜像并等待健康检查，可能需要几分钟。
 										</p>
 									) : null}
 								</div>
@@ -980,8 +1005,10 @@ export function PluginPanel({
 
 									<div className="drawer-kv">
 										<div>
-											<span>镜像</span>
-											<code>{selected.manifest.image}</code>
+											<span>构建</span>
+											<code>
+												{selected.manifest.build.dockerfile} · {selected.manifest.build.context}
+											</code>
 										</div>
 										<div>
 											<span>端口</span>

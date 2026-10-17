@@ -2,18 +2,20 @@
 
 最小可运行插件，用来验证三件事：安装与健康检查、MCP 工具挂载、产物回传。
 
-## 构建与发布
+## 打包与安装
 
-`plugin.json` 里的 `image` 是占位 digest，必须先发布镜像再替换：
+插件主机在安装时用包里的 Dockerfile 构建，不需要推镜像：
 
 ```sh
-docker build -t ghcr.io/<你的账号>/sentinel-plugin-hello:0.1.0 .
-docker push ghcr.io/<你的账号>/sentinel-plugin-hello:0.1.0
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<你的账号>/sentinel-plugin-hello:0.1.0
-# 输出形如 ghcr.io/<账号>/sentinel-plugin-hello@sha256:...
+# 可选：先在本地确认 Dockerfile 能过
+docker build -t sentinel-plugin-hello:0.1.0 .
+
+cd ..
+zip -r hello-world.zip hello-world/
 ```
 
-把输出粘进 `plugin.json` 的 `image`，同时把 `source` 改成真实仓库地址。
+控制台「设置 → 插件 → 上传插件包」选择 zip，勾选「允许在插件主机上执行 Dockerfile 构建」。
+同时把 `plugin.json` 的 `source` 改成真实仓库地址。
 
 ## 本地起服务（不经过 Docker）
 

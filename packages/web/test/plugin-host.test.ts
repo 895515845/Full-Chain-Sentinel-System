@@ -18,8 +18,6 @@ import { startPluginHost } from "../src/plugin-host/server.ts";
 import { readPluginRecord } from "../src/plugin-host/store.ts";
 import type { DockerRunner } from "../src/plugin-host/types.ts";
 
-const DIGEST = "b".repeat(64);
-const IMAGE = `ghcr.io/example/recon@sha256:${DIGEST}`;
 const TOKEN = "sph_test_token";
 
 function manifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -32,7 +30,7 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
 		author: "github:someone",
 		source: "https://github.com/someone/recon",
 		license: "MIT",
-		image: IMAGE,
+		build: { dockerfile: "Dockerfile", context: "." },
 		mcp: { transport: "http", port: 7801, path: "/mcp", startupTimeoutMs: 3000 },
 		permissions: { network: "bridge" },
 		locality: "any",
@@ -40,6 +38,53 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
 		ui: { entry: "/ui/index.html", title: "侦察面板", protocol: 1 },
 		...overrides,
 	};
+}
+
+/** Minimal stored-entry zip; the host extracts it before building. */
+function buildZip(files: Array<{ name: string; data: Buffer }>): Buffer {
+	const locals: Buffer[] = [];
+	const centrals: Buffer[] = [];
+	let offset = 0;
+	for (const file of files) {
+		const name = Buffer.from(file.name, "utf8");
+		const local = Buffer.alloc(30 + name.length);
+		local.writeUInt32LE(0x04034b50, 0);
+		local.writeUInt16LE(20, 4);
+		local.writeUInt32LE(file.data.length, 18);
+		local.writeUInt32LE(file.data.length, 22);
+		local.writeUInt16LE(name.length, 26);
+		name.copy(local, 30);
+		locals.push(Buffer.concat([local, file.data]));
+
+		const central = Buffer.alloc(46 + name.length);
+		central.writeUInt32LE(0x02014b50, 0);
+		central.writeUInt16LE(20, 4);
+		central.writeUInt16LE(20, 6);
+		central.writeUInt32LE(file.data.length, 20);
+		central.writeUInt32LE(file.data.length, 24);
+		central.writeUInt16LE(name.length, 28);
+		central.writeUInt32LE(offset, 42);
+		name.copy(central, 46);
+		centrals.push(central);
+
+		offset += local.length + file.data.length;
+	}
+	const directory = Buffer.concat(centrals);
+	const eocd = Buffer.alloc(22);
+	eocd.writeUInt32LE(0x06054b50, 0);
+	eocd.writeUInt16LE(files.length, 8);
+	eocd.writeUInt16LE(files.length, 10);
+	eocd.writeUInt32LE(directory.length, 12);
+	eocd.writeUInt32LE(offset, 16);
+	return Buffer.concat([...locals, directory, eocd]);
+}
+
+function installBody(manifestValue: Record<string, unknown>, extras: Record<string, unknown> = {}): string {
+	const zip = buildZip([
+		{ name: "Dockerfile", data: Buffer.from("FROM scratch\n") },
+		{ name: "plugin.json", data: Buffer.from(JSON.stringify(manifestValue)) },
+	]);
+	return JSON.stringify({ manifest: manifestValue, package: zip.toString("base64"), allowBuild: true, ...extras });
 }
 
 interface FakeDockerState {
@@ -52,9 +97,9 @@ function fakeRunner(state: FakeDockerState): DockerRunner {
 	return async (args) => {
 		state.calls.push(args.join(" "));
 		const [command] = args;
-		if (command === "pull") return { code: 0, stdout: "pulled", stderr: "" };
+		if (command === "build") return { code: 0, stdout: "built", stderr: "" };
+		if (command === "rmi") return { code: 0, stdout: "", stderr: "" };
 		if (command === "version") return { code: 0, stdout: "27.0.0\n", stderr: "" };
-		if (command === "image") return { code: 0, stdout: JSON.stringify([IMAGE]), stderr: "" };
 		if (command === "rm") {
 			const name = args[args.length - 1];
 			state.containers.delete(name);
@@ -220,7 +265,7 @@ describe("plugin host API", () => {
 		const install = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		expect(install.status).toBe(200);
 		const body = (await install.json()) as { plugin: { state: string; healthy: boolean; hostPort: number } };
@@ -243,7 +288,7 @@ describe("plugin host API", () => {
 		const response = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ permissions: { network: "host" } }) }),
+			body: installBody(manifest({ permissions: { network: "host" } })),
 		});
 		expect(response.status).toBe(403);
 	});
@@ -252,7 +297,7 @@ describe("plugin host API", () => {
 		const response = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ permissions: { network: "bridge", capAdd: ["SYS_ADMIN"] } }) }),
+			body: installBody(manifest({ permissions: { network: "bridge", capAdd: ["SYS_ADMIN"] } })),
 		});
 		expect(response.status).toBe(400);
 	});
@@ -261,16 +306,29 @@ describe("plugin host API", () => {
 		const response = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ locality: "remote-only" }) }),
+			body: installBody(manifest({ locality: "remote-only" })),
 		});
 		expect(response.status).toBe(409);
 	});
 
-	test("refuses a tag-only image", async () => {
+	test("refuses an install without build consent", async () => {
 		const response = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ image: "ghcr.io/example/recon:latest" }) }),
+			body: installBody(manifest(), { allowBuild: false }),
+		});
+		expect(response.status).toBe(403);
+	});
+
+	test("refuses a package whose manifest does not match the request", async () => {
+		const zip = buildZip([
+			{ name: "Dockerfile", data: Buffer.from("FROM scratch\n") },
+			{ name: "plugin.json", data: Buffer.from(JSON.stringify(manifest({ id: "com.example.other" }))) },
+		]);
+		const response = await api("/v1/plugins", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ manifest: manifest(), package: zip.toString("base64"), allowBuild: true }),
 		});
 		expect(response.status).toBe(400);
 	});
@@ -279,7 +337,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await api("/plugins/com.example.recon/mcp", {
 			method: "POST",
@@ -296,7 +354,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const stopped = await api("/v1/plugins/com.example.recon/stop", { method: "POST" });
 		expect(stopped.status).toBe(200);
@@ -311,7 +369,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: withConfig, config: { API_KEY: "first" } }),
+			body: installBody(withConfig, { config: { API_KEY: "first" } }),
 		});
 		const createdBefore = dockerState.calls.filter((call) => call.startsWith("create ")).length;
 		const update = await api("/v1/plugins/com.example.recon/config", {
@@ -330,7 +388,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ version: "0.1.0" }) }),
+			body: installBody(manifest({ version: "0.1.0" })),
 		});
 		const removalsBefore = dockerState.calls.filter(
 			(call) => call === "rm -f sentinel-plugin-com-example-recon",
@@ -339,7 +397,7 @@ describe("plugin host API", () => {
 		const upgrade = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest({ version: "0.2.0" }) }),
+			body: installBody(manifest({ version: "0.2.0" })),
 		});
 		expect(upgrade.status).toBe(502);
 		// The canonical container still exists and the candidate was cleaned up.
@@ -357,7 +415,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		// The fake reports RestartCount 0 by default; simulate a crash loop by editing its state.
 		const name = [...dockerState.containers.keys()][0];
@@ -377,7 +435,7 @@ describe("plugin host API", () => {
 		const install = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: withConfig, config: { API_KEY: "super-secret", RATE: "100" } }),
+			body: installBody(withConfig, { config: { API_KEY: "super-secret", RATE: "100" } }),
 		});
 		expect(install.status).toBe(200);
 		const body = (await install.json()) as { plugin: { configured: string[]; values: Record<string, string> } };
@@ -397,7 +455,7 @@ describe("plugin host API", () => {
 		const response = await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: withConfig }),
+			body: installBody(withConfig),
 		});
 		expect(response.status).toBe(400);
 	});
@@ -406,7 +464,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const artifacts = join(root, "host", "plugins", "com.example.recon", "artifacts");
 		mkdirSync(join(artifacts, "run-1"), { recursive: true });
@@ -429,7 +487,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await api("/v1/plugins/com.example.recon", { method: "DELETE" });
 		expect(response.status).toBe(200);
@@ -440,7 +498,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await fetch(`${host?.url ?? ""}/plugins/com.example.recon/ui/index.html`, {
 			headers: { authorization: `Bearer ${TOKEN}` },
@@ -456,7 +514,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await fetch(`${host?.url ?? ""}/plugins/com.example.recon/ui/%2e%2e%2fhost.json`, {
 			headers: { authorization: `Bearer ${TOKEN}` },
@@ -468,7 +526,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await api("/v1/plugins/com.example.recon/call", {
 			method: "POST",
@@ -485,7 +543,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const put = await api("/v1/plugins/com.example.recon/storage", {
 			method: "PUT",
@@ -505,7 +563,7 @@ describe("plugin host API", () => {
 		await api("/v1/plugins", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ manifest: manifest() }),
+			body: installBody(manifest()),
 		});
 		const response = await api("/v1/plugins/com.example.recon/storage?key=../x");
 		expect(response.status).toBe(400);

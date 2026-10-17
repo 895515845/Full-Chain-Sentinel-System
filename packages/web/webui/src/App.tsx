@@ -214,6 +214,7 @@ export function App() {
 	const [pluginLogs, setPluginLogs] = useState<SentinelPluginLogsView | null>(null);
 	const [pluginArtifacts, setPluginArtifacts] = useState<SentinelPluginArtifactsView | null>(null);
 	const [pendingManifest, setPendingManifest] = useState<SentinelPluginManifestView | null>(null);
+	const [pendingPackage, setPendingPackage] = useState<string | null>(null);
 	const [pluginUi, setPluginUi] = useState<{ plugin: SentinelPluginView; nonce: string } | null>(null);
 	const pluginUiResolvers = useRef(
 		new Map<string, (message: Extract<SentinelServerMessage, { type: "plugin_ui_result" }>) => void>(),
@@ -2461,17 +2462,25 @@ export function App() {
 										}
 										onDeleteHost={(id) => runPluginAction({ type: "delete_plugin_host", id })}
 										onTestHost={(id) => runPluginAction({ type: "test_plugin_host", id })}
-										onCloseManifest={() => setPendingManifest(null)}
+										onCloseManifest={() => {
+											setPendingManifest(null);
+											setPendingPackage(null);
+										}}
 										onInspectPackage={(name, data) => {
 											// The old manifest belongs to the previous upload; never let an
 											// install pair the new package with stale declarations.
 											setPendingManifest(null);
+											setPendingPackage(data);
 											runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
 										}}
-										onInstall={(input) =>
-											// Pulling the image and waiting for health checks can take minutes.
-											runPluginAction({ type: "install_plugin", ...input }, 600000)
-										}
+										onInstall={(input) => {
+											if (!pendingPackage) return;
+											// Building the image and waiting for health can take minutes.
+											runPluginAction(
+												{ type: "install_plugin", ...input, package: pendingPackage },
+												1800000,
+											);
+										}}
 										onUninstall={(hostId, pluginId, purge) =>
 											runPluginAction({ type: "uninstall_plugin", hostId, pluginId, purge })
 										}
