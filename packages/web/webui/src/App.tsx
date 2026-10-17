@@ -1669,9 +1669,10 @@ export function App() {
 																message={message}
 																toolCommand={toolCommandOf(message, toolCommands)}
 																onFullscreen={openViewer}
-																// 方案 B（单行手风琴）：settled 的 run 里每一步
-																// 是一行，输出点击展开；流式运行组保持完整卡片。
-																compact={!live}
+																// 方案 B：已完成的步骤一律单行手风琴（含流式运行
+																// 组里刚结束的调用）；正在执行中的那一个调用仍是
+																// 完整卡片（下面的 liveTools），方便实时看输出。
+																compact
 															/>
 														))}
 														{live && liveThinking ? (
