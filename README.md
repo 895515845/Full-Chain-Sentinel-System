@@ -28,7 +28,39 @@
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 
-## 快速开始
+# Releases 快速开始
+
+你需要提前安装好 Docker，怎么安装 Docker，在此就不赘述
+
+```sh
+root@VM-0-11-ubuntu:~# tar -xzvf sentinel-web-linux-x64.tar.gz 
+sentinel-web/
+sentinel-web/sentinel-web
+
+root@VM-0-11-ubuntu:~# cd sentinel-web/
+
+root@VM-0-11-ubuntu:~/sentinel-web# ls
+sentinel-web
+
+root@VM-0-11-ubuntu:~/sentinel-web# chmod +x sentinel-web 
+root@VM-0-11-ubuntu:~/sentinel-web# ./sentinel-web 
+
+```
+首次运行访问需要设置账号密码
+
+![](images/Pasted%20image%2020261017122835.png)
+请确保你的所有测试在本地，或者有正规合法的渗透测试授权，并且同意AI 生成式风险，否则无法进入平台。
+
+进入平台后请先部署好容器：
+![](images/Pasted%20image%2020261017123006.png)
+等待即可
+![](images/Pasted%20image%2020261017123905.png)
+
+全链哨兵（PCSS）是以项目为隔离，为了安全考虑，每个项目一个 kali 容器。
+建议开 host 模式，否则公网环境无法进行监听操作。
+
+
+## Dev 快速开始
 
 要求 Node.js >= 22.19.0。
 
@@ -41,7 +73,9 @@ npm run start:web
 
 `npm run build` 只构建后端各包，控制台需要额外的 `npm run build:web`。
 
-启动后日志里会打印本次的入口地址，形如 `http://<地址>:<端口>/<随机串>`。默认监听 `0.0.0.0`，随机入口串与 cookie 校验用于挡扫描器：没有入口串的请求一律返回普通 404，入口串每次启动都变。请在日志里取完整地址访问。
+启动后日志里会打印本次的入口地址，形如 `https://<地址>:<端口>/<随机串>`。默认监听 `0.0.0.0`，随机入口串与 cookie 校验用于挡扫描器：没有入口串的请求一律返回普通 404，入口串每次启动都变。请在日志里取完整地址访问。
+
+默认使用自签 HTTPS：首次启动用本机 openssl 生成证书（存于配置目录 `tls/`，SAN 覆盖 localhost 与当前所有网卡 IP），之后复用。浏览器首次访问会提示证书不受信任，选择「高级 → 继续前往」即可，也可把 `tls/cert.pem` 导入系统信任。换网络后局域网 IP 变化导致证书域名不匹配时用 `--tls-regen` 重签。
 
 首次访问的流程：
 
@@ -58,13 +92,12 @@ npm run start:web
 | `--cwd <目录>` | `SENTINEL_CWD` | 工作目录，默认当前目录 |
 | `--gate-token <串>` | `SENTINEL_GATE_TOKEN` | 固定入口串，默认每次启动随机 |
 | `--no-gate` | — | 关闭随机入口，直接以 `/` 提供服务（仅本机调试） |
+| `--no-tls` | `SENTINEL_TLS=0` | 关闭 HTTPS，退回明文 HTTP（默认自签 HTTPS） |
+| `--tls-cert` / `--tls-key` | — | 使用指定证书与私钥（成对使用，优先于自动生成） |
+| `--tls-regen` | — | 重新生成自签证书（本机 IP 变化、浏览器报域名不匹配时用） |
 | `--no-consent` | — | 跳过首次授权承诺（自动化环境） |
 | `--check` | — | 只做启动前自检并打印报告，不启动服务 |
 
-CLI 同样可用：
-
-```bash
-./pi-test.sh --no-env      # 从源码运行 sentinel CLI
 ```
 
 ## 目录结构
@@ -126,8 +159,6 @@ docker build -t sentinel:latest docker/
 
 完整边界与配置见 [packages/web/README.md](packages/web/README.md#安全提示)。
 
-**CLI**：沿用 pi 的权限模型，无内建沙箱，工具以当前用户权限在宿主机执行；需要隔离就把 CLI 整个跑进容器（[containerization.md](packages/coding-agent/docs/containerization.md) 是上游文档，命令与路径名仍是 `pi`）。
-
 自动执行模式下模型可运行任意命令，持续目标在自动执行下也没有危险命令黑名单，请仅在**授权目标与隔离环境**中使用；需要无人值守又不愿全放行时用 AI 审批。控制台的登录、随机入口串与授权承诺只用于防误用与防扫描，不构成隔离。
 
 安全问题请通过仓库 Issue 反馈，不要在公开 Issue 里附可直接利用的细节。
@@ -145,46 +176,61 @@ docker build -t sentinel:latest docker/
 ## 何为全链路？
 
 渗透测试场景在安全服务工作中，通常分为三种
-1.Web 渗透 2.微信小程序渗透 3.APP 渗透
+
+**1.Web 渗透 2.小程序渗透 3.APP 渗透**
+
 至此，我们全链路打通，一个平台畅游所有任务
+
 三端是怎么打通的呢？
 我们要知道我们渗透测试测的是什么？很多人都不明白道理，我们渗透测试过程，90% 的针对服务器后端进行测试的，后端想给我们前端展示，所以想打通三端也只是不同载体的问题。
-比如 
-Web 前端载体就是浏览器，
-微信小程序的前端载体就是微信小程序容器
-APP 的前端载体就是一些 UI 框架
+比如：
+
+**Web** 前端载体就是浏览器，
+
+**小程序**的前端载体就是小程序容器
+
+**APP** 的前端载体就是一些 UI 框架
+
 所以，本质上 Web、小程序、APP，都是一样的。
 
 ## 使用
 
+使用前必须创建项目，否则无法使用
+![](images/Pasted%20image%2020261017124002.png)
 
-<img width="1080" height="594" alt="image" src="https://github.com/user-attachments/assets/d724fa14-4220-4086-a0aa-470615ec476b" />
+![](images/Pasted%20image%2020261017124018.png)
+
 
 简单说几个场景怎么用吧，
-1.Web 测试
+1.**Web 测试**
 直接输入框使用即可
-2.微信小程序
+
+2.**小程序**
 选择预设 Agent 然后自己在 Tscan 这类工具中把微信小程序反编译，点击左下角“附件”上传即可。
-3.APP
+
+3.**APP**
 在左侧安卓设备中配置好你的安卓机器，然后在你的安卓里面安装好对应 APP，然后在对话框中选择“安卓”即可
+
+![](images/Pasted%20image%2020261017124047.png)
+
 因为本人想法是更少的工具和上下文，所以，你如果不开“安卓”这个按钮的话，他是不会插入安卓相关的工具调用的、也不会插入相关 prompt 
 
 ## 关于安卓配置
 
 你需要有一台 root 后的设备（虚拟机亦可），并且安装配套的 app 即可
 
-<img width="1080" height="592" alt="image" src="https://github.com/user-attachments/assets/f5814373-cbff-4af7-81eb-784b00827dae" />
+![](images/Pasted%20image%2020261017124555.png)
 
 
 关于手机 root，这里就不再讲解，有兴趣可以去酷安社区逛逛,安卓机为反连主平台，所以你可以将主程序部署在公网服务器。
 
-<img width="1024" height="1896" alt="image" src="https://github.com/user-attachments/assets/a7200b6d-dd2b-4eda-b6a1-6f116a4a7fc9" />
+<img src="images/Pasted%20image%2020261017124518.png" width="295" alt="Pasted image 20261017124518.png" />
 
 ## 工程模式 
 
 适用于批量测试环节，指挥官架构，适用于多任务指挥，这个还是测试阶段，自行玩一玩吧。
 
-<img width="1080" height="590" alt="image" src="https://github.com/user-attachments/assets/70fe4ad5-2d8c-4887-8bad-4d5991a1ca3e" />
+![](images/Pasted%20image%2020261017124651.png)
 
 ## 守门审计
 
@@ -194,7 +240,7 @@ https://www.qianwenai.com/models/qwen-flash
 
 采用小模型监管大模型，最大程度上尽量避免对生产环境造成影响。
 
-<img width="1080" height="586" alt="image" src="https://github.com/user-attachments/assets/fd3e597e-b32a-44a9-8572-657503bddedd" />
+![](images/Pasted%20image%2020261017125228.png)
 
 ## 关于 POC 订阅
 
@@ -204,15 +250,21 @@ https://www.qianwenai.com/models/qwen-flash
 
 也可以直接同步 Nuclei 官方的 POC
 
-<img width="1080" height="588" alt="image" src="https://github.com/user-attachments/assets/2119c330-7c49-4237-ae5b-50799f666ac5" />
+![](images/Pasted%20image%2020261017125244.png)
 
+
+## 如何持久化运行？
+
+建议使用 screen -R sentinel
+
+![[images/Pasted image 20261017133338.png]]
+
+然后 ctrl +a ,键入 d 即可，更多用法自行学习 screen
 
 ## 全链哨兵交流群
 
 加群的，一定要在“打招呼内容”备注“全链哨兵”。
 
-<img width="1080" height="1370" alt="image" src="https://github.com/user-attachments/assets/d77acb04-87f9-4222-8a82-ebe929dbc161" />
+<img src="images/Pasted%20image%2020261017125335.png" width="294" alt="Pasted image 20261017125335.png" />
 
-<img width="1080" height="523" alt="image" src="https://github.com/user-attachments/assets/e74a6db0-0e88-4b24-9a2c-d5de4c55d1a8" />
-
-
+<img src="images/Pasted%20image%2020261017125351.png" width="340" alt="Pasted image 20261017125351.png" />
