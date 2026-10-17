@@ -274,6 +274,18 @@ export function MessageView({
 				(block as { type?: string }).type === "toolCall" && (block as { name?: string }).name === "spawn_agent",
 		);
 		const thinkingText = thinking.map((block) => (block as { thinking?: string }).thinking ?? "").join("\n");
+		// 方案 B：只含思考、没有正文的 assistant（被中止/压缩截断的常见形态）在
+		// settled run 里就是一行「思考」，不再套 AI 徽标行和折叠块。
+		if (compact && thinking.length > 0 && !text) {
+			return (
+				<StepRow
+					time={message.timestamp}
+					tool="思考"
+					argument={thinkingSummary(thinkingText)}
+					output={thinkingText}
+				/>
+			);
+		}
 		return (
 			<AgentEntry subagent={isSubagentToolCall} timestamp={message.timestamp}>
 				{thinking.length > 0 ? (
