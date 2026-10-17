@@ -154,6 +154,67 @@ function formatDurationShort(ms: number): string {
 	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
 }
 
+/**
+ * One settled step of an expanded run, 方案 B 单行手风琴: time · tool · argument
+ * summary · duration on one line, the output hidden until the row is clicked.
+ * This is the compact shape that keeps a 100-step run scannable; the streaming
+ * run keeps full ToolCards instead.
+ */
+function StepRow({
+	time,
+	tool,
+	argument,
+	output,
+	durationMs,
+	isError,
+	onFullscreen,
+}: {
+	time?: number;
+	tool: string;
+	argument: string;
+	output: string;
+	durationMs?: number;
+	isError?: boolean;
+	onFullscreen?: (command: string | undefined, output: string) => void;
+}) {
+	const lines = output ? output.replace(/\n+$/, "").split("\n") : [];
+	const preview = lines.slice(0, 3).join("\n");
+	const rest = lines.length - Math.min(lines.length, 3);
+	return (
+		<details className={isError ? "step-row step-err" : "step-row"}>
+			<summary>
+				<span className="step-time">{time ? formatTime(time) : ""}</span>
+				<span className={`step-tool ${tool}`}>{tool}</span>
+				<span className="step-arg">{argument || "(无参数)"}</span>
+				{durationMs ? (
+					<span className="step-dur">{durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`}</span>
+				) : null}
+			</summary>
+			<div className="step-out">
+				<pre>{preview}</pre>
+				{rest > 0 ? (
+					<button
+						type="button"
+						className="step-more"
+						onClick={(event) => {
+							event.preventDefault();
+							onFullscreen?.(undefined, output);
+						}}
+					>
+						… 还有 {rest} 行，点击查看全部
+					</button>
+				) : null}
+			</div>
+		</details>
+	);
+}
+
+/** First line of a thinking block, as the row's argument summary. */
+function thinkingSummary(thinking: string): string {
+	const line = thinking.split("\n").find((candidate) => candidate.trim().length > 0) ?? "(空)";
+	return line.length > 120 ? `${line.slice(0, 120)}…` : line;
+}
+
 export function MessageView({
 	message,
 	toolCommand,
@@ -161,6 +222,7 @@ export function MessageView({
 	onFork,
 	onFullscreen,
 	goalElapsedMs,
+	compact,
 }: {
 	message: AgentMessageView;
 	/** Command of the tool call this result belongs to, when the transcript has it. */
@@ -170,6 +232,8 @@ export function MessageView({
 	onFullscreen?: (command: string | undefined, output: string) => void;
 	/** For a goal continuation marker: how long the round it closed took. */
 	goalElapsedMs?: number;
+	/** 方案 B：settled run 内用单行手风琴渲染工具与思考；流式运行组保持完整卡片。 */
+	compact?: boolean;
 }) {
 	if (message.role === "user") {
 		const text = Array.isArray(message.content)
@@ -209,13 +273,23 @@ export function MessageView({
 			(block) =>
 				(block as { type?: string }).type === "toolCall" && (block as { name?: string }).name === "spawn_agent",
 		);
+		const thinkingText = thinking.map((block) => (block as { thinking?: string }).thinking ?? "").join("\n");
 		return (
 			<AgentEntry subagent={isSubagentToolCall} timestamp={message.timestamp}>
 				{thinking.length > 0 ? (
-					<details className="thinking">
-						<summary>思考过程</summary>
-						<pre>{thinking.map((block) => (block as { thinking?: string }).thinking ?? "").join("\n")}</pre>
-					</details>
+					compact && text ? (
+						<StepRow
+							time={message.timestamp}
+							tool="思考"
+							argument={thinkingSummary(thinkingText)}
+							output={thinkingText}
+						/>
+					) : (
+						<details className="thinking">
+							<summary>思考过程</summary>
+							<pre>{thinkingText}</pre>
+						</details>
+					)
 				) : null}
 				{text ? (
 					<div className={failed ? "failed" : ""}>
@@ -235,6 +309,19 @@ export function MessageView({
 
 	if (message.role === "toolResult") {
 		const output = Array.isArray(message.content) ? message.content.map(blockText).join("") : "";
+		if (compact) {
+			return (
+				<StepRow
+					time={message.timestamp}
+					tool={message.toolName}
+					argument={toolCommand ?? ""}
+					output={output}
+					durationMs={message.durationMs}
+					isError={message.isError}
+					onFullscreen={onFullscreen}
+				/>
+			);
+		}
 		return (
 			<ToolCard
 				name={message.toolName}
@@ -248,6 +335,18 @@ export function MessageView({
 	}
 
 	if (message.role === "bashExecution") {
+		if (compact) {
+			return (
+				<StepRow
+					time={message.timestamp}
+					tool="bash"
+					argument={message.command}
+					output={message.output}
+					isError={message.exitCode !== 0 && !message.cancelled}
+					onFullscreen={onFullscreen}
+				/>
+			);
+		}
 		return (
 			<ToolCard
 				name="! bash"
