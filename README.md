@@ -100,6 +100,29 @@ npm run start:web
 | `--no-consent` | — | 跳过首次授权承诺（自动化环境） |
 | `--check` | — | 只做启动前自检并打印报告，不启动服务 |
 
+插件主机是同一个二进制的子命令，参数与主服务分开：
+
+```sh
+./sentinel-web plugin-host --local                    # 默认，127.0.0.1 随机端口，控制台自动发现
+./sentinel-web plugin-host --listen 0.0.0.0:7800      # 对外监听，自动按 remote 模式运行
+```
+
+| 参数 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `--local` | — | 只监听回环地址（默认） |
+| `--listen <地址:端口>` | — | 监听地址，例如 `0.0.0.0:7800`；非回环地址自动判定为 remote |
+| `--mode <local\|remote>` | — | 覆盖 locality 判定 |
+| `--data-dir <目录>` | `SENTINEL_PLUGIN_HOST_DIR` | 数据目录，默认 `~/.sentinel/plugin-host` |
+| `--tls-cert <pem>` / `--tls-key <pem>` | — | 直接提供 HTTPS 证书（成对使用；本地模式不允许） |
+| `--rotate-token` | — | 重新生成访问 token，旧 token 立即失效 |
+
+说明：
+
+- 启动时会打印 token 与数据目录；token 存在数据目录的 `host.json`（0600），控制台添加远端主机时填它。
+- 插件主机自身只提供 HTTP；控制台拒绝非回环的 `http://` 地址，公网部署要放在 Caddy/nginx 的 HTTPS 反代后面。
+- `--local` 只是默认值；一旦给了 `--listen`，就按 `--listen` 的地址监听并据此推断模式。
+- 插件主机与主控制台可以同机，也可以分开；远端主机不能安装 `locality: local-only` 的插件。
+
 ```
 
 ## 目录结构
@@ -254,6 +277,29 @@ https://www.qianwenai.com/models/qwen-flash
 
 ![](images/Pasted%20image%2020261017125244.png)
 
+## 插件中心
+
+### 如何使用？
+
+“全链哨兵”抽象出一个“插件概念”可以从不同主机运行不同的插件。
+
+比如你是本机部署的“全链哨兵”，你希望“全链哨兵”有公网能力，比如你想拥有公网的 msf，那么你可以复制一份“全链哨兵”到你的 VPS，并且执行：
+
+```
+./sentinel-web plugin-host --listen 0.0.0.0:7800
+```
+
+在设置->插件,添加即可。
+
+![[Pasted image 20261017233410.png]]
+
+### 如何开发插件？
+
+再开发文档页面，复制全文，直接复制给 AI，然后提需求即可。
+
+![[Pasted image 20261017233500.png]]
+
+亦可直接参考仓库里面提供的测试插件“memshell-party”
 
 ## 如何持久化运行？
 
@@ -261,7 +307,7 @@ https://www.qianwenai.com/models/qwen-flash
 
 ![](images/Pasted%20image%2020261017133338.png)
 
-然后 ctrl +a ,键入 d 即可，更多用法自行学习 screen
+然后 ctrl +a ,键入 d 即可，更多用法自行学习 screen
 
 ## 全链哨兵交流群
 
@@ -270,3 +316,12 @@ https://www.qianwenai.com/models/qwen-flash
 <img src="images/Pasted%20image%2020261017125335.png" width="294" alt="Pasted image 20261017125335.png" />
 
 <img src="images/Pasted%20image%2020261017125351.png" width="340" alt="Pasted image 20261017125351.png" />
+
+
+## 致谢
+
+https://github.com/earendil-works/pi
+
+https://github.com/ReaJason/MemShellParty
+
+

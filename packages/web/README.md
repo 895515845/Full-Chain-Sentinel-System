@@ -138,11 +138,24 @@ npm --prefix packages/web run start
 | 参数 | 说明 | 默认 |
 |---|---|---|
 | `SENTINEL_PORT` / `--port` | 监听端口 | 7777 |
-| `SENTINEL_HOST` / `--host` | 监听地址 | 127.0.0.1 |
+| `SENTINEL_HOST` / `--host` | 监听地址 | 0.0.0.0 |
 | `SENTINEL_CWD` / `--cwd` | 未进入项目前的占位目录（不用于执行命令） | 进程当前目录 |
 | `SENTINEL_CODING_AGENT_DIR` | 配置目录 | ~/.sentinel/agent |
 | `SENTINEL_PROJECTS_DIR` | 项目工作目录的父目录 | ~/.sentinel/projects |
 | `--check` | 只运行环境检查并打印结果，未通过时退出码为 1 | — |
+
+插件主机是子命令 `sentinel-web plugin-host`，参数独立：
+
+| 参数 | 环境变量 | 默认 |
+|---|---|---|
+| `--local` | — | 只监听 127.0.0.1（默认） |
+| `--listen <地址:端口>` | — | 127.0.0.1 随机端口；非回环地址自动按 remote 模式运行 |
+| `--mode local\|remote` | — | 按监听地址推断 |
+| `--data-dir <目录>` | `SENTINEL_PLUGIN_HOST_DIR` | ~/.sentinel/plugin-host |
+| `--tls-cert` / `--tls-key` | — | 无；本地模式不允许启用 TLS |
+| `--rotate-token` | — | 重新生成 token |
+
+插件主机自身只提供 HTTP；控制台不接受非回环的明文地址，公网部署要放在 HTTPS 反向代理后面。完整说明见 [docs/plugin-center.md](../../docs/plugin-center.md)。
 
 ## 安全提示
 
