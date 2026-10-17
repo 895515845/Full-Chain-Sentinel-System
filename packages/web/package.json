@@ -17,7 +17,8 @@
 		"build:binary": "bash ../../scripts/build-web-binaries.sh",
 		"check:webui": "tsc -p webui/tsconfig.json --noEmit",
 		"test": "vitest --run",
-		"start": "node dist/index.js"
+		"start": "node dist/index.js",
+		"plugin-host": "node src/index.ts plugin-host"
 	},
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "^1.1.0",

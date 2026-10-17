@@ -23,6 +23,7 @@ import { McpPanel } from "./components/McpPanel.tsx";
 import { NotifyPanel } from "./components/NotifyPanel.tsx";
 import { Overlay } from "./components/Overlay.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
+import { PluginPanel } from "./components/PluginPanel.tsx";
 import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
 import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
 import { type PresetImportNotice, PresetPanel } from "./components/PresetPanel.tsx";
@@ -81,6 +82,11 @@ import type {
 	SentinelMcpConfigView,
 	SentinelMcpServerInput,
 	SentinelMcpTestResult,
+	SentinelPluginArtifactsView,
+	SentinelPluginHostInput,
+	SentinelPluginLogsView,
+	SentinelPluginManifestView,
+	SentinelPluginsView,
 	SentinelPresetView,
 	SentinelProjectInfo,
 	SentinelServerMessage,
@@ -201,6 +207,12 @@ export function App() {
 	const webSearchTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const [mcpConfig, setMcpConfig] = useState<SentinelMcpConfigView | null>(null);
 	const [mcpBusy, setMcpBusy] = useState(false);
+	const [pluginsView, setPluginsView] = useState<SentinelPluginsView | null>(null);
+	const [pluginsBusy, setPluginsBusy] = useState(false);
+	const [pluginLogs, setPluginLogs] = useState<SentinelPluginLogsView | null>(null);
+	const [pluginArtifacts, setPluginArtifacts] = useState<SentinelPluginArtifactsView | null>(null);
+	const [pendingManifest, setPendingManifest] = useState<SentinelPluginManifestView | null>(null);
+	const [pluginNotice, setPluginNotice] = useState<string | null>(null);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
 	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
 	const [permissionTools, setPermissionTools] = useState<SentinelToolInfo[]>([]);
@@ -489,6 +501,31 @@ export function App() {
 						mcpTestResolverRef.current = null;
 						resolve(message.result);
 					}
+					break;
+				case "plugins":
+					setPluginsView(message.view);
+					setPluginsBusy(false);
+					break;
+				case "plugin_manifest":
+					setPendingManifest({ manifest: message.manifest, source: message.source });
+					setPluginsBusy(false);
+					break;
+				case "plugin_logs":
+					setPluginLogs({ hostId: message.hostId, pluginId: message.pluginId, logs: message.logs });
+					setPluginsBusy(false);
+					break;
+				case "plugin_artifacts":
+					setPluginArtifacts({
+						hostId: message.hostId,
+						pluginId: message.pluginId,
+						items: message.artifacts,
+					});
+					setPluginsBusy(false);
+					break;
+				case "plugin_artifact_saved":
+					setPluginsBusy(false);
+					setPluginNotice(`产物已保存到 ${message.savedTo}`);
+					window.setTimeout(() => setPluginNotice(null), 8000);
 					break;
 				case "gatekeeper_config":
 					setGatekeeperConfig(message.config);
@@ -1097,6 +1134,30 @@ export function App() {
 		[send],
 	);
 
+	/**
+	 * Read the plugin center. A host that does not answer is not an error here:
+	 * the reply carries a problem line per host, so the page still renders.
+	 */
+	const loadPlugins = useCallback(() => {
+		setPluginsBusy(true);
+		send({ type: "get_plugins" });
+		window.setTimeout(() => setPluginsBusy(false), 60000);
+	}, [send]);
+
+	/**
+	 * Send one plugin request and release the busy lock on a timeout as well as
+	 * on the reply. Installing pulls an image and waits for a health check, so it
+	 * gets the host's ten-minute budget; every other action gets a minute.
+	 */
+	const runPluginAction = useCallback(
+		(message: SentinelClientMessage, timeoutMs = 60000): void => {
+			setPluginsBusy(true);
+			send(message);
+			window.setTimeout(() => setPluginsBusy(false), timeoutMs);
+		},
+		[send],
+	);
+
 	/** Re-read whatever the active page (or overlay) is showing. */
 	const refreshPage = useCallback(() => {
 		if (filesOpen) loadFiles(filePathRef.current);
@@ -1140,6 +1201,9 @@ export function App() {
 				// Also pushed on connect; this refreshes after another window changed it.
 				send({ type: "get_mcp_servers" });
 				break;
+			case "settings.plugins":
+				loadPlugins();
+				break;
 			case "settings.environment":
 				send({ type: "get_environment" });
 				break;
@@ -1178,6 +1242,7 @@ export function App() {
 		gateFilter,
 		gatePage,
 		loadGates,
+		loadPlugins,
 	]);
 
 	/**
@@ -1198,6 +1263,12 @@ export function App() {
 		if (page !== "pocs" || !connected) return;
 		send({ type: "list_pocs", filters: pocFilters, page: pocPage });
 	}, [page, connected, pocFilters, pocPage, send]);
+
+	/** The plugin center is host state with no push, so opening it reads the page. */
+	useEffect(() => {
+		if (page !== "settings.plugins" || !connected) return;
+		loadPlugins();
+	}, [page, connected, loadPlugins]);
 
 	// Leaving the page drops the remembered query, so a judgment arriving while the
 	// operator is elsewhere does not trigger a query nobody is looking at.
@@ -2278,6 +2349,83 @@ export function App() {
 								) : (
 									<div className="ws-empty">
 										<span>正在读取 MCP 配置…</span>
+									</div>
+								)}
+							</div>
+						</div>
+					) : page === "settings.plugins" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">
+										插件
+										{pluginsView
+											? ` · ${pluginsView.plugins.length} 个插件 / ${pluginsView.hosts.length} 个主机`
+											: ""}
+									</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								{pluginsView ? (
+									<PluginPanel
+										view={pluginsView}
+										busy={pluginsBusy}
+										permissionOn={mcpConfig ? mcpConfig.permissionOn : null}
+										logs={pluginLogs}
+										artifacts={pluginArtifacts}
+										pendingManifest={pendingManifest}
+										notice={pluginNotice}
+										onOpenPermissions={() => openPage("settings.permissions")}
+										onRefresh={loadPlugins}
+										onSaveHost={(host: SentinelPluginHostInput) =>
+											runPluginAction({ type: "save_plugin_host", host })
+										}
+										onDeleteHost={(id) => runPluginAction({ type: "delete_plugin_host", id })}
+										onTestHost={(id) => runPluginAction({ type: "test_plugin_host", id })}
+										onInspectPackage={(name, data) => {
+											// The old manifest belongs to the previous upload; never let an
+											// install pair the new package with stale declarations.
+											setPendingManifest(null);
+											runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
+										}}
+										onInstall={(input) =>
+											// Pulling the image and waiting for health checks can take minutes.
+											runPluginAction({ type: "install_plugin", ...input }, 600000)
+										}
+										onUninstall={(hostId, pluginId, purge) =>
+											runPluginAction({ type: "uninstall_plugin", hostId, pluginId, purge })
+										}
+										onStart={(hostId, pluginId) =>
+											runPluginAction({ type: "start_plugin", hostId, pluginId })
+										}
+										onStop={(hostId, pluginId) =>
+											runPluginAction({ type: "stop_plugin", hostId, pluginId })
+										}
+										onSetEnabled={(hostId, pluginId, enabled) =>
+											runPluginAction({ type: "set_plugin_enabled", hostId, pluginId, enabled })
+										}
+										onSaveConfig={(hostId, pluginId, values) =>
+											// A config change recreates the container, so it gets the install budget.
+											runPluginAction({ type: "save_plugin_config", hostId, pluginId, values }, 600000)
+										}
+										onLoadLogs={(hostId, pluginId) => {
+											setPluginLogs(null);
+											runPluginAction({ type: "get_plugin_logs", hostId, pluginId });
+										}}
+										onCloseLogs={() => setPluginLogs(null)}
+										onListArtifacts={(hostId, pluginId) => {
+											setPluginArtifacts(null);
+											runPluginAction({ type: "list_plugin_artifacts", hostId, pluginId });
+										}}
+										onCloseArtifacts={() => setPluginArtifacts(null)}
+										onFetchArtifact={(hostId, pluginId, path) =>
+											runPluginAction({ type: "fetch_plugin_artifact", hostId, pluginId, path })
+										}
+									/>
+								) : (
+									<div className="ws-empty">
+										<span>正在读取插件中心…</span>
 									</div>
 								)}
 							</div>

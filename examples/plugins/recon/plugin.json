@@ -1,0 +1,60 @@
+{
+	"schema": 1,
+	"id": "com.sentinel.recon",
+	"name": "侦察工具集",
+	"version": "0.1.0",
+	"description": "subfinder 子域名枚举与 naabu 端口扫描，完整结果写入产物目录，模型只看到摘要。",
+	"author": "github:example",
+	"source": "https://github.com/example/sentinel-plugins/tree/main/recon",
+	"license": "MIT",
+	"image": "ghcr.io/example/sentinel-plugin-recon@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	"mcp": {
+		"transport": "http",
+		"port": 7801,
+		"path": "/mcp",
+		"startupTimeoutMs": 20000,
+		"requestTimeoutMs": 600000
+	},
+	"config": [
+		{
+			"key": "DEFAULT_RATE",
+			"label": "默认扫描速率（包/秒）",
+			"type": "number",
+			"required": false,
+			"default": 1000
+		}
+	],
+	"permissions": {
+		"network": "bridge",
+		"capAdd": [
+			"NET_RAW"
+		],
+		"privileged": false
+	},
+	"locality": "any",
+	"resources": {
+		"cpus": 1,
+		"memory": "512m",
+		"pidsLimit": 128
+	},
+	"healthcheck": {
+		"path": "/healthz",
+		"intervalMs": 10000,
+		"timeoutMs": 3000,
+		"retries": 3
+	},
+	"artifacts": {
+		"path": "/artifacts",
+		"maxFileBytes": 52428800
+	},
+	"tools": [
+		{
+			"name": "subfinder_enum",
+			"description": "枚举子域名，完整结果写入 /artifacts"
+		},
+		{
+			"name": "naabu_scan",
+			"description": "扫描前 N 个端口，完整结果写入 /artifacts"
+		}
+	]
+}

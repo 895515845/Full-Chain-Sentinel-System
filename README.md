@@ -25,6 +25,8 @@
 - **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门员判定。
 - **Web 搜索插件**（设置 → Web 搜索）：接入 **Tavily**，Agent 用 `web_search`（公网搜索）与 `web_extract`（页面正文抓取）做目标情报收集（泄露文档、公开报告、技术文章）。支持多 Key 号池，控制台按各 Key 剩余额度自动轮换，额度耗尽自动切换；查询流水入 `websearch.db`，原始响应落项目 `evidence/search/`。只有「权限 → Web 搜索」开关打开且号池里有已验证的 Key 时才会挂载工具；密钥明文存本机 `websearch.json`（0600），不进容器、不进 bash 审计。
 - **自定义 MCP 插件**（设置 → MCP）：在控制台里增删改查 MCP 服务器（`http`、`sse` 或 `stdio`）并逐个测试连接，工具以 `mcp__<服务器>__<工具>` 挂给 Agent，仍受「权限 → MCP」总开关约束，且该开关下可逐个服务器放开或关掉。配置由哨兵自己拥有（`mcp-servers.json`，0600），**不读 pi 原生的 `mcp.json`**，所以列表里没有的服务器 Agent 看不到。**stdio 服务器在控制台宿主机上直接执行**（不在容器内、不过 bash 审批），必须逐条勾选风险确认才能保存。
+
+- **社区插件中心**（设置 → 插件）：插件以 Docker 镜像交付，可以跑在本机，也可以跑在用户自己的 VPS 上。控制台主动出站连接插件主机，所以本地部署没有公网 IP 也能用，不需要反向隧道。每个插件就是一个 MCP server，工具沿用 `mcp__<插件>__<工具>` 命名，受「权限 → MCP」总开关约束。安装时展示 manifest 声明的网络模式与 capabilities，`host` 网络和 `privileged` 必须单独确认；工具调用不逐条拦截，只写审计，插件页可一键停用。插件包是一个 zip（根目录或一层子目录里有 `plugin.json`）或单个 `plugin.json`，在「设置 → 插件」上传安装；镜像必须带 digest，`source` 必须公开。详见 [docs/plugin-center.md](docs/plugin-center.md) 与 [docs/plugin-authoring.md](docs/plugin-authoring.md)。
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 

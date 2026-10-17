@@ -1,0 +1,127 @@
+# 插件作者指南
+
+一个插件就是一个 Docker 镜像加一个 `plugin.json`。镜像里跑一个 MCP server，监听 HTTP；插件主机负责拉镜像、起容器、健康检查，控制台把它的工具挂给 Agent。
+
+## 最小结构
+
+```
+my-plugin/
+├── plugin.json
+├── Dockerfile
+└── README.md
+```
+
+打包上传：
+
+```sh
+zip -r my-plugin.zip my-plugin/
+```
+
+`plugin.json` 的字段与校验规则见 [plugin-center.md](./plugin-center.md#5-插件包)。三条硬性要求：
+
+1. `image` 带 `@sha256:` digest。`latest` 会被拒绝。
+2. `source` 指向公开仓库。本项目只分发开源插件。
+3. 容器监听 `mcp.port`，`healthcheck.path` 返回 2xx 才算启动成功。
+
+## MCP server 要求
+
+- 传输：只支持 streamable HTTP（`transport: "http"`），POST 到 `mcp.path`。stdio 和 SSE 需要自己转换成 HTTP 再打包；写 `stdio`/`sse` 会在安装校验时被拒绝。
+- 允许用普通 JSON 响应，不必强制 SSE。需要进度通知时再返回 `text/event-stream`。
+- 必须实现 `initialize`、`tools/list`、`tools/call`。`ping` 建议实现。
+- 工具名只用字母、数字、下划线和短横线。
+- 每个工具都应有 `description` 与 `inputSchema`。模型靠它决定调不调用。
+- 单次调用的超时由 `mcp.requestTimeoutMs` 决定（毫秒，5 秒–30 分钟，默认 5 分钟）。长任务要显式调大，否则会被 MCP 客户端切断。
+
+可以直接抄 `examples/plugins/hello-world/server.mjs`（Node，无依赖）或
+`examples/plugins/recon/server.py`（Python，包一层 CLI）作为起点。
+
+## 构建与发布
+
+```sh
+docker build -t ghcr.io/<账号>/sentinel-plugin-recon:0.1.0 .
+docker push ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<账号>/sentinel-plugin-recon:0.1.0
+```
+
+把输出写进 `plugin.json` 的 `image`。多架构用 `docker buildx build --platform linux/amd64,linux/arm64 --push`。
+
+## 本地调试
+
+镜像发布前，可以绕过插件主机直接跑 server：
+
+```sh
+PLUGIN_ARTIFACTS_DIR=/tmp/artifacts PORT=7801 node server.mjs
+curl http://127.0.0.1:7801/healthz
+curl -s http://127.0.0.1:7801/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+发布后，在仓库根目录起一个本地 host：
+
+```sh
+npm run plugin-host -- --local
+# 想用独立数据目录，避免污染 ~/.sentinel：
+npm run plugin-host -- --local --data-dir /tmp/sph-dev
+```
+
+控制台会自动发现它。然后在「设置 → 插件」上传 `my-plugin.zip`（或者直接把 `plugin.json` 拖进去），
+安装前会展示 manifest 与声明的权限。zip 的根目录或一层子目录里有 `plugin.json` 即可。
+
+跑构建产物而不是源码时用 `node packages/web/dist/index.js plugin-host --local`（先 `npm run build:web`）。
+
+## 配置与密钥
+
+`config` 里的字段会以 `PLUGIN_<KEY>` 环境变量注入容器。`type: "secret"` 的值只存在宿主机的 `config.json`（0600），API 永远不返回，也不会进审计参数。
+
+- 必填字段在安装时校验，缺了会拒绝安装。
+- 改配置会重建容器（环境变量是创建时固定的），数据目录保留。
+- 不要把密钥写进镜像、日志或工具返回值。
+
+## 产物
+
+大输出写文件，不要塞进 MCP 返回：
+
+```text
+/artifacts/<run-id>/result.txt
+```
+
+工具结果里用 `_meta.artifacts` 声明相对路径：
+
+```json
+{
+  "content": [{ "type": "text", "text": "扫描完成，共 42 条" }],
+  "_meta": { "artifacts": ["run-20261017-162000/result.txt"] }
+}
+```
+
+操作员在插件页可以把产物拉进当前项目的 `evidence/plugin/`。单文件超过 `artifacts.maxFileBytes` 会被 host 拒绝。
+
+## 权限声明
+
+| 字段 | 说明 |
+|---|---|
+| `network: bridge` | 默认，能出网，不能被外部直接访问 |
+| `network: host` | 与宿主机共享网络栈，安装时必须单独确认 |
+| `capAdd` | 只允许 `NET_RAW`、`NET_ADMIN`、`NET_BIND_SERVICE`、`SYS_PTRACE` |
+| `privileged: true` | 等价于宿主机 root，安装时单独确认，强烈不建议 |
+
+能力要按实际需要声明，不要为了省事全开。安装页会把声明的权限原样展示给操作员。
+
+## locality
+
+- `any`：本地和 VPS 都能装。
+- `local-only`：需要操作员的本地网络视角（扫内网、抓本地流量），装到远端 host 会被拒绝。
+- `remote-only`：需要公网出口或固定公网地址，装到本地 host 会被拒绝。
+
+装错位置不会报运行时错误，而是在安装时直接拒绝，所以这个字段要填对。
+
+## 发布检查清单
+
+- [ ] `plugin.json` 通过校验（控制台安装时的报错会列全）
+- [ ] 镜像 digest 是刚推送的那一版
+- [ ] `/healthz` 在容器启动后 20 秒内可用
+- [ ] 工具描述能让模型看懂什么时候调用
+- [ ] 密钥走 `config`，没有硬编码
+- [ ] 大输出写 `/artifacts`，返回值只有摘要
+- [ ] README 写清权限需求与网络出口

@@ -34,6 +34,7 @@ export type SentinelPageId =
 	| "settings.assets"
 	| "settings.websearch"
 	| "settings.mcp"
+	| "settings.plugins"
 	| "about";
 
 /** Reasoning effort levels pi accepts, ascending. */
@@ -934,6 +935,30 @@ export type SentinelClientMessage =
 	/** Flip one server's switch from the permissions page; the MCP page reads the same field. */
 	| { type: "set_mcp_server_enabled"; name: string; enabled: boolean }
 	| { type: "test_mcp_server"; name: string; draft?: SentinelMcpServerInput }
+	| { type: "get_plugins" }
+	/** Add or update one host. An empty token keeps the stored one. */
+	| { type: "save_plugin_host"; host: SentinelPluginHostInput }
+	| { type: "delete_plugin_host"; id: string }
+	| { type: "test_plugin_host"; id: string }
+	/** Read `plugin.json` from a directory on the console host; nothing is installed yet. */
+	| { type: "inspect_plugin_package"; name: string; data: string }
+	| {
+			type: "install_plugin";
+			hostId: string;
+			manifest: SentinelPluginManifest;
+			allowHostNetwork: boolean;
+			allowPrivileged: boolean;
+			config: Record<string, string>;
+	  }
+	| { type: "uninstall_plugin"; hostId: string; pluginId: string; purge: boolean }
+	| { type: "start_plugin"; hostId: string; pluginId: string }
+	| { type: "stop_plugin"; hostId: string; pluginId: string }
+	| { type: "set_plugin_enabled"; hostId: string; pluginId: string; enabled: boolean }
+	/** Empty secret values keep the stored secret; other empty values clear the key. */
+	| { type: "save_plugin_config"; hostId: string; pluginId: string; values: Record<string, string> }
+	| { type: "get_plugin_logs"; hostId: string; pluginId: string }
+	| { type: "list_plugin_artifacts"; hostId: string; pluginId: string }
+	| { type: "fetch_plugin_artifact"; hostId: string; pluginId: string; path: string }
 	| { type: "list_engines" }
 	| { type: "engine_create"; input: SentinelEngineCreateInput }
 	| { type: "engine_pause"; id: string }
@@ -1057,6 +1082,11 @@ export type SentinelServerMessage =
 	| { type: "websearch_test_result"; result: SentinelTestResult }
 	| { type: "mcp_servers"; config: SentinelMcpConfigView }
 	| { type: "mcp_test_result"; name: string; result: SentinelMcpTestResult }
+	| { type: "plugins"; view: SentinelPluginsView }
+	| { type: "plugin_manifest"; manifest: SentinelPluginManifest; source: string }
+	| { type: "plugin_logs"; hostId: string; pluginId: string; logs: string }
+	| { type: "plugin_artifacts"; hostId: string; pluginId: string; artifacts: SentinelPluginArtifact[] }
+	| { type: "plugin_artifact_saved"; hostId: string; pluginId: string; path: string; savedTo: string }
 	| { type: "engines"; engines: SentinelEngine[] }
 	| { type: "engine_update"; engine: SentinelEngine }
 	| { type: "engine_commander_event"; engineId: string; event: SentinelSubagentEvent }
@@ -1266,6 +1296,181 @@ export interface SentinelMcpTestResult extends SentinelTestResult {
 	tools: string[];
 	resources: number;
 	instructions?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 插件中心 (mirrors packages/web/src/protocol.ts and plugin-manifest.ts)
+// ---------------------------------------------------------------------------
+
+export type SentinelPluginNetwork = "none" | "bridge" | "host";
+
+/** Where a plugin makes sense: the operator's LAN, a public egress, or either. */
+export type SentinelPluginLocality = "local-only" | "remote-only" | "any";
+
+export type SentinelPluginConfigType = "string" | "secret" | "number" | "boolean" | "enum";
+
+/** Only streamable HTTP is part of the plugin contract. */
+export type SentinelPluginMcpTransport = "http";
+
+/** One configuration field the install form renders. */
+export interface SentinelPluginConfigField {
+	key: string;
+	label: string;
+	type: SentinelPluginConfigType;
+	required: boolean;
+	/** Pre-filled value; `null` starts empty. */
+	default: string | number | boolean | null;
+	/** Allowed values for `enum`, empty otherwise. */
+	options: string[];
+	description: string;
+}
+
+export interface SentinelPluginMcp {
+	transport: SentinelPluginMcpTransport;
+	port: number;
+	path: string;
+	startupTimeoutMs: number;
+	/** Per-request budget of an MCP call, in milliseconds. */
+	requestTimeoutMs: number;
+}
+
+export interface SentinelPluginPermissions {
+	network: SentinelPluginNetwork;
+	/** Extra Linux capabilities, e.g. `NET_RAW` for a scanner that needs raw sockets. */
+	capAdd: string[];
+	privileged: boolean;
+}
+
+export interface SentinelPluginResources {
+	cpus: number;
+	/** Docker size string, e.g. `512m` or `2g`. */
+	memory: string;
+	pidsLimit: number;
+}
+
+export interface SentinelPluginHealthcheck {
+	path: string;
+	intervalMs: number;
+	timeoutMs: number;
+	retries: number;
+}
+
+export interface SentinelPluginArtifacts {
+	path: string;
+	maxFileBytes: number;
+}
+
+/** A tool as advertised before install; the running MCP server remains authoritative. */
+export interface SentinelPluginToolHint {
+	name: string;
+	description: string;
+}
+
+/** The community plugin manifest (`plugin.json`). */
+export interface SentinelPluginManifest {
+	schema: number;
+	id: string;
+	name: string;
+	version: string;
+	description: string;
+	author: string;
+	source: string;
+	license: string;
+	image: string;
+	mcp: SentinelPluginMcp;
+	config: SentinelPluginConfigField[];
+	permissions: SentinelPluginPermissions;
+	locality: SentinelPluginLocality;
+	resources: SentinelPluginResources;
+	healthcheck: SentinelPluginHealthcheck;
+	artifacts: SentinelPluginArtifacts;
+	tools: SentinelPluginToolHint[];
+}
+
+/**
+ * A plugin host as the console lists it. The token is never part of the view:
+ * saving a host without one keeps the stored token.
+ */
+export interface SentinelPluginHostView {
+	id: string;
+	name: string;
+	url: string;
+	/** Discovered from a `plugin-host --local` state file on this machine. */
+	local: boolean;
+	status: {
+		at: number | null;
+		ok: boolean;
+		error?: string;
+		version?: string;
+		mode?: "local" | "remote";
+		docker?: { ok: boolean; version?: string; error?: string };
+	};
+}
+
+/** Runtime state of one installed plugin, as the host reports it. */
+export type SentinelPluginState = "running" | "starting" | "stopped" | "failed" | "missing";
+
+/** One installed plugin on one host. */
+export interface SentinelPluginView {
+	hostId: string;
+	hostName: string;
+	hostLocal: boolean;
+	manifest: SentinelPluginManifest;
+	state: SentinelPluginState;
+	healthy: boolean;
+	/** The console-side switch; off means its tools are not mounted. */
+	enabled: boolean;
+	/** Config keys that have a stored value. */
+	configured: string[];
+	/** Stored values of non-secret fields; secrets only appear in `configured`. */
+	values: Record<string, string>;
+	hostPort: number | null;
+	installedAt: number;
+	lastError: string | null;
+}
+
+/** Everything the plugin center page renders. */
+export interface SentinelPluginsView {
+	hosts: SentinelPluginHostView[];
+	plugins: SentinelPluginView[];
+	/** Hosts that did not answer, one line each. */
+	problems: string[];
+}
+
+/** Add or edit one host. `id` present means edit. */
+export interface SentinelPluginHostInput {
+	id?: string;
+	name: string;
+	url: string;
+	/** Empty on an edit keeps the stored token. */
+	token: string;
+}
+
+/** One file under a plugin's artifacts directory. */
+export interface SentinelPluginArtifact {
+	path: string;
+	size: number;
+}
+
+/** The manifest read from an uploaded package, before the operator confirms install. */
+export interface SentinelPluginManifestView {
+	manifest: SentinelPluginManifest;
+	/** File name of the package, shown on the install form. */
+	source: string;
+}
+
+/** Logs currently expanded on the plugin page. */
+export interface SentinelPluginLogsView {
+	hostId: string;
+	pluginId: string;
+	logs: string;
+}
+
+/** Artifact listing currently expanded on the plugin page. */
+export interface SentinelPluginArtifactsView {
+	hostId: string;
+	pluginId: string;
+	items: SentinelPluginArtifact[];
 }
 
 /**

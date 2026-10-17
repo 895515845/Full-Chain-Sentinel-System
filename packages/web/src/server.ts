@@ -84,6 +84,7 @@ import {
 	writeContainerNetwork,
 } from "./container-network.ts";
 import { gateCookieHeader, generateGateToken, hasValidGate, isGateEntry, sendGateNotFound } from "./gate.ts";
+import { readPluginPackage } from "./plugin-package.ts";
 import { SentinelRuntime } from "./sentinel-session.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { storeUpload } from "./upload.ts";
@@ -1273,6 +1274,155 @@ export async function startSentinelServer(
 						name: message.name,
 						result,
 					} satisfies SentinelServerMessage);
+					return;
+				}
+				case "get_plugins": {
+					sendTo(socket, { type: "plugins", view: await runtime.getPlugins() } satisfies SentinelServerMessage);
+					return;
+				}
+				case "save_plugin_host": {
+					try {
+						broadcast({ type: "plugins", view: await runtime.savePluginHost(message.host) });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "delete_plugin_host": {
+					try {
+						broadcast({ type: "plugins", view: await runtime.deletePluginHost(message.id) });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "test_plugin_host": {
+					try {
+						await runtime.testPluginHost(message.id);
+						broadcast({ type: "plugins", view: await runtime.getPlugins() });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "inspect_plugin_package": {
+					try {
+						const uploaded = readPluginPackage(message.name, message.data);
+						sendTo(socket, {
+							type: "plugin_manifest",
+							manifest: uploaded.manifest,
+							source: uploaded.name,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "install_plugin": {
+					try {
+						await runtime.installPlugin({
+							hostId: message.hostId,
+							manifest: message.manifest,
+							allowHostNetwork: message.allowHostNetwork,
+							allowPrivileged: message.allowPrivileged,
+							config: message.config,
+						});
+						broadcast({ type: "plugins", view: await runtime.getPlugins() });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "uninstall_plugin": {
+					try {
+						broadcast({
+							type: "plugins",
+							view: await runtime.uninstallPlugin(message.hostId, message.pluginId, message.purge),
+						});
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "start_plugin": {
+					try {
+						broadcast({ type: "plugins", view: await runtime.startPlugin(message.hostId, message.pluginId) });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "stop_plugin": {
+					try {
+						broadcast({ type: "plugins", view: await runtime.stopPlugin(message.hostId, message.pluginId) });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "set_plugin_enabled": {
+					try {
+						broadcast({
+							type: "plugins",
+							view: await runtime.setPluginEnabled(message.hostId, message.pluginId, message.enabled),
+						});
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "save_plugin_config": {
+					try {
+						broadcast({
+							type: "plugins",
+							view: await runtime.setPluginConfig(message.hostId, message.pluginId, message.values),
+						});
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "get_plugin_logs": {
+					try {
+						const logs = await runtime.pluginLogs(message.hostId, message.pluginId);
+						sendTo(socket, {
+							type: "plugin_logs",
+							hostId: message.hostId,
+							pluginId: message.pluginId,
+							logs,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "list_plugin_artifacts": {
+					try {
+						const artifacts = await runtime.listPluginArtifacts(message.hostId, message.pluginId);
+						sendTo(socket, {
+							type: "plugin_artifacts",
+							hostId: message.hostId,
+							pluginId: message.pluginId,
+							artifacts,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "fetch_plugin_artifact": {
+					try {
+						const savedTo = await runtime.fetchPluginArtifact(message.hostId, message.pluginId, message.path);
+						sendTo(socket, {
+							type: "plugin_artifact_saved",
+							hostId: message.hostId,
+							pluginId: message.pluginId,
+							path: message.path,
+							savedTo,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
 					return;
 				}
 				case "get_stats": {

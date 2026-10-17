@@ -34,6 +34,7 @@ import {
 	MessageSquare,
 	Minimize2,
 	Network,
+	Package,
 	Pencil,
 	Plug,
 	Radar,
@@ -197,6 +198,11 @@ export function AssetIcon(props: IconProps) {
 /** Custom MCP servers: plug the console into external tool servers. */
 export function McpIcon(props: IconProps) {
 	return <Plug size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Community plugins: Docker images mounted as MCP servers. */
+export function PluginIcon(props: IconProps) {
+	return <Package size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Rename an entry. */

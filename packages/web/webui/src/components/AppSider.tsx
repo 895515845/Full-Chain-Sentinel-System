@@ -30,6 +30,7 @@ import {
 	NotifyIcon,
 	PocIcon,
 	ProjectsIcon,
+	PluginIcon,
 	RefreshIcon,
 	RenameIcon,
 	SentinelMark,
@@ -85,6 +86,7 @@ const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.assets", label: "资产测绘", icon: AssetIcon },
 	{ page: "settings.websearch", label: "Web 搜索", icon: AssetIcon },
 	{ page: "settings.mcp", label: "MCP", icon: McpIcon },
+	{ page: "settings.plugins", label: "插件", icon: PluginIcon },
 	{ page: "settings.security", label: "安全", icon: LockIcon },
 	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
 ];

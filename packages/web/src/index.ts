@@ -24,13 +24,21 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { WEB_CONSOLE_VERSION } from "./assets.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { GATE_TOKEN_MAX_CHARS, GATE_TOKEN_MIN_CHARS, isGateToken } from "./gate.ts";
+import { runPluginHostCli } from "./plugin-host/index.ts";
 import type { SentinelEnvReport } from "./protocol.ts";
 import { startSentinelServer } from "./server.ts";
 import { ensureTlsCertificate, storedNamesCoverCurrentIps, tlsCertPath } from "./tls.ts";
 
+// `plugin-host` is a second program behind the same binary: run it before the console's
+// own argument handling so its flags are never read as console flags.
+if (process.argv[2] === "plugin-host") {
+	process.exit(await runPluginHostCli(process.argv.slice(3)));
+}
+
 const USAGE = `sentinel-web ${WEB_CONSOLE_VERSION} - 全链哨兵 Web 控制台
 
 用法: sentinel-web [选项]
+      sentinel-web plugin-host [选项]   启动社区插件主机（见 plugin-host --help）
 
 选项:
   --port <端口>    监听端口（默认 7777，环境变量 SENTINEL_PORT）

@@ -31,6 +31,7 @@ import {
 	validateMcpServerConfig,
 } from "@earendil-works/pi-coding-agent";
 import { readPermissionsConfig } from "./permissions.ts";
+import { pluginMountEntries, pluginStatePath } from "./plugin-store.ts";
 import type {
 	SentinelMcpConfigView,
 	SentinelMcpExposure,
@@ -360,6 +361,32 @@ export function loadSentinelMcpConfig(agentDir: string): LoadedMcpConfig {
 			continue;
 		}
 		entries.push({ name: server.name, config: validated, source: path, scope: "global" });
+	}
+	// Installed plugins are MCP servers too. They are mounted from the cached state in
+	// plugins.json rather than from this file, because the host, not the operator, owns
+	// their lifecycle; the console only decides whether they are switched on.
+	const used = new Set(entries.map((entry) => mcpNamespace(entry.name)));
+	for (const plugin of pluginMountEntries(agentDir)) {
+		if (used.has(mcpNamespace(plugin.serverName))) {
+			errors.push(`${pluginStatePath(agentDir)}: 插件服务器 ${plugin.serverName} 与已有 MCP 服务器同名，已跳过`);
+			continue;
+		}
+		const pluginConfig = {
+			enabled: true,
+			exposure: "direct" as const,
+			url: plugin.url,
+			headers: { authorization: `Bearer ${plugin.token}` },
+			description: "社区插件",
+			// The MCP client defaults to 60s, which is shorter than a real scan.
+			timeout: plugin.timeoutSeconds,
+		};
+		const validated = validateMcpServerConfig(plugin.serverName, pluginConfig);
+		if (typeof validated === "string") {
+			errors.push(`${pluginStatePath(agentDir)}: ${validated}`);
+			continue;
+		}
+		entries.push({ name: plugin.serverName, config: validated, source: pluginStatePath(agentDir), scope: "global" });
+		used.add(mcpNamespace(plugin.serverName));
 	}
 	return { servers: entries, errors };
 }

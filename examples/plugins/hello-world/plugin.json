@@ -1,0 +1,58 @@
+{
+	"schema": 1,
+	"id": "com.sentinel.hello-world",
+	"name": "Hello World 插件",
+	"version": "0.1.0",
+	"description": "最小可运行插件：两个工具与一个产物，用来验证安装、健康检查和产物回传链路。",
+	"author": "github:example",
+	"source": "https://github.com/example/sentinel-plugins/tree/main/hello-world",
+	"license": "MIT",
+	"image": "ghcr.io/example/sentinel-plugin-hello@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	"mcp": {
+		"transport": "http",
+		"port": 7801,
+		"path": "/mcp",
+		"startupTimeoutMs": 15000,
+		"requestTimeoutMs": 60000
+	},
+	"config": [
+		{
+			"key": "GREETING",
+			"label": "问候语",
+			"type": "string",
+			"required": false,
+			"default": "hello"
+		}
+	],
+	"permissions": {
+		"network": "bridge",
+		"capAdd": [],
+		"privileged": false
+	},
+	"locality": "any",
+	"resources": {
+		"cpus": 0.5,
+		"memory": "128m",
+		"pidsLimit": 64
+	},
+	"healthcheck": {
+		"path": "/healthz",
+		"intervalMs": 5000,
+		"timeoutMs": 2000,
+		"retries": 3
+	},
+	"artifacts": {
+		"path": "/artifacts",
+		"maxFileBytes": 1048576
+	},
+	"tools": [
+		{
+			"name": "hello_echo",
+			"description": "回显一段文本"
+		},
+		{
+			"name": "hello_artifact",
+			"description": "写一个文本产物到 /artifacts"
+		}
+	]
+}

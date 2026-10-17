@@ -9,8 +9,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, unlinkSync } from "node:fs";
-import { resolve as resolveFsPath } from "node:path";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve as resolveFsPath } from "node:path";
 import {
 	type AgentSessionEvent,
 	type BashOperations,
@@ -164,6 +164,7 @@ import {
 	type SentinelPermissionsConfig,
 	writePermissionsConfig,
 } from "./permissions.ts";
+import * as pluginService from "./plugin-service.ts";
 import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
 import { LIST_CAP, PocStore, pocsDbPath } from "./pocs.ts";
@@ -199,6 +200,11 @@ import type {
 	SentinelModelRoleName,
 	SentinelNotifyConfig,
 	SentinelNotifyStatus,
+	SentinelPluginArtifact,
+	SentinelPluginHostInput,
+	SentinelPluginHostView,
+	SentinelPluginsView,
+	SentinelPluginView,
 	SentinelPoc,
 	SentinelPocFilters,
 	SentinelPocImportFile,
@@ -1934,6 +1940,115 @@ export class SentinelRuntime {
 			resources: probe.resources,
 			...(probe.instructions ? { instructions: probe.instructions } : {}),
 		};
+	}
+
+	/**
+	 * The plugin center's data: every host, every installed plugin, and the
+	 * problems of hosts that did not answer. Reading this also refreshes the
+	 * mount cache that session creation uses, so the next rebuild sees the truth.
+	 */
+	async getPlugins(): Promise<SentinelPluginsView> {
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	async savePluginHost(input: SentinelPluginHostInput): Promise<SentinelPluginsView> {
+		pluginService.saveHost(this.agentDir, input);
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	/** Removing a host removes its plugins from the next session; it does not touch the host itself. */
+	async deletePluginHost(id: string): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件主机");
+		pluginService.deleteHost(this.agentDir, id);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	testPluginHost(id: string): Promise<SentinelPluginHostView["status"]> {
+		return pluginService.testPluginHost(this.agentDir, id);
+	}
+
+	/**
+	 * Install or upgrade one plugin. Refused while a session is running: the MCP
+	 * extension connects its servers at session start, so the tool set changes by
+	 * rebuilding, not by mutating a live connection.
+	 */
+	async installPlugin(input: pluginService.InstallPluginInput): Promise<SentinelPluginView> {
+		this.assertNoRunningSession("插件");
+		const plugin = await pluginService.installPlugin(this.agentDir, input);
+		await this.rebuildSessions();
+		return plugin;
+	}
+
+	async uninstallPlugin(hostId: string, pluginId: string, purge: boolean): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件");
+		await pluginService.uninstallPlugin(this.agentDir, hostId, pluginId, purge);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	async startPlugin(hostId: string, pluginId: string): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件");
+		await pluginService.startPlugin(this.agentDir, hostId, pluginId);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	async stopPlugin(hostId: string, pluginId: string): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件");
+		await pluginService.stopPlugin(this.agentDir, hostId, pluginId);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	/** The console-side switch: off unmounts the tools but leaves the container running. */
+	async setPluginEnabled(hostId: string, pluginId: string, enabled: boolean): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件");
+		pluginService.setPluginEnabled(this.agentDir, hostId, pluginId, enabled);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	/** Update config values, redeploy, and rebuild so the new env reaches the tools. */
+	async setPluginConfig(
+		hostId: string,
+		pluginId: string,
+		values: Record<string, string>,
+	): Promise<SentinelPluginsView> {
+		this.assertNoRunningSession("插件配置");
+		await pluginService.updatePluginConfig(this.agentDir, hostId, pluginId, values);
+		await this.rebuildSessions();
+		return pluginService.listPlugins(this.agentDir);
+	}
+
+	pluginLogs(hostId: string, pluginId: string): Promise<string> {
+		return pluginService.pluginLogs(this.agentDir, hostId, pluginId);
+	}
+
+	listPluginArtifacts(hostId: string, pluginId: string): Promise<SentinelPluginArtifact[]> {
+		return pluginService.listPluginArtifacts(this.agentDir, hostId, pluginId);
+	}
+
+	/**
+	 * Pull one artifact into `evidence/plugin/<host>/<plugin>/` of the active
+	 * project. The stored name keeps the plugin's relative path, with traversal
+	 * segments removed, so two runs cannot overwrite each other by accident and
+	 * nothing can be written outside the evidence directory.
+	 */
+	async fetchPluginArtifact(hostId: string, pluginId: string, path: string): Promise<string> {
+		const project = this.snapshot().project;
+		if (!project) throw new Error("请先创建或选择一个项目，再把插件产物落进证据目录");
+		const data = await pluginService.downloadPluginArtifact(this.agentDir, hostId, pluginId, path);
+		const safeSegments = path
+			.split("/")
+			.filter((segment) => segment && segment !== "." && segment !== "..")
+			.map((segment) => segment.replace(/[^A-Za-z0-9._-]/g, "_"));
+		if (safeSegments.length === 0) throw new Error("产物路径为空");
+		const savedTo = join("evidence", "plugin", hostId.replace(/[^A-Za-z0-9._-]/g, "_"), pluginId, ...safeSegments);
+		const target = join(this.cwd, savedTo);
+		mkdirSync(dirname(target), { recursive: true });
+		writeFileSync(target, data);
+		return savedTo;
 	}
 
 	/**
