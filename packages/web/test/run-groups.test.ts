@@ -136,6 +136,26 @@ test("a run ending on a loop-guard notice still folds", () => {
 	expect(fold(broken, 0)).toBeUndefined();
 });
 
+test("a stretch ending on a thinking-only assistant folds", () => {
+	// What a compaction boundary leaves behind: the model was cut while still
+	// thinking, so the last assistant message has no prose — only thinking rounds.
+	// The whole stretch used to stay expanded because the fold rule looked at
+	// text alone; it must fold and report the thinking rounds.
+	const thinkingOnly = {
+		role: "assistant",
+		content: [{ type: "thinking", thinking: "还在分析…" }],
+		timestamp: 5000,
+	} as AgentMessageView;
+	const stretch = groupRuns([toolResult(1500), assistant("中间结论", 2000), thinkingOnly]);
+	const state = fold(stretch, 0);
+	expect(state?.collapsed).toBe(true);
+	expect(state?.digest).toContain("1 段思考");
+
+	// Truly silent endings (no text, no thinking) stay open, as before.
+	const silent = groupRuns([user("a", 1000), { role: "assistant", content: [], timestamp: 2000 } as AgentMessageView]);
+	expect(fold(silent, 0)).toBeUndefined();
+});
+
 test("runDigest counts thinking rounds and measures a stretch without a prompt", () => {
 	const thinking = {
 		role: "assistant",

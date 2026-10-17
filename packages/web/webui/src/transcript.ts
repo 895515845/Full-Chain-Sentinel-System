@@ -189,6 +189,13 @@ export function runFoldState(options: {
 	if (!lastWord || lastWord.role !== "assistant") return undefined;
 	if (lastWord.errorMessage) return undefined;
 	if (!notice && (lastWord.stopReason === "error" || lastWord.stopReason === "aborted")) return undefined;
-	if (!notice && textFromContent(lastWord.content).length === 0) return undefined;
+	// A thinking-only ending (the model was cut by a compaction boundary before
+	// saying anything) is still a finished process step: the fold row reports the
+	// thinking rounds. Only silence — no text, no thinking — stays open.
+	const content = Array.isArray(lastWord.content) ? lastWord.content : [];
+	const saidAnything =
+		content.some((block) => (block as { type?: string }).type === "thinking") ||
+		textFromContent(lastWord.content).length > 0;
+	if (!notice && !saidAnything) return undefined;
 	return { collapsed: !expanded.has(group.key), digest: runDigest(group.prompt, group.body) };
 }
