@@ -106,6 +106,36 @@ test("runFoldState keeps failures and the run in flight visible", () => {
 	expect(fold(silent, 0)).toBeUndefined();
 });
 
+test("a run ending on a loop-guard notice still folds", () => {
+	const notice = (timestamp: number): AgentMessageView => ({
+		role: "custom",
+		customType: "zg-loop-guard",
+		content: text("【输出重复】上一次输出陷入了重复，已被提前中止。"),
+		timestamp,
+	});
+	// The stutter nudge lands after the run settled: the aborted assistant before
+	// it was a deliberate cut, and the notice card already explains it — the run
+	// must fold instead of leaving every tool call expanded.
+	const stuttered = groupRuns([
+		user("侦察", 1000),
+		toolResult(1500),
+		assistant("进展如下", 2000, { stopReason: "aborted" }),
+		notice(2500),
+	]);
+	const state = fold(stuttered, 0);
+	expect(state).toEqual({ collapsed: true, digest: "1 次工具调用 · 1.5s" });
+	expect(fold(stuttered, 0, [stuttered[0].key])).toEqual({ collapsed: false, digest: "1 次工具调用 · 1.5s" });
+
+	// A notice without any substantive message in front of it still does not fold
+	// (nothing to fold into a row).
+	const bare = groupRuns([user("a", 1000), notice(2000)]);
+	expect(fold(bare, 0)).toBeUndefined();
+
+	// A real failure stays visible even with a notice after it.
+	const broken = groupRuns([user("a", 1000), assistant("出错了", 2000, { errorMessage: "boom" }), notice(2500)]);
+	expect(fold(broken, 0)).toBeUndefined();
+});
+
 test("runDigest counts thinking rounds and measures a stretch without a prompt", () => {
 	const thinking = {
 		role: "assistant",

@@ -145,10 +145,30 @@ export function groupRuns(messages: readonly AgentMessageView[]): RunGroup[] {
 }
 
 /**
+ * Whether a message is a notice the console folds into its own card: loop-guard
+ * aborts, modeling start/close rows. The loop guard lands at the END of a run
+ * (the nudge is injected once the run has settled), so a run may legitimately
+ * end on one — and it must still fold, because the card already says why the
+ * run was cut.
+ */
+export function isNoticeMessage(message: AgentMessageView): boolean {
+	return (
+		message.role === "custom" &&
+		(message.customType === "zg-loop-guard" ||
+			message.customType === "zg-modeling" ||
+			message.customType === "zg-modeling-attach")
+	);
+}
+
+/**
  * Whether a run may fold, and whether it is folded right now. Only a run whose
  * last word is prose can fold: a failure, an abort or a turn cut off mid-tool
  * has to stay visible, because the error is the point. The run in flight never
  * folds either, so the operator watches it happen.
+ *
+ * A trailing notice (输出重复已中止 and friends) does not block the fold: it is
+ * itself a folded card, and without this allowance every stutter abort would
+ * leave its whole run — every tool call and thinking block — stuck expanded.
  */
 export function runFoldState(options: {
 	groups: readonly RunGroup[];
@@ -161,8 +181,14 @@ export function runFoldState(options: {
 	if (!group || group.marker || group.body.length === 0) return undefined;
 	if (streaming && index === groups.length - 1) return undefined;
 	const last = group.body[group.body.length - 1];
-	if (last.role !== "assistant" || last.errorMessage) return undefined;
-	if (last.stopReason === "error" || last.stopReason === "aborted") return undefined;
-	if (textFromContent(last.content).length === 0) return undefined;
+	// Skip a trailing notice and judge the run by its substantive last word; a
+	// deliberate cut (the notice) is explanation enough for the aborted assistant
+	// message in front of it, which on its own would keep the run open.
+	const notice = isNoticeMessage(last);
+	const lastWord = notice ? group.body[group.body.length - 2] : last;
+	if (!lastWord || lastWord.role !== "assistant") return undefined;
+	if (lastWord.errorMessage) return undefined;
+	if (!notice && (lastWord.stopReason === "error" || lastWord.stopReason === "aborted")) return undefined;
+	if (!notice && textFromContent(lastWord.content).length === 0) return undefined;
 	return { collapsed: !expanded.has(group.key), digest: runDigest(group.prompt, group.body) };
 }
