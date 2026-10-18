@@ -115,9 +115,10 @@ for (const pluginPath of config.plugins ?? []) {
 const body = entries
 	.map(
 		(entry) => `\t{
-\t\tmanifest: ${JSON.stringify(entry.manifest, null, 2).replaceAll("\n", "\n\t\t")},
-\t\tpackageBase64:
-\t\t\t"${entry.packageBase64}",
+\t\t// Parsed at module load; stored as a string so the generated file keeps a
+\t\t// stable shape instead of being reformatted by the linter on every build.
+\t\tmanifest: JSON.parse(${JSON.stringify(JSON.stringify(entry.manifest))}),
+\t\tpackageBase64: "${entry.packageBase64}",
 \t\tsizeBytes: ${entry.sizeBytes},
 \t},`,
 	)
