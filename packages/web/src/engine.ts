@@ -118,12 +118,17 @@ interface EngineLive {
 	engine: SentinelEngine;
 	commander?: LiveSession;
 	commanderUnsubscribe: () => void;
+	/** Tool-free session for post-completion debrief chat. */
+	debrief?: LiveSession;
+	debriefUnsubscribe: () => void;
 	workers: Map<string, EngineWorker>;
 	commanderSeq: number;
 	taskSeq: Map<string, number>;
 	/** Operator/summ texts waiting for the commander to be free. */
 	pendingCommanderPrompts: string[];
 	commanderPromptInFlight: boolean;
+	pendingDebriefPrompts: string[];
+	debriefPromptInFlight: boolean;
 	nudges: number;
 	reportSettled: boolean;
 	/** How many bash commands this commander has spent of its budget. */
@@ -299,6 +304,8 @@ export class EngineManager {
 		}
 		entry.commanderUnsubscribe();
 		entry.commander?.dispose();
+		entry.debriefUnsubscribe();
+		entry.debrief?.dispose();
 		this.live.delete(id);
 		this.store.deleteEngine(id);
 	}
@@ -386,17 +393,29 @@ export class EngineManager {
 		this.hooks.onChange(entry.engine);
 	}
 
-	/** Operator steer: deliver an instruction to the commander mid-run. */
+	/**
+	 * Operator message to the commander. While the engine runs it is a steering
+	 * instruction; after completion it opens a tool-free debrief session, so the
+	 * operator can still ask what happened without re-arming the commander.
+	 */
 	async steerCommander(id: string, text: string): Promise<void> {
 		const entry = this.live.get(id);
 		if (!entry) throw new Error("工程不存在");
-		if (entry.engine.status !== "running") throw new Error("只有运行中的工程才能给指挥官追加指令");
 		const trimmed = text.trim();
-		if (!trimmed) throw new Error("追加指令不能为空");
-		// Record the operator's line in the commander feed before prompting, so the
-		// conversation reads as a chat rather than a one-way command log.
+		if (!trimmed) throw new Error("消息不能为空");
+		if (entry.engine.status === "running") {
+			// Record the operator's line in the commander feed before prompting, so the
+			// conversation reads as a chat rather than a one-way command log.
+			this.pushCommanderEvent(entry, { kind: "text", text: trimmed, from: "operator" });
+			await this.promptCommander(entry, `操作员指令：${trimmed}`);
+			return;
+		}
+		if (entry.engine.status !== "completed") {
+			throw new Error("只有运行中或已完成的工程可以和指挥官对话");
+		}
+		await this.ensureDebrief(entry);
 		this.pushCommanderEvent(entry, { kind: "text", text: trimmed, from: "operator" });
-		await this.promptCommander(entry, `操作员指令：${trimmed}`);
+		await this.promptDebrief(entry, trimmed);
 	}
 
 	/**
@@ -462,6 +481,8 @@ export class EngineManager {
 			for (const worker of entry.workers.values()) worker.dispose();
 			entry.commanderUnsubscribe();
 			entry.commander?.dispose();
+			entry.debriefUnsubscribe();
+			entry.debrief?.dispose();
 		}
 		this.live.clear();
 		this.disposed = true;
@@ -602,6 +623,11 @@ export class EngineManager {
 			entry.commander.dispose();
 			entry.commander = undefined;
 		}
+		if (entry.debrief) {
+			entry.debriefUnsubscribe();
+			entry.debrief.dispose();
+			entry.debrief = undefined;
+		}
 		const project = this.projectOf(entry.engine);
 		const model = await this.resolveCommanderModel();
 		if (!model) throw new Error("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点");
@@ -682,6 +708,76 @@ export class EngineManager {
 			entry.commanderPromptInFlight = false;
 		}
 		this.afterCommanderSettled(entry);
+	}
+
+	/**
+	 * A separate, tool-free session for talking to the commander after the engine
+	 * completed. The original commander keeps its scheduling tools; reusing it
+	 * would let a finished engine dispatch new work, so the debrief gets a clean
+	 * session with only the report and board as context.
+	 */
+	private async ensureDebrief(entry: EngineLive): Promise<LiveSession> {
+		if (entry.debrief) return entry.debrief;
+		const engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+		const project = this.projectOf(engine);
+		const model = await this.resolveCommanderModel();
+		if (!model) throw new Error("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点");
+		const brief = [
+			`你是工程「${engine.name}」的指挥官。工程已经完成，现在只做复盘对话。`,
+			"不要派发任务、不要修改工程、不要调用任何工具；只根据下面的总报告和看板回答操作员的问题。",
+			"如果报告里没有的信息，直说不知道，不要编造。",
+			"",
+			"## 总报告",
+			engine.report?.trim() || "（指挥官没有提交总报告）",
+			"",
+			"## 任务看板",
+			formatTaskBoard(engine.tasks),
+		].join("\n");
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: project.cwd,
+			agentDir: this.agentDir,
+			appendSystemPrompt: [brief],
+		});
+		await resourceLoader.reload();
+		const created = await createAgentSession({
+			cwd: project.cwd,
+			agentDir: this.agentDir,
+			modelRuntime: await this.ensureModelRuntime(),
+			model,
+			sessionManager: SessionManager.inMemory(project.cwd),
+			resourceLoader,
+			settingsManager: SettingsManager.create(project.cwd, this.agentDir),
+			baseToolsOverride: {},
+			customTools: [],
+		});
+		entry.debrief = created.session;
+		entry.debriefUnsubscribe = created.session.subscribe((event) => this.onCommanderEvent(entry, event));
+		await created.session.bindExtensions({});
+		this.pushCommanderEvent(entry, { kind: "status", note: "工程已完成，进入复盘对话" });
+		return created.session;
+	}
+
+	/** Serialize debrief messages, same as the live commander queue. */
+	private async promptDebrief(entry: EngineLive, text: string): Promise<void> {
+		entry.pendingDebriefPrompts.push(text);
+		if (entry.debriefPromptInFlight) return;
+		entry.debriefPromptInFlight = true;
+		try {
+			while (entry.pendingDebriefPrompts.length > 0) {
+				const next = entry.pendingDebriefPrompts.join("\n\n");
+				entry.pendingDebriefPrompts = [];
+				if (!entry.debrief) break;
+				await entry.debrief.prompt(next, {});
+			}
+		} catch (error) {
+			this.pushCommanderEvent(entry, {
+				kind: "status",
+				status: "error",
+				note: `指挥官复盘失败：${errorText(error)}`,
+			});
+		} finally {
+			entry.debriefPromptInFlight = false;
+		}
 	}
 
 	private onCommanderEvent(entry: EngineLive, event: AgentSessionEvent): void {
@@ -891,6 +987,9 @@ export class EngineManager {
 			taskSeq: new Map(),
 			pendingCommanderPrompts: [],
 			commanderPromptInFlight: false,
+			pendingDebriefPrompts: [],
+			debriefPromptInFlight: false,
+			debriefUnsubscribe: () => {},
 			nudges: 0,
 			reportSettled: engine.status === "completed",
 			bash: { used: 0 },

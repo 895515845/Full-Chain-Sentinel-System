@@ -244,6 +244,7 @@ export function EnginePage(props: EnginePageProps) {
 						<CommanderFeed
 							engineId={board.id}
 							running={board.status === "running"}
+							completed={board.status === "completed"}
 							events={props.commanderEvents[board.id] ?? []}
 							onSend={send}
 						/>
@@ -632,14 +633,17 @@ function toolArgSummary(event: SentinelSubagentEvent): string {
 function CommanderFeed({
 	engineId,
 	running,
+	completed,
 	events,
 	onSend,
 }: {
 	engineId: string;
 	running: boolean;
+	completed: boolean;
 	events: SentinelSubagentEvent[];
 	onSend: (message: unknown) => void;
 }) {
+	const canChat = running || completed;
 	const [openThinking, setOpenThinking] = useState<Set<number>>(new Set());
 	const [draft, setDraft] = useState("");
 	const containerRef = useState<{ current: HTMLDivElement | null }>({ current: null })[0];
@@ -648,7 +652,7 @@ function CommanderFeed({
 	}, [events.length, containerRef]);
 	const sendDraft = (): void => {
 		const text = draft.trim();
-		if (!text || !running) return;
+		if (!text || !canChat) return;
 		onSend({ type: "engine_steer_commander", id: engineId, text });
 		setDraft("");
 	};
@@ -739,8 +743,14 @@ function CommanderFeed({
 				<textarea
 					rows={2}
 					value={draft}
-					disabled={!running}
-					placeholder={running ? "和指挥官对话…Enter 发送，Shift+Enter 换行" : "工程未运行，暂时不能对话"}
+					disabled={!canChat}
+					placeholder={
+						running
+							? "和指挥官对话…Enter 发送，Shift+Enter 换行"
+							: completed
+								? "工程已完成，向指挥官追问报告细节…"
+								: "工程未运行，暂时不能对话"
+					}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && !event.shiftKey) {
@@ -749,7 +759,7 @@ function CommanderFeed({
 						}
 					}}
 				/>
-				<button type="button" disabled={!running || !draft.trim()} onClick={sendDraft}>
+				<button type="button" disabled={!canChat || !draft.trim()} onClick={sendDraft}>
 					发送
 				</button>
 			</div>
