@@ -57,6 +57,21 @@ export const SUBAGENT_PERMISSION_KEYS: readonly SentinelPermissionKey[] = PERMIS
 export type SentinelPermissionSet = Record<SentinelPermissionKey, boolean>;
 
 /**
+ * One agent's per-plugin switches, keyed by `${hostId}/${pluginId}`.
+ *
+ * These are not tool switches: a plugin is an MCP server, so the only useful
+ * granularity is "may this agent mount it". An absent key means allowed, which
+ * is the behaviour every install had before this page listed plugins at all —
+ * installing a plugin mounted it, and turning it off is the explicit act.
+ */
+export type SentinelPluginPermissionMap = Record<string, boolean>;
+
+export interface SentinelAgentPluginPermissions {
+	main: SentinelPluginPermissionMap;
+	subagent: SentinelPluginPermissionMap;
+}
+
+/**
  * The engineering-mode commander's switches. Its scheduling tools
  * (dispatch_task and friends) are its essence and always mounted; what the
  * operator controls is the fenced execution surface it gets for scoping
@@ -84,6 +99,8 @@ export interface SentinelPermissionsConfig {
 	commander: SentinelCommanderPermissionSet;
 	/** Turn budget before one sub-agent run is aborted. */
 	subagentMaxTurns: number;
+	/** Per-plugin mount switches, one set per agent. */
+	plugins: SentinelAgentPluginPermissions;
 }
 
 /** Defaults and bounds of the sub-agent turn budget. */
@@ -224,6 +241,9 @@ export function defaultPermissions(): SentinelPermissionsConfig {
 		subagent: { ...fullSet(), spawn_agent: false },
 		commander: { bash: true, read: true },
 		subagentMaxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
+		// Empty means "no plugin was ever switched off", which mounts everything
+		// the plugin center has enabled — the behaviour before this section existed.
+		plugins: { main: {}, subagent: {} },
 	};
 }
 
@@ -260,12 +280,36 @@ export function normalizePermissions(raw: unknown): SentinelPermissionsConfig {
 			commander[key] = source[key] === true;
 		}
 	}
+	// Plugin switches are the opposite: an absent key means allowed, because the
+	// operator's consent was the install, not a second checkbox. Only an explicit
+	// `false` unmounts a plugin, and a key that is not `host/plugin` is dropped.
+	const pluginSection = typeof record.plugins === "object" && record.plugins !== null ? record.plugins : {};
+	const plugins = {
+		main: readPluginMap((pluginSection as Record<string, unknown>).main),
+		subagent: readPluginMap((pluginSection as Record<string, unknown>).subagent),
+	};
 	return {
 		main,
 		subagent: effectiveSubagent({ main, subagent }),
 		commander,
 		subagentMaxTurns: coerceTurns(record.subagentMaxTurns),
+		plugins: {
+			main: plugins.main,
+			subagent: effectiveSubagentPlugins({ plugins }),
+		},
 	};
+}
+
+/** Only `host/plugin` keys with a boolean survive; anything else is a typo, not a switch. */
+function readPluginMap(value: unknown): SentinelPluginPermissionMap {
+	const map: SentinelPluginPermissionMap = {};
+	if (typeof value !== "object" || value === null) return map;
+	for (const [key, allowed] of Object.entries(value as Record<string, unknown>)) {
+		if (!key.includes("/")) continue;
+		if (typeof allowed !== "boolean") continue;
+		map[key] = allowed;
+	}
+	return map;
 }
 
 /** Clamp the stored turn budget into its usable range; a bad value reads as the default. */
@@ -284,6 +328,23 @@ export function effectiveSubagent(config: Pick<SentinelPermissionsConfig, "main"
 		set[key] = config.main[key] && config.subagent[key];
 	}
 	return set;
+}
+
+/** A plugin mounts unless the operator switched it off for that agent. */
+export function pluginAllowed(map: SentinelPluginPermissionMap, key: string): boolean {
+	return map[key] !== false;
+}
+
+/** The same subset rule as the tool switches, applied per plugin key. */
+export function effectiveSubagentPlugins(
+	config: Pick<SentinelPermissionsConfig, "plugins">,
+): SentinelPluginPermissionMap {
+	const merged: SentinelPluginPermissionMap = {};
+	const keys = new Set([...Object.keys(config.plugins.main), ...Object.keys(config.plugins.subagent)]);
+	for (const key of keys) {
+		merged[key] = pluginAllowed(config.plugins.main, key) && pluginAllowed(config.plugins.subagent, key);
+	}
+	return merged;
 }
 
 /** MCP resource tools reach every server, so they follow the MCP switch. */

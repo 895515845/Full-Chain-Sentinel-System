@@ -9,7 +9,13 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import type { SentinelMcpServerView, SentinelPermissionPreset, SentinelPermissionsConfig } from "../types.ts";
+import type {
+	SentinelMcpServerView,
+	SentinelPermissionPreset,
+	SentinelPermissionsConfig,
+	SentinelPluginView,
+	SentinelPluginsView,
+} from "../types.ts";
 import { PermissionsPanel } from "./PermissionsPanel.tsx";
 
 function server(overrides: Partial<SentinelMcpServerView> = {}): SentinelMcpServerView {
@@ -49,20 +55,83 @@ function config(mcp: boolean): SentinelPermissionsConfig {
 		asset_read: true,
 		web_search: true,
 	};
-	return { main: { ...set }, subagent: { ...set }, commander: { bash: true, read: true }, subagentMaxTurns: 40 };
+	return {
+		main: { ...set },
+		subagent: { ...set },
+		commander: { bash: true, read: true },
+		subagentMaxTurns: 40,
+		plugins: { main: {}, subagent: {} },
+	};
+}
+
+/** A plugin as the plugin center lists it; only the fields the rows read matter. */
+function plugin(overrides: Partial<SentinelPluginView> = {}): SentinelPluginView {
+	return {
+		hostId: "local",
+		hostName: "本机",
+		hostLocal: true,
+		state: "running",
+		healthy: true,
+		enabled: true,
+		pinned: false,
+		configured: [],
+		values: {},
+		hostPort: 7801,
+		installedAt: 0,
+		lastError: null,
+		manifest: {
+			schema: 1,
+			id: "com.sentinel.cmd5",
+			name: "CMD5 哈希查询",
+			version: "0.1.0",
+			description: "",
+			author: "github:chinaran404",
+			source: "https://example.com",
+			license: "MIT",
+			build: { dockerfile: "Dockerfile", context: ".", args: {} },
+			mcp: { transport: "http", port: 7801, path: "/mcp", startupTimeoutMs: 15000, requestTimeoutMs: 60000 },
+			config: [],
+			permissions: { network: "bridge", capAdd: [], privileged: false },
+			locality: "any",
+			resources: { cpus: 0.5, memory: "128m", pidsLimit: 64 },
+			healthcheck: { path: "/healthz", intervalMs: 10000, timeoutMs: 3000, retries: 3 },
+			artifacts: { path: "", maxFileBytes: 0 },
+			tools: [],
+			ui: null,
+		},
+		...overrides,
+	};
+}
+
+function pluginView(plugins: SentinelPluginView[]): SentinelPluginsView {
+	return { hosts: [], plugins, problems: [] };
 }
 
 function render(
 	servers: SentinelMcpServerView[] | null,
-	options: { mcp?: boolean; busy?: boolean; mcpBusy?: boolean } = {},
+	options: {
+		mcp?: boolean;
+		busy?: boolean;
+		mcpBusy?: boolean;
+		plugins?: SentinelPluginsView | null;
+		pluginSwitches?: { main?: Record<string, boolean>; subagent?: Record<string, boolean> };
+	} = {},
 ): string {
 	const presets: SentinelPermissionPreset[] = [];
+	const base = config(options.mcp ?? true);
 	return renderToStaticMarkup(
 		<PermissionsPanel
-			config={config(options.mcp ?? true)}
+			config={{
+				...base,
+				plugins: {
+					main: options.pluginSwitches?.main ?? {},
+					subagent: options.pluginSwitches?.subagent ?? {},
+				},
+			}}
 			presets={presets}
 			tools={[]}
 			mcpServers={servers}
+			plugins={options.plugins ?? null}
 			mcpBusy={options.mcpBusy ?? false}
 			busy={options.busy ?? false}
 			onSave={() => {}}
@@ -124,4 +193,37 @@ test("distinguishes 'not loaded yet' from 'none configured'", () => {
 test("a per-server switch in flight disables the rows", () => {
 	const busy = render([server()], { mcpBusy: true });
 	expect(busy).toContain("disabled");
+});
+
+test("lists one row per installed plugin with a switch for each agent", () => {
+	const html = render([], {
+		plugins: pluginView([plugin(), plugin({ hostId: "vps", hostName: "VPS", manifest: { ...plugin().manifest, id: "com.example.scan", name: "扫描器" } })]),
+	});
+	expect(html).toContain("perm-plugin-list");
+	expect(html).toContain("CMD5 哈希查询");
+	expect(html).toContain("扫描器");
+	// One switch per agent, addressable by name so the two are not confused.
+	expect(html).toContain("CMD5 哈希查询 挂载给主 Agent");
+	expect(html).toContain("CMD5 哈希查询 挂载给子 Agent");
+	expect(html).toContain("本机 · 运行中");
+});
+
+test("a plugin switched off for the main agent blocks the sub-agent switch", () => {
+	const html = render([], {
+		plugins: pluginView([plugin()]),
+		pluginSwitches: { main: { "local/com.sentinel.cmd5": false } },
+	});
+	// The sub-agent switch is disabled and its tooltip explains the subset rule.
+	expect(html).toContain("主 Agent 已关闭，子 Agent 无法单独开启");
+	expect(html).toContain('disabled=""');
+});
+
+test("a plugin the operator disabled in the plugin center says why it mounts nowhere", () => {
+	const html = render([], { plugins: pluginView([plugin({ enabled: false })]) });
+	expect(html).toContain("插件页已停用：不挂载");
+});
+
+test("distinguishes 'plugins not loaded yet' from 'none installed'", () => {
+	expect(render([], { plugins: null })).toContain("正在读取插件…");
+	expect(render([], { plugins: pluginView([]) })).toContain("还没有安装插件（设置 → 插件）");
 });

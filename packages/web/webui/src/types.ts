@@ -172,12 +172,22 @@ export type SentinelCommanderPermissionKey = "bash" | "read";
 
 export type SentinelCommanderPermissionSet = Record<SentinelCommanderPermissionKey, boolean>;
 
+/** Per-plugin mount switches keyed by `${hostId}/${pluginId}`; absent means allowed. */
+export type SentinelPluginPermissionMap = Record<string, boolean>;
+
+export interface SentinelAgentPluginPermissions {
+	main: SentinelPluginPermissionMap;
+	subagent: SentinelPluginPermissionMap;
+}
+
 export interface SentinelPermissionsConfig {
 	main: SentinelPermissionSet;
 	subagent: SentinelPermissionSet;
 	commander: SentinelCommanderPermissionSet;
 	/** Turn budget before one sub-agent run is aborted. */
 	subagentMaxTurns: number;
+	/** Per-plugin mount switches, one set per agent. */
+	plugins: SentinelAgentPluginPermissions;
 }
 
 export interface SentinelPermissionPreset {

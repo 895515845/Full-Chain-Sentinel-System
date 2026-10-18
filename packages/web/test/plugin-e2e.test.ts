@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { loadSentinelMcpConfig } from "../src/mcp-config.ts";
+import { pluginAllowed, readPermissionsConfig } from "../src/permissions.ts";
 import { startPluginHost } from "../src/plugin-host/server.ts";
 import type { DockerRunner } from "../src/plugin-host/types.ts";
 import type { SentinelServerMessage } from "../src/protocol.ts";
@@ -335,6 +336,35 @@ test("installs a plugin and mounts it on the next session", async () => {
 	const install = audit.find((entry) => entry.action === "install");
 	expect(install).toMatchObject({ ok: true, pluginId: PLUGIN_ID });
 	expect(JSON.stringify(install?.detail)).not.toContain("secret");
+});
+
+test("the permissions page switches a plugin off per agent", async () => {
+	const read = waitFor((message) => message.type === "permissions");
+	send({ type: "get_permissions" });
+	const initial = await read;
+	if (initial.type !== "permissions") return;
+	// An install is the consent: nothing is unmounted until a switch says so.
+	expect(initial.config.plugins).toEqual({ main: {}, subagent: {} });
+
+	const key = `${localHostId}/${PLUGIN_ID}`;
+	const saved = waitFor((message) => message.type === "permissions" && message.config.plugins.main[key] === false);
+	send({ type: "save_permissions", config: { ...initial.config, plugins: { main: { [key]: false }, subagent: {} } } });
+	await saved;
+
+	// Not mounted means not connected: the plugin is gone from the config the main
+	// agent's session would load, while an agent without the switch still gets it.
+	const stored = readPermissionsConfig(agentDir);
+	const blocked = loadSentinelMcpConfig(agentDir, (pluginKey) => pluginAllowed(stored.plugins.main, pluginKey));
+	expect(blocked.servers).toEqual([]);
+	const allowed = loadSentinelMcpConfig(agentDir, (pluginKey) => pluginAllowed({}, pluginKey));
+	expect(allowed.servers.map((server) => server.name)).toEqual(["plugin-com-example-recon"]);
+
+	// Restore the default so the remaining tests see a mounted plugin.
+	const restored = waitFor(
+		(message) => message.type === "permissions" && message.config.plugins.main[key] === undefined,
+	);
+	send({ type: "save_permissions", config: { ...initial.config, plugins: { main: {}, subagent: {} } } });
+	await restored;
 });
 
 test("a plugin that declares ui.sidebar is visible by default and can be hidden", async () => {

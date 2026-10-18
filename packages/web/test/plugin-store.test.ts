@@ -85,6 +85,7 @@ describe("mount entries", () => {
 		const entries = pluginMountEntries(agentDir);
 		expect(entries).toEqual([
 			{
+				key: `${host.id}/com.example.recon`,
 				serverName: "plugin-com-example-recon",
 				url: "http://127.0.0.1:7800/plugins/com.example.recon/mcp",
 				token: "sph_x",
@@ -123,6 +124,16 @@ describe("session config", () => {
 			enabled: true,
 			timeout: 300,
 		});
+	});
+
+	test("the loader drops a plugin the agent is not allowed to mount", () => {
+		const host = saveHost(agentDir, { name: "本机", url: "http://127.0.0.1:7800", token: "sph_x" });
+		rememberPluginStates(agentDir, [{ hostId: host.id, pluginId: "com.example.recon", state: "running" }]);
+		// 设置 → 权限 stores an explicit false for this agent; anything else stays mounted.
+		const blocked = loadSentinelMcpConfig(agentDir, (key) => key !== `${host.id}/com.example.recon`);
+		expect(blocked.servers).toEqual([]);
+		expect(blocked.errors).toEqual([]);
+		expect(loadSentinelMcpConfig(agentDir, () => true).servers).toHaveLength(1);
 	});
 });
 

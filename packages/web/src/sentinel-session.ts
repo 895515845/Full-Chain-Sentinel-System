@@ -156,12 +156,15 @@ import {
 import { readNotifyConfig, writeNotifyConfig } from "./notify-config.ts";
 import {
 	effectiveSubagent,
+	effectiveSubagentPlugins,
 	excludeToolsFor,
 	PERMISSION_PRESETS,
+	pluginAllowed,
 	readPermissionsConfig,
 	type SentinelPermissionPreset,
 	type SentinelPermissionSet,
 	type SentinelPermissionsConfig,
+	type SentinelPluginPermissionMap,
 	writePermissionsConfig,
 } from "./permissions.ts";
 import { appendPluginAudit } from "./plugin-audit.ts";
@@ -605,6 +608,7 @@ export class SentinelRuntime {
 		cwd: string,
 		permissions: SentinelPermissionSet,
 		appendSystemPrompt?: string[],
+		pluginPermissions: SentinelPluginPermissionMap = {},
 	): Promise<{ resourceLoader: DefaultResourceLoader; settingsManager: SettingsManager }> {
 		// A disabled extension is not even loaded: without MCP there are no
 		// servers to connect, and codemode/tool_search never register. The
@@ -612,7 +616,7 @@ export class SentinelRuntime {
 		const extensionFactories = [];
 		if (permissions.codemode) extensionFactories.push(createCodemodeExtension());
 		if (permissions.tool_search) extensionFactories.push(createToolSearchExtension());
-		if (permissions.mcp) extensionFactories.push(this.mcpExtensionFactory());
+		if (permissions.mcp) extensionFactories.push(this.mcpExtensionFactory(pluginPermissions));
 		// Loop hygiene is not permission-gated: it only aborts degenerate output
 		// and injects reminders, so it belongs in every session.
 		extensionFactories.push(createLoopGuardExtension());
@@ -641,10 +645,13 @@ export class SentinelRuntime {
 	 * a hand-written file cannot add a tool nobody can see. `updateConfig` covers the
 	 * one other writer, the extension's own `/mcp` manager in a terminal session,
 	 * which then changes the same file.
+	 *
+	 * `pluginPermissions` is this agent's slice of 设置 → 权限's plugin rows: a
+	 * plugin switched off for the agent is simply not in the config it loads.
 	 */
-	private mcpExtensionFactory(): ExtensionFactory {
+	private mcpExtensionFactory(pluginPermissions: SentinelPluginPermissionMap): ExtensionFactory {
 		return createMcpExtension({
-			loadConfig: () => loadSentinelMcpConfig(this.agentDir),
+			loadConfig: () => loadSentinelMcpConfig(this.agentDir, (key) => pluginAllowed(pluginPermissions, key)),
 			updateConfig: (entry, patch) => updateMcpServerRecord(this.agentDir, entry.name, patch),
 		});
 	}
@@ -707,6 +714,9 @@ export class SentinelRuntime {
 		const permissionsConfig = readPermissionsConfig(this.agentDir);
 		const permissions = permissionsConfig.main;
 		const subagentPermissions = effectiveSubagent(permissionsConfig);
+		// Plugins follow the same subset rule as tools: a plugin the main agent may
+		// not mount is not mountable by a sub-agent either.
+		const subagentPlugins = effectiveSubagentPlugins(permissionsConfig);
 		// The preset text follows the identity text: a worker first learns that it
 		// is a worker, then what it is working as. A session without a preset passes
 		// nothing, which is exactly what every session did before presets existed.
@@ -719,6 +729,7 @@ export class SentinelRuntime {
 			manager.getCwd(),
 			permissions,
 			appendSystemPrompt,
+			permissionsConfig.plugins.main,
 		);
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
@@ -832,6 +843,7 @@ export class SentinelRuntime {
 									// A sub-agent inherits the parent session's preset, so it works
 									// under the same briefing — after its own sub-agent identity text.
 									presetText ? [...appendSystemPrompt, presetText] : appendSystemPrompt,
+									subagentPlugins,
 								),
 							// A sub-agent reports under the parent session and project.
 							createVulnTools: (getSource) =>

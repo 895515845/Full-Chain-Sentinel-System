@@ -384,6 +384,8 @@ export function forgetPluginState(agentDir: string, hostId: string, pluginId: st
 }
 
 export interface PluginMountEntry {
+	/** `${hostId}/${pluginId}`, the key 设置 → 权限 uses for its per-plugin switches. */
+	key: string;
 	serverName: string;
 	url: string;
 	token: string;
@@ -416,6 +418,7 @@ export function pluginMountEntries(agentDir: string): PluginMountEntry[] {
 			if (used.has(known.serverName)) continue;
 			used.add(known.serverName);
 			entries.push({
+				key,
 				serverName: known.serverName,
 				url: `${host.url}/plugins/${pluginId}/mcp`,
 				token: host.token,

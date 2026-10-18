@@ -344,7 +344,7 @@ export function mcpEntryFor(agentDir: string, server: SentinelMcpServerRecord): 
  * hand-edited, and an entry that no longer validates must be reported as a config
  * error rather than reach a transport.
  */
-export function loadSentinelMcpConfig(agentDir: string): LoadedMcpConfig {
+export function loadSentinelMcpConfig(agentDir: string, allowPlugin?: (key: string) => boolean): LoadedMcpConfig {
 	const path = mcpServersJsonPath(agentDir);
 	const { servers } = readMcpServers(agentDir);
 	const entries: McpServerEntry[] = [];
@@ -367,6 +367,10 @@ export function loadSentinelMcpConfig(agentDir: string): LoadedMcpConfig {
 	// their lifecycle; the console only decides whether they are switched on.
 	const used = new Set(entries.map((entry) => mcpNamespace(entry.name)));
 	for (const plugin of pluginMountEntries(agentDir)) {
+		// 设置 → 权限 decides which agent may mount this plugin. Not mounting is
+		// the whole restriction: the server never connects, so its tools are never
+		// registered and nothing can load them back.
+		if (allowPlugin && !allowPlugin(plugin.key)) continue;
 		if (used.has(mcpNamespace(plugin.serverName))) {
 			errors.push(`${pluginStatePath(agentDir)}: 插件服务器 ${plugin.serverName} 与已有 MCP 服务器同名，已跳过`);
 			continue;

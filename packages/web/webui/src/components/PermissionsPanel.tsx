@@ -14,6 +14,11 @@
  * is too coarse to be useful: an operator who wants the local filesystem server
  * but not the one holding production credentials has no way to say so with a
  * single switch.
+ *
+ * Installed plugins are MCP servers too, but they come from the plugin host
+ * rather than `mcp.json`, so they get their own section instead of hiding among
+ * the servers. One row per plugin, one switch per agent: a plugin is mounted for
+ * an agent or it is not, and "not mounted" means the server never connects.
  */
 
 import { Fragment, useEffect, useState } from "react";
@@ -24,6 +29,7 @@ import type {
 	SentinelPermissionPreset,
 	SentinelPermissionSet,
 	SentinelPermissionsConfig,
+	SentinelPluginsView,
 	SentinelToolInfo,
 } from "../types.ts";
 import { mcpServerState, mountReason, TRANSPORT_LABELS } from "./McpPanel.tsx";
@@ -75,6 +81,7 @@ export function PermissionsPanel({
 	presets,
 	tools,
 	mcpServers,
+	plugins,
 	mcpBusy,
 	busy,
 	onSave,
@@ -89,6 +96,11 @@ export function PermissionsPanel({
 	 * Null until the MCP view arrives, which is a different state from "none configured".
 	 */
 	mcpServers: SentinelMcpServerView[] | null;
+	/**
+	 * Installed plugins, which are MCP servers owned by the plugin center rather
+	 * than by `mcp.json`. Null until the plugin view arrives.
+	 */
+	plugins: SentinelPluginsView | null;
 	/** A per-server switch is in flight; it rebuilds sessions like a save does. */
 	mcpBusy: boolean;
 	busy: boolean;
@@ -113,6 +125,7 @@ export function PermissionsPanel({
 				subagent: { ...prev.subagent },
 				commander: { ...prev.commander },
 				subagentMaxTurns: prev.subagentMaxTurns,
+				plugins: prev.plugins,
 			};
 			next[agent][key] = !prev[agent][key];
 			if (agent === "main" && !next.main[key] && key !== "spawn_agent") {
@@ -123,12 +136,36 @@ export function PermissionsPanel({
 		});
 	};
 
+	/** A plugin is on unless the operator stored an explicit `false` for this agent. */
+	const pluginOn = (agent: "main" | "subagent", key: string) => draft.plugins[agent][key] !== false;
+
+	const togglePlugin = (agent: "main" | "subagent", key: string) => {
+		setDraft((prev) => {
+			const on = prev.plugins[agent][key] !== false;
+			const next: SentinelPermissionsConfig = {
+				main: prev.main,
+				subagent: prev.subagent,
+				commander: prev.commander,
+				subagentMaxTurns: prev.subagentMaxTurns,
+				plugins: {
+					main: { ...prev.plugins.main },
+					subagent: { ...prev.plugins.subagent },
+				},
+			};
+			next.plugins[agent][key] = !on;
+			// Same subset rule as the tool switches, applied per plugin.
+			if (agent === "main" && on) next.plugins.subagent[key] = false;
+			return next;
+		});
+	};
+
 	const toggleCommander = (key: SentinelCommanderPermissionKey) => {
 		setDraft((prev) => ({
 			main: prev.main,
 			subagent: prev.subagent,
 			commander: { ...prev.commander, [key]: !prev.commander[key] },
 			subagentMaxTurns: prev.subagentMaxTurns,
+			plugins: prev.plugins,
 		}));
 	};
 
@@ -138,6 +175,8 @@ export function PermissionsPanel({
 			subagent: { ...preset.subagent },
 			commander: { ...preset.commander },
 			subagentMaxTurns: prev.subagentMaxTurns,
+			// A preset describes tools, not plugins: it must not remount anything.
+			plugins: prev.plugins,
 		}));
 	};
 
@@ -262,6 +301,10 @@ export function PermissionsPanel({
 							subagent: { ...draft.subagent },
 							commander: { ...draft.commander },
 							subagentMaxTurns: draft.subagentMaxTurns,
+							plugins: {
+								main: { ...draft.plugins.main },
+								subagent: { ...draft.plugins.subagent },
+							},
 						})
 					}
 				>
@@ -319,6 +362,71 @@ export function PermissionsPanel({
 					)}
 				</section>
 			</div>
+
+			<section className="perm-plugins">
+				<h3>插件</h3>
+				<p className="perm-column-note">
+					插件在实现上是 MCP 服务器，因此先受上面的 MCP 总开关约束；这里决定每个插件挂载给哪一类 Agent。
+					关掉后该 Agent 的会话不连接这个插件，它的工具不会注册，tool_search 也搜不到。插件页的启用开关仍然有效，两处都开才会挂载。
+				</p>
+				{plugins === null ? (
+					<p className="perm-mcp-note">正在读取插件…</p>
+				) : plugins.plugins.length === 0 ? (
+					<p className="perm-mcp-note">还没有安装插件（设置 → 插件）。</p>
+				) : (
+					<div className="perm-plugin-list">
+						<div className="perm-plugin-head">
+							<span>插件</span>
+							<span>主 Agent</span>
+							<span>子 Agent</span>
+						</div>
+						{plugins.plugins.map((plugin) => {
+							const key = `${plugin.hostId}/${plugin.manifest.id}`;
+							const mainOn = pluginOn("main", key);
+							const subOn = pluginOn("subagent", key);
+							const note = !plugin.enabled
+								? "插件页已停用：不挂载"
+								: !draft.main.mcp
+									? "MCP 总开关已关闭：全部不挂载"
+									: plugin.state === "running"
+										? `${plugin.hostName} · 运行中`
+										: `${plugin.hostName} · ${plugin.state}`;
+							return (
+								<div key={key} className={`perm-plugin-row ${plugin.enabled && mainOn ? "on" : ""}`}>
+									<div className="perm-plugin-body">
+										<span className="perm-plugin-name">
+											{plugin.manifest.name}
+											<span className="perm-plugin-version">v{plugin.manifest.version}</span>
+										</span>
+										<span className="perm-plugin-hint">{note}</span>
+									</div>
+									<label className="perm-plugin-switch" title="主 Agent 是否挂载">
+										<input
+											type="checkbox"
+											checked={mainOn}
+											disabled={busy}
+											aria-label={`${plugin.manifest.name} 挂载给主 Agent`}
+											onChange={() => togglePlugin("main", key)}
+										/>
+									</label>
+									<label
+										className="perm-plugin-switch"
+										title={mainOn ? "子 Agent 是否挂载" : "主 Agent 已关闭，子 Agent 无法单独开启"}
+									>
+										<input
+											type="checkbox"
+											checked={mainOn && subOn}
+											disabled={busy || !mainOn}
+											aria-label={`${plugin.manifest.name} 挂载给子 Agent`}
+											onChange={() => togglePlugin("subagent", key)}
+										/>
+									</label>
+								</div>
+							);
+						})}
+					</div>
+				)}
+			</section>
 
 			<section className="perm-commander">
 				<h3>指挥官（工程模式）</h3>

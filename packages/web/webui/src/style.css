@@ -4154,6 +4154,90 @@ svg.lucide {
 	white-space: nowrap;
 }
 
+/* Installed plugins: one row per plugin, one switch per agent. */
+.perm-plugins {
+	margin-top: 18px;
+}
+
+.perm-plugin-list {
+	display: flex;
+	flex-direction: column;
+	margin-top: 6px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.perm-plugin-head,
+.perm-plugin-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 76px 76px;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px;
+}
+
+.perm-plugin-head {
+	background: var(--raised);
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.perm-plugin-head span:not(:first-child) {
+	text-align: center;
+}
+
+.perm-plugin-row + .perm-plugin-row {
+	border-top: 1px solid var(--border);
+}
+
+.perm-plugin-row:hover {
+	background: var(--raised);
+}
+
+.perm-plugin-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.perm-plugin-name {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text);
+}
+
+.perm-plugin-row.on .perm-plugin-name {
+	color: var(--accent);
+}
+
+.perm-plugin-version {
+	font-family: var(--sans);
+	font-size: 10px;
+	color: var(--dim);
+}
+
+.perm-plugin-hint {
+	overflow: hidden;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--dim);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.perm-plugin-switch {
+	display: flex;
+	justify-content: center;
+}
+
+.perm-plugin-switch input {
+	accent-color: var(--accent);
+}
+
 .perm-tools {
 	display: flex;
 	flex-direction: column;

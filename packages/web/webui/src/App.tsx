@@ -1399,6 +1399,8 @@ export function App() {
 				break;
 			case "settings.permissions":
 				send({ type: "get_permissions" });
+				// The plugin rows are owned by the plugin center, so they come from its view.
+				loadPlugins();
 				break;
 			case "settings.mcp":
 				// Also pushed on connect; this refreshes after another window changed it.
@@ -2349,12 +2351,15 @@ export function App() {
 										presets={permissionPresets}
 										tools={permissionTools}
 										mcpServers={mcpConfig?.servers ?? null}
+										plugins={pluginsView}
 										mcpBusy={mcpBusy}
 										busy={permissionBusy}
 										onRefresh={() => {
 											send({ type: "get_permissions" });
 											// The MCP switch's per-server rows come from the MCP view.
 											send({ type: "get_mcp_servers" });
+											// The plugin rows come from the plugin center's view.
+											loadPlugins();
 										}}
 										onToggleMcpServer={(name, enabled) => {
 											setMcpBusy(true);

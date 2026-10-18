@@ -1827,6 +1827,7 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 		subagent: { ...config.subagent },
 		commander: { ...config.commander },
 		subagentMaxTurns: config.subagentMaxTurns,
+		plugins: config.plugins,
 	};
 
 	drainIncoming();
@@ -1867,6 +1868,7 @@ test("turning vuln_submit off removes the tool, while reading the hub stays avai
 			subagent: { ...config.subagent },
 			commander: { ...config.commander },
 			subagentMaxTurns: config.subagentMaxTurns,
+			plugins: config.plugins,
 		},
 	});
 	await waitFor((message) => message.type === "permissions" && message.config.main.vuln_submit);
