@@ -430,6 +430,8 @@ export interface SentinelSubagentEvent {
 	note?: string;
 	/** How long the call ran, on `tool_end` only; lets the panel show a slow step. */
 	durationMs?: number;
+	/** Set on commander `text` events typed by the operator, for the chat feed. */
+	from?: "operator";
 	/** Set when the stored payload exceeded the per-step cap and was cut down. */
 	truncated?: boolean;
 }

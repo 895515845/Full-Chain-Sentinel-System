@@ -230,7 +230,7 @@ export function EnginePage(props: EnginePageProps) {
 						onChangeOptional={(optional) => send({ type: "engine_set_preset_optional", id: board.id, optional })}
 					/>
 					{(board.status === "running" || board.status === "paused") && (
-						<SteerBox engineId={board.id} running={board.status === "running"} onSend={send} />
+						<TargetsBox engineId={board.id} onSend={send} />
 					)}
 					<div className="board">
 						<TaskBoard
@@ -241,7 +241,12 @@ export function EnginePage(props: EnginePageProps) {
 							}}
 							onAbortTask={(taskId) => send({ type: "engine_abort_task", taskId })}
 						/>
-						<CommanderFeed events={props.commanderEvents[board.id] ?? []} />
+						<CommanderFeed
+							engineId={board.id}
+							running={board.status === "running"}
+							events={props.commanderEvents[board.id] ?? []}
+							onSend={send}
+						/>
 					</div>
 				</div>
 				{openTaskId ? (
@@ -515,36 +520,10 @@ function EnginePresetWhitelist({
 	);
 }
 
-function SteerBox({
-	engineId,
-	running,
-	onSend,
-}: {
-	engineId: string;
-	running: boolean;
-	onSend: (message: unknown) => void;
-}) {
-	const [steerText, setSteerText] = useState("");
+function TargetsBox({ engineId, onSend }: { engineId: string; onSend: (message: unknown) => void }) {
 	const [appendText, setAppendText] = useState("");
-	const sendSteer = () => {
-		if (!steerText.trim() || !running) return;
-		onSend({ type: "engine_steer_commander", id: engineId, text: steerText.trim() });
-		setSteerText("");
-	};
 	return (
 		<div className="steer-box">
-			<input
-				type="text"
-				placeholder="给指挥官追加指令（steer）…"
-				value={steerText}
-				onChange={(event) => setSteerText(event.target.value)}
-				onKeyDown={(event) => {
-					if (event.key === "Enter") sendSteer();
-				}}
-			/>
-			<button type="button" disabled={!steerText.trim() || !running} onClick={sendSteer}>
-				发送
-			</button>
 			<input
 				type="text"
 				placeholder="追加目标（一行一个，可带备注）…"
@@ -650,17 +629,34 @@ function toolArgSummary(event: SentinelSubagentEvent): string {
 	return text === "{}" ? "" : text;
 }
 
-function CommanderFeed({ events }: { events: SentinelSubagentEvent[] }) {
+function CommanderFeed({
+	engineId,
+	running,
+	events,
+	onSend,
+}: {
+	engineId: string;
+	running: boolean;
+	events: SentinelSubagentEvent[];
+	onSend: (message: unknown) => void;
+}) {
 	const [openThinking, setOpenThinking] = useState<Set<number>>(new Set());
+	const [draft, setDraft] = useState("");
 	const containerRef = useState<{ current: HTMLDivElement | null }>({ current: null })[0];
 	useEffect(() => {
 		if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight;
 	}, [events.length, containerRef]);
+	const sendDraft = (): void => {
+		const text = draft.trim();
+		if (!text || !running) return;
+		onSend({ type: "engine_steer_commander", id: engineId, text });
+		setDraft("");
+	};
 	return (
 		<div className="board-col">
 			<div className="board-col__head">
 				<span className="board-col__title">指挥官</span>
-				<span className="ws-panel__sub">决策日志</span>
+				<span className="ws-panel__sub">对话 · 决策日志</span>
 			</div>
 			<div className="board-col__body" ref={containerRef}>
 				<div className="commander-feed">
@@ -689,10 +685,18 @@ function CommanderFeed({ events }: { events: SentinelSubagentEvent[] }) {
 								</div>
 							);
 						}
+						if (event.kind === "text" && event.from === "operator") {
+							return (
+								<div key={event.seq} className="commander-msg commander-msg--operator">
+									<div className="commander-msg__meta">你 · {formatClock(event.at)}</div>
+									<div className="commander-msg__bubble">{event.text}</div>
+								</div>
+							);
+						}
 						if (event.kind === "text") {
 							return (
 								<div key={event.seq} className="commander-item">
-									<div className="commander-item__meta">{formatClock(event.at)} · 决策</div>
+									<div className="commander-item__meta">{formatClock(event.at)} · 指挥官</div>
 									<div className="commander-item__text">{event.text}</div>
 								</div>
 							);
@@ -730,6 +734,24 @@ function CommanderFeed({ events }: { events: SentinelSubagentEvent[] }) {
 						return null;
 					})}
 				</div>
+			</div>
+			<div className="commander-composer">
+				<textarea
+					rows={2}
+					value={draft}
+					disabled={!running}
+					placeholder={running ? "和指挥官对话…Enter 发送，Shift+Enter 换行" : "工程未运行，暂时不能对话"}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && !event.shiftKey) {
+							event.preventDefault();
+							sendDraft();
+						}
+					}}
+				/>
+				<button type="button" disabled={!running || !draft.trim()} onClick={sendDraft}>
+					发送
+				</button>
 			</div>
 		</div>
 	);

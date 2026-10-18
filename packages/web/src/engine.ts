@@ -393,6 +393,9 @@ export class EngineManager {
 		if (entry.engine.status !== "running") throw new Error("只有运行中的工程才能给指挥官追加指令");
 		const trimmed = text.trim();
 		if (!trimmed) throw new Error("追加指令不能为空");
+		// Record the operator's line in the commander feed before prompting, so the
+		// conversation reads as a chat rather than a one-way command log.
+		this.pushCommanderEvent(entry, { kind: "text", text: trimmed, from: "operator" });
 		await this.promptCommander(entry, `操作员指令：${trimmed}`);
 	}
 

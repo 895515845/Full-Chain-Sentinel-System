@@ -11602,3 +11602,59 @@ button.link {
 .subagent-list-pager .muted {
 	margin-left: auto;
 }
+
+/* 指挥官对话：操作员消息右对齐，作为对话而不是单向指令 */
+.commander-msg {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+
+.commander-msg__meta {
+	color: var(--disabled);
+	font-size: 11.5px;
+}
+
+.commander-msg__bubble {
+	max-width: 86%;
+	padding: 8px 11px;
+	border-radius: 10px 10px 2px 10px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 13px;
+	line-height: 1.65;
+	white-space: pre-wrap;
+}
+
+.commander-composer {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+	padding-top: 8px;
+	border-top: 1px solid var(--border);
+}
+
+.commander-composer textarea {
+	flex: 1;
+	min-width: 0;
+	min-height: 46px;
+	max-height: 140px;
+	padding: 7px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font: 13px/1.6 var(--sans);
+	resize: vertical;
+}
+
+.commander-composer textarea:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.commander-composer button {
+	flex: none;
+	height: 32px;
+}
