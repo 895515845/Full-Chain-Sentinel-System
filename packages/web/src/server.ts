@@ -2085,8 +2085,14 @@ export async function startSentinelServer(
 						broadcastEnvironment();
 						return;
 					}
-					await engines.createEngine(project, message.input);
-					broadcastEngines();
+					// Creation inserts the row before the commander's first turn; tell the
+					// server to return now and let the insert's engine_update reach the page.
+					void engines
+						.createEngine(project, message.input)
+						.then(() => broadcastEngines())
+						.catch((error: unknown) => {
+							sendError(socket, error instanceof Error ? error.message : String(error));
+						});
 					return;
 				}
 				case "engine_set_gate_mode": {
@@ -2142,7 +2148,12 @@ export async function startSentinelServer(
 					if (engines) engines.addTargets(message.id, message.targets);
 					return;
 				case "engine_steer_commander":
-					if (engines) await engines.steerCommander(message.id, message.text);
+					if (!engines) return;
+					// Do not hold the socket's message loop for a whole commander turn;
+					// the operator event is broadcast before this promise settles.
+					void engines.steerCommander(message.id, message.text).catch((error: unknown) => {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					});
 					return;
 				case "engine_abort_task": {
 					if (!engines) return;

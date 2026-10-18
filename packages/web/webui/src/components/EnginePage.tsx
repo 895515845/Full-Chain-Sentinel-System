@@ -9,7 +9,7 @@
  * a vulnerability-style modal, and the create form is a full page.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
 	SentinelDoctrineView,
 	SentinelEngine,
@@ -103,8 +103,20 @@ export function EnginePage(props: EnginePageProps) {
 	const openBoard = (id: string) => {
 		setBoardId(id);
 		setView("board");
-		props.onOpenCommanderEvents(id);
 	};
+
+	// Poll the persisted commander log while a board is open. Live events are
+	// pushed over the socket too, but a missed frame (or a handler still awaiting
+	// a commander turn) must not leave the conversation invisible until refresh.
+	const openEventsRef = useRef(props.onOpenCommanderEvents);
+	openEventsRef.current = props.onOpenCommanderEvents;
+	useEffect(() => {
+		if (view !== "board" || !boardId) return;
+		const load = (): void => openEventsRef.current(boardId);
+		load();
+		const timer = window.setInterval(load, 3000);
+		return () => window.clearInterval(timer);
+	}, [view, boardId]);
 
 	const send = props.onSend;
 

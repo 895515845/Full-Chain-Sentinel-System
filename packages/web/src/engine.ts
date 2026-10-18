@@ -257,6 +257,10 @@ export class EngineManager {
 		});
 		const entry = this.emptyLive(stored);
 		this.live.set(stored.id, entry);
+		// Announce the engine before the commander's opening turn: that turn is a
+		// full model round-trip, and waiting for it left the new row invisible
+		// until the operator refreshed.
+		this.hooks.onChange(this.getEngine(stored.id) ?? stored);
 		await this.startCommander(entry, "initial");
 		this.hooks.onChange(this.getEngine(stored.id) ?? stored);
 		return this.getEngine(stored.id) ?? stored;
