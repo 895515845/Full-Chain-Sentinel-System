@@ -57,8 +57,8 @@ export interface PluginStateFile {
 	hosts: PluginHostRecord[];
 	/** Plugin keys the operator switched off; absent means enabled. */
 	disabled: string[];
-	/** Plugin keys pinned to the console sidebar, as `${hostId}/${pluginId}`. */
-	sidebar: string[];
+	/** Plugin keys the operator explicitly hid from the sidebar, as `${hostId}/${pluginId}`. */
+	sidebarHidden: string[];
 	/** Last runtime state per plugin key, for synchronous session mounts. */
 	lastKnown: Record<string, PluginMountState>;
 	/** Status of the discovered local host; it has no saved record to hold one. */
@@ -80,7 +80,7 @@ export function emptyPluginState(): PluginStateFile {
 		indexUrl: "",
 		hosts: [],
 		disabled: [],
-		sidebar: [],
+		sidebarHidden: [],
 		lastKnown: {},
 		localStatus: { at: null, ok: true },
 	};
@@ -180,8 +180,8 @@ export function normalizePluginState(raw: unknown): PluginStateFile {
 		disabled: Array.isArray(value.disabled)
 			? value.disabled.filter((entry): entry is string => typeof entry === "string")
 			: [],
-		sidebar: Array.isArray(value.sidebar)
-			? [...new Set(value.sidebar.filter((entry): entry is string => typeof entry === "string"))]
+		sidebarHidden: Array.isArray(value.sidebarHidden)
+			? [...new Set(value.sidebarHidden.filter((entry): entry is string => typeof entry === "string"))]
 			: [],
 		lastKnown,
 		localStatus: asStatus(value.localStatus),
@@ -332,22 +332,23 @@ export function setPluginEnabled(
 	return state;
 }
 
-export function pluginPinnedToSidebar(agentDir: string, hostId: string, pluginId: string): boolean {
-	return readPluginState(agentDir).sidebar.includes(pluginKey(hostId, pluginId));
+/** `ui.sidebar` defaults to visible; only an explicit hide is stored. */
+export function pluginSidebarHidden(agentDir: string, hostId: string, pluginId: string): boolean {
+	return readPluginState(agentDir).sidebarHidden.includes(pluginKey(hostId, pluginId));
 }
 
-export function setPluginPinnedToSidebar(
+export function setPluginSidebarHidden(
 	agentDir: string,
 	hostId: string,
 	pluginId: string,
-	pinned: boolean,
+	hidden: boolean,
 ): PluginStateFile {
 	const state = readPluginState(agentDir);
 	const key = pluginKey(hostId, pluginId);
-	const sidebar = new Set(state.sidebar);
-	if (pinned) sidebar.add(key);
-	else sidebar.delete(key);
-	state.sidebar = [...sidebar].sort();
+	const hiddenKeys = new Set(state.sidebarHidden);
+	if (hidden) hiddenKeys.add(key);
+	else hiddenKeys.delete(key);
+	state.sidebarHidden = [...hiddenKeys].sort();
 	writePluginState(agentDir, state);
 	return state;
 }

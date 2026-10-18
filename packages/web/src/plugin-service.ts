@@ -21,13 +21,13 @@ import {
 	hostIdFor,
 	type PluginHostRecord,
 	type PluginHostStatus,
-	pluginPinnedToSidebar,
+	pluginSidebarHidden,
 	readPluginState,
 	recordPluginHostStatus,
 	rememberPluginStates,
 	removePluginHost,
 	savePluginHost,
-	setPluginPinnedToSidebar,
+	setPluginSidebarHidden,
 	setPluginEnabled as setStoredPluginEnabled,
 } from "./plugin-store.ts";
 
@@ -183,7 +183,7 @@ function toPluginView(agentDir: string, host: PluginHostRecord, plugin: HostPlug
 		state: plugin.state,
 		healthy: plugin.healthy,
 		enabled: knownEnabled(agentDir, host.id, plugin.manifest.id),
-		pinned: pluginPinnedToSidebar(agentDir, host.id, plugin.manifest.id),
+		pinned: Boolean(plugin.manifest.ui?.sidebar) && !pluginSidebarHidden(agentDir, host.id, plugin.manifest.id),
 		configured: plugin.configured,
 		values: plugin.values,
 		hostPort: plugin.hostPort,
@@ -446,7 +446,7 @@ export function stopPlugin(agentDir: string, hostId: string, pluginId: string): 
 export function setPluginSidebarPinned(agentDir: string, hostId: string, pluginId: string, pinned: boolean): void {
 	findHost(agentDir, hostId);
 	try {
-		setPluginPinnedToSidebar(agentDir, hostId, pluginId, pinned);
+		setPluginSidebarHidden(agentDir, hostId, pluginId, !pinned);
 		appendPluginAudit(agentDir, { action: "sidebar", hostId, pluginId, ok: true, detail: { pinned } });
 	} catch (error) {
 		appendPluginAudit(agentDir, {

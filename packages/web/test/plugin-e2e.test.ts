@@ -337,16 +337,19 @@ test("installs a plugin and mounts it on the next session", async () => {
 	expect(JSON.stringify(install?.detail)).not.toContain("secret");
 });
 
-test("pins a plugin to the sidebar without touching the host", async () => {
-	const pending = nextPlugins();
-	send({ type: "set_plugin_sidebar", hostId: localHostId, pluginId: PLUGIN_ID, pinned: true });
-	const message = await pending;
-	expect(message.view.plugins[0]?.pinned).toBe(true);
+test("a plugin that declares ui.sidebar is visible by default and can be hidden", async () => {
+	const initial = await requestPlugins();
+	expect(initial.view.plugins[0]?.pinned).toBe(true);
 
-	const unpin = nextPlugins();
+	const hide = nextPlugins();
 	send({ type: "set_plugin_sidebar", hostId: localHostId, pluginId: PLUGIN_ID, pinned: false });
-	const after = await unpin;
+	const after = await hide;
 	expect(after.view.plugins[0]?.pinned).toBe(false);
+
+	const show = nextPlugins();
+	send({ type: "set_plugin_sidebar", hostId: localHostId, pluginId: PLUGIN_ID, pinned: true });
+	const restored = await show;
+	expect(restored.view.plugins[0]?.pinned).toBe(true);
 });
 
 test("serves the plugin frontend through a capability URL", async () => {

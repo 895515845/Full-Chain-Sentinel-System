@@ -50,7 +50,7 @@ zip -r my-plugin.zip my-plugin/
 }
 ```
 
-静态文件放在镜像的 `/ui/`，用相对路径互相引用。`ui.sidebar` 只是建议入口，操作员在插件抽屉的「界面」里打开「显示在侧边栏」后才会固定到左侧工作台组；`icon` 必须是 `/ui/` 下平铺的 svg/png，缺省用通用图标。固定后的页面仍然走同一套 sandbox、token 和桥方法，插件不需要为此改代码。视觉基线用 `templates/plugin-ui-shared/base.css`
+静态文件放在镜像的 `/ui/`，用相对路径互相引用。`ui.sidebar` 声明后会默认固定到左侧工作台组，操作员可以在插件抽屉的「界面」里关掉；`icon` 必须是 `/ui/` 下平铺的 svg/png，缺省用通用图标。固定后的页面仍然走同一套 sandbox、token 和桥方法，插件不需要为此改代码。视觉基线用 `templates/plugin-ui-shared/base.css`
 （复制成 `ui/base.css`，`pui-*` class）；不要自己另写一套 `:root` 颜色。HTTP server 需要把 `/ui/*` 当静态文件返回，
 参考 `examples/plugins/hello-world/server.mjs`。
 

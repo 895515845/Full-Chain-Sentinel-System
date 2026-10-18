@@ -243,7 +243,7 @@ npm run plugin-host -- --help
 ### 7.1 页面
 
 - 插件中心（设置 → 插件）：host 列表、已安装插件、启停、卸载、日志、产物、改配置。改配置会重建容器；密钥字段留空表示保持已保存的值。
-- 插件界面（`ui`）：抽屉里的「打开界面」在全屏浮层中加载插件的 `/ui/`，iframe 走 `sandbox="allow-scripts"`，通过 postMessage 桥调用自己的工具、产物、配置与 storage。插件声明 `ui.sidebar` 后，操作员可在抽屉勾选「显示在侧栏」，把同一界面固定到左侧工作台组，点开后在主内容区加载；插件停止时入口置灰。详见 [plugin-ui.md](./plugin-ui.md)。
+- 插件界面（`ui`）：抽屉里的「打开界面」在全屏浮层中加载插件的 `/ui/`，iframe 走 `sandbox="allow-scripts"`，通过 postMessage 桥调用自己的工具、产物、配置与 storage。插件声明 `ui.sidebar` 后默认固定到左侧工作台组，操作员可在抽屉关掉；点开后在主内容区加载，插件停止时入口置灰。详见 [plugin-ui.md](./plugin-ui.md)。
 - 安装：上传 `.zip` 插件包（含 `plugin.json`、Dockerfile 与构建上下文），读取 manifest、展示权限与构建配置；勾选同意后 host 解压并构建。
 - 设置 → 插件主机：新增/编辑/测试/删除 host。
 

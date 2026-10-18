@@ -12,11 +12,11 @@ import { saveHost } from "../src/plugin-service.ts";
 import {
 	effectivePluginHosts,
 	pluginMountEntries,
-	pluginPinnedToSidebar,
+	pluginSidebarHidden,
 	recordPluginHostStatus,
 	rememberPluginStates,
 	setPluginEnabled,
-	setPluginPinnedToSidebar,
+	setPluginSidebarHidden,
 } from "../src/plugin-store.ts";
 
 let root = "";
@@ -126,11 +126,11 @@ describe("session config", () => {
 	});
 });
 
-test("sidebar pins persist per host and plugin", () => {
-	expect(pluginPinnedToSidebar(agentDir, "host-a", "com.example.recon")).toBe(false);
-	setPluginPinnedToSidebar(agentDir, "host-a", "com.example.recon", true);
-	expect(pluginPinnedToSidebar(agentDir, "host-a", "com.example.recon")).toBe(true);
-	expect(pluginPinnedToSidebar(agentDir, "host-b", "com.example.recon")).toBe(false);
-	setPluginPinnedToSidebar(agentDir, "host-a", "com.example.recon", false);
-	expect(pluginPinnedToSidebar(agentDir, "host-a", "com.example.recon")).toBe(false);
+test("sidebar hides persist per host and plugin", () => {
+	expect(pluginSidebarHidden(agentDir, "host-a", "com.example.recon")).toBe(false);
+	setPluginSidebarHidden(agentDir, "host-a", "com.example.recon", true);
+	expect(pluginSidebarHidden(agentDir, "host-a", "com.example.recon")).toBe(true);
+	expect(pluginSidebarHidden(agentDir, "host-b", "com.example.recon")).toBe(false);
+	setPluginSidebarHidden(agentDir, "host-a", "com.example.recon", false);
+	expect(pluginSidebarHidden(agentDir, "host-a", "com.example.recon")).toBe(false);
 });
