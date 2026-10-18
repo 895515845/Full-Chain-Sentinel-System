@@ -195,7 +195,23 @@ createServer((req, res) => {
 - 入口是 ui.entry 指向的 HTML；其余资源用相对路径（./app.js），不能用绝对路径 /app.js。
 - 必须在页面里引入同目录的 sdk.js，并等 SentinelPlugin.connect() 返回后再发请求。
 - 控制台浮层已经有插件名、版本、连接状态、重载和关闭；页面从工具栏开始，不要重复宿主标题。
-- ui.sidebar 只是建议：操作员在插件抽屉勾选「显示在侧栏」后才会固定到左侧工作台组；点侧栏条目会在主内容区打开同一个界面。icon 必须是 /ui/ 下平铺的 svg/png，label 缺省用 ui.title 或插件名。
+- ui.sidebar 只是建议：操作员在插件抽屉的「界面」里打开「显示在侧边栏」后才会固定到左侧工作台组；点侧栏条目会在主内容区打开同一个界面。icon 必须是 /ui/ 下平铺的 svg/png，label 缺省用 ui.title 或插件名。
+
+### 7.1 侧栏入口（可选）
+
+~~~json
+"ui": {
+  "entry": "/ui/index.html",
+  "title": "侦察面板",
+  "protocol": 1,
+  "sidebar": { "label": "侦察", "icon": "/ui/icon.svg" }
+}
+~~~
+
+- 默认不在侧栏显示；操作员勾选后才出现，选择保存在控制台，跨项目生效。
+- 入口在左侧「工作台」组，和对话、项目、工程同级；插件未运行时置灰。
+- icon 只支持 /ui/ 下平铺的 .svg/.png；没有就省略，控制台会用通用图标。
+- 点开后是同一个 sandbox iframe 和桥，不需要额外代码；从插件页切走再回来会重新加载页面。
 - 页面是 opaque origin，不要依赖控制台 cookie；静态资源用相对路径，控制台会自动带上本次打开的能力 token。
 - 从 templates/plugin-ui-shared/base.css 复制一份 base.css 到 /ui/，用 pui-page / pui-bar / pui-card /
   pui-table / pui-btn / pui-input / pui-pill / pui-output 这些 class 组织页面；不要自己再定义一套字体和颜色。

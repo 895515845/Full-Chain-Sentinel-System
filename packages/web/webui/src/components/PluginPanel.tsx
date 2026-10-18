@@ -1059,6 +1059,30 @@ export function PluginPanel({
 										)}
 									</div>
 
+									{selected.manifest.ui?.sidebar ? (
+										<>
+											<div className="drawer-section">界面</div>
+											<div className="plugin-ui-pref">
+												<div className="plugin-ui-pref__text">
+													<b>显示在侧边栏</b>
+													<span className="muted">在主内容区打开，和对话、工程并列</span>
+												</div>
+												<label className="mcp-switch" title={selected.pinned ? "从侧栏移除" : "固定到侧栏"}>
+													<input
+														type="checkbox"
+														checked={selected.pinned}
+														disabled={busy}
+														aria-label="显示在侧边栏"
+														onChange={(event) =>
+															onSetSidebar(selected.hostId, selected.manifest.id, event.target.checked)
+														}
+													/>
+													<span />
+												</label>
+											</div>
+										</>
+									) : null}
+
 									<div className="drawer-tabs">
 										<button
 											type="button"
@@ -1286,19 +1310,6 @@ export function PluginPanel({
 										>
 											打开界面
 										</button>
-									) : null}
-									{selected.manifest.ui?.sidebar ? (
-										<label className="plugin-sidebar-toggle" title="固定在左侧菜单，点开后在主内容区直接使用">
-											<input
-												type="checkbox"
-												checked={selected.pinned}
-												disabled={busy}
-												onChange={(event) =>
-													onSetSidebar(selected.hostId, selected.manifest.id, event.target.checked)
-												}
-											/>
-											显示在侧栏
-										</label>
 									) : null}
 									<button
 										type="button"

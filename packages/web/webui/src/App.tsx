@@ -234,6 +234,7 @@ export function App() {
 		new Map<string, (message: Extract<SentinelServerMessage, { type: "plugin_ui_result" }>) => void>(),
 	);
 	const [pluginNotice, setPluginNotice] = useState<string | null>(null);
+	const pendingInstallRef = useRef<{ hostId: string; pluginId: string } | null>(null);
 	const [permissions, setPermissions] = useState<SentinelPermissionsConfig | null>(null);
 	const [permissionPresets, setPermissionPresets] = useState<SentinelPermissionPreset[]>([]);
 	const [permissionTools, setPermissionTools] = useState<SentinelToolInfo[]>([]);
@@ -528,10 +529,26 @@ export function App() {
 						resolve(message.result);
 					}
 					break;
-				case "plugins":
+				case "plugins": {
+					const pending = pendingInstallRef.current;
+					if (pending) {
+						const installed = message.view.plugins.find(
+							(plugin) => plugin.hostId === pending.hostId && plugin.manifest.id === pending.pluginId,
+						);
+						if (installed) {
+							pendingInstallRef.current = null;
+							setPendingManifest(null);
+							setPendingPackage(null);
+							setPluginNotice(
+								`插件「${installed.manifest.name}」安装完成，当前${installed.state === "running" ? "运行中" : "未运行"}。`,
+							);
+							window.setTimeout(() => setPluginNotice(null), 8000);
+						}
+					}
 					setPluginsView(message.view);
 					setPluginsBusy(false);
 					break;
+				}
 				case "plugin_manifest":
 					setPendingManifest({ manifest: message.manifest, source: message.source });
 					setPluginsBusy(false);
@@ -903,6 +920,7 @@ export function App() {
 					break;
 				}
 				case "error":
+					pendingInstallRef.current = null;
 					// A protocol error naming a message this server does not know means
 					// the page is newer than the process serving it: the browser keeps the
 					// rebuilt bundle, the server keeps the code it loaded at startup.
@@ -2589,6 +2607,10 @@ export function App() {
 										}}
 										onInstall={(input) => {
 											if (!pendingPackage) return;
+											pendingInstallRef.current = {
+												hostId: input.hostId,
+												pluginId: input.manifest.id,
+											};
 											// Building the image and waiting for health can take minutes.
 											runPluginAction(
 												{ type: "install_plugin", ...input, package: pendingPackage },
