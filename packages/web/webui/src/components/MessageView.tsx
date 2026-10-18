@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatTokens, textFromContent } from "../transcript.ts";
@@ -168,6 +169,7 @@ function StepRow({
 	durationMs,
 	isError,
 	onFullscreen,
+	viewerTitle,
 }: {
 	time?: number;
 	tool: string;
@@ -176,10 +178,21 @@ function StepRow({
 	durationMs?: number;
 	isError?: boolean;
 	onFullscreen?: (command: string | undefined, output: string) => void;
+	/** Title for the shared viewer; defaults to the generic tool-output label. */
+	viewerTitle?: string;
 }) {
 	const lines = output ? output.replace(/\n+$/, "").split("\n") : [];
 	const preview = lines.slice(0, 3).join("\n");
 	const rest = lines.length - Math.min(lines.length, 3);
+	// The preview is three lines; "查看全部" has to lead somewhere even when the
+	// host did not supply a viewer, otherwise the row offers a button that does
+	// nothing. Thinking rows used to hit exactly that: they never forwarded
+	// `onFullscreen`, so the click was swallowed.
+	const [expanded, setExpanded] = useState(false);
+	const showAll = () => {
+		if (onFullscreen) onFullscreen(viewerTitle, output);
+		else setExpanded(true);
+	};
 	return (
 		<details className={isError ? "step-row step-err" : "step-row"}>
 			<summary>
@@ -191,14 +204,15 @@ function StepRow({
 				) : null}
 			</summary>
 			<div className="step-out">
-				<pre>{preview}</pre>
-				{rest > 0 ? (
+				<pre>{expanded ? lines.join("\n") : preview}</pre>
+				{rest > 0 && !expanded ? (
 					<button
 						type="button"
 						className="step-more"
+						title={onFullscreen ? "在查看器中打开全部内容" : "就地展开全部内容"}
 						onClick={(event) => {
 							event.preventDefault();
-							onFullscreen?.(undefined, output);
+							showAll();
 						}}
 					>
 						… 还有 {rest} 行，点击查看全部
@@ -283,6 +297,8 @@ export function MessageView({
 					tool="思考"
 					argument={thinkingSummary(thinkingText)}
 					output={thinkingText}
+					onFullscreen={onFullscreen}
+					viewerTitle="思考过程"
 				/>
 			);
 		}
@@ -295,6 +311,8 @@ export function MessageView({
 							tool="思考"
 							argument={thinkingSummary(thinkingText)}
 							output={thinkingText}
+							onFullscreen={onFullscreen}
+							viewerTitle="思考过程"
 						/>
 					) : (
 						<details className="thinking">
