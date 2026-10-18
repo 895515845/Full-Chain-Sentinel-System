@@ -485,40 +485,31 @@ export function PluginPanel({
 	return (
 		<div className="mcp-page plugin-page">
 			<div className="plugin-head">
-				<div>
-					<h3 className="plugin-head__title">插件</h3>
-					<div className="plugin-head__sub">
-						{view.plugins.length} 个已安装 · {view.hosts.length} 个主机
-						{running > 0 ? ` · ${running} 运行` : ""}
-						{failed > 0 ? ` · ${failed} 失败` : ""}
-					</div>
+				<div className="plugin-switch" role="tablist" aria-label="插件视图">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === "plugins"}
+						className={activeTab === "plugins" ? "active" : undefined}
+						onClick={() => setActiveTab("plugins")}
+					>
+						已安装<span className="n">{view.plugins.length}</span>
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === "docs"}
+						className={activeTab === "docs" ? "active" : undefined}
+						onClick={() => {
+							setActiveTab("docs");
+							closeDrawer();
+						}}
+					>
+						开发文档
+					</button>
 				</div>
-				<div className="plugin-head__right">
-					<div className="plugin-switch" role="tablist" aria-label="插件视图">
-						<button
-							type="button"
-							role="tab"
-							aria-selected={activeTab === "plugins"}
-							className={activeTab === "plugins" ? "active" : undefined}
-							onClick={() => setActiveTab("plugins")}
-						>
-							已安装<span className="n">{view.plugins.length}</span>
-						</button>
-						<button
-							type="button"
-							role="tab"
-							aria-selected={activeTab === "docs"}
-							className={activeTab === "docs" ? "active" : undefined}
-							onClick={() => {
-								setActiveTab("docs");
-								closeDrawer();
-							}}
-						>
-							开发文档
-						</button>
-					</div>
-					<div className="actions">
-						<button type="button" disabled={busy} onClick={onRefresh}>
+				<div className="actions">
+					<button type="button" disabled={busy} onClick={onRefresh}>
 						刷新
 					</button>
 					<button
@@ -537,7 +528,6 @@ export function PluginPanel({
 						onChange={choosePackage}
 						aria-label="插件包文件"
 					/>
-					</div>
 				</div>
 			</div>
 

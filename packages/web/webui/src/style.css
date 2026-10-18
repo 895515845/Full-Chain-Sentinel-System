@@ -28,12 +28,18 @@
 	--text: #000000d9;
 	--text-bright: #000000e6;
 	--dim: #606266;
+	/* 第三级灰：只用于转写区里比 --dim 更弱的元信息（工具耗时、折叠摘要） */
+	--faint: #a0a4ab;
 	--disabled: #bfbfbf;
 	/* Accents */
 	--accent: #0960bd;
 	--accent-hover: #0a6cd5;
 	--accent-dim: #0960bd0d;
+	--accent-border: #0960bd33;
+	/* 主输入框聚焦时的光环 */
+	--accent-ring: #0960bd1a;
 	--danger: #f56c6c;
+	--danger-hover: #f78989;
 	--danger-dim: #fef0f0;
 	--ok: #67c23a;
 	--ok-dim: #f0f9eb;
@@ -43,6 +49,18 @@
 	--blue: #409eff;
 	--info-dim: #e6f4ff;
 	--purple: #0960bd;
+	/* 严重等级色相：漏洞中枢的等级胶囊和 POC 台账共用一套，避免同一等级出现两种颜色 */
+	--sev-critical: #a8071a;
+	--sev-high: #d4380d;
+	--sev-medium: #ad6800;
+	--sev-low: var(--info);
+	--sev-info: var(--dim);
+	/* 会话人工状态：亮面（工具条/选择面板）与暗面（侧栏）各一组；
+	   todo/active 复用 --warn/--blue，只有 done/ignored 需要单独定义。 */
+	--st-done: #52c41a;
+	--st-done-dark: #6fce4a;
+	--st-ignored: #8c98a8;
+	--st-ignored-dark: #9aa6b5;
 	/* Terminal blocks */
 	--console-bg: #0b0f14;
 	--console-border: #1d2733;
@@ -127,8 +145,8 @@ button.danger {
 }
 
 button.danger:hover:not(:disabled) {
-	background: #f78989;
-	border-color: #f78989;
+	background: var(--danger-hover);
+	border-color: var(--danger-hover);
 	color: #fff;
 }
 
@@ -147,6 +165,15 @@ button.ghost.small {
 	padding: 1px 8px;
 	font-size: 12px;
 	color: var(--dim);
+}
+
+/* A ghost button that is currently filtering. Same accent as .toolbar-btn.on:
+   without it the pressed state is indistinguishable from the idle one, because
+   button.ghost clears the background and border that button.primary would set. */
+button.ghost.small.on {
+	background: var(--accent-dim);
+	border-color: var(--accent-border);
+	color: var(--accent);
 }
 
 ::-webkit-scrollbar {
@@ -657,12 +684,12 @@ button.ghost.small {
 
 .session-status-chip.done {
 	background: #52c41a26;
-	color: #6fce4a;
+	color: var(--st-done-dark);
 }
 
 .session-status-chip.ignored {
 	background: #8c98a826;
-	color: #9aa6b5;
+	color: var(--st-ignored-dark);
 }
 
 .session-status-chip:hover:not(:disabled) {
@@ -704,7 +731,7 @@ button.ghost.small {
 .session-status-trigger.ignored {
 	border-color: #8c98a855;
 	background: #8c98a814;
-	color: #606266;
+	color: var(--dim);
 }
 
 .session-status-caret {
@@ -724,6 +751,24 @@ button.ghost.small {
 	background: var(--disabled);
 }
 
+/* 状态圆点：工具条触发器和选择面板都在亮面，颜色在这里定义一次，
+   组件不再用内联 style 传色值。 */
+.session-status-dot.todo {
+	background: var(--warn);
+}
+
+.session-status-dot.active {
+	background: var(--blue);
+}
+
+.session-status-dot.done {
+	background: var(--st-done);
+}
+
+.session-status-dot.ignored {
+	background: var(--st-ignored);
+}
+
 /*
  * The picker is fixed rather than absolute: the session list is a scroll
  * container and the sider clips, so a panel anchored in the row would be cut
@@ -735,7 +780,7 @@ button.ghost.small {
 	width: 168px;
 	padding: 5px 0;
 	border: 1px solid #1d2b3d;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: #0d1b2a;
 	box-shadow: 0 8px 24px #00000066;
 }
@@ -852,7 +897,7 @@ button.ghost.small {
 	overflow-y: auto;
 	padding: 4px;
 	border: 1px solid var(--border-strong);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--card);
 	box-shadow: var(--shadow-md);
 }
@@ -920,7 +965,7 @@ button.ghost.small {
 .modeling-menu-count {
 	margin-left: 6px;
 	padding: 0 6px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--accent-dim);
 	color: var(--accent);
 	font-size: 10.5px;
@@ -1347,7 +1392,7 @@ button.ghost.small {
 
 .composer:focus-within {
 	border-color: var(--accent);
-	box-shadow: 0 0 0 2px var(--accent-active-bg, #0960bd1a);
+	box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 .composer textarea {
@@ -1433,7 +1478,7 @@ button.ghost.small {
 
 .composer-tool.on {
 	background: var(--accent-dim);
-	border-color: #0960bd33;
+	border-color: var(--accent-border);
 	color: var(--accent);
 }
 
@@ -1669,7 +1714,7 @@ button.ghost.small {
 
 .toolbar-btn.on {
 	background: var(--accent-dim);
-	border-color: #0960bd33;
+	border-color: var(--accent-border);
 	color: var(--accent);
 }
 
@@ -1681,7 +1726,7 @@ button.ghost.small {
 	height: 16px;
 	margin-left: 2px;
 	padding: 0 4px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--accent);
 	color: #fff;
 	font-size: 10px;
@@ -1698,7 +1743,7 @@ button.ghost.small {
 	display: inline-flex;
 	align-items: center;
 	padding: 2px 8px;
-	border: 1px solid #0960bd33;
+	border: 1px solid var(--accent-border);
 	border-radius: 6px;
 	background: var(--accent-dim);
 	color: var(--accent);
@@ -1710,7 +1755,7 @@ button.ghost.small {
 .toolbar-preset--missing {
 	border-color: #e6a23c66;
 	background: var(--warn-dim);
-	color: #b88230;
+	color: var(--warn);
 }
 
 .toolbar-note {
@@ -1792,7 +1837,7 @@ button.ghost.small {
 	flex-direction: column;
 	overflow: hidden;
 	padding: 16px 18px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 }
 
 .modal__body {
@@ -1829,7 +1874,7 @@ button.ghost.small {
 	background: #0e1c2e;
 	color: #7dd3fc;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 10px 12px;
 	font-family: var(--mono);
 	font-size: 12.5px;
@@ -1904,7 +1949,7 @@ button.ghost.small {
 	flex: 1;
 	background: var(--raised);
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	color: var(--text);
 	padding: 7px 10px;
 	font-size: 13px;
@@ -1926,7 +1971,7 @@ button.ghost.small {
 	overflow: auto;
 	background: #0e1c2e;
 	border: none;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 12px;
 	margin: 0;
 	font-family: var(--mono);
@@ -1999,7 +2044,7 @@ button.ghost.small {
 	margin-top: 4px;
 	background: var(--raised);
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	color: var(--text);
 	padding: 8px 10px;
 	font-size: 13px;
@@ -2012,7 +2057,7 @@ button.ghost.small {
 }
 
 .test-result {
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 10px 12px;
 	font-size: 13px;
 	margin-bottom: 14px;
@@ -2022,7 +2067,7 @@ button.ghost.small {
 .test-result.ok {
 	background: var(--ok-dim);
 	border: 1px solid rgba(34, 197, 94, 0.4);
-	color: #15803d;
+	color: var(--ok);
 }
 
 .test-result.bad {
@@ -2250,7 +2295,7 @@ button.ghost.small {
 	padding: 8px 10px;
 	background: var(--raised);
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	margin-bottom: 12px;
 	flex-shrink: 0;
 }
@@ -2379,7 +2424,7 @@ button.ghost.small {
 	min-width: 0;
 	background: transparent;
 	border: none;
-	border-radius: 7px;
+	border-radius: var(--radius);
 	padding: 7px 10px;
 	color: var(--text);
 	font-size: 13px;
@@ -2449,7 +2494,7 @@ button.ghost.small {
 	text-align: left;
 	background: var(--card);
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 8px 10px;
 	color: var(--text);
 	font-size: 12.5px;
@@ -2768,7 +2813,7 @@ button.ghost.small {
 	border: 1px solid var(--border);
 	background: var(--card);
 	color: var(--text);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 12px;
 	padding: 4px 9px;
 	cursor: pointer;
@@ -2832,7 +2877,7 @@ button.ghost.small {
 	flex: 1;
 	min-width: 0;
 	border: 1px solid var(--border-strong);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	padding: 4px 8px;
 	font-size: 12px;
 	font-family: var(--sans);
@@ -2841,7 +2886,7 @@ button.ghost.small {
 .file-inline-form button {
 	border: 1px solid var(--border);
 	background: var(--card);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 12px;
 	padding: 4px 9px;
 	cursor: pointer;
@@ -2936,10 +2981,11 @@ button.ghost.small {
 	color: var(--danger);
 }
 
+/* 和 .ws-empty 同一套空态几何：28px 12px / 12px / --dim / 居中 */
 .file-empty {
 	color: var(--dim);
 	font-size: 12px;
-	padding: 14px 12px;
+	padding: 28px 12px;
 	text-align: center;
 }
 
@@ -2972,7 +3018,7 @@ button.ghost.small {
 .file-preview-head button {
 	border: 1px solid var(--border);
 	background: var(--card);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 11px;
 	padding: 3px 8px;
 	cursor: pointer;
@@ -3034,7 +3080,7 @@ button.ghost.small {
 .subagent-empty {
 	color: var(--dim);
 	font-size: 12px;
-	padding: 16px 10px;
+	padding: 28px 12px;
 	text-align: center;
 	line-height: 1.7;
 }
@@ -3057,7 +3103,7 @@ button.ghost.small {
 	flex-direction: column;
 	gap: 4px;
 	border: 1px solid transparent;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: transparent;
 	padding: 7px 9px;
 	cursor: pointer;
@@ -3117,7 +3163,7 @@ button.ghost.small {
 
 .subagent-badge.done {
 	background: var(--ok-dim);
-	color: #15803d;
+	color: var(--ok);
 }
 
 .subagent-badge.error {
@@ -3379,7 +3425,7 @@ button.ghost.small {
 }
 
 .sa-tool-meta.done {
-	color: #15803d;
+	color: var(--ok);
 }
 
 .sa-tool-meta.error {
@@ -3520,7 +3566,7 @@ button.ghost.small {
 .subagent-error {
 	color: var(--danger);
 	background: var(--danger-dim);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 12px;
 	padding: 6px 8px;
 	margin-bottom: 8px;
@@ -3543,7 +3589,7 @@ button.ghost.small {
 	flex: 1;
 	min-width: 0;
 	border: 1px solid var(--border-strong);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	padding: 4px 8px;
 	font-size: 12px;
 	font-family: var(--sans);
@@ -3552,7 +3598,7 @@ button.ghost.small {
 .subagent-controls button {
 	border: 1px solid var(--border);
 	background: var(--card);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 12px;
 	padding: 4px 9px;
 	cursor: pointer;
@@ -3611,7 +3657,7 @@ button.ghost.small {
 	flex: 1;
 	min-width: 0;
 	border: 1px solid var(--border-strong);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 7px 10px;
 	font-size: 13px;
 	font-family: var(--sans);
@@ -3621,7 +3667,7 @@ button.ghost.small {
 	border: 1px solid var(--accent);
 	background: var(--accent);
 	color: #fff;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	font-size: 13px;
 	font-weight: 600;
 	padding: 7px 14px;
@@ -3636,7 +3682,7 @@ button.ghost.small {
 .project-gate-error {
 	color: var(--danger);
 	background: var(--danger-dim);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	font-size: 12px;
 	padding: 6px 9px;
 	margin-top: 10px;
@@ -3679,7 +3725,7 @@ button.ghost.small {
 	gap: 8px;
 	border: 1px solid var(--border);
 	background: var(--card);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 7px 10px;
 	cursor: pointer;
 	text-align: left;
@@ -3809,10 +3855,12 @@ svg.lucide {
 	border-top: none;
 }
 
+/* 所有表头共用一套：--raised 底、--dim 字、500 字重（见 .gate-table th） */
 .data-head {
 	background: var(--raised);
 	color: var(--dim);
 	font-size: 12px;
+	font-weight: 500;
 }
 
 .data-row.active {
@@ -3842,6 +3890,12 @@ svg.lucide {
 	display: flex;
 	gap: 6px;
 	justify-content: flex-end;
+}
+
+/* The header cell above .data-actions: without it 操作 sits left while the
+   buttons under it sit right. */
+.data-actions-col {
+	text-align: right;
 }
 
 .data-actions button {
@@ -4151,7 +4205,7 @@ svg.lucide {
 	border: 1px solid #e6a23c4d;
 	border-radius: var(--radius);
 	background: #fdf6ec;
-	color: #b88230;
+	color: var(--warn);
 	font-size: 12px;
 	line-height: 1.7;
 }
@@ -4167,7 +4221,7 @@ svg.lucide {
 	border: 1px solid #e6a23c4d;
 	border-radius: var(--radius);
 	background: #fdf6ec;
-	color: #b88230;
+	color: var(--warn);
 	font-size: 12px;
 	line-height: 1.6;
 }
@@ -4329,11 +4383,11 @@ svg.lucide {
 }
 
 .step-err > summary {
-	background: var(--danger-soft, #fdecea);
+	background: var(--danger-dim);
 }
 
 .step-err .step-tool {
-	color: var(--danger, #c0392b);
+	color: var(--danger);
 }
 
 .step-out {
@@ -4378,7 +4432,8 @@ svg.lucide {
 	/* Exactly one row: everything long lives in the drawer, and an unbounded
 	   inline block used to squeeze the transcript to nothing. */
 	height: 38px;
-	margin: 0 var(--gutter);
+	/* No side margin: .page-card already supplies the gutter, and the extra
+	   16px used to inset this row past the transcript and the toolbar. */
 	padding: 0 6px 0 12px;
 	border: 1px solid var(--border);
 	border-left: 3px solid var(--border-strong);
@@ -4661,8 +4716,9 @@ svg.lucide {
 	color: var(--dim);
 }
 
+/* 空态用 --dim；--disabled 是给禁用控件留的。 */
 .goal-empty {
-	color: var(--disabled);
+	color: var(--dim);
 }
 
 /* ============================================================
@@ -4852,7 +4908,7 @@ svg.lucide {
 @keyframes tool-pulse {
 	0%,
 	100% {
-		box-shadow: 0 0 0 0 #0960bd33;
+		box-shadow: 0 0 0 0 var(--accent-border);
 	}
 	50% {
 		box-shadow: 0 0 0 3px #0960bd1a;
@@ -4889,7 +4945,7 @@ svg.lucide {
 	align-items: center;
 	gap: 6px;
 	font-size: 11px;
-	color: var(--faint, #a0a4ab);
+	color: var(--faint);
 }
 
 .tool-meta.done {
@@ -4905,7 +4961,7 @@ svg.lucide {
 }
 
 .tool-duration {
-	color: #a0a4ab;
+	color: var(--faint);
 }
 
 .tool-caret {
@@ -4944,7 +5000,7 @@ svg.lucide {
 
 .run-fold-caret {
 	display: flex;
-	color: #a0a4ab;
+	color: var(--faint);
 }
 
 .run-fold-label {
@@ -4954,7 +5010,7 @@ svg.lucide {
 
 .run-fold-digest {
 	font-size: 11.5px;
-	color: #a0a4ab;
+	color: var(--faint);
 }
 
 /* ---------------------------------------------------------------------------
@@ -4974,7 +5030,7 @@ svg.lucide {
 	border: 1px solid #f56c6c4d;
 	border-radius: var(--radius);
 	background: var(--danger-dim);
-	color: #b3413f;
+	color: var(--danger);
 	font-size: 12px;
 	line-height: 1.6;
 }
@@ -5020,12 +5076,12 @@ button.link {
 
 .env-verdict.ok {
 	background: var(--ok-dim);
-	color: #529b2e;
+	color: var(--ok);
 }
 
 .env-verdict.fail {
 	background: var(--danger-dim);
-	color: #c45656;
+	color: var(--danger);
 }
 
 .env-meta {
@@ -5035,7 +5091,7 @@ button.link {
 
 .env-note {
 	font-size: 11.5px;
-	color: #529b2e;
+	color: var(--ok);
 }
 
 .env-blocked {
@@ -5043,7 +5099,7 @@ button.link {
 	border: 1px solid #f56c6c4d;
 	border-radius: var(--radius);
 	background: var(--danger-dim);
-	color: #b3413f;
+	color: var(--danger);
 	font-size: 12.5px;
 	line-height: 1.7;
 }
@@ -5204,17 +5260,17 @@ button.link {
 
 .env-chip.status-ok {
 	background: var(--ok-dim);
-	color: #529b2e;
+	color: var(--ok);
 }
 
 .env-chip.status-warn {
 	background: #fdf6ec;
-	color: #b88230;
+	color: var(--warn);
 }
 
 .env-chip.status-fail {
 	background: #fde2e2;
-	color: #c45656;
+	color: var(--danger);
 }
 
 .env-body {
@@ -5235,8 +5291,8 @@ button.link {
 .env-blocking {
 	padding: 0 5px;
 	border: 1px solid #f56c6c4d;
-	border-radius: 8px;
-	color: #c45656;
+	border-radius: var(--radius);
+	color: var(--danger);
 	font-size: 10.5px;
 }
 
@@ -5248,7 +5304,7 @@ button.link {
 
 .env-hint {
 	font-size: 11.5px;
-	color: #b88230;
+	color: var(--warn);
 }
 
 .env-diag {
@@ -5296,31 +5352,31 @@ button.link {
 .vuln-sev-critical {
 	border-color: #a8071a4d;
 	background: #fff1f0;
-	color: #a8071a;
+	color: var(--sev-critical);
 }
 
 .vuln-sev-high {
 	border-color: #d4380d4d;
 	background: #fff2e8;
-	color: #d4380d;
+	color: var(--sev-high);
 }
 
 .vuln-sev-medium {
 	border-color: #d488064d;
 	background: #fffbe6;
-	color: #ad6800;
+	color: var(--sev-medium);
 }
 
 .vuln-sev-low {
 	border-color: #0960bd4d;
-	background: #e6f4ff;
-	color: #0958d9;
+	background: var(--info-dim);
+	color: var(--sev-low);
 }
 
 .vuln-sev-info {
 	border-color: var(--border-strong);
 	background: var(--raised);
-	color: var(--dim);
+	color: var(--sev-info);
 }
 
 .vuln-cvss {
@@ -5337,12 +5393,8 @@ button.link {
 	border: 1px solid #e6a23c66;
 	border-radius: 3px;
 	background: #fdf6ec;
-	color: #b88230;
+	color: var(--warn);
 	font-size: 11px;
-}
-
-.vuln-table .data-row {
-	grid-template-columns: 130px 150px 80px minmax(120px, 1fr) minmax(160px, 1.4fr) 90px 150px;
 }
 
 .vuln-row {
@@ -6742,25 +6794,26 @@ button.link {
 .status-rail.rail-active {
 	background: var(--blue);
 }
+/* 侧栏是暗面：done 用 --st-done-dark，和同一行的胶囊、状态文字同一个绿。 */
 .status-rail.rail-done {
-	background: #52c41a;
+	background: var(--st-done-dark);
 }
 .status-rail.rail-ignored {
-	background: #8c98a8;
+	background: var(--st-ignored);
 }
 
 /* Terminal statuses also carry their label: a 2px rail cannot tell 已完成 from
    已忽略, and both used to be drawn with no rail at all. */
 .session-row-status {
 	flex: none;
-	color: #8c98a8;
+	color: var(--st-ignored);
 	font-size: 10.5px;
 	line-height: 16px;
 	white-space: nowrap;
 }
 
 .session-row-status.row-done {
-	color: #6fce4a;
+	color: var(--st-done-dark);
 }
 
 .sdot {
@@ -6815,7 +6868,7 @@ button.link {
 	width: 252px;
 	background: #16222f;
 	border: 1px solid #2f3d4d;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	padding: 10px 12px;
 	box-shadow: 0 10px 30px #00000066;
 	z-index: 300;
@@ -6932,7 +6985,7 @@ button.link {
 	border: 1px solid #e6a23c4d;
 	border-radius: var(--radius);
 	background: #fdf6ec;
-	color: #b88230;
+	color: var(--warn);
 	font-size: 12px;
 	line-height: 1.6;
 }
@@ -7224,13 +7277,18 @@ button.link {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 12px;
+	gap: 8px;
 	margin-top: 12px;
 	font-size: 12px;
 	color: var(--dim);
 }
 
-.gate-pager button {
+/* 分页按钮共用一套：12px / 3px 10px。抽屉和子代理列表原来的 24/26px 定高
+   只是把同一形态写了两遍，去掉后高度仍由内边距决定。 */
+.gate-pager button,
+.poc-pager button,
+.drawer-pager button,
+.subagent-list-pager button {
 	padding: 3px 10px;
 	font-size: 12px;
 }
@@ -7265,7 +7323,7 @@ button.link {
 	background-repeat: no-repeat;
 	background-position: right 10px center;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius);
 	color: var(--text);
 	height: 33px;
 	padding: 0 30px 0 10px;
@@ -7511,7 +7569,7 @@ button.link {
 .preset-import-notice {
 	margin: 0 0 10px;
 	padding: 8px 12px;
-	border: 1px solid #0960bd33;
+	border: 1px solid var(--accent-border);
 	border-radius: var(--radius);
 	background: var(--accent-dim);
 	color: var(--text);
@@ -7666,7 +7724,7 @@ button.link {
 	border: 1px solid #f5dfb8;
 	border-radius: var(--radius);
 	background: var(--warn-dim);
-	color: #8a6116;
+	color: var(--warn);
 	font-size: 12px;
 	line-height: 1.6;
 }
@@ -7769,7 +7827,7 @@ button.link {
 }
 
 .websearch-meter.is-empty i {
-	background: var(--bad, #c0392b);
+	background: var(--danger);
 }
 
 .websearch-quota__num {
@@ -7829,6 +7887,7 @@ button.link {
 	background: var(--raised);
 	color: var(--dim);
 	font-size: 12px;
+	font-weight: 500;
 }
 
 .asset-group {
@@ -7896,7 +7955,7 @@ button.link {
 	width: 26px;
 	height: 26px;
 	flex: none;
-	border-radius: 7px;
+	border-radius: var(--radius);
 	background: var(--accent-dim);
 	color: var(--accent);
 	font-size: 12.5px;
@@ -7951,12 +8010,12 @@ button.link {
 
 .asset-pill.is-ok {
 	background: var(--ok-dim);
-	color: #3d8b1f;
+	color: var(--ok);
 }
 
 .asset-pill.is-bad {
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 }
 
 .asset-pill.is-off {
@@ -8042,6 +8101,11 @@ button.link {
 	white-space: nowrap;
 }
 
+/* A one-cell row (the empty state) spans every track of the row grid. */
+.asset-cell--span {
+	grid-column: 1 / -1;
+}
+
 .asset-ops {
 	display: flex;
 	justify-content: flex-end;
@@ -8112,7 +8176,7 @@ button.link {
 	border: 1px solid #f7cfcf;
 	border-radius: var(--radius);
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 	font-family: var(--mono);
 	font-size: 11.5px;
 	line-height: 1.6;
@@ -8129,12 +8193,12 @@ button.link {
 
 .asset-result.is-ok {
 	background: var(--ok-dim);
-	color: #3d8b1f;
+	color: var(--ok);
 }
 
 .asset-result.is-bad {
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 }
 
 .asset-result pre {
@@ -8190,7 +8254,7 @@ button.link {
 	border: 1px solid #f5dfb8;
 	border-radius: var(--radius);
 	background: var(--warn-dim);
-	color: #8a6116;
+	color: var(--warn);
 	font-size: 12px;
 	line-height: 1.6;
 }
@@ -8204,7 +8268,7 @@ button.link {
 .mcp-notice.is-warn {
 	border-color: #f7cfcf;
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 }
 
 .mcp-toolbar {
@@ -8379,12 +8443,12 @@ button.link {
 
 .mcp-pill.is-ok {
 	background: var(--ok-dim);
-	color: #3d8b1f;
+	color: var(--ok);
 }
 
 .mcp-pill.is-bad {
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 }
 
 .mcp-pill.is-off {
@@ -8496,7 +8560,7 @@ button.link {
 	border: 1px solid #f7cfcf;
 	border-radius: var(--radius);
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 	font-family: var(--mono);
 	font-size: 11.5px;
 	line-height: 1.6;
@@ -8513,12 +8577,12 @@ button.link {
 
 .mcp-result.is-ok {
 	background: var(--ok-dim);
-	color: #3d8b1f;
+	color: var(--ok);
 }
 
 .mcp-result.is-bad {
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 }
 
 .mcp-result pre {
@@ -8681,7 +8745,7 @@ button.link {
 	padding: 6px 10px;
 	border-radius: 6px;
 	background: var(--danger-dim);
-	color: #c0392b;
+	color: var(--danger);
 	font-size: 11.5px;
 	line-height: 1.6;
 	word-break: break-word;
@@ -8771,7 +8835,7 @@ button.link {
 
 .mcp-pill.is-warn {
 	background: var(--warn-dim);
-	color: #8a6116;
+	color: var(--warn);
 }
 
 /* ---------- Login screen (鉴权) ----------
@@ -9007,55 +9071,26 @@ button.link {
 }
 
 /* ==========================================================================
-   POC 库（console ledger, mockup C3）：整页一张面板卡，台账表 + 行内展开
+   POC 库：整页一张 page-card，页头用 .ws-panel__head，台账表 + 行内展开。
+   表格随 .ws-panel__body 滚动，和其它列表页一致。
    ========================================================================== */
 
-.poc-sheet {
-	background: var(--card);
-	border: 1px solid var(--border);
-	border-radius: 12px;
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-	overflow: hidden;
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
+/* 表体、工具条、页脚保持自然高度：作为 flex 子项会被压缩到页体高度而裁掉行。 */
+.poc-toolbar,
+.poc-official,
+.poc-import-note,
+.poc-tablewrap,
+.poc-pager,
+.poc-foot {
+	flex: none;
 }
 
-/* 顶栏：面包屑 + 标题 + 副标题 + 导入 */
-.poc-bar {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 12px 18px;
-	border-bottom: 1px solid var(--border);
-	background: rgba(0, 0, 0, 0.015);
-	flex-wrap: wrap;
-}
-.poc-crumb {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	color: var(--dim);
-	font-size: 12px;
-}
-.poc-crumb .cur {
-	color: var(--accent);
-}
-.poc-bar h1 {
-	font-size: 15px;
-	font-weight: 600;
-}
-.poc-sub {
-	font-size: 12px;
-	color: var(--dim);
-}
-/* The official sync's newest outcome: one dim line under the breadcrumb bar,
-   red when the last attempt failed. */
+/* 官方同步结果：页头下的一行说明，失败时转红。 */
 .poc-official {
 	display: flex;
 	gap: 8px;
 	align-items: center;
-	padding: 7px 18px;
+	padding: 8px 0;
 	border-bottom: 1px solid var(--border);
 	font-size: 12px;
 	color: var(--dim);
@@ -9063,29 +9098,24 @@ button.link {
 .poc-official.err-text {
 	color: var(--danger);
 }
-.poc-bar-ops {
-	margin-left: auto;
-	display: flex;
-	gap: 8px;
-	align-items: center;
-}
 
 /* 工具条：搜索 + 等级 + 标签 + 命中计数 */
 .poc-toolbar {
 	display: flex;
 	gap: 8px;
-	padding: 10px 18px;
+	padding: 10px 0;
 	border-bottom: 1px solid var(--border);
 	align-items: center;
 	flex-wrap: wrap;
 }
+/* 和 .inline-input 同一套输入框基线：--border-strong + --radius，聚焦只换边框色。 */
 .poc-search {
 	flex: 1;
 	max-width: 420px;
 	min-width: 200px;
 	height: 30px;
-	border: 1px solid var(--border);
-	border-radius: 7px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
 	padding: 0 11px;
 	font-size: 12.5px;
 	outline: none;
@@ -9094,14 +9124,13 @@ button.link {
 }
 .poc-search:focus {
 	border-color: var(--accent);
-	box-shadow: 0 0 0 2px rgba(9, 96, 189, 0.08);
 }
 .poc-select {
 	height: 30px;
-	border: 1px solid var(--border);
-	border-radius: 7px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
 	background: var(--card);
-	font-size: 12px;
+	font-size: 12.5px;
 	color: var(--dim);
 	padding: 0 8px;
 	outline: none;
@@ -9121,18 +9150,14 @@ button.link {
 }
 
 .poc-import-note {
-	padding: 8px 18px;
+	padding: 8px 0;
 	border-bottom: 1px solid var(--border);
 	font-size: 12.5px;
 	color: var(--dim);
 	background: rgba(9, 96, 189, 0.04);
 }
 
-/* 台账表 */
-.poc-tablewrap {
-	overflow: auto;
-	max-height: calc(100vh - 300px);
-}
+/* 台账表：随页体滚动，这里不再自建滚动容器 */
 .poc-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -9140,11 +9165,11 @@ button.link {
 .poc-table thead th {
 	position: sticky;
 	top: 0;
-	background: rgba(0, 0, 0, 0.015);
+	background: var(--raised);
 	z-index: 1;
 	text-align: left;
-	font-size: 11px;
-	font-weight: 550;
+	font-size: 12px;
+	font-weight: 500;
 	color: var(--dim);
 	padding: 8px 14px;
 	border-bottom: 1px solid var(--border);
@@ -9211,39 +9236,34 @@ button.link {
 	white-space: nowrap;
 }
 .poc-sev-critical {
-	color: #cf1322;
-	border-left-color: #cf1322;
+	color: var(--sev-critical);
+	border-left-color: var(--sev-critical);
 }
 .poc-sev-high {
-	color: #d4380d;
-	border-left-color: #d4380d;
+	color: var(--sev-high);
+	border-left-color: var(--sev-high);
 }
 .poc-sev-medium {
-	color: #d46b08;
-	border-left-color: #d46b08;
+	color: var(--sev-medium);
+	border-left-color: var(--sev-medium);
 }
 .poc-sev-low {
-	color: #0958d9;
-	border-left-color: #0958d9;
+	color: var(--sev-low);
+	border-left-color: var(--sev-low);
 }
 .poc-sev-info {
-	color: #389e0d;
-	border-left-color: #389e0d;
+	color: var(--sev-info);
+	border-left-color: var(--sev-info);
 }
 
 .poc-pager {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 12px;
+	gap: 8px;
 	margin: 10px 0 4px;
 	font-size: 12px;
 	color: var(--dim);
-}
-
-.poc-pager button {
-	padding: 3px 10px;
-	font-size: 12px;
 }
 
 .poc-tags {
@@ -9291,7 +9311,7 @@ button.link {
 	color: var(--dim);
 }
 .poc-op button:hover {
-	color: #cf1322;
+	color: var(--danger);
 	background: rgba(207, 19, 34, 0.06);
 }
 .poc-empty td {
@@ -9386,7 +9406,7 @@ button.link {
 	display: flex;
 	align-items: center;
 	gap: 16px;
-	padding: 10px 18px;
+	padding: 10px 0;
 	border-top: 1px solid var(--border);
 	font-size: 12px;
 	color: var(--dim);
@@ -9542,7 +9562,7 @@ button.link {
 
 .modeling-trigger__count {
 	padding: 0 5px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--accent);
 	color: #fff;
 	font-size: 10.5px;
@@ -9602,7 +9622,9 @@ button.link {
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 14px;
-	margin-top: 10px;
+	/* 12px to match .ws-panel__body's padding-top: this pane owns its own scroll,
+	   so it cannot use the body wrapper. */
+	margin-top: 12px;
 	padding: 8px 12px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
@@ -9710,9 +9732,11 @@ button.link {
 	background: #fff;
 }
 
+/* 时间线：一处定义（下面 .api-model-event__* 接着写），不要在后面再写一份同名规则 */
 .api-model-timeline {
 	display: flex;
 	flex-direction: column;
+	gap: 4px;
 	font-size: 12.5px;
 }
 
@@ -9857,20 +9881,6 @@ button.link {
 	background: var(--raised);
 	color: var(--dim);
 	font-size: 11.5px;
-}
-
-.api-model-timeline {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	font-size: 12.5px;
-}
-
-.api-model-event {
-	display: grid;
-	grid-template-columns: 150px 190px minmax(0, 1fr);
-	gap: 10px;
-	color: var(--dim);
 }
 
 .api-model-event__time {
@@ -10173,7 +10183,7 @@ button.link {
 
 .droid-tag {
 	padding: 1px 8px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--raised);
 	color: var(--dim);
 	font-size: 11px;
@@ -10572,25 +10582,14 @@ button.link {
 
 
 /* 插件中心：表格 + 抽屉 */
+/* 工具行：视图开关在左，刷新与上传在右。页头标题由 App 的
+   .ws-panel__head 提供，这里不再重复一遍。 */
 .plugin-head {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
 	margin-bottom: 12px;
-}
-
-.plugin-head__title {
-	margin: 0;
-	color: var(--text);
-	font-size: 16px;
-	font-weight: 600;
-}
-
-.plugin-head__sub {
-	margin-top: 5px;
-	color: var(--muted);
-	font-size: 12px;
 }
 
 .plugin-page .actions {
@@ -10617,19 +10616,19 @@ button.link {
 .plugin-page .chip.ok {
 	border-color: #e1f3d8;
 	background: var(--ok-dim);
-	color: #529b2e;
+	color: var(--ok);
 }
 
 .plugin-page .chip.warn {
 	border-color: #faecd8;
 	background: var(--warn-dim);
-	color: #b88230;
+	color: var(--warn);
 }
 
 .plugin-page .chip.bad {
 	border-color: #fde2e2;
 	background: var(--danger-dim);
-	color: #c45656;
+	color: var(--danger);
 }
 
 .plugin-page .chip.info {
@@ -10665,7 +10664,7 @@ button.link {
 }
 
 .plugin-page .muted {
-	color: var(--muted);
+	color: var(--dim);
 }
 
 .plugin-page button.link.danger {
@@ -10707,7 +10706,7 @@ button.link {
 .plugin-host-chip__state {
 	max-width: 260px;
 	overflow: hidden;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 11px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -10778,9 +10777,9 @@ button.link {
 
 
 .plugin-empty {
-	padding: 26px 12px;
+	padding: 28px 12px;
 	border-top: 1px solid var(--border);
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 12px;
 	text-align: center;
 }
@@ -10841,7 +10840,7 @@ button.link {
 
 .plugin-drawer__sub {
 	margin-top: 4px;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 11.5px;
 	word-break: break-all;
 }
@@ -10852,7 +10851,7 @@ button.link {
 	border: 0;
 	border-radius: 4px;
 	background: transparent;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 18px;
 	line-height: 1;
 	cursor: pointer;
@@ -10921,7 +10920,7 @@ button.link {
 
 .drawer-kv span {
 	flex: none;
-	color: var(--muted);
+	color: var(--dim);
 }
 
 .drawer-kv code {
@@ -10937,7 +10936,7 @@ button.link {
 
 .drawer-section {
 	margin: 16px 0 7px;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 11px;
 	font-weight: 600;
 	letter-spacing: 0.5px;
@@ -10969,7 +10968,7 @@ button.link {
 	border: 1px solid #fde2e2;
 	border-radius: var(--radius);
 	background: var(--danger-dim);
-	color: #c45656;
+	color: var(--danger);
 	font-size: 11.5px;
 	line-height: 1.6;
 	word-break: break-all;
@@ -11151,7 +11150,7 @@ button.link {
 }
 
 .plugin-ui-version {
-	color: var(--muted);
+	color: var(--dim);
 	font-family: var(--mono);
 	font-size: 11.5px;
 	font-weight: 400;
@@ -11160,7 +11159,7 @@ button.link {
 .plugin-ui-sub {
 	margin-top: 2px;
 	overflow: hidden;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 11.5px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -11195,7 +11194,7 @@ button.link {
 	padding: 2px 8px;
 	border-radius: 10px;
 	background: var(--raised);
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 11px;
 }
 
@@ -11204,12 +11203,12 @@ button.link {
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
-	background: var(--muted);
+	background: var(--dim);
 }
 
 .plugin-ui-state-dot.ready {
 	background: #f0f9eb;
-	color: #529b2e;
+	color: var(--ok);
 }
 
 .plugin-ui-state-dot.ready::before {
@@ -11218,22 +11217,23 @@ button.link {
 
 .plugin-ui-state-dot.error {
 	background: #fef0f0;
-	color: #c45656;
+	color: var(--danger);
 }
 
 .plugin-ui-state-dot.error::before {
 	background: #f56c6c;
 }
 
+/* Same frame as .plugin-ui-close: the two sit side by side in the overlay head. */
 .plugin-ui-reload {
-	height: 28px;
-	padding: 0 10px;
-	border: 1px solid var(--border);
-	border-radius: 6px;
+	height: 30px;
+	padding: 0 14px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
 	background: var(--card);
 	color: var(--dim);
 	font-family: var(--sans);
-	font-size: 12px;
+	font-size: 12.5px;
 	cursor: pointer;
 }
 
@@ -11287,7 +11287,7 @@ button.link {
 }
 
 .plugin-ui-state .muted {
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 12px;
 }
 
@@ -11298,7 +11298,7 @@ button.link {
 	height: 34px;
 	border-radius: 50%;
 	background: #fef0f0;
-	color: #c45656;
+	color: var(--danger);
 	font-size: 18px;
 	font-weight: 700;
 }
@@ -11418,22 +11418,14 @@ button.link {
 	max-width: 1040px;
 }
 
-/* 插件页视图切换：紧凑分段控件，放在页头右侧，不再单独占一行 */
-.plugin-head__right {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	flex-wrap: wrap;
-	gap: 12px;
-}
-
+/* 插件页视图切换：紧凑分段控件，放在工具行左侧 */
 .plugin-switch {
 	display: inline-flex;
 	align-items: center;
 	gap: 2px;
 	padding: 2px;
 	border: 1px solid var(--border);
-	border-radius: 7px;
+	border-radius: var(--radius);
 	background: var(--raised);
 }
 
@@ -11466,7 +11458,7 @@ button.link {
 .plugin-switch .n {
 	min-width: 16px;
 	padding: 0 5px;
-	border-radius: 8px;
+	border-radius: var(--radius);
 	background: var(--border);
 	color: var(--dim);
 	font-size: 10.5px;
@@ -11476,7 +11468,7 @@ button.link {
 }
 
 .plugin-switch button.active .n {
-	background: var(--accent-soft);
+	background: var(--accent-dim);
 	color: var(--accent);
 }
 
@@ -11494,9 +11486,9 @@ button.link {
 	padding: 8px;
 	border-bottom: 1px solid var(--border);
 	background: var(--raised);
-	color: var(--muted);
-	font-size: 11.5px;
-	font-weight: 600;
+	color: var(--dim);
+	font-size: 12px;
+	font-weight: 500;
 	text-align: left;
 	white-space: nowrap;
 }
@@ -11530,7 +11522,7 @@ button.link {
 }
 .plugin-table__id {
 	margin-top: 2px;
-	color: var(--muted);
+	color: var(--dim);
 	font-size: 10.5px;
 }
 .plugin-table__error {
@@ -11572,31 +11564,19 @@ button.link {
 .drawer-pager {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-}
-
-.drawer-pager button {
-	height: 26px;
-	padding: 0 8px;
-	font-size: 12px;
+	gap: 8px;
 }
 
 /* 子代理列表翻页：默认只带最新一页，更早的按需拉取 */
 .subagent-list-pager {
 	display: flex;
 	align-items: center;
-	gap: 5px;
+	gap: 8px;
 	padding: 2px 2px 8px;
 	margin-bottom: 4px;
 	border-bottom: 1px solid var(--border);
-	font-size: 11px;
+	font-size: 12px;
 	color: var(--dim);
-}
-
-.subagent-list-pager button {
-	height: 24px;
-	padding: 0 7px;
-	font-size: 11px;
 }
 
 .subagent-list-pager .muted {

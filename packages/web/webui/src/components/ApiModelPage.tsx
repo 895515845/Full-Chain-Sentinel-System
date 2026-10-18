@@ -353,7 +353,7 @@ export function ApiModelPage({
 				</div>
 			</div>
 			<div className="ws-panel__body">
-				<p className="ws-hint">
+				<p className="ws-panel__hint">
 					在对话页输入框上方点「业务建模」即可开始：Agent
 					会在当前会话里临时拿到两个建模工具，把还原出来的接口与业务实体提交到这里。平时它看不到这两个工具。
 				</p>

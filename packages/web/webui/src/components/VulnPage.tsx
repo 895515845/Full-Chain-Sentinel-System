@@ -171,7 +171,7 @@ export function VulnPage({
 					</button>
 					<button
 						type="button"
-						className={`ghost small ${filters.dubious ? "primary" : ""}`}
+						className={`ghost small${filters.dubious ? " on" : ""}`}
 						title="只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论"
 						onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
 					>

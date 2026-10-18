@@ -44,11 +44,11 @@ body {
 	font: 13px/1.6 var(--pui-sans);
 }
 
-/* 页面容器：和插件浮层留出同样的 16/18px 内边距 */
+/* 页面容器：左右内边距与控制台浮层头部一致（16px），上下留 16/28px。 */
 .pui-page {
 	max-width: 1280px;
 	margin: 0 auto;
-	padding: 16px 18px 28px;
+	padding: 16px 16px 28px;
 }
 
 .pui-bar {
@@ -102,6 +102,12 @@ body {
 }
 
 .pui-card + .pui-card {
+	margin-top: 12px;
+}
+
+/* A grid is not a card, so the sibling rule above misses the card that follows
+   one: without this the grid and the next card touch with no gap. */
+.pui-grid + .pui-card {
 	margin-top: 12px;
 }
 
@@ -362,6 +368,16 @@ body {
 	padding: 26px 14px;
 	color: var(--pui-muted);
 	font-size: 12px;
+	text-align: center;
+}
+
+/* An empty state is often the only child of .pui-list; the list-row chrome
+   would otherwise draw it as a bordered bar instead of a centered message. */
+.pui-list li.pui-empty {
+	display: block;
+	padding: 26px 14px;
+	border: 0;
+	background: transparent;
 	text-align: center;
 }
 

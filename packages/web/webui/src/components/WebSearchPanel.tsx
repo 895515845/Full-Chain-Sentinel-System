@@ -175,7 +175,7 @@ export function WebSearchPanel({
 			</div>
 
 			<div className="asset-table">
-				<div className="asset-row asset-row--head">
+				<div className="asset-row websearch-row asset-row--head">
 					<div>Key</div>
 					<div>状态</div>
 					<div>剩余额度</div>
@@ -184,8 +184,10 @@ export function WebSearchPanel({
 				</div>
 
 				{config.keys.length === 0 ? (
-					<div className="asset-row">
-						<div className="asset-cell">还没有 Key：在上方粘贴并添加。申请地址 https://app.tavily.com</div>
+					<div className="asset-row websearch-row">
+						<div className="asset-cell asset-cell--span">
+							还没有 Key：在上方粘贴并添加。申请地址 https://app.tavily.com
+						</div>
 					</div>
 				) : null}
 

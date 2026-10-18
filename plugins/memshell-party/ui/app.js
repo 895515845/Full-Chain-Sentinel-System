@@ -76,11 +76,13 @@
 		emptyEl.hidden = calls.length > 0;
 		calls.forEach(function (entry) {
 			var row = document.createElement("tr");
-			row.className = entry.ok ? "is-ok" : "is-bad";
+			// 只有失败行有底色；is-ok 没有任何规则，写上等于没写。
+			if (!entry.ok) row.className = "is-bad";
 			row.title = "点击查看参数与产物";
 
 			var time = document.createElement("td");
-			time.className = "mono pui-sub";
+			// 与耗时/大小/产物列一致：只用 mono，不再叠 pui-sub 把这一列变灰。
+			time.className = "mono";
 			time.textContent = formatTime(entry.at);
 			row.appendChild(time);
 

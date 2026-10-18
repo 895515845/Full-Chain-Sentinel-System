@@ -26,14 +26,6 @@ export const SESSION_STATUS_LABELS: Record<SentinelSessionStatus, string> = {
 	ignored: "已忽略",
 };
 
-/** Amber asks for attention, blue is running, green is finished, grey is parked. */
-export const SESSION_STATUS_COLORS: Record<SentinelSessionStatus, string> = {
-	todo: "#e6a23c",
-	active: "#409eff",
-	done: "#52c41a",
-	ignored: "#8c98a8",
-};
-
 const PICKER_WIDTH = 168;
 /**
  * Panel height for placement: five 30px rows, 2x5px padding, 2px border. The
@@ -158,10 +150,7 @@ export function SessionStatusControl({
 			>
 				{variant === "toolbar" ? (
 					<>
-						<span
-							className="session-status-dot"
-							style={status ? { background: SESSION_STATUS_COLORS[status] } : undefined}
-						/>
+						<span className={`session-status-dot ${status ?? "none"}`} />
 						{status ? SESSION_STATUS_LABELS[status] : "无状态"}
 						<span className="session-status-caret">▾</span>
 					</>
@@ -193,7 +182,7 @@ export function SessionStatusControl({
 							className={status === value ? "on" : ""}
 							onClick={() => pick(value)}
 						>
-							<span className="session-status-dot" style={{ background: SESSION_STATUS_COLORS[value] }} />
+							<span className={`session-status-dot ${value}`} />
 							{SESSION_STATUS_LABELS[value]}
 							{status === value ? <span className="session-status-tick">✓</span> : null}
 						</button>

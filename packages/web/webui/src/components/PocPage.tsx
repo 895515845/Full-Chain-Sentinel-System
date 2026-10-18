@@ -215,14 +215,13 @@ export function PocPage({
 	};
 
 	return (
-		<div className="poc-sheet">
-			<div className="poc-bar">
-				<div className="poc-crumb">
-					工作台 <span>/</span> <span className="cur">POC 库</span>
+		<div className="page-card">
+			<div className="ws-panel__head">
+				<div className="ws-panel__title">
+					POC 库
+					<span className="ws-panel__sub">共 {stats.total} 个 · Agent 侧只读（poc_search / poc_read）</span>
 				</div>
-				<h1>Nuclei 模板中心</h1>
-				<span className="poc-sub">共 {stats.total} 个 · Agent 侧只读（poc_search / poc_read）</span>
-				<span className="poc-bar-ops">
+				<div className="ws-panel__actions">
 					<input
 						ref={fileInput}
 						type="file"
@@ -252,122 +251,125 @@ export function PocPage({
 					>
 						{importing ? "导入中…" : "导入 POC"}
 					</button>
-				</span>
-			</div>
-
-			{officialSource?.lastResult ? (
-				<div className={officialSource.lastResult.ok ? "poc-official" : "poc-official err-text"}>
-					{officialLine(officialSource)}
 				</div>
-			) : null}
-
-			<div className="poc-toolbar">
-				<input
-					className="poc-search"
-					placeholder="搜索模板 id、名称、标签或 CVE…"
-					value={search}
-					spellCheck={false}
-					onChange={(event) => setSearch(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") apply({});
-					}}
-				/>
-				<select
-					className="poc-select"
-					value={filters.severity ?? ""}
-					onChange={(event) => {
-						const value = event.target.value;
-						apply(value ? { severity: value as SentinelPocSeverity } : { severity: undefined });
-					}}
-				>
-					<option value="">全部等级</option>
-					{SENTINEL_VULN_SEVERITIES.map((severity) => (
-						<option key={severity} value={severity}>
-							{SENTINEL_VULN_SEVERITY_LABELS[severity]}
-						</option>
-					))}
-				</select>
-				<input
-					className="poc-select poc-tag"
-					placeholder="精确标签，如 cve"
-					value={tag}
-					spellCheck={false}
-					onChange={(event) => setTag(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") apply({});
-					}}
-				/>
-				<span className="poc-hits">
-					匹配 {total} 条
-					{filters.search || filters.severity || filters.tag ? "（已筛选）" : ""}
-				</span>
 			</div>
 
-			{outcome ? (
-				<div className="poc-import-note">
-					导入完成：新增 {outcome.imported} 条，覆盖 {outcome.replaced} 条
-					{outcome.skipped.length > 0
-						? `，跳过 ${outcome.skipped.length} 条（${outcome.skipped
-								.slice(0, 3)
-								.map((item) => `${item.name}：${item.reason}`)
-								.join("；")}${outcome.skipped.length > 3 ? " 等" : ""}）`
-						: ""}
-				</div>
-			) : null}
+			<div className="ws-panel__body">
 
-			<div className="poc-tablewrap">
-				<table className="poc-table">
-					<thead>
-						<tr>
-							<th className="poc-caret-col" />
-							<th className="poc-sortable" onClick={() => toggleSort("id")}>
-								模板 ID{sortKey === "id" ? (sortDesc ? " ▼" : " ▲") : ""}
-							</th>
-							<th>等级</th>
-							<th>名称</th>
-							<th>标签</th>
-							<th>CVE</th>
-							<th className="poc-sortable" onClick={() => toggleSort("when")}>
-								导入时间{sortKey === "when" ? (sortDesc ? " ▼" : " ▲") : ""}
-							</th>
-							<th />
-						</tr>
-					</thead>
-					<tbody>
-						{sorted.length === 0 ? (
-							<tr className="poc-empty">
-								<td colSpan={8}>
-									暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用
-									poc_search / poc_read 只读检索。
-								</td>
-							</tr>
-						) : (
-							sorted.flatMap((item, index) => row(item, index % 2 === 1))
-						)}
-					</tbody>
-				</table>
-			</div>
-
-			{pages > 1 ? (
-				<div className="poc-pager">
-					<button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-						上一页
-					</button>
-					<span>
-						第 {page} / {pages} 页 · 共 {total} 条
+				{officialSource?.lastResult ? (
+					<div className={officialSource.lastResult.ok ? "poc-official" : "poc-official err-text"}>
+						{officialLine(officialSource)}
+					</div>
+				) : null}
+	
+				<div className="poc-toolbar">
+					<input
+						className="poc-search"
+						placeholder="搜索模板 id、名称、标签或 CVE…"
+						value={search}
+						spellCheck={false}
+						onChange={(event) => setSearch(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") apply({});
+						}}
+					/>
+					<select
+						className="poc-select"
+						value={filters.severity ?? ""}
+						onChange={(event) => {
+							const value = event.target.value;
+							apply(value ? { severity: value as SentinelPocSeverity } : { severity: undefined });
+						}}
+					>
+						<option value="">全部等级</option>
+						{SENTINEL_VULN_SEVERITIES.map((severity) => (
+							<option key={severity} value={severity}>
+								{SENTINEL_VULN_SEVERITY_LABELS[severity]}
+							</option>
+						))}
+					</select>
+					<input
+						className="poc-select poc-tag"
+						placeholder="精确标签，如 cve"
+						value={tag}
+						spellCheck={false}
+						onChange={(event) => setTag(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") apply({});
+						}}
+					/>
+					<span className="poc-hits">
+						匹配 {total} 条
+						{filters.search || filters.severity || filters.tag ? "（已筛选）" : ""}
 					</span>
-					<button type="button" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>
-						下一页
-					</button>
 				</div>
-			) : null}
-
-			<div className="poc-foot">
-				<span>库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei</span>
-				<span className="poc-foot-sev">
-					严重 {stats.bySeverity.critical} · 高危 {stats.bySeverity.high} · 中危 {stats.bySeverity.medium} · 低危{" "}
-					{stats.bySeverity.low} · 信息 {stats.bySeverity.info}
-				</span>
+	
+				{outcome ? (
+					<div className="poc-import-note">
+						导入完成：新增 {outcome.imported} 条，覆盖 {outcome.replaced} 条
+						{outcome.skipped.length > 0
+							? `，跳过 ${outcome.skipped.length} 条（${outcome.skipped
+									.slice(0, 3)
+									.map((item) => `${item.name}：${item.reason}`)
+									.join("；")}${outcome.skipped.length > 3 ? " 等" : ""}）`
+							: ""}
+					</div>
+				) : null}
+	
+				<div className="poc-tablewrap">
+					<table className="poc-table">
+						<thead>
+							<tr>
+								<th className="poc-caret-col" />
+								<th className="poc-sortable" onClick={() => toggleSort("id")}>
+									模板 ID{sortKey === "id" ? (sortDesc ? " ▼" : " ▲") : ""}
+								</th>
+								<th>等级</th>
+								<th>名称</th>
+								<th>标签</th>
+								<th>CVE</th>
+								<th className="poc-sortable" onClick={() => toggleSort("when")}>
+									导入时间{sortKey === "when" ? (sortDesc ? " ▼" : " ▲") : ""}
+								</th>
+								<th />
+							</tr>
+						</thead>
+						<tbody>
+							{sorted.length === 0 ? (
+								<tr className="poc-empty">
+									<td colSpan={8}>
+										暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用
+										poc_search / poc_read 只读检索。
+									</td>
+								</tr>
+							) : (
+								sorted.flatMap((item, index) => row(item, index % 2 === 1))
+							)}
+						</tbody>
+					</table>
+				</div>
+	
+				{pages > 1 ? (
+					<div className="poc-pager">
+						<button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+							上一页
+						</button>
+						<span>
+							第 {page} / {pages} 页 · 共 {total} 条
+						</span>
+						<button type="button" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>
+							下一页
+						</button>
+					</div>
+				) : null}
+	
+				<div className="poc-foot">
+					<span>库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei</span>
+					<span className="poc-foot-sev">
+						严重 {stats.bySeverity.critical} · 高危 {stats.bySeverity.high} · 中危 {stats.bySeverity.medium} · 低危{" "}
+						{stats.bySeverity.low} · 信息 {stats.bySeverity.info}
+					</span>
+				</div>
 			</div>
 		</div>
 	);
