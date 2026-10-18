@@ -13,10 +13,12 @@
 
 import { timingSafeEqual } from "node:crypto";
 import {
+	appendFileSync,
 	createReadStream,
 	existsSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -338,8 +340,11 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 				? await containerHostPort(docker, candidateName, manifest.mcp.port)
 				: manifest.mcp.port;
 		if (manifest.permissions.network === "bridge" && hostPort === null) {
+			// A container that exited during entrypoint validation has no published
+			// port. Surface its output instead of the misleading "started" error.
+			const logs = await containerLogs(docker, candidateName, 20);
 			await removeContainer(docker, candidateName);
-			throw new HttpError(502, "容器已启动，但读不到映射到 127.0.0.1 的端口");
+			throw new HttpError(502, `容器启动后退出，未发布 127.0.0.1 端口。${logs ? `\n${logs}` : ""}`);
 		}
 		const health = await waitHealthy(docker, candidate, hostPort);
 		if (!health.ok) {
@@ -423,17 +428,23 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		}
 
 		const imageTag = imageTagFor(manifest);
+		const buildLog = join(pluginDir(options.dataDir, manifest.id), "build.log");
+		mkdirSync(dirname(buildLog), { recursive: true });
+		writeFileSync(buildLog, `# docker build ${imageTag}\n# context ${extracted.root}\n\n`);
 		const build = await buildPluginImage(docker, {
 			root: extracted.root,
 			dockerfile: manifest.build.dockerfile,
 			context: manifest.build.context,
 			tag: imageTag,
 			args: manifest.build.args,
+			// Stream while the build runs so the install drawer can show progress.
+			onOutput: (chunk) => appendFileSync(buildLog, chunk),
 		});
-		const buildLog = join(pluginDir(options.dataDir, manifest.id), "build.log");
-		mkdirSync(dirname(buildLog), { recursive: true });
-		writeFileSync(buildLog, `${build.output}\n`);
-		if (!build.ok) throw new HttpError(502, build.error ?? "镜像构建失败");
+		appendFileSync(buildLog, `${build.ok ? "\n# build complete\n" : "\n# build failed\n"}`);
+		if (!build.ok) {
+			if (build.error) appendFileSync(buildLog, `${build.error}\n`);
+			throw new HttpError(502, build.error ?? "镜像构建失败");
+		}
 
 		const record: StoredPluginRecord = {
 			manifest,
@@ -538,6 +549,20 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		deletePluginRecord(options.dataDir, id, purge);
 		log(`uninstalled ${id}`);
 		sendJson(response, 200, { ok: true });
+	}
+
+	async function handleBuildLog(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const url = new URL(request.url ?? "/", "http://localhost");
+		const id = url.pathname.split("/")[3] ?? "";
+		if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
+		const file = join(pluginDir(options.dataDir, id), "build.log");
+		let log = "";
+		try {
+			log = readFileSync(file, "utf-8");
+		} catch {
+			log = "";
+		}
+		sendJson(response, 200, { log });
 	}
 
 	async function handleLogs(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -712,6 +737,10 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			}
 			if (parts[3] === "config" && request.method === "PUT") {
 				await handleConfig(request, response);
+				return;
+			}
+			if (parts[3] === "build-log" && request.method === "GET") {
+				await handleBuildLog(request, response);
 				return;
 			}
 			if (parts[3] === "logs" && request.method === "GET") {

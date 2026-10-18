@@ -1,0 +1,697 @@
+:root {
+	--console-bg: #0b0f14;
+	--console-border: #1d2733;
+	--console-text: #c9d1d9;
+}
+
+.vsh-page {
+	max-width: 1400px;
+}
+
+.vsh-tabs {
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 0 0 14px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--pui-border);
+	background: var(--pui-bg);
+}
+
+.vsh-tabs button {
+	height: 28px;
+	padding: 0 11px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--pui-dim);
+	font-family: var(--pui-sans);
+	font-size: 12.5px;
+	cursor: pointer;
+}
+
+.vsh-tabs button:hover {
+	background: var(--pui-raised);
+	color: var(--pui-text);
+}
+
+.vsh-tabs button.active {
+	border-color: var(--pui-border);
+	background: var(--pui-card);
+	color: var(--pui-text);
+	font-weight: 600;
+	box-shadow: 0 1px 2px #00000010;
+}
+
+.vsh-pane {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.vsh-pane[hidden] {
+	display: none;
+}
+
+.vsh-metrics {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 10px;
+}
+
+.vsh-metric {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 11px 13px;
+	border: 1px solid var(--pui-border);
+	border-radius: 7px;
+	background: var(--pui-card);
+}
+
+.vsh-metric__label {
+	color: var(--pui-muted);
+	font-size: 11.5px;
+}
+
+.vsh-metric__value {
+	color: var(--pui-text);
+	font-size: 18px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.3;
+}
+
+.vsh-metric__sub {
+	color: var(--pui-muted);
+	font-size: 11px;
+}
+
+.vsh-cmd-form {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 200px 110px 80px;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.vsh-cmd-log {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-height: 420px;
+	overflow: auto;
+}
+
+.vsh-cmd-entry {
+	border: 1px solid var(--pui-border);
+	border-radius: 7px;
+	padding: 10px 12px;
+	background: #fcfcfd;
+}
+
+.vsh-cmd-entry.is-bad {
+	border-color: #f3c9c9;
+	background: #fffafa;
+}
+
+.vsh-cmd-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.vsh-cmd-head code {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #476582;
+}
+
+.vsh-file-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
+.vsh-file-toolbar .pui-input,
+.vsh-file-toolbar .pui-select {
+	width: auto;
+	min-width: 160px;
+}
+
+.vsh-file-toolbar .pui-input {
+	flex: 1;
+}
+
+.vsh-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.vsh-actions .pui-btn {
+	height: 24px;
+	padding: 0 7px;
+	font-size: 11px;
+}
+
+.vsh-form {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 8px;
+}
+
+.vsh-form .pui-input,
+.vsh-form .pui-select {
+	min-height: 32px;
+}
+
+.vsh-form .pui-btn {
+	justify-self: start;
+}
+
+.vsh-modal[hidden] {
+	display: none;
+}
+
+.vsh-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.vsh-modal__backdrop {
+	position: absolute;
+	inset: 0;
+	background: #00000059;
+}
+
+.vsh-modal__panel {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: min(820px, 100%);
+	max-height: 84vh;
+	border: 1px solid var(--pui-border);
+	border-radius: 8px;
+	background: var(--pui-card);
+	box-shadow: 0 12px 32px #00000026;
+	overflow: hidden;
+}
+
+.vsh-modal__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--pui-border);
+}
+
+.vsh-modal__head h2 {
+	margin: 0;
+	font-size: 13px;
+}
+
+.vsh-modal__body {
+	padding: 14px;
+	overflow: auto;
+}
+
+.vsh-modal__body .pui-output {
+	max-height: 62vh;
+}
+
+.vsh-modal-form {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.vsh-modal-form .pui-btn {
+	align-self: flex-start;
+}
+
+.pui-table tr.is-selected td {
+	background: var(--pui-accent-soft);
+}
+
+.vsh-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	color: var(--pui-muted);
+	font-size: 11.5px;
+}
+
+.vsh-modal-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* 主机列表 + 命令控制并排，避免看完列表还要滚到下面 */
+.vsh-hosts-layout {
+	display: grid;
+	grid-template-columns: 440px minmax(0, 1fr);
+	gap: 12px;
+	align-items: stretch;
+}
+
+@media (max-width: 1150px) {
+	.vsh-hosts-layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.vsh-hosts-card {
+	max-height: calc(100vh - 220px);
+	overflow: auto;
+}
+
+.vsh-host-filter {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 0 14px 10px;
+}
+
+.vsh-host-filter .pui-input {
+	min-width: 0;
+	flex: 1;
+}
+
+.vsh-host-filter .pui-check {
+	flex: none;
+	font-size: 11.5px;
+}
+
+.vsh-hosts-card .pui-table th,
+.vsh-hosts-card .pui-table td {
+	padding: 9px 10px;
+	vertical-align: top;
+}
+
+.vsh-hosts-card .pui-table td b {
+	display: block;
+	font-size: 12.5px;
+	line-height: 1.45;
+	word-break: break-all;
+}
+
+.vsh-hosts-card .pui-table td .pui-sub {
+	line-height: 1.5;
+}
+
+.vsh-hosts-card .pui-table td .pui-btn {
+	white-space: nowrap;
+	padding: 0 7px;
+}
+
+.vsh-console {
+	min-height: 320px;
+}
+
+.vsh-console-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.vsh-cmd-form {
+	grid-template-columns: minmax(0, 1fr) 150px 82px auto;
+}
+
+.vsh-cmd-log {
+	max-height: 430px;
+}
+
+/* 总览的服务器信息用紧凑键值，不再把整段 JSON 铺在页面上 */
+.vsh-kv {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--pui-border);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.vsh-kv__row {
+	display: grid;
+	grid-template-columns: 130px minmax(0, 1fr);
+	gap: 10px;
+	padding: 8px 11px;
+	border-bottom: 1px solid var(--pui-border);
+	font-size: 12px;
+}
+
+.vsh-kv__row:last-child {
+	border-bottom: 0;
+}
+
+.vsh-kv__row span {
+	color: var(--pui-muted);
+}
+
+.vsh-kv__row b {
+	font-weight: 500;
+	word-break: break-all;
+}
+
+.vsh-raw {
+	margin-top: 10px;
+}
+
+.vsh-raw summary {
+	color: var(--pui-muted);
+	font-size: 11.5px;
+	cursor: pointer;
+	padding: 4px 0;
+}
+
+.vsh-raw .pui-output {
+	margin-top: 6px;
+}
+
+/* 新增表单默认收起，列表优先 */
+.vsh-add {
+	padding: 0;
+}
+
+.vsh-add > summary {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	padding: 11px 14px;
+	list-style: none;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.vsh-add > summary::-webkit-details-marker {
+	display: none;
+}
+
+.vsh-add > summary::before {
+	content: "＋";
+	color: var(--pui-accent);
+	font-weight: 400;
+	margin-right: 2px;
+}
+
+.vsh-add[open] > summary::before {
+	content: "－";
+}
+
+.vsh-add > summary .pui-sub {
+	font-weight: 400;
+}
+
+.vsh-add__body {
+	padding: 0 14px 14px;
+}
+
+.vsh-gen-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+/* 方案 A：左主机卡片 + 右深色终端 */
+.vsh-hosts-layout {
+	grid-template-columns: 380px minmax(0, 1fr);
+}
+
+.vsh-host-list {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	padding: 6px 8px 10px;
+	overflow: auto;
+}
+
+.vsh-host {
+	display: flex;
+	align-items: flex-start;
+	gap: 9px;
+	width: 100%;
+	padding: 9px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.vsh-host:hover {
+	background: #fafcff;
+}
+
+.vsh-host.is-selected {
+	background: #eef6ff;
+	box-shadow: inset 2px 0 0 var(--pui-accent);
+}
+
+.vsh-host__avatar {
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	flex: none;
+	border-radius: 6px;
+	background: #eef4fb;
+	color: var(--pui-accent);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.vsh-host__avatar.is-off {
+	background: #f4f4f5;
+	color: #909399;
+}
+
+.vsh-host__info {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	flex: 1;
+	min-width: 0;
+}
+
+.vsh-host__info b {
+	font-size: 12.5px;
+	line-height: 1.45;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vsh-host__info span {
+	color: var(--pui-muted);
+	font-size: 10.5px;
+	line-height: 1.55;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vsh-host__state {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 4px;
+	flex: none;
+}
+
+.vsh-host__state .mono {
+	color: var(--pui-muted);
+	font-size: 10.5px;
+}
+
+.vsh-console {
+	padding: 0;
+	overflow: hidden;
+}
+
+.vsh-console .pui-card-head {
+	padding: 10px 13px;
+}
+
+.vsh-term {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 430px;
+	margin: 0 12px 12px;
+	border: 1px solid #1d2733;
+	border-radius: 8px;
+	background: var(--console-bg);
+	overflow: hidden;
+}
+
+.vsh-term__bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 12px;
+	border-bottom: 1px solid var(--console-border);
+	background: #0e141b;
+	color: #8b949e;
+	font-size: 11.5px;
+}
+
+.vsh-term__meta {
+	margin-left: auto;
+	color: #6e7681;
+	font-family: var(--mono);
+	font-size: 10.5px;
+}
+
+.vsh-term__body {
+	flex: 1;
+	overflow: auto;
+	padding: 12px 14px;
+	color: #c9d1d9;
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.75;
+}
+
+.vsh-term__empty {
+	margin: 0;
+	color: #6e7681;
+	font-family: var(--pui-sans);
+	font-size: 12px;
+}
+
+.vsh-term-entry {
+	padding: 2px 0 10px;
+	border-bottom: 1px solid #1d2733;
+	margin-bottom: 8px;
+}
+
+.vsh-term-entry:last-child {
+	border-bottom: 0;
+	margin-bottom: 0;
+}
+
+.vsh-term-entry__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
+.vsh-term-entry__cmd {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #e6edf3;
+}
+
+.vsh-term-entry__cmd .mono {
+	color: #58a6ff;
+}
+
+.vsh-term-entry__meta {
+	flex: none;
+	color: #6e7681;
+	font-size: 10.5px;
+}
+
+.vsh-term-entry__head .pui-btn {
+	height: 22px;
+	padding: 0 7px;
+	border-color: #2a3644;
+	background: transparent;
+	color: #8b949e;
+	font-size: 10.5px;
+}
+
+.vsh-term-entry__out {
+	margin: 0;
+	padding: 0;
+	color: #c9d1d9;
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.7;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.vsh-term-entry.is-bad .vsh-term-entry__out {
+	color: #ff7b72;
+}
+
+.vsh-term__input {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 12px;
+	border-top: 1px solid var(--console-border);
+	background: #0e141b;
+}
+
+.vsh-term__input > .mono {
+	color: #58a6ff;
+	font-size: 12px;
+}
+
+.vsh-term__input input {
+	flex: 1;
+	height: 30px;
+	padding: 0 9px;
+	border: 1px solid #2a3644;
+	border-radius: 5px;
+	background: #0b0f14;
+	color: #e6edf3;
+	font-family: var(--mono);
+	font-size: 12px;
+	outline: none;
+}
+
+.vsh-term__input input:focus {
+	border-color: #58a6ff;
+}
+
+.vsh-term__input .pui-btn.primary {
+	background: #238636;
+	border-color: #238636;
+}
+
+.vsh-term__opts {
+	display: flex;
+	gap: 6px;
+	padding: 0 12px 9px;
+	background: #0e141b;
+}
+
+.vsh-term__opts .pui-input {
+	height: 26px;
+	border-color: #2a3644;
+	background: #0b0f14;
+	color: #c9d1d9;
+	font-size: 11px;
+}
+
+.vsh-foot-note {
+	padding: 7px 12px;
+	border-top: 1px solid var(--pui-border);
+	color: var(--pui-muted);
+	font-size: 10.5px;
+}

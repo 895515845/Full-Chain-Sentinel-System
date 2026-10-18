@@ -11657,7 +11657,8 @@ button.link {
 }
 
 /* 侧栏里的插件入口 */
-.menu-plugin-item .menu-plugin-icon {
+.plugin-menu-item .menu-plugin-icon,
+.menu-plugin-icon {
 	width: 16px;
 	height: 16px;
 	flex: none;
@@ -11819,4 +11820,200 @@ button.link {
 
 .official-plugin__actions a:hover {
 	text-decoration: underline;
+}
+
+/* 安装抽屉里的实时构建日志 */
+.plugin-install-log {
+	margin-top: 10px;
+	border: 1px solid var(--console-border);
+	border-radius: 6px;
+	overflow: hidden;
+	background: var(--console-bg);
+}
+
+.plugin-install-log__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 7px 10px;
+	border-bottom: 1px solid var(--console-border);
+	background: #0e141b;
+	color: #8b949e;
+	font-size: 11px;
+}
+
+.plugin-install-log pre {
+	margin: 0;
+	padding: 9px 10px;
+	max-height: 190px;
+	overflow: auto;
+	color: #c9d1d9;
+	font-family: var(--mono);
+	font-size: 10.5px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* 官方插件目录：列表视图，插件多了也容易扫 */
+.official-plugins__table-wrap {
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--card);
+}
+
+.official-plugin-table {
+	width: 100%;
+	min-width: 760px;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.official-plugin-table th {
+	padding: 9px 12px;
+	text-align: left;
+	background: #fafafa;
+	color: var(--faint);
+	font-size: 11px;
+	font-weight: 500;
+	border-bottom: 1px solid var(--border);
+	white-space: nowrap;
+}
+
+.official-plugin-table td {
+	padding: 11px 12px;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
+}
+
+.official-plugin-table tr:last-child td {
+	border-bottom: 0;
+}
+
+.official-plugin-table tbody tr:hover td {
+	background: #fafcff;
+}
+
+.official-plugin-name {
+	display: flex;
+	align-items: flex-start;
+	gap: 9px;
+	min-width: 300px;
+	max-width: 560px;
+}
+
+.official-plugin-name__icon {
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	flex: none;
+	border-radius: 6px;
+	background: var(--raised);
+	color: var(--accent);
+}
+
+.official-plugin-name__text {
+	min-width: 0;
+}
+
+.official-plugin-name__title {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	flex-wrap: wrap;
+}
+
+.official-plugin-name__title b {
+	font-size: 13px;
+}
+
+.official-plugin-name__text p {
+	margin: 3px 0 4px;
+	color: var(--dim);
+	font-size: 11.5px;
+	line-height: 1.6;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.official-plugin-name__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 10px;
+	color: var(--faint);
+	font-size: 10.5px;
+}
+
+.official-plugin-table td:nth-child(2) {
+	white-space: nowrap;
+	color: var(--dim);
+}
+
+.official-plugin-tools__count {
+	display: inline-block;
+	margin-bottom: 3px;
+	color: var(--dim);
+}
+
+.official-plugin-tools {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.official-plugin-tools code {
+	width: fit-content;
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: var(--faint);
+	font-family: var(--mono);
+	font-size: 10px;
+	white-space: nowrap;
+}
+
+.official-plugin-row__actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	justify-content: flex-end;
+	white-space: nowrap;
+}
+
+.official-plugin-row__actions a {
+	color: var(--accent);
+	font-size: 11.5px;
+	text-decoration: none;
+}
+
+.official-plugin-row__actions a:hover {
+	text-decoration: underline;
+}
+
+.official-plugin-row__actions button {
+	height: 26px;
+	padding: 0 9px;
+	border: 1px solid var(--accent);
+	border-radius: 5px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 11.5px;
+	cursor: pointer;
+}
+
+.official-plugin-row__actions button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.official-plugin__update {
+	color: var(--warn);
+	font-weight: 600;
+	font-size: 11.5px;
+	white-space: nowrap;
 }

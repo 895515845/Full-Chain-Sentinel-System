@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>VShell 控制台</title>
+		<link rel="stylesheet" href="./base.css" />
+		<link rel="stylesheet" href="./app.css" />
+	</head>
+	<body>
+		<div class="pui-page vsh-page">
+			<div class="pui-bar">
+				<div>
+					<h1>VShell</h1>
+					<p id="meta" class="pui-sub">正在连接控制台…</p>
+				</div>
+				<div class="pui-actions">
+					<span id="status" class="pui-pill">连接中</span>
+					<button id="refresh" class="pui-btn primary" type="button">刷新</button>
+				</div>
+			</div>
+
+			<nav id="tabs" class="vsh-tabs">
+				<button type="button" data-tab="hosts" class="active">主机与命令</button>
+				<button type="button" data-tab="files">文件</button>
+				<button type="button" data-tab="tunnels">隧道</button>
+			</nav>
+
+			<section data-pane="hosts" class="vsh-pane">
+				<div class="vsh-hosts-layout">
+					<section class="pui-card pui-card--flush vsh-hosts-card">
+						<div class="pui-card-head">
+							<h2>受管主机</h2>
+							<span id="host-count" class="pui-sub"></span>
+						</div>
+						<div class="vsh-host-filter">
+							<input id="host-query" class="pui-input" placeholder="搜索主机 / IP / 用户" />
+							<label class="pui-check"><input id="host-online" type="checkbox" /> 只看在线</label>
+						</div>
+						<div id="hosts" class="vsh-host-list"><p class="pui-empty">正在读取…</p></div>
+					</section>
+
+					<section class="pui-card pui-card--flush vsh-console">
+						<div class="pui-card-head">
+							<h2>命令控制</h2>
+							<span id="cmd-host" class="pui-pill">未选择</span>
+							<div class="vsh-console-head">
+								<span class="pui-sub">输出只保留在本页</span>
+								<button id="cmd-clear" class="pui-btn" type="button">清空</button>
+							</div>
+						</div>
+						<div class="vsh-term">
+							<div class="vsh-term__bar">
+								<span id="term-host">选择左侧主机后开始</span>
+								<span class="vsh-term__meta">60s timeout</span>
+							</div>
+							<div id="cmd-log" class="vsh-term__body">
+								<p class="pui-empty">先在左侧选择一台在线主机。</p>
+							</div>
+							<div class="vsh-term__input">
+								<span class="mono">PS&gt;</span>
+								<input id="cmd-input" placeholder="输入命令，Enter 执行；交互式程序请在主机上运行" />
+								<button id="cmd-run" class="pui-btn primary" type="button" disabled>执行</button>
+							</div>
+							<div class="vsh-term__opts">
+								<input id="cmd-workdir" class="pui-input" placeholder="工作目录（可选）" />
+								<input id="cmd-timeout" class="pui-input" type="number" min="1" max="600" placeholder="超时秒" />
+							</div>
+						</div>
+						<div class="vsh-foot-note">命令输出只保留在当前页面；交互式程序请在主机上运行。</div>
+					</section>
+				</div>
+			</section>
+
+			<section data-pane="files" class="vsh-pane" hidden>
+				<section class="pui-card">
+					<div class="pui-card-head">
+						<h2>文件管理</h2>
+						<span id="file-host-name" class="pui-sub"></span>
+					</div>
+					<div class="vsh-file-toolbar">
+						<select id="file-host" class="pui-select"></select>
+						<input id="file-path" class="pui-input" value="/" />
+						<button id="file-go" class="pui-btn" type="button">打开</button>
+						<button id="file-up" class="pui-btn" type="button">上级</button>
+						<button id="file-disks" class="pui-btn" type="button">磁盘</button>
+						<button id="file-refresh" class="pui-btn" type="button">刷新</button>
+					</div>
+					<div class="vsh-file-toolbar">
+						<button id="file-mkdir" class="pui-btn" type="button">新建目录</button>
+						<button id="file-touch" class="pui-btn" type="button">新建文件</button>
+						<button id="file-upload" class="pui-btn" type="button">上传文件</button>
+						<input id="file-upload-input" type="file" hidden />
+						<button id="file-wget" class="pui-btn" type="button">URL 下载</button>
+						<span id="file-status" class="pui-sub"></span>
+					</div>
+					<table class="pui-table">
+						<thead><tr><th>名称</th><th>类型</th><th class="num">大小</th><th>修改时间</th><th>权限</th><th></th></tr></thead>
+						<tbody id="files"><tr><td colspan="6" class="pui-empty">选择主机后读取目录。</td></tr></tbody>
+					</table>
+				</section>
+			</section>
+
+			<section data-pane="tunnels" class="vsh-pane" hidden>
+				<section class="pui-card pui-card--flush">
+					<div class="pui-card-head"><h2>隧道 / 代理</h2><span id="tunnel-count" class="pui-sub"></span></div>
+					<table class="pui-table">
+						<thead><tr><th>Id</th><th>客户端</th><th>模式</th><th class="num">端口</th><th>目标</th><th>状态</th><th>备注</th><th></th></tr></thead>
+						<tbody id="tunnels"><tr><td colspan="8" class="pui-empty">正在读取…</td></tr></tbody>
+					</table>
+				</section>
+				<details class="pui-card vsh-add">
+					<summary>新增隧道 <span class="pui-sub">tcp/udp 必须填目标，格式 10.1.1.99:80</span></summary>
+					<div class="vsh-add__body vsh-form">
+						<input id="tun-client" class="pui-input" placeholder="客户端 Id（主机 Id）" />
+						<input id="tun-port" class="pui-input" type="number" placeholder="监听端口" />
+						<select id="tun-mode" class="pui-select"><option>socks5</option><option>http</option><option>tcp</option><option>udp</option></select>
+						<input id="tun-target" class="pui-input" placeholder="目标（tcp/udp）" />
+						<input id="tun-username" class="pui-input" placeholder="账号（可选）" />
+						<input id="tun-password" class="pui-input" placeholder="密码（可选）" />
+						<input id="tun-remark" class="pui-input" placeholder="备注" />
+						<button id="tun-add" class="pui-btn primary" type="button">新增</button>
+					</div>
+				</details>
+			</section>
+
+			<div id="modal" class="vsh-modal" hidden>
+				<div class="vsh-modal__backdrop" id="modal-backdrop"></div>
+				<div class="vsh-modal__panel" role="dialog" aria-modal="true">
+					<div class="vsh-modal__head"><h2 id="modal-title">—</h2><button id="modal-close" class="pui-btn" type="button">关闭</button></div>
+					<div id="modal-body" class="vsh-modal__body"></div>
+				</div>
+			</div>
+		</div>
+		<script src="./sdk.js"></script>
+		<script src="./app.js"></script>
+	</body>
+</html>

@@ -104,6 +104,22 @@ v1 不再细分 `ui.permissions`：插件一旦声明界面，就获得 `context
 - 插件未运行时入口置灰，不能点；卸载后入口消失。再次安装如果 manifest 仍声明 `ui.sidebar`，之前的固定选择会恢复。
 - 点开后在主内容区以同一个 sandbox iframe 打开；token、握手、桥方法与浮层完全一致，只是没有关闭按钮和全屏遮罩。
 
+## 4.3 界面文件由插件自己提供
+
+控制台不直接读插件包里的 `ui/`。打开界面时，插件主机会在容器内请求：
+
+```text
+GET http://127.0.0.1:<mcp.port>/ui/index.html
+GET http://127.0.0.1:<mcp.port>/ui/app.css
+```
+
+因此只要 manifest 声明了 `ui`，插件的 MCP HTTP 服务就必须同时提供 `/ui/*` 静态文件：
+
+- 文件必须打进镜像（例如 `COPY ui /app/ui`），不是在 zip 里放着就会自动可访问。
+- 入口和资源都用 `/ui/` 下的相对路径；控制台只代理 GET/HEAD，单文件上限 20MB。
+- 常用写法：Go 用 `http.FileServer(http.Dir("/app/ui"))` 挂在 `/ui/`，Node 用静态中间件；如果只注册了 `/mcp`，所有界面资源都会 404，表现为控制台空白或“界面在 12 秒内没有连上控制台”。
+- `ui.sidebar.icon` 也走同一套静态文件；缺省时控制台用通用图标。
+
 ## 5. 资源与代理
 
 ### 5.1 插件容器

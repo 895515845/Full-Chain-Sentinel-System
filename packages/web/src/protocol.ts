@@ -1135,6 +1135,7 @@ export type SentinelClientMessage =
 	/** Pin or unpin a plugin's UI on the console sidebar (local preference). */
 	| { type: "set_plugin_sidebar"; hostId: string; pluginId: string; pinned: boolean }
 	| { type: "list_official_plugins" }
+	| { type: "get_plugin_build_log"; hostId: string; pluginId: string }
 	/** Install a package bundled with the console; the server supplies manifest and bytes. */
 	| {
 			type: "install_official_plugin";
@@ -1275,6 +1276,7 @@ export type SentinelServerMessage =
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
 	| { type: "official_plugins"; plugins: SentinelOfficialPluginView[] }
+	| { type: "plugin_build_log"; hostId: string; pluginId: string; log: string }
 	| { type: "subagents"; runs: SentinelSubagentRun[]; offset: number; total: number }
 	| { type: "subagent_run"; run: SentinelSubagentRun }
 	| { type: "subagent_event"; runId: string; event: SentinelSubagentEvent }

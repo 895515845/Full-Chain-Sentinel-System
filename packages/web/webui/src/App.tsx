@@ -218,6 +218,11 @@ export function App() {
 	const [pendingPackage, setPendingPackage] = useState<string | null>(null);
 	const [pendingOfficial, setPendingOfficial] = useState<SentinelOfficialPluginView | null>(null);
 	const [officialPlugins, setOfficialPlugins] = useState<SentinelOfficialPluginView[]>([]);
+	const [pluginBuildLog, setPluginBuildLog] = useState<{
+		hostId: string;
+		pluginId: string;
+		log: string;
+	} | null>(null);
 	const [pluginUi, setPluginUi] = useState<{
 		plugin: SentinelPluginView;
 		nonce: string;
@@ -534,6 +539,9 @@ export function App() {
 					break;
 				case "official_plugins":
 					setOfficialPlugins(message.plugins);
+					break;
+				case "plugin_build_log":
+					setPluginBuildLog({ hostId: message.hostId, pluginId: message.pluginId, log: message.log });
 					break;
 				case "plugins": {
 					const pending = pendingInstallRef.current;
@@ -1124,6 +1132,13 @@ export function App() {
 	const send = useCallback((message: Parameters<SentinelConnection["send"]>[0]) => {
 		connectionRef.current?.send(message);
 	}, []);
+
+	const loadPluginBuildLog = useCallback(
+		(hostId: string, pluginId: string) => {
+			send({ type: "get_plugin_build_log", hostId, pluginId });
+		},
+		[send],
+	);
 
 	/** Create a project and resolve with the server's error message, if any. */
 	const addProject = useCallback(
@@ -2607,12 +2622,14 @@ export function App() {
 											setPendingManifest(null);
 											setPendingPackage(null);
 											setPendingOfficial(null);
+											setPluginBuildLog(null);
 										}}
 										onInspectPackage={(name, data) => {
 											// The old manifest belongs to the previous upload; never let an
 											// install pair the new package with stale declarations.
 											setPendingManifest(null);
 											setPendingPackage(data);
+											setPluginBuildLog(null);
 											runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
 										}}
 										onInstall={(input) => {
@@ -2676,8 +2693,11 @@ export function App() {
 											runPluginAction({ type: "set_plugin_sidebar", hostId, pluginId, pinned })
 										}
 										officialPlugins={officialPlugins}
+										buildLog={pluginBuildLog}
+										onLoadBuildLog={loadPluginBuildLog}
 										onChooseOfficial={(plugin) => {
 											setPendingPackage(null);
+											setPluginBuildLog(null);
 											setPendingOfficial(plugin);
 											setPendingManifest({ manifest: plugin.manifest, source: "官方插件 · 随控制台内置" });
 										}}

@@ -148,7 +148,7 @@ zip -r my-plugin.zip my-plugin/
 - 列表在插件页的「官方插件」tab，卡片展示名称、版本、工具、权限、包大小与源码；已安装的显示当前版本，版本不同时提示「更新到 vX」。
 - 点安装打开与上传插件包相同的抽屉：选择主机、确认权限、勾选构建同意，然后由服务端直接用内置的 manifest 和 zip 安装，客户端不接触包体。
 - 更新是手动的，不会自动重建容器；卸载/启停/配置与普通插件一致。
-- 首批只有 MemShellParty；目录定义在 `packages/web/official-plugins.json`，`scripts/generate-official-plugins.mjs` 把目录打成 zip 并生成 `src/official-plugins.generated.ts`，随 `npm run build` 更新。离线控制台也能安装。
+- 首批内置 MemShellParty 和 VShell 控制台；目录定义在 `packages/web/official-plugins.json`，`scripts/generate-official-plugins.mjs` 把目录打成 zip 并生成 `src/official-plugins.generated.ts`，随 `npm run build` 更新。离线控制台也能安装。
 
 ## 6. plugin-host
 

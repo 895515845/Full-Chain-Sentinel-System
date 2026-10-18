@@ -70,6 +70,8 @@ export interface BuildImageOptions {
 	tag: string;
 	/** Values for --build-arg, already validated by the manifest parser. */
 	args: Record<string, string>;
+	/** Receives Docker's output while the build runs, for the live install log. */
+	onOutput?: (chunk: string) => void;
 }
 
 /**
@@ -98,7 +100,7 @@ export async function buildPluginImage(context: DockerContext, options: BuildIma
 			...Object.entries(options.args).flatMap(([key, value]) => ["--build-arg", `${key}=${value}`]),
 			join(options.root, options.context),
 		],
-		{ timeoutMs: TIMEOUT.build },
+		{ timeoutMs: TIMEOUT.build, onOutput: options.onOutput },
 	);
 	const output = `${result.stdout}\n${result.stderr}`.trim();
 	if (result.code === 0) return { ok: true, output };

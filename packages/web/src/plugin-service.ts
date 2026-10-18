@@ -476,6 +476,12 @@ export function setPluginEnabled(agentDir: string, hostId: string, pluginId: str
 	}
 }
 
+export async function pluginBuildLog(agentDir: string, hostId: string, pluginId: string): Promise<string> {
+	const host = findHost(agentDir, hostId);
+	const payload = await hostJson<{ log: string }>(host, `/v1/plugins/${encodeURIComponent(pluginId)}/build-log`);
+	return payload.log;
+}
+
 export async function pluginLogs(agentDir: string, hostId: string, pluginId: string, tail = 200): Promise<string> {
 	const host = findHost(agentDir, hostId);
 	const payload = await hostJson<{ logs: string }>(

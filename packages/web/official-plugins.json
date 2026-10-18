@@ -1,5 +1,6 @@
 {
 	"plugins": [
-		"plugins/memshell-party"
+		"plugins/memshell-party",
+		"plugins/vshell"
 	]
 }

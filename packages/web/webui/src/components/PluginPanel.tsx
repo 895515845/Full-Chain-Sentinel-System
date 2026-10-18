@@ -125,6 +125,8 @@ export function PluginPanel({
 	onSetSidebar,
 	officialPlugins,
 	onChooseOfficial,
+	buildLog,
+	onLoadBuildLog,
 	onCloseManifest,
 }: {
 	view: SentinelPluginsView;
@@ -167,6 +169,9 @@ export function PluginPanel({
 	/** Official packages bundled with the console. */
 	officialPlugins: SentinelOfficialPluginView[];
 	onChooseOfficial: (plugin: SentinelOfficialPluginView) => void;
+	/** Streaming docker build output for the install currently in progress. */
+	buildLog: { hostId: string; pluginId: string; log: string } | null;
+	onLoadBuildLog: (hostId: string, pluginId: string) => void;
 	/** Close the install drawer by dropping the uploaded manifest. */
 	onCloseManifest: () => void;
 }) {
@@ -180,6 +185,7 @@ export function PluginPanel({
 	const [allowHostNetwork, setAllowHostNetwork] = useState(false);
 	const [allowPrivileged, setAllowPrivileged] = useState(false);
 	const [installPending, setInstallPending] = useState(false);
+	const installLogRef = useRef<HTMLPreElement | null>(null);
 	const [editingPlugin, setEditingPlugin] = useState<string | null>(null);
 	const [editValues, setEditValues] = useState<Record<string, string>>({});
 	const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -228,6 +234,23 @@ export function PluginPanel({
 	useEffect(() => {
 		if (!busy) setInstallPending(false);
 	}, [busy]);
+
+	// Poll the host's build.log while this install is running; the host appends
+	// docker build output as it arrives, so both uploads and official packages
+	// show the same live log.
+	useEffect(() => {
+		if (!installPending || !busy || !pendingManifest || !installHostId) return;
+		const pluginId = pendingManifest.manifest.id;
+		const tick = () => onLoadBuildLog(installHostId, pluginId);
+		tick();
+		const timer = window.setInterval(tick, 1000);
+		return () => window.clearInterval(timer);
+	}, [busy, installHostId, installPending, onLoadBuildLog, pendingManifest]);
+
+	useEffect(() => {
+		if (!buildLog || !installLogRef.current) return;
+		installLogRef.current.scrollTop = installLogRef.current.scrollHeight;
+	}, [buildLog]);
 
 	// A plugin that vanished (uninstalled here or on another console) must not
 	// leave a drawer open on a row that no longer exists.
@@ -906,6 +929,21 @@ export function PluginPanel({
 										<p className="plugin-install__progress">
 											正在构建镜像并等待健康检查，可能需要几分钟。
 										</p>
+									) : null}
+									{installPending || (buildLog && buildLog.pluginId === manifest?.id) ? (
+										<div className="plugin-install-log">
+											<div className="plugin-install-log__head">
+												<span>安装日志</span>
+												<span className="muted">
+													{busy ? "实时" : "已结束"}
+												</span>
+											</div>
+											<pre ref={installLogRef}>
+												{buildLog && buildLog.pluginId === manifest?.id && buildLog.log
+													? buildLog.log
+													: "等待 Docker 构建输出…"}
+											</pre>
+										</div>
 									) : null}
 								</div>
 								<div className="plugin-drawer__foot">

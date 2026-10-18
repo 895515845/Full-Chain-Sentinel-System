@@ -1,0 +1,209 @@
+{
+	"schema": 1,
+	"id": "com.sentinel.vshell",
+	"name": "VShell 控制台",
+	"version": "0.3.1",
+	"description": "把 VShell 管理平台的命令控制、文件管理、隧道、监听与客户端生成接入 Agent；前端只提供主机/文件/隧道操作台，其他能力仍通过 MCP 工具调用。仅限已授权测试。",
+	"author": "github:zgsfsec",
+	"source": "https://github.com/zgsfsec/Full-Chain-Sentinel-System/tree/main/plugins/vshell",
+	"license": "MIT",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": "."
+	},
+	"mcp": {
+		"transport": "http",
+		"port": 7801,
+		"path": "/mcp",
+		"startupTimeoutMs": 60000,
+		"requestTimeoutMs": 600000
+	},
+	"config": [
+		{
+			"key": "VSHELL_URL",
+			"label": "VShell 地址",
+			"type": "string",
+			"required": true,
+			"description": "如 http://1.2.3.4:18082；插件主机必须能访问"
+		},
+		{
+			"key": "VSHELL_USERNAME",
+			"label": "登录账号",
+			"type": "string",
+			"required": false,
+			"default": "admin"
+		},
+		{
+			"key": "VSHELL_PASSWORD",
+			"label": "登录密码",
+			"type": "secret",
+			"required": false,
+			"description": "与下面的 Token 二选一"
+		},
+		{
+			"key": "VSHELL_TOKEN",
+			"label": "预置 JWT（可选）",
+			"type": "secret",
+			"required": false,
+			"description": "设置后跳过账号密码登录；过期后需要更新"
+		},
+		{
+			"key": "VSHELL_API_PREFIX",
+			"label": "API 前缀",
+			"type": "string",
+			"required": false,
+			"default": "/api"
+		},
+		{
+			"key": "VSHELL_TIMEOUT",
+			"label": "请求超时（秒）",
+			"type": "number",
+			"required": false,
+			"default": 60
+		}
+	],
+	"permissions": {
+		"network": "bridge",
+		"capAdd": [],
+		"privileged": false
+	},
+	"locality": "any",
+	"resources": {
+		"cpus": 1,
+		"memory": "256m",
+		"pidsLimit": 128
+	},
+	"healthcheck": {
+		"path": "/healthz",
+		"intervalMs": 10000,
+		"timeoutMs": 3000,
+		"retries": 6
+	},
+	"artifacts": {
+		"path": "/artifacts",
+		"maxFileBytes": 104857600
+	},
+	"tools": [
+		{
+			"name": "get_server_info",
+			"description": "连接信息与登录用户"
+		},
+		{
+			"name": "get_dashboard",
+			"description": "服务器仪表盘指标"
+		},
+		{
+			"name": "list_hosts",
+			"description": "列出受管主机"
+		},
+		{
+			"name": "execute_command",
+			"description": "在主机上执行命令"
+		},
+		{
+			"name": "list_directory",
+			"description": "列目录"
+		},
+		{
+			"name": "get_disks",
+			"description": "磁盘信息"
+		},
+		{
+			"name": "read_file",
+			"description": "读文件"
+		},
+		{
+			"name": "write_file",
+			"description": "写文件"
+		},
+		{
+			"name": "create_directory",
+			"description": "新建目录"
+		},
+		{
+			"name": "create_file",
+			"description": "新建文件"
+		},
+		{
+			"name": "delete_file",
+			"description": "删除文件/目录"
+		},
+		{
+			"name": "delete_files",
+			"description": "批量删除"
+		},
+		{
+			"name": "rename_file",
+			"description": "重命名/移动"
+		},
+		{
+			"name": "upload_file",
+			"description": "从产物上传文件"
+		},
+		{
+			"name": "upload_file_base64",
+			"description": "从界面 base64 上传"
+		},
+		{
+			"name": "download_file",
+			"description": "下载到产物"
+		},
+		{
+			"name": "wget_file",
+			"description": "主机用 URL 下载"
+		},
+		{
+			"name": "list_tunnels",
+			"description": "列出隧道"
+		},
+		{
+			"name": "add_tunnel",
+			"description": "新增隧道"
+		},
+		{
+			"name": "edit_tunnel",
+			"description": "编辑隧道"
+		},
+		{
+			"name": "set_tunnel_remark",
+			"description": "改隧道备注"
+		},
+		{
+			"name": "start_tunnel",
+			"description": "启用隧道"
+		},
+		{
+			"name": "stop_tunnel",
+			"description": "停用隧道"
+		},
+		{
+			"name": "delete_tunnel",
+			"description": "删除隧道"
+		},
+		{
+			"name": "delete_tunnels",
+			"description": "批量删除隧道"
+		},
+		{
+			"name": "list_listeners",
+			"description": "列出监听器"
+		},
+		{
+			"name": "add_listener",
+			"description": "新增监听器"
+		},
+		{
+			"name": "generate_client",
+			"description": "生成客户端到产物"
+		}
+	],
+	"ui": {
+		"entry": "/ui/index.html",
+		"title": "VShell 控制台",
+		"protocol": 1,
+		"sidebar": {
+			"label": "VShell",
+			"icon": "/ui/icon.svg"
+		}
+	}
+}

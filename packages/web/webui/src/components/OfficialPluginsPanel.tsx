@@ -15,9 +15,9 @@ function versionOf(plugin: SentinelPluginView): string {
 }
 
 /**
- * The curated catalog bundled with the console. Cards are descriptive rather
- * than a second installed table: the operator is choosing what to add, and the
- * install drawer still shows the full manifest, permissions and build consent.
+ * The curated catalog bundled with the console. A list, not a card grid: the
+ * operator scans name/version/state in one column and acts from the row, which
+ * stays readable when the catalog grows past a handful of plugins.
  */
 export function OfficialPluginsPanel({
 	plugins,
@@ -45,59 +45,86 @@ export function OfficialPluginsPanel({
 			<p className="official-plugins__intro">
 				随控制台分发的官方插件。安装时仍会选择目标主机，并确认构建许可与网络/能力权限。
 			</p>
-			<div className="official-plugins__grid">
-				{plugins.map((plugin) => {
-					const manifest = plugin.manifest;
-					const mine = installed.filter((entry) => entry.manifest.id === manifest.id);
-					const current = mine[0] ? versionOf(mine[0]) : null;
-					const update = current !== null && current !== manifest.version;
-					const label = current === null ? "安装" : update ? `更新到 v${manifest.version}` : "安装到其他主机";
-					return (
-						<article className="official-plugin" key={manifest.id}>
-							<div className="official-plugin__head">
-								<span className="official-plugin__icon">
-									<PluginIcon size={18} />
-								</span>
-								<div className="official-plugin__title">
-									<b>{manifest.name}</b>
-									<span className="mono">v{manifest.version}</span>
-								</div>
-								<span className="chip info">官方</span>
-							</div>
-							<p className="official-plugin__desc">{manifest.description}</p>
-							<div className="official-plugin__meta">
-								<span>{manifest.tools.length} 个工具</span>
-								<span>network {manifest.permissions.network}</span>
-								<span>{manifest.resources.memory}</span>
-								<span>{formatSize(plugin.sizeBytes)}</span>
-								{current ? (
-									<span className={update ? "official-plugin__update" : "chip ok"}>
-										{update ? `已安装 v${current}，可更新` : "已安装"}
-									</span>
-								) : null}
-							</div>
-							<div className="official-plugin__tools">
-								{manifest.tools.slice(0, 4).map((tool) => (
-									<code key={tool.name}>{tool.name}</code>
-								))}
-							</div>
-							<div className="official-plugin__actions">
-								<a href={manifest.source} target="_blank" rel="noreferrer">
-									源码
-								</a>
-								<button
-									type="button"
-									className="primary"
-									disabled={busy || hosts.length === 0}
-									title={hosts.length === 0 ? "先添加一个插件主机" : undefined}
-									onClick={() => onChoose(plugin)}
-								>
-									{label}
-								</button>
-							</div>
-						</article>
-					);
-				})}
+			<div className="official-plugins__table-wrap">
+				<table className="official-plugin-table">
+					<thead>
+						<tr>
+							<th>插件</th>
+							<th>版本</th>
+							<th>工具</th>
+							<th>状态</th>
+							<th />
+						</tr>
+					</thead>
+					<tbody>
+						{plugins.map((plugin) => {
+							const manifest = plugin.manifest;
+							const mine = installed.filter((entry) => entry.manifest.id === manifest.id);
+							const current = mine[0] ? versionOf(mine[0]) : null;
+							const update = current !== null && current !== manifest.version;
+							const label = current === null ? "安装" : update ? `更新到 v${manifest.version}` : "安装到其他主机";
+							return (
+								<tr key={manifest.id}>
+									<td>
+										<div className="official-plugin-name">
+											<span className="official-plugin-name__icon">
+												<PluginIcon size={17} />
+											</span>
+											<div className="official-plugin-name__text">
+												<div className="official-plugin-name__title">
+													<b>{manifest.name}</b>
+													<span className="chip info">官方</span>
+												</div>
+												<p>{manifest.description}</p>
+												<div className="official-plugin-name__meta">
+													<span>{formatSize(plugin.sizeBytes)}</span>
+													<span>network {manifest.permissions.network}</span>
+													<span>{manifest.resources.memory}</span>
+												</div>
+											</div>
+										</div>
+									</td>
+									<td className="mono">v{manifest.version}</td>
+									<td>
+										<span className="official-plugin-tools__count">{manifest.tools.length}</span>
+										<div className="official-plugin-tools">
+											{manifest.tools.slice(0, 3).map((tool) => (
+												<code key={tool.name}>{tool.name}</code>
+											))}
+										</div>
+									</td>
+									<td>
+										{current ? (
+											update ? (
+												<span className="official-plugin__update">已装 v{current}，可更新</span>
+											) : (
+												<span className="chip ok">已安装</span>
+											)
+										) : (
+											<span className="muted">未安装</span>
+										)}
+									</td>
+									<td>
+										<div className="official-plugin-row__actions">
+											<a href={manifest.source} target="_blank" rel="noreferrer">
+												源码
+											</a>
+											<button
+												type="button"
+												className="primary"
+												disabled={busy || hosts.length === 0}
+												title={hosts.length === 0 ? "先添加一个插件主机" : undefined}
+												onClick={() => onChoose(plugin)}
+											>
+												{label}
+											</button>
+										</div>
+									</td>
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
 			</div>
 		</div>
 	);

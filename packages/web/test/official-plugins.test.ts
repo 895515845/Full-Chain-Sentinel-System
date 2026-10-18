@@ -23,6 +23,19 @@ test("the bundled catalog lists MemShellParty and the zip carries its manifest",
 	expect(manifest.version).toBe(bundled.manifest.version);
 });
 
+test("the catalog bundles VShell with its HTTP MCP manifest", () => {
+	const bundled = getOfficialPlugin("com.sentinel.vshell");
+	expect(bundled).toBeDefined();
+	if (!bundled) return;
+	expect(bundled.manifest.mcp.transport).toBe("http");
+	expect(bundled.manifest.mcp.path).toBe("/mcp");
+	expect(bundled.manifest.ui?.sidebar).toEqual({ label: "VShell", icon: "/ui/icon.svg" });
+	expect(bundled.manifest.tools).toHaveLength(28);
+	const entries = readZip(Buffer.from(bundled.packageBase64, "base64")).entries;
+	expect(entries.some((entry) => entry.name === "Dockerfile")).toBe(true);
+	expect(entries.some((entry) => entry.name === "ui/index.html")).toBe(true);
+});
+
 test("the catalog exposes every package manifest and rejects unknown ids", () => {
 	for (const entry of listOfficialPlugins()) {
 		expect(entry.manifest.id).toMatch(/^[a-z0-9]+(\.[a-z0-9-]+)+$/);

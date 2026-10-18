@@ -11,7 +11,10 @@ export interface DockerResult {
 	stderr: string;
 }
 
-export type DockerRunner = (args: string[], options?: { timeoutMs?: number }) => Promise<DockerResult>;
+export type DockerRunner = (
+	args: string[],
+	options?: { timeoutMs?: number; onOutput?: (chunk: string) => void },
+) => Promise<DockerResult>;
 
 /** One `tools/call` outcome, as the console bridge forwards it. */
 export interface McpToolOutcome {

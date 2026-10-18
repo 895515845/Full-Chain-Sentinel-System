@@ -23,7 +23,7 @@ export const SENTINEL_IMAGE = "sentinel:latest";
 /** Run the docker CLI, capturing output. Used by the container layer and the environment check. */
 export function runDocker(
 	args: string[],
-	options: { signal?: AbortSignal; timeoutMs?: number } = {},
+	options: { signal?: AbortSignal; timeoutMs?: number; onOutput?: (chunk: string) => void } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve) => {
 		const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -34,10 +34,14 @@ export function runDocker(
 		const onAbort = () => child.kill("SIGKILL");
 		options.signal?.addEventListener("abort", onAbort, { once: true });
 		child.stdout.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString();
+			const text = chunk.toString();
+			stdout += text;
+			options.onOutput?.(text);
 		});
 		child.stderr.on("data", (chunk: Buffer) => {
-			stderr += chunk.toString();
+			const text = chunk.toString();
+			stderr += text;
+			options.onOutput?.(text);
 		});
 		child.on("close", (code) => {
 			if (settled) return;

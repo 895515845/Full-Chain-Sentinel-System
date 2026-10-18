@@ -1508,6 +1508,31 @@ export async function startSentinelServer(
 					}
 					return;
 				}
+				case "get_plugin_build_log": {
+					void runtime
+						.getPluginBuildLog(message.hostId, message.pluginId)
+						.then((log) => {
+							sendTo(socket, {
+								type: "plugin_build_log",
+								hostId: message.hostId,
+								pluginId: message.pluginId,
+								log,
+							});
+						})
+						.catch((error: unknown) => {
+							const detail = error instanceof Error ? error.message : String(error);
+							const reason = /没有这个接口|404/.test(detail)
+								? "插件主机版本过旧，没有构建日志接口；请重启插件主机后再安装"
+								: detail;
+							sendTo(socket, {
+								type: "plugin_build_log",
+								hostId: message.hostId,
+								pluginId: message.pluginId,
+								log: `读取构建日志失败：${reason}`,
+							});
+						});
+					return;
+				}
 				case "list_official_plugins": {
 					sendTo(socket, { type: "official_plugins", plugins: listOfficialPlugins() });
 					return;

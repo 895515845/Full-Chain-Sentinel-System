@@ -963,6 +963,7 @@ export type SentinelClientMessage =
 	| { type: "set_plugin_enabled"; hostId: string; pluginId: string; enabled: boolean }
 	| { type: "set_plugin_sidebar"; hostId: string; pluginId: string; pinned: boolean }
 	| { type: "list_official_plugins" }
+	| { type: "get_plugin_build_log"; hostId: string; pluginId: string }
 	| {
 			type: "install_official_plugin";
 			hostId: string;
@@ -1084,6 +1085,7 @@ export type SentinelServerMessage =
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
 	| { type: "official_plugins"; plugins: SentinelOfficialPluginView[] }
+	| { type: "plugin_build_log"; hostId: string; pluginId: string; log: string }
 	| { type: "subagents"; runs: SentinelSubagentRun[]; offset: number; total: number }
 	| { type: "subagent_run"; run: SentinelSubagentRun }
 	| { type: "subagent_event"; runId: string; event: SentinelSubagentEvent }

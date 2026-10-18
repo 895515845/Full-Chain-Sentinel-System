@@ -1977,6 +1977,10 @@ export class SentinelRuntime {
 	 * extension connects its servers at session start, so the tool set changes by
 	 * rebuilding, not by mutating a live connection.
 	 */
+	async getPluginBuildLog(hostId: string, pluginId: string): Promise<string> {
+		return pluginService.pluginBuildLog(this.agentDir, hostId, pluginId);
+	}
+
 	async installPlugin(input: pluginService.InstallPluginInput): Promise<SentinelPluginView> {
 		this.assertNoRunningSession("插件");
 		const plugin = await pluginService.installPlugin(this.agentDir, input);
