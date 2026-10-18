@@ -6777,13 +6777,21 @@ button.link {
 	animation: sentinel-dot-pulse 1.6s infinite;
 }
 
-.sdot.sd-done {
-	background: var(--ok);
+.sdot.sd-running {
+	background: #4cc2ff;
+	box-shadow: 0 0 5px #4cc2ff;
+	animation: sentinel-dot-pulse 1.6s infinite;
 }
-.sdot.sd-failed {
+/* 与普通对话对齐：结束就是空闲灰点，不再用绿色表示“完成” */
+.sdot.sd-done {
+	background: #ffffff30;
+}
+.sdot.sd-failed,
+.sdot.sd-blocked {
 	background: var(--danger);
 }
-.sdot.sd-queued {
+.sdot.sd-queued,
+.sdot.sd-aborted {
 	background: #ffffff55;
 }
 .sdot.sd-paused {
@@ -11571,4 +11579,26 @@ button.link {
 	height: 26px;
 	padding: 0 8px;
 	font-size: 12px;
+}
+
+/* 子代理列表翻页：默认只带最新一页，更早的按需拉取 */
+.subagent-list-pager {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 2px 8px;
+	margin-bottom: 4px;
+	border-bottom: 1px solid var(--border);
+	font-size: 11px;
+	color: var(--dim);
+}
+
+.subagent-list-pager button {
+	height: 24px;
+	padding: 0 7px;
+	font-size: 11px;
+}
+
+.subagent-list-pager .muted {
+	margin-left: auto;
 }

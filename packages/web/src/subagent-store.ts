@@ -129,14 +129,21 @@ export class SubagentStore {
 	}
 
 	/** Newest first, without process steps. */
-	listRuns(sessionId: string, limit = 100): SentinelSubagentRun[] {
+	listRuns(sessionId: string, limit = 100, offset = 0): SentinelSubagentRun[] {
 		const rows = this.db
 			.prepare(
 				`SELECT id, session_id, task, status, turns, started_at, ended_at, result, error
-				 FROM subagent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`,
+				 FROM subagent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?`,
 			)
-			.all(sessionId, limit) as unknown as RunRow[];
+			.all(sessionId, limit, offset) as unknown as RunRow[];
 		return rows.map(toRun);
+	}
+
+	countRuns(sessionId: string): number {
+		const row = this.db
+			.prepare("SELECT COUNT(*) AS total FROM subagent_runs WHERE session_id = ?")
+			.get(sessionId) as unknown as { total: number } | undefined;
+		return row?.total ?? 0;
 	}
 
 	getRun(id: string): SentinelSubagentRun | undefined {

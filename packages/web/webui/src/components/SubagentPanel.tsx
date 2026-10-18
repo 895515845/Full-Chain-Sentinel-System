@@ -160,13 +160,35 @@ function RunList({
 	runs,
 	selectedId,
 	onSelect,
+	page,
+	pageCount,
+	total,
+	onPage,
 }: {
 	runs: SentinelSubagentRun[];
 	selectedId: string | undefined;
 	onSelect: (id: string) => void;
+	page: number;
+	pageCount: number;
+	total: number;
+	onPage: (page: number) => void;
 }) {
 	return (
 		<aside className="subagent-list">
+			{total > 10 ? (
+				<div className="subagent-list-pager">
+					<button type="button" disabled={page === 0} onClick={() => onPage(page - 1)}>
+						上一页
+					</button>
+					<span>
+						{page + 1} / {pageCount}
+					</span>
+					<button type="button" disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>
+						下一页
+					</button>
+					<span className="muted">共 {total}</span>
+				</div>
+			) : null}
 			{runs.map((run) => {
 				const duration = durationOf(run);
 				return (
@@ -189,6 +211,7 @@ function RunList({
 					</button>
 				);
 			})}
+			{runs.length === 0 ? <div className="subagent-empty">加载中…</div> : null}
 		</aside>
 	);
 }
@@ -444,15 +467,28 @@ function RunDetail({
 	);
 }
 
+const SUBAGENT_PAGE_SIZE = 8;
+
 export function SubagentPanel({
 	runs,
+	total,
+	pageRuns,
+	pageOffset,
+	onLoadPage,
 	transcripts,
 	onLoad,
 	onAbort,
 	onSteer,
 	onFullscreen,
 }: {
+	/** Newest page from the snapshot (first 100 runs). */
 	runs: SentinelSubagentRun[];
+	/** All runs of the session, for the page count. */
+	total: number;
+	/** An older page fetched on demand; null until requested. */
+	pageRuns: SentinelSubagentRun[] | null;
+	pageOffset: number;
+	onLoadPage: (offset: number, limit: number) => void;
 	/** Process steps by run id; a run absent here has not been loaded yet. */
 	transcripts: Record<string, SentinelSubagentEvent[]>;
 	onLoad: (id: string) => void;
@@ -460,9 +496,44 @@ export function SubagentPanel({
 	onSteer: (id: string, text: string) => void;
 	onFullscreen?: (title: string, output: string) => void;
 }) {
+	const [page, setPage] = useState(0);
 	const [pickedId, setPickedId] = useState<string | undefined>(undefined);
+	const effectiveTotal = Math.max(total, runs.length);
+	const pageCount = Math.max(1, Math.ceil(effectiveTotal / SUBAGENT_PAGE_SIZE));
+	const start = page * SUBAGENT_PAGE_SIZE;
+	const expected = Math.min(SUBAGENT_PAGE_SIZE, Math.max(0, effectiveTotal - start));
+
+	// The snapshot only carries the newest 100 runs; older pages are requested on
+	// demand. The callback is recreated by the parent on every render, so it is
+	// kept in a ref and excluded from the effect dependencies.
+	const loadRef = useRef(onLoadPage);
+	loadRef.current = onLoadPage;
+	const requested = useRef(new Set<number>());
+	useEffect(() => {
+		if (page >= pageCount) {
+			setPage(pageCount - 1);
+			return;
+		}
+		if (start + expected <= runs.length) return;
+		const covered =
+			pageRuns !== null && pageOffset <= start && start + expected <= pageOffset + pageRuns.length;
+		if (covered || requested.current.has(start)) return;
+		requested.current.add(start);
+		loadRef.current(start, SUBAGENT_PAGE_SIZE);
+	}, [page, pageCount, start, expected, runs.length, pageRuns, pageOffset]);
+
+	const visible =
+		start + expected <= runs.length
+			? runs.slice(start, start + expected)
+			: pageRuns && pageOffset <= start && start + expected <= pageOffset + pageRuns.length
+				? pageRuns.slice(start - pageOffset, start - pageOffset + expected)
+				: [];
+
 	// Nothing picked yet: the newest live run is what the operator wants to watch.
-	const selected = runs.find((run) => run.id === pickedId) ?? runs.find((run) => run.status === "running") ?? runs[0];
+	const selected =
+		visible.find((run) => run.id === pickedId) ??
+		visible.find((run) => run.status === "running") ??
+		visible[0];
 	const selectedId = selected?.id;
 	const loaded = selectedId !== undefined && transcripts[selectedId] !== undefined;
 
@@ -472,7 +543,7 @@ export function SubagentPanel({
 		if (selectedId !== undefined && !loaded) onLoad(selectedId);
 	}, [selectedId, loaded, onLoad]);
 
-	if (runs.length === 0) {
+	if (runs.length === 0 && total === 0) {
 		return (
 			<div className="subagent-panel empty">
 				<div className="subagent-empty">
@@ -484,7 +555,15 @@ export function SubagentPanel({
 
 	return (
 		<div className="subagent-panel">
-			<RunList runs={runs} selectedId={selectedId} onSelect={setPickedId} />
+			<RunList
+				runs={visible}
+				selectedId={selectedId}
+				onSelect={setPickedId}
+				page={page}
+				pageCount={pageCount}
+				total={total}
+				onPage={setPage}
+			/>
 			{selected ? (
 				<RunDetail
 					key={selected.id}

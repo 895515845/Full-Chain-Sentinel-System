@@ -97,6 +97,10 @@ test("runs are listed newest first and scoped to one session", () => {
 
 	expect(store.listRuns("session-a").map((run) => run.id)).toEqual(["new", "middle", "old"]);
 	expect(store.listRuns("session-a", 2).map((run) => run.id)).toEqual(["new", "middle"]);
+	expect(store.listRuns("session-a", 2, 1).map((run) => run.id)).toEqual(["middle", "old"]);
+	expect(store.listRuns("session-a", 2, 5)).toEqual([]);
+	expect(store.countRuns("session-a")).toBe(3);
+	expect(store.countRuns("session-missing")).toBe(0);
 	expect(store.listRuns("session-b").map((run) => run.id)).toEqual(["other"]);
 	expect(store.listRuns("session-missing")).toEqual([]);
 	// A fresh run is running with no steps yet; the list omits process steps.

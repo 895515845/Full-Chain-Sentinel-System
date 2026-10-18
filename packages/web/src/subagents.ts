@@ -103,8 +103,12 @@ export class SubagentRegistry {
 	}
 
 	/** Runs of one session, newest first, without their process steps. */
-	list(sessionId: string): SentinelSubagentRun[] {
-		return this.store.listRuns(sessionId).map((run) => this.withLiveState(run));
+	list(sessionId: string, limit = 100, offset = 0): SentinelSubagentRun[] {
+		return this.store.listRuns(sessionId, limit, offset).map((run) => this.withLiveState(run));
+	}
+
+	count(sessionId: string): number {
+		return this.store.countRuns(sessionId);
 	}
 
 	/** One run with its full process, from the live buffer when still running. */

@@ -3445,6 +3445,7 @@ export class SentinelRuntime {
 				.filter((managed) => managed.session.isStreaming)
 				.map((managed) => managed.key),
 			subagents: this.listSubagents(),
+			subagentTotal: this.countSubagents(),
 			goal: this.goalView(active),
 			// The active session's operator status, read from the branch: a status set
 			// in the list must show up here without a second file read.
@@ -3501,10 +3502,16 @@ export class SentinelRuntime {
 	}
 
 	/** Sub-agent runs of the viewed session, newest first, without process steps. */
-	listSubagents(): SentinelSubagentRun[] {
+	listSubagents(limit = 100, offset = 0): SentinelSubagentRun[] {
 		const sessionId = this.currentSessionId;
 		if (!sessionId) return [];
-		return this.subagents.list(sessionId);
+		return this.subagents.list(sessionId, limit, offset);
+	}
+
+	countSubagents(): number {
+		const sessionId = this.currentSessionId;
+		if (!sessionId) return 0;
+		return this.subagents.count(sessionId);
 	}
 
 	getSubagent(id: string): SentinelSubagentRun | undefined {

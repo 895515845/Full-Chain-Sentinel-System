@@ -297,6 +297,11 @@ export function App() {
 	const [fileBusy, setFileBusy] = useState(false);
 	/** Loaded process steps per sub-agent run; a run absent here is not expanded. */
 	const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, SentinelSubagentEvent[]>>({});
+	const [subagentPage, setSubagentPage] = useState<{
+		runs: SentinelSubagentRun[];
+		offset: number;
+		total: number;
+	} | null>(null);
 	/** Vulnerability hub: the active project's findings, its counts, and the current filter. */
 	const [vulnItems, setVulnItems] = useState<SentinelVulnSummary[]>([]);
 	const [vulnStats, setVulnStats] = useState<SentinelVulnStats>({
@@ -785,6 +790,9 @@ export function App() {
 						if (!existing) return prev;
 						return { ...prev, [message.runId]: [...existing, message.event] };
 					});
+					break;
+				case "subagents":
+					setSubagentPage({ runs: message.runs, offset: message.offset, total: message.total });
 					break;
 				case "subagent_result":
 					if (!message.ok && message.error) pushError(message.error);
@@ -1472,7 +1480,12 @@ export function App() {
 	/** No project means no container, so the console blocks the chat entirely. */
 	const needsProject = snapshot !== null && snapshot.project === null;
 	const subagentRuns = snapshot?.subagents ?? [];
+	const subagentTotal = snapshot?.subagentTotal ?? subagentRuns.length;
 	const subagentRunning = subagentRuns.filter((run) => run.status === "running").length;
+
+	useEffect(() => {
+		setSubagentPage(null);
+	}, [snapshot?.activeSessionId]);
 	const goal = snapshot?.goal ?? null;
 	/**
 	 * The judge answered nothing since its last failure: commands are being let
@@ -2618,11 +2631,16 @@ export function App() {
 			{subagentsOpen ? (
 				<Overlay
 					title="子代理"
-					subtitle={`当前会话 ${subagentRuns.length} 次派发${subagentRunning > 0 ? ` · ${subagentRunning} 个运行中` : ""}`}
+					subtitle={`当前会话 ${subagentTotal} 次派发${subagentRunning > 0 ? ` · ${subagentRunning} 个运行中` : ""}`}
 					onClose={() => setSubagentsOpen(false)}
 				>
 					<SubagentPanel
+						key={snapshot?.activeSessionId ?? "none"}
 						runs={subagentRuns}
+						total={subagentTotal}
+						pageRuns={subagentPage?.runs ?? null}
+						pageOffset={subagentPage?.offset ?? 0}
+						onLoadPage={(offset, limit) => send({ type: "list_subagents", offset, limit })}
 						transcripts={subagentTranscripts}
 						onLoad={(id) => send({ type: "get_subagent", id })}
 						onAbort={(id) => send({ type: "abort_subagent", id })}

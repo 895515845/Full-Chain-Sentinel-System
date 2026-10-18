@@ -34,6 +34,10 @@ function render(runs: SentinelSubagentRun[], transcripts: Record<string, Sentine
 	return renderToStaticMarkup(
 		createElement(SubagentPanel, {
 			runs,
+			total: runs.length,
+			pageRuns: null,
+			pageOffset: 0,
+			onLoadPage: () => undefined,
 			transcripts,
 			onLoad: () => undefined,
 			onAbort: () => undefined,
@@ -148,4 +152,14 @@ test("a run with no process loaded yet says so instead of rendering an empty lis
 test("with no dispatches the panel explains what would fill it", () => {
 	const html = render([], {});
 	expect(html).toContain("spawn_agent");
+});
+
+test("paginates runs beyond the first page", () => {
+	const runs = Array.from({ length: 25 }, (_, index) =>
+		run({ id: `run-${index}`, task: `task ${index}`, status: "done" }),
+	);
+	const html = render(runs, {});
+	expect(html).toContain("1 / 4");
+	expect(html).toContain("共 25");
+	expect(html.match(/subagent-item /g)?.length).toBe(8);
 });

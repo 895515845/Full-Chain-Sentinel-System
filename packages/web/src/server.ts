@@ -1723,7 +1723,15 @@ export async function startSentinelServer(
 					await runFileAction(socket, "新建目录", message.path, () => runtime.makeDirectory(message.path));
 					return;
 				case "list_subagents": {
-					sendTo(socket, { type: "subagents", runs: runtime.listSubagents() });
+					const requested = message.limit ?? 100;
+					const limit = Number.isFinite(requested) ? Math.min(100, Math.max(1, Math.round(requested))) : 100;
+					const offset = Number.isFinite(message.offset) ? Math.max(0, Math.round(message.offset ?? 0)) : 0;
+					sendTo(socket, {
+						type: "subagents",
+						runs: runtime.listSubagents(limit, offset),
+						offset,
+						total: runtime.countSubagents(),
+					});
 					return;
 				}
 				case "list_vulns": {

@@ -917,6 +917,8 @@ export interface SentinelStateSnapshot {
 	runningSessions: string[];
 	/** Sub-agent runs of the active session, newest first, without their process steps. */
 	subagents: SentinelSubagentRun[];
+	/** Total runs of the active session; `subagents` is only the newest page. */
+	subagentTotal: number;
 	/** Persistent goal of the active session, with live counters; null when there is none. */
 	goal: SentinelGoalView | null;
 	/** Operator status of the active session, as a label the agent never sees. */
@@ -1045,7 +1047,7 @@ export type SentinelClientMessage =
 	| { type: "delete_path"; path: string }
 	| { type: "rename_path"; from: string; to: string }
 	| { type: "make_directory"; path: string }
-	| { type: "list_subagents" }
+	| { type: "list_subagents"; offset?: number; limit?: number }
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
 	| { type: "steer_subagent"; id: string; text: string }
@@ -1257,7 +1259,7 @@ export type SentinelServerMessage =
 	| { type: "file_preview"; preview: SentinelFilePreview }
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
-	| { type: "subagents"; runs: SentinelSubagentRun[] }
+	| { type: "subagents"; runs: SentinelSubagentRun[]; offset: number; total: number }
 	| { type: "subagent_run"; run: SentinelSubagentRun }
 	| { type: "subagent_event"; runId: string; event: SentinelSubagentEvent }
 	| { type: "subagent_result"; action: string; id: string; ok: boolean; error?: string }
