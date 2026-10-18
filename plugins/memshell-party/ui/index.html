@@ -29,6 +29,13 @@
 					<h2>最近调用</h2>
 					<span id="count" class="pui-sub"></span>
 				</div>
+				<div id="pager" class="msp-pager" hidden>
+					<span id="page-info" class="pui-sub"></span>
+					<div class="msp-pager__controls">
+						<button id="prev" class="pui-btn" type="button">上一页</button>
+						<button id="next" class="pui-btn" type="button">下一页</button>
+					</div>
+				</div>
 				<table id="table" class="pui-table">
 					<thead>
 						<tr>
@@ -48,13 +55,17 @@
 				<p id="empty" class="pui-empty" hidden>还没有调用记录。让 Agent 生成一次内存马后，这里会出现条目。</p>
 			</section>
 
-			<section id="detail-card" class="pui-card" hidden>
-				<div class="pui-card-head">
-					<h2>详情</h2>
-					<span id="detail-title" class="pui-sub"></span>
+			<div id="detail-modal" class="msp-modal" hidden>
+				<div class="msp-modal__backdrop" id="detail-backdrop"></div>
+				<div class="msp-modal__panel" role="dialog" aria-modal="true" aria-labelledby="detail-heading">
+					<div class="msp-modal__head">
+						<h2 id="detail-heading">调用详情</h2>
+						<span id="detail-title" class="pui-sub"></span>
+						<button id="detail-close" class="pui-btn" type="button">关闭</button>
+					</div>
+					<pre id="detail" class="pui-output"></pre>
 				</div>
-				<pre id="detail" class="pui-output"></pre>
-			</section>
+			</div>
 
 			<p class="pui-hint">
 				参数里的密码、密钥与 class 字节码在历史里显示为 ***。载荷保存在插件产物目录，可在「插件 → 产物」里拉取。

@@ -29,7 +29,7 @@ const DATA_DIR = process.env.PLUGIN_DATA_DIR ?? "/data";
 const HISTORY_FILE = join(DATA_DIR, "history.json");
 const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), "ui");
 const PROTOCOL_VERSION = "2025-03-26";
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 200;
 const MAX_INLINE_CHARS = clampInt(process.env.PLUGIN_MAX_INLINE_CHARS, 20000, 1000, 200000);
 
 const SHELL_TOOLS = ["Godzilla", "Behinder", "Command", "AntSword", "Suo5", "Suo5v2", "NeoreGeorg", "Proxy", "Custom"];
@@ -409,7 +409,7 @@ const TOOLS = [
 		description: "列出本插件最近的生成记录（时间、工具、目标、结果、产物、耗时），供调用历史界面使用。",
 		inputSchema: {
 			type: "object",
-			properties: { limit: { type: "number", description: "返回条数，1–50，默认 20" } },
+			properties: { limit: { type: "number", description: "返回条数，1–200，默认 20" } },
 		},
 	},
 ];

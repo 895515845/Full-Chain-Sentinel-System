@@ -15,10 +15,16 @@
 	var countEl = document.getElementById("count");
 	var emptyEl = document.getElementById("empty");
 	var autoEl = document.getElementById("auto");
-	var detailCard = document.getElementById("detail-card");
+	var pageInfoEl = document.getElementById("page-info");
+	var pagerEl = document.getElementById("pager");
+	var prevEl = document.getElementById("prev");
+	var nextEl = document.getElementById("next");
+	var detailModal = document.getElementById("detail-modal");
 	var detailEl = document.getElementById("detail");
 	var detailTitle = document.getElementById("detail-title");
 	var calls = [];
+	var page = 0;
+	var PAGE_SIZE = 10;
 	var ui = null;
 
 	function setStatus(text, tone) {
@@ -52,8 +58,11 @@
 		);
 	}
 
+	function closeDetail() {
+		detailModal.hidden = true;
+	}
+
 	function showDetail(entry) {
-		detailCard.hidden = false;
 		detailTitle.textContent = entry.tool + " · " + formatTime(entry.at);
 		detailEl.textContent = JSON.stringify(
 			{
@@ -66,15 +75,23 @@
 			null,
 			2,
 		);
-		detailCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+		detailModal.hidden = false;
 	}
 
 	function render() {
+		var pageCount = Math.max(1, Math.ceil(calls.length / PAGE_SIZE));
+		if (page >= pageCount) page = pageCount - 1;
+		var start = page * PAGE_SIZE;
+		var pageCalls = calls.slice(start, start + PAGE_SIZE);
 		rowsEl.textContent = "";
 		countEl.textContent = calls.length > 0 ? "共 " + calls.length + " 条" : "";
 		tableEl.hidden = calls.length === 0;
 		emptyEl.hidden = calls.length > 0;
-		calls.forEach(function (entry) {
+		pagerEl.hidden = calls.length <= PAGE_SIZE;
+		pageInfoEl.textContent = "第 " + (page + 1) + " / " + pageCount + " 页";
+		prevEl.disabled = page === 0;
+		nextEl.disabled = page >= pageCount - 1;
+		pageCalls.forEach(function (entry) {
 			var row = document.createElement("tr");
 			// 只有失败行有底色；is-ok 没有任何规则，写上等于没写。
 			if (!entry.ok) row.className = "is-bad";
@@ -128,7 +145,7 @@
 	async function refresh() {
 		if (!ui) return;
 		try {
-			var value = await ui.callTool("list_calls", { limit: 50 });
+			var value = await ui.callTool("list_calls", { limit: 200 });
 			var payload = JSON.parse(textOf(value) || "{}");
 			calls = Array.isArray(payload.calls) ? payload.calls : [];
 			setStatus("已连接", "ok");
@@ -151,6 +168,21 @@
 
 	document.getElementById("refresh").addEventListener("click", function () {
 		void refresh();
+	});
+	prevEl.addEventListener("click", function () {
+		if (page > 0) {
+			page -= 1;
+			render();
+		}
+	});
+	nextEl.addEventListener("click", function () {
+		page += 1;
+		render();
+	});
+	document.getElementById("detail-close").addEventListener("click", closeDetail);
+	document.getElementById("detail-backdrop").addEventListener("click", closeDetail);
+	document.addEventListener("keydown", function (event) {
+		if (event.key === "Escape" && !detailModal.hidden) closeDetail();
 	});
 
 	(async function () {
