@@ -38,8 +38,36 @@ describe("normalizeGatekeeperConfig", () => {
 				mode: "review",
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				concurrency: DEFAULT_CONCURRENCY,
+				// 默认只守门 MCP：MCP 工具判定打开，插件工具不纳入。
+				mcpTools: { enabled: true, includePlugins: false },
 			});
 		}
+	});
+
+	test("a file from before the MCP switches reads as the defaults", () => {
+		expect(normalizeGatekeeperConfig({ mode: "ai", timeoutMs: 9000 }).mcpTools).toEqual({
+			enabled: true,
+			includePlugins: false,
+		});
+	});
+
+	test("keeps explicit switches, including an explicit off", () => {
+		expect(normalizeGatekeeperConfig({ mcpTools: { enabled: false, includePlugins: true } }).mcpTools).toEqual({
+			enabled: false,
+			includePlugins: true,
+		});
+		// A half-written object keeps the defaults for the half it omits.
+		expect(normalizeGatekeeperConfig({ mcpTools: { includePlugins: true } }).mcpTools).toEqual({
+			enabled: true,
+			includePlugins: true,
+		});
+	});
+
+	test("ignores non-boolean switches instead of coercing them", () => {
+		expect(normalizeGatekeeperConfig({ mcpTools: { enabled: "yes", includePlugins: 1 } }).mcpTools).toEqual({
+			enabled: true,
+			includePlugins: false,
+		});
 	});
 
 	test("keeps every valid mode", () => {
@@ -68,23 +96,36 @@ describe("normalizeGatekeeperConfig", () => {
 });
 
 describe("read and write", () => {
+	const MCP_ONLY = { enabled: true, includePlugins: false };
+
 	test("a fresh agent dir reads as the defaults", () => {
 		expect(readGatekeeperConfig(agentDir)).toEqual({
 			mode: "review",
 			timeoutMs: DEFAULT_TIMEOUT_MS,
 			concurrency: DEFAULT_CONCURRENCY,
+			mcpTools: MCP_ONLY,
 		});
 	});
 
 	test("round-trips a written config", () => {
-		writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 8000, concurrency: 4 });
-		expect(readGatekeeperConfig(agentDir)).toEqual({ mode: "ai", timeoutMs: 8000, concurrency: 4 });
+		writeGatekeeperConfig(agentDir, {
+			mode: "ai",
+			timeoutMs: 8000,
+			concurrency: 4,
+			mcpTools: { enabled: true, includePlugins: true },
+		});
+		expect(readGatekeeperConfig(agentDir)).toEqual({
+			mode: "ai",
+			timeoutMs: 8000,
+			concurrency: 4,
+			mcpTools: { enabled: true, includePlugins: true },
+		});
 	});
 
 	test("writes normalized values, so the file never holds a bad one", () => {
-		writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 1, concurrency: -1 });
+		writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 1, concurrency: -1, mcpTools: MCP_ONLY });
 		const raw = JSON.parse(readFileSync(gatekeeperJsonPath(agentDir), "utf-8")) as Record<string, unknown>;
-		expect(raw).toEqual({ mode: "ai", timeoutMs: MIN_TIMEOUT_MS, concurrency: 0 });
+		expect(raw).toEqual({ mode: "ai", timeoutMs: MIN_TIMEOUT_MS, concurrency: 0, mcpTools: MCP_ONLY });
 	});
 
 	test("a corrupt file falls back to the defaults instead of locking the console out", () => {

@@ -386,6 +386,8 @@ export function App() {
 		mode: "review",
 		timeoutMs: 15000,
 		concurrency: 0,
+		// Matches the server's defaults: MCP tools judged, plugin tools not.
+		mcpTools: { enabled: true, includePlugins: false },
 	});
 	const [gateItems, setGateItems] = useState<SentinelGateDecision[]>([]);
 	const [gateStats, setGateStats] = useState<SentinelGateStats | null>(null);

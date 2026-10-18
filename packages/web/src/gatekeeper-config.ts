@@ -13,7 +13,12 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { SENTINEL_MODES, type SentinelGatekeeperConfig, type SentinelMode } from "./protocol.ts";
+import {
+	SENTINEL_MODES,
+	type SentinelGatekeeperConfig,
+	type SentinelMcpToolGate,
+	type SentinelMode,
+} from "./protocol.ts";
 
 /** One judgment may take this long before it counts as a failure. */
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -27,11 +32,16 @@ export const MAX_CONCURRENCY = 64;
 /**
  * The default is the operator-approval mode: the console starts with the mode
  * that asks a human, never one that acts on its own.
+ *
+ * MCP judging is on by default but plugins are not: the request was "默认只守门
+ * MCP", and plugin tools are the noisy ones — a single plugin can expose dozens
+ * of tools, each costing a judgment. Both switches live in 设置 → 模型.
  */
 const DEFAULT_CONFIG: SentinelGatekeeperConfig = {
 	mode: "review",
 	timeoutMs: DEFAULT_TIMEOUT_MS,
 	concurrency: DEFAULT_CONCURRENCY,
+	mcpTools: { enabled: true, includePlugins: false },
 };
 
 export function gatekeeperJsonPath(agentDir: string): string {
@@ -51,6 +61,16 @@ function coerceNumber(value: unknown, fallback: number, min: number, max: number
 	return rounded;
 }
 
+/** A file written before these switches existed reads as the defaults. */
+function normalizeMcpTools(raw: unknown): SentinelMcpToolGate {
+	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+	return {
+		enabled: typeof record.enabled === "boolean" ? record.enabled : DEFAULT_CONFIG.mcpTools.enabled,
+		includePlugins:
+			typeof record.includePlugins === "boolean" ? record.includePlugins : DEFAULT_CONFIG.mcpTools.includePlugins,
+	};
+}
+
 /** Coerce an untrusted object into a usable config. */
 export function normalizeGatekeeperConfig(raw: unknown): SentinelGatekeeperConfig {
 	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
@@ -58,6 +78,7 @@ export function normalizeGatekeeperConfig(raw: unknown): SentinelGatekeeperConfi
 		mode: isMode(record.mode) ? record.mode : DEFAULT_CONFIG.mode,
 		timeoutMs: coerceNumber(record.timeoutMs, DEFAULT_CONFIG.timeoutMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
 		concurrency: coerceNumber(record.concurrency, DEFAULT_CONFIG.concurrency, 0, MAX_CONCURRENCY),
+		mcpTools: normalizeMcpTools(record.mcpTools),
 	};
 }
 

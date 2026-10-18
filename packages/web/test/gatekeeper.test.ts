@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
 	buildJudgeInput,
+	buildToolJudgeInput,
 	Gatekeeper,
 	type JudgeCallResult,
 	parseGateVerdict,
@@ -24,6 +25,9 @@ import { writeTestModel } from "./model-fixtures.ts";
 let root = "";
 let agentDir = "";
 let store: GatekeeperStore;
+
+/** These cases judge bash; the MCP switch has its own file (tool-gate.test.ts). */
+const MCP_OFF = { enabled: false, includePlugins: false };
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "sentinel-gatekeeper-"));
@@ -114,6 +118,39 @@ describe("buildJudgeInput", () => {
 	});
 });
 
+describe("buildToolJudgeInput", () => {
+	test("frames an MCP call as a tool with arguments, not a shell command", () => {
+		const input = buildToolJudgeInput({
+			tool: "mcp__plugin-com-sentinel-vshell__execute_command",
+			server: "plugin-com-sentinel-vshell",
+			args: '{"host_id":"h1","command":"systemctl stop nginx"}',
+			source: "主代理",
+		});
+		expect(input).toBe(
+			[
+				"工具：mcp__plugin-com-sentinel-vshell__execute_command",
+				"服务器：plugin-com-sentinel-vshell",
+				"来源：主代理",
+				"工作目录：/work",
+				"参数：",
+				'{"host_id":"h1","command":"systemctl stop nginx"}',
+			].join("\n"),
+		);
+		expect(input).not.toContain("命令：");
+	});
+
+	test("omits the server line when the caller does not know it", () => {
+		const input = buildToolJudgeInput({ tool: "mcp__x__y", args: "{}", source: "子代理" });
+		expect(input).not.toContain("服务器：");
+	});
+
+	test("truncates a huge argument blob instead of sending a whole file", () => {
+		const input = buildToolJudgeInput({ tool: "mcp__x__upload", args: "A".repeat(20_000), source: "主代理" });
+		expect(input.length).toBeLessThan(4 * 1024 + 200);
+		expect(input).toContain("已截断");
+	});
+});
+
 describe("resolveJudgeEndpoint", () => {
 	test("uses the entry the 守门模型 role points at", () => {
 		writeTestModel(agentDir, { baseUrl: "http://main/v1", apiKey: "", modelId: "main" });
@@ -172,6 +209,47 @@ describe("Gatekeeper.guard", () => {
 		expect(store.list(undefined).items[0].decision).toBe("block");
 	});
 
+	test("judges an MCP tool call and names the tool in the rejection", async () => {
+		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "", modelId: "judge-stub" }, "judge");
+		const gatekeeper = newGatekeeper();
+		stubAnswer(gatekeeper, "BLOCK:在受管主机上停止业务服务，命中第 5 条");
+		const outcome = await gatekeeper.guard({
+			tool: "mcp__plugin-com-sentinel-vshell__execute_command",
+			server: "plugin-com-sentinel-vshell",
+			command: '{"host_id":"h1","command":"systemctl stop nginx"}',
+			source: "主代理",
+		});
+		expect(outcome.kind).toBe("block");
+		if (outcome.kind === "block") {
+			// Not "命令未执行": this was a tool call, and the model should see which one.
+			expect(outcome.message).toContain("工具调用未执行");
+			expect(outcome.message).toContain("execute_command");
+		}
+		const record = store.list(undefined).items[0];
+		expect(record.tool).toBe("mcp__plugin-com-sentinel-vshell__execute_command");
+		expect(record.command).toContain("systemctl stop nginx");
+	});
+
+	test("the judge sees the tool name and the argument JSON, not a command field", async () => {
+		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "", modelId: "judge-stub" }, "judge");
+		const gatekeeper = newGatekeeper();
+		let seen = "";
+		gatekeeper.call = async (_config, input): Promise<JudgeCallResult> => {
+			seen = input;
+			return { verdict: { decision: "allow" }, raw: "ALLOW" };
+		};
+		await gatekeeper.guard({
+			tool: "mcp__files__delete_file",
+			server: "files",
+			command: '{"path":"/data/orders"}',
+			source: "子代理",
+		});
+		expect(seen).toContain("工具：mcp__files__delete_file");
+		expect(seen).toContain("服务器：files");
+		expect(seen).toContain('{"path":"/data/orders"}');
+		expect(seen).not.toContain("命令：");
+	});
+
 	test("allows through and records a failure when the endpoint errors", async () => {
 		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "", modelId: "judge-stub" }, "judge");
 		const gatekeeper = newGatekeeper();
@@ -204,7 +282,7 @@ describe("Gatekeeper.guard", () => {
 
 	test("times out into a failure, and says so", async () => {
 		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "", modelId: "judge-stub" }, "judge");
-		writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 1000, concurrency: 0 });
+		writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 1000, concurrency: 0, mcpTools: MCP_OFF });
 		const gatekeeper = newGatekeeper();
 		gatekeeper.call = (_config, _input, signal) =>
 			new Promise<JudgeCallResult>((_resolve, reject) => {
@@ -248,7 +326,7 @@ describe("Gatekeeper.guard", () => {
 	test("honors the concurrency limit, and 0 means no limit", async () => {
 		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "", modelId: "judge-stub" }, "judge");
 		const run = async (concurrency: number): Promise<number> => {
-			writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 15_000, concurrency });
+			writeGatekeeperConfig(agentDir, { mode: "ai", timeoutMs: 15_000, concurrency, mcpTools: MCP_OFF });
 			const gatekeeper = newGatekeeper();
 			let running = 0;
 			let peak = 0;

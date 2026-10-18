@@ -2056,6 +2056,24 @@ button.ghost.small.on {
 	border-color: var(--accent);
 }
 
+/* A checkbox in a settings form is a control, not a text field. The rule above
+   stretched every input to the row width, which turned each checkbox into an
+   empty 30px-tall rounded bar with no box visible inside it — the switch was
+   rendered, it just could not be seen. */
+.settings input[type="checkbox"] {
+	display: inline-block;
+	width: auto;
+	height: auto;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	accent-color: var(--accent);
+	flex: none;
+	cursor: pointer;
+}
+
 .test-result {
 	border-radius: var(--radius);
 	padding: 10px 12px;
@@ -7299,6 +7317,26 @@ button.link {
 	text-overflow: ellipsis;
 }
 
+/* MCP tool calls show which tool was judged; bash rows stay bare, because
+   every row being "bash" would be noise. */
+.gate-tool {
+	display: inline-block;
+	max-width: 100%;
+	margin-bottom: 2px;
+	padding: 0 6px;
+	border: 1px solid var(--accent-border);
+	border-radius: 4px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-family: var(--mono);
+	font-size: 10.5px;
+	line-height: 1.6;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: middle;
+}
+
 .gate-command code.open {
 	white-space: pre-wrap;
 	word-break: break-all;
@@ -7395,6 +7433,192 @@ button.link {
    instead of the 560px form column the other settings pages want. */
 .settings--wide {
 	max-width: none;
+}
+
+/* ---------------------------------------------------------------------------
+   设置 → 模型 · 守门段落
+
+   The page is two panels in one scrolling body (角色/模型库 above, 守门设置
+   below). Both are `--wide` so the section rules run edge to edge; the copy
+   inside keeps a measure, because a 1600px-wide line of 12.5px Chinese prose
+   cannot be read and a page-wide "15000" input is not a form.
+   --------------------------------------------------------------------------- */
+
+/* Prose in a wide settings page keeps a measure of its own: the section rules
+   run edge to edge, but a 1600px-wide line of 12.5px Chinese text cannot be
+   read, and a page-wide "15000" input is not a form either. */
+.settings--wide > .settings-hint {
+	max-width: 820px;
+}
+
+.settings-hint code {
+	padding: 1px 4px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+}
+
+/* The page header already draws a rule; the first section must not stack a
+   second one right under it. Only the first panel of a page is affected, so the
+   gatekeeper section below the model table keeps its separator. */
+.ws-panel__body > .settings:first-child > .settings-section:first-child {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: none;
+}
+
+/* Resolved endpoint, and the button that proves it answers, on one line. */
+.gate-endpoint {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px 10px;
+	max-width: 820px;
+	margin-bottom: 12px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.gate-endpoint__label {
+	flex: none;
+	color: var(--dim);
+}
+
+.gate-endpoint__value {
+	display: inline-flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-width: 0;
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 11.5px;
+}
+
+.gate-endpoint__value strong {
+	color: var(--text-bright);
+	font-weight: 500;
+}
+
+.gate-endpoint__value.is-missing {
+	color: var(--warn);
+	font-family: var(--sans);
+	font-size: 12px;
+}
+
+.gate-endpoint__value .hint {
+	color: var(--dim);
+	font-family: var(--sans);
+	font-size: 11px;
+}
+
+.gate-endpoint button {
+	margin-left: auto;
+	flex: none;
+}
+
+/* The base .test-result only spaces its text, so before a test has run the
+   banner reads as a stray paragraph. Give the neutral state a surface; .ok and
+   .bad still win on specificity. */
+.gate-test-result {
+	max-width: 820px;
+	border: 1px solid var(--border);
+	background: var(--raised);
+}
+
+/* Two numeric fields side by side instead of stretched across the page. */
+.gate-form {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 300px));
+	gap: 0 20px;
+	max-width: 820px;
+}
+
+.gate-form label {
+	margin-bottom: 14px;
+}
+
+/* .settings is a stretching column, so an inline-flex control would be pulled
+   to the full page width and read as one long empty pill. */
+.gate-mode-switch {
+	align-self: flex-start;
+	margin-bottom: 14px;
+}
+
+/* One consequential switch per row: its name, then what it costs, in smaller
+   type. Laid out inline, the explanation was the first thing to fall off. */
+.gate-options {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-width: 820px;
+	margin-bottom: 16px;
+}
+
+.settings label.gate-option {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin: 0;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	cursor: pointer;
+}
+
+.settings label.gate-option:hover {
+	border-color: var(--border-strong);
+}
+
+/* The dependent switch says why it is inert instead of looking merely disabled. */
+.settings label.gate-option.is-off {
+	opacity: 0.55;
+}
+
+/* Optically centred on the row title: a 13px box against a 19px line box. */
+.settings label.gate-option input[type="checkbox"] {
+	margin-top: 3px;
+}
+
+.gate-option__text {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.gate-option__title {
+	color: var(--text);
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+.gate-option__hint {
+	color: var(--dim);
+	font-size: 11.5px;
+	line-height: 1.65;
+}
+
+.gate-option__hint code {
+	padding: 0 3px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.gate-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 4px;
 }
 
 /* A select next to a styled input must not look like a raw native control. */
@@ -7505,25 +7729,29 @@ button.link {
 	font-size: 11.5px;
 }
 
-.role-card__auto {
+/* Scoped to .settings: the generic `.settings label` rule is one class plus one
+   element, so a bare `.role-card__auto` lost the display:flex and every one of
+   these rows collapsed back into a stacked block. */
+.settings .role-card__auto {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	flex-wrap: wrap;
 	gap: 6px;
 	font-size: 12px;
 	color: var(--text);
 	cursor: pointer;
-	margin-top: 2px;
+	margin: 2px 0 0;
 }
 
-.role-card__auto input {
-	margin: 0;
+.settings .role-card__auto input {
+	margin: 2px 0 0;
 	flex: none;
 }
 
-.role-card__auto .hint {
+.settings .role-card__auto .hint {
 	font-size: 11px;
 	color: var(--dim);
+	line-height: 1.5;
 }
 
 .warn-text {

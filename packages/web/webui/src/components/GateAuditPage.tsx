@@ -53,6 +53,17 @@ function percent(value: number): string {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
+/**
+ * `mcp__<server>__<tool>` → `<tool>`. The server is what tells plugin tools from
+ * custom MCP servers, so it stays in the tooltip and in the expanded row.
+ */
+function toolLabel(tool: string): string {
+	if (!tool.startsWith("mcp__")) return tool;
+	const rest = tool.slice("mcp__".length);
+	const end = rest.indexOf("__");
+	return end > 0 ? rest.slice(end + 2) : rest;
+}
+
 /** The one filter state the page owns; the query itself is sent by App. */
 export function GateAuditPage({
 	items,
@@ -218,7 +229,9 @@ export function GateAuditPage({
 				{items.length === 0 ? (
 					<div className="ws-empty">
 						<span>没有符合条件的判定记录</span>
-						<span>AI 审批模式下每条命令都会在这里留下一条记录；审批模式与自动执行不产生记录。</span>
+						<span>
+							AI 审批模式下每条命令、以及（开关打开时）每次 MCP / 插件工具调用都会在这里留下一条记录；审批模式与自动执行不产生记录。
+						</span>
 					</div>
 				) : (
 					<table className="gate-table">
@@ -226,7 +239,7 @@ export function GateAuditPage({
 							<tr>
 								<th>时间</th>
 								<th>判定</th>
-								<th>命令</th>
+								<th>调用</th>
 								<th>来源</th>
 								<th>模型</th>
 								<th>耗时</th>
@@ -249,11 +262,17 @@ export function GateAuditPage({
 											</span>
 										</td>
 										<td className="gate-command">
+											{item.tool !== "bash" ? (
+												<span className="gate-tool" title={item.tool}>
+													{toolLabel(item.tool)}
+												</span>
+											) : null}
 											<code className={open ? "open" : ""} title={item.command}>
 												{open ? item.command : item.command.split("\n")[0]?.slice(0, 200)}
 											</code>
 											{open ? (
 												<div className="gate-detail">
+													{item.tool !== "bash" ? <div>工具：{item.tool}</div> : null}
 													{item.reason ? <div>理由：{item.reason}</div> : null}
 													{item.error ? <div className="gate-detail-error">失败：{item.error}</div> : null}
 													<div>工作目录：{item.cwd ?? "-"}</div>

@@ -245,6 +245,7 @@ import { createSessionTitleTool } from "./session-title-tool.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
+import { createToolGateExtension, type ToolGateContext } from "./tool-gate.ts";
 import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } from "./transcript.ts";
 import { createVulnerabilityTools } from "./vuln-tool.ts";
 import { emptyVulnStats, VulnerabilityStore, vulnerabilityDbPath } from "./vulnerabilities.ts";
@@ -609,6 +610,7 @@ export class SentinelRuntime {
 		permissions: SentinelPermissionSet,
 		appendSystemPrompt?: string[],
 		pluginPermissions: SentinelPluginPermissionMap = {},
+		gate?: ToolGateContext,
 	): Promise<{ resourceLoader: DefaultResourceLoader; settingsManager: SettingsManager }> {
 		// A disabled extension is not even loaded: without MCP there are no
 		// servers to connect, and codemode/tool_search never register. The
@@ -617,6 +619,14 @@ export class SentinelRuntime {
 		if (permissions.codemode) extensionFactories.push(createCodemodeExtension());
 		if (permissions.tool_search) extensionFactories.push(createToolSearchExtension());
 		if (permissions.mcp) extensionFactories.push(this.mcpExtensionFactory(pluginPermissions));
+		// MCP tools are judged on the tool_call event rather than inside the tool,
+		// because they are executed by an MCP client this console does not wrap.
+		// Only mounted when MCP is: without it there is no `mcp__` tool to judge.
+		if (permissions.mcp && gate) {
+			extensionFactories.push(
+				createToolGateExtension({ gatekeeper: this.gatekeeper, agentDir: this.agentDir, context: gate }),
+			);
+		}
 		// Loop hygiene is not permission-gated: it only aborts degenerate output
 		// and injects reminders, so it belongs in every session.
 		extensionFactories.push(createLoopGuardExtension());
@@ -730,6 +740,10 @@ export class SentinelRuntime {
 			permissions,
 			appendSystemPrompt,
 			permissionsConfig.plugins.main,
+			{
+				...gateContext,
+				label: task ? () => `工程任务「${task.taskTitle}」` : () => this.sessionLabel(managed),
+			},
 		);
 
 		// `baseToolsOverride` replaces the whole base tool set, so the default coding
@@ -844,6 +858,9 @@ export class SentinelRuntime {
 									// under the same briefing — after its own sub-agent identity text.
 									presetText ? [...appendSystemPrompt, presetText] : appendSystemPrompt,
 									subagentPlugins,
+									// The judge is told the call came from a sub-agent, the same
+									// label the bash gate uses for its commands.
+									{ ...gateContext, label: () => "子代理" },
 								),
 							// A sub-agent reports under the parent session and project.
 							createVulnTools: (getSource) =>

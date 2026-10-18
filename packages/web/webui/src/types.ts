@@ -313,10 +313,18 @@ export interface SentinelGatePage {
 	pageSize: number;
 }
 
+/** Which non-shell tools the judge also sees, on top of the always-on bash gate. */
+export interface SentinelMcpToolGate {
+	enabled: boolean;
+	/** Include plugin-host tools (server names `plugin-*`). */
+	includePlugins: boolean;
+}
+
 export interface SentinelGatekeeperConfig {
 	mode: SentinelMode;
 	timeoutMs: number;
 	concurrency: number;
+	mcpTools: SentinelMcpToolGate;
 }
 
 /** Live gatekeeper state carried in every snapshot. */

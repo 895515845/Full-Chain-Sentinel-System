@@ -347,6 +347,27 @@ export interface SentinelGatePage {
 	pageSize: number;
 }
 
+/**
+ * MCP tool judging: the gatekeeper's second entrance.
+ *
+ * bash is judged inside the bash tool, at the point where the command would
+ * enter the container. MCP tools — plugin tools included — have no such seam, so
+ * they are judged on the agent's `tool_call` event instead. The switch exists
+ * because every judged call costs one model round-trip: an operator who only
+ * cares about shell commands can leave it off, and one who wants plugins watched
+ * without the noise of every custom MCP server can narrow it further.
+ */
+export interface SentinelMcpToolGate {
+	/** Judge MCP tool calls at all, in AI 审批 mode only. */
+	enabled: boolean;
+	/**
+	 * Include plugin-host tools (server names `plugin-*`). Those are the ones that
+	 * can drive managed hosts, so they are the most worth watching — and the
+	 * noisiest, because a single plugin exposes dozens of tools.
+	 */
+	includePlugins: boolean;
+}
+
 /** Gatekeeper settings persisted in gatekeeper.json. */
 export interface SentinelGatekeeperConfig {
 	/** Console-wide default mode; a session may override it. */
@@ -355,6 +376,8 @@ export interface SentinelGatekeeperConfig {
 	timeoutMs: number;
 	/** Judgments allowed in flight at once; 0 means no limit. */
 	concurrency: number;
+	/** Which non-shell tools the judge also sees. */
+	mcpTools: SentinelMcpToolGate;
 }
 
 /** Live gatekeeper state carried in every snapshot. */
