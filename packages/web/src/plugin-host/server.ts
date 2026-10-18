@@ -43,6 +43,7 @@ import {
 	containerLogs,
 	createContainer,
 	dockerVersion,
+	imageExists,
 	inspectContainer,
 	probeHealth,
 	removeContainer,
@@ -430,20 +431,30 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const imageTag = imageTagFor(manifest);
 		const buildLog = join(pluginDir(options.dataDir, manifest.id), "build.log");
 		mkdirSync(dirname(buildLog), { recursive: true });
-		writeFileSync(buildLog, `# docker build ${imageTag}\n# context ${extracted.root}\n\n`);
-		const build = await buildPluginImage(docker, {
-			root: extracted.root,
-			dockerfile: manifest.build.dockerfile,
-			context: manifest.build.context,
-			tag: imageTag,
-			args: manifest.build.args,
-			// Stream while the build runs so the install drawer can show progress.
-			onOutput: (chunk) => appendFileSync(buildLog, chunk),
-		});
-		appendFileSync(buildLog, `${build.ok ? "\n# build complete\n" : "\n# build failed\n"}`);
-		if (!build.ok) {
-			if (build.error) appendFileSync(buildLog, `${build.error}\n`);
-			throw new HttpError(502, build.error ?? "镜像构建失败");
+		// A previous attempt may have completed the image but lost the record
+		// (console disconnect, host restart). Reuse the exact tag instead of
+		// downloading the 190MB CLI again. Bump the manifest version to force a
+		// rebuild when the package changes.
+		let build: { ok: boolean; output: string; error?: string };
+		if (await imageExists(docker, imageTag)) {
+			writeFileSync(buildLog, `# reuse existing image ${imageTag}\n`);
+			build = { ok: true, output: `reuse ${imageTag}` };
+		} else {
+			writeFileSync(buildLog, `# docker build ${imageTag}\n# context ${extracted.root}\n\n`);
+			build = await buildPluginImage(docker, {
+				root: extracted.root,
+				dockerfile: manifest.build.dockerfile,
+				context: manifest.build.context,
+				tag: imageTag,
+				args: manifest.build.args,
+				// Stream while the build runs so the install drawer can show progress.
+				onOutput: (chunk) => appendFileSync(buildLog, chunk),
+			});
+			appendFileSync(buildLog, `${build.ok ? "\n# build complete\n" : "\n# build failed\n"}`);
+			if (!build.ok) {
+				if (build.error) appendFileSync(buildLog, `${build.error}\n`);
+				throw new HttpError(502, build.error ?? "镜像构建失败");
+			}
 		}
 
 		const record: StoredPluginRecord = {
@@ -831,6 +842,10 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 	const server: Server = options.tls
 		? createHttpsServer({ cert: options.tls.cert, key: options.tls.key }, handler)
 		: createHttpServer(handler);
+	// A plugin build can legitimately take tens of minutes (large CLI/JDK
+	// downloads). Node's default requestTimeout is 300s and would kill the
+	// install while the image is still downloading.
+	server.requestTimeout = 0;
 
 	await new Promise<void>((resolveListen, rejectListen) => {
 		server.once("error", rejectListen);

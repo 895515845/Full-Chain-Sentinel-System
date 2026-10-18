@@ -11,6 +11,8 @@
  * host and a VPS will often be up at different times.
  */
 
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { appendPluginAudit, type PluginAuditEntry } from "./plugin-audit.ts";
 import type { PluginView as HostPluginView } from "./plugin-host/store.ts";
 import type { SentinelPluginManifest } from "./plugin-manifest.ts";
@@ -157,6 +159,62 @@ async function hostJson<T>(
 		throw new PluginServiceError(message, response.status);
 	}
 	return payload as T;
+}
+
+/**
+ * Install can take much longer than Node's built-in fetch header timeout
+ * (300s). Keep a raw request open for the build; normal host calls still use
+ * fetch, where a short timeout is the right failure mode.
+ */
+function longHostJson<T>(host: PluginHostRecord, path: string, body: unknown, timeoutMs: number): Promise<T> {
+	const url = new URL(`${host.url.replace(/\/$/, "")}${path}`);
+	const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
+	const payload = JSON.stringify(body);
+	return new Promise<T>((resolve, reject) => {
+		const request = transport(
+			url,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"content-length": Buffer.byteLength(payload),
+					authorization: `Bearer ${host.token}`,
+				},
+			},
+			(response) => {
+				let text = "";
+				response.setEncoding("utf8");
+				response.on("data", (chunk: string) => {
+					text += chunk;
+				});
+				response.on("end", () => {
+					let parsed: unknown = null;
+					try {
+						parsed = text ? JSON.parse(text) : null;
+					} catch {
+						parsed = null;
+					}
+					const status = response.statusCode ?? 0;
+					if (status < 200 || status >= 300) {
+						const message =
+							parsed && typeof parsed === "object" && typeof (parsed as { error?: unknown }).error === "string"
+								? (parsed as { error: string }).error
+								: `HTTP ${status}`;
+						reject(new PluginServiceError(message, status));
+						return;
+					}
+					resolve(parsed as T);
+				});
+			},
+		);
+		request.setTimeout(timeoutMs, () => {
+			request.destroy(new Error(`插件主机在 ${Math.round(timeoutMs / 1000)}s 内没有返回`));
+		});
+		request.on("error", (error) => {
+			reject(new PluginServiceError(`连接 ${host.name || host.url} 失败：${error.message}`));
+		});
+		request.end(payload);
+	});
 }
 
 function findHost(agentDir: string, hostId: string): PluginHostRecord {
@@ -330,20 +388,16 @@ export async function installPlugin(agentDir: string, input: InstallPluginInput)
 			},
 		},
 		() =>
-			hostJson<{ plugin: HostPluginView }>(
+			longHostJson<{ plugin: HostPluginView }>(
 				host,
 				"/v1/plugins",
 				{
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						manifest: input.manifest,
-						package: input.package,
-						allowBuild: input.allowBuild,
-						allowHostNetwork: input.allowHostNetwork,
-						allowPrivileged: input.allowPrivileged,
-						config: input.config,
-					}),
+					manifest: input.manifest,
+					package: input.package,
+					allowBuild: input.allowBuild,
+					allowHostNetwork: input.allowHostNetwork,
+					allowPrivileged: input.allowPrivileged,
+					config: input.config,
 				},
 				INSTALL_TIMEOUT_MS,
 			),

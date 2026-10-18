@@ -111,6 +111,12 @@ export async function buildPluginImage(context: DockerContext, options: BuildIma
 	};
 }
 
+/** Whether a previous build already produced this exact tag. */
+export async function imageExists(context: DockerContext, tag: string): Promise<boolean> {
+	const result = await runnerOf(context)(["image", "inspect", tag], { timeoutMs: TIMEOUT.inspect });
+	return result.code === 0;
+}
+
 /** Remove a locally built image; a missing image is not an error. */
 export async function removeImage(context: DockerContext, tag: string): Promise<void> {
 	await runnerOf(context)(["rmi", tag], { timeoutMs: TIMEOUT.removeImage });

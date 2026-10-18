@@ -1,0 +1,120 @@
+{
+	"schema": 1,
+	"id": "com.sentinel.java-chains",
+	"name": "Java Chains",
+	"version": "0.2.0",
+	"description": "Java Chains CLI 的 MCP 插件，提供 8 个生成/服务工具，并在插件页展示最近 200 条调用历史。仅限已授权测试。",
+	"author": "github:vulhub",
+	"source": "https://github.com/vulhub/java-chains",
+	"license": "NOASSERTION",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": "."
+	},
+	"mcp": {
+		"transport": "http",
+		"port": 7801,
+		"path": "/mcp",
+		"startupTimeoutMs": 60000,
+		"requestTimeoutMs": 300000
+	},
+	"config": [
+		{
+			"key": "CHAINS_SERVER",
+			"label": "远端 Java Chains 地址",
+			"type": "string",
+			"required": false,
+			"description": "可选，如 http://1.2.3.4:8011；配置后 inventory/services 走远端"
+		},
+		{
+			"key": "CHAINS_API_TOKEN",
+			"label": "API Token",
+			"type": "secret",
+			"required": false,
+			"description": "远端生成/服务管理时需要；只保存在插件主机"
+		},
+		{
+			"key": "CHAINS_EXECUTION",
+			"label": "执行模式",
+			"type": "string",
+			"required": false,
+			"default": "local",
+			"description": "local / remote / auto；preset 生成需要远端"
+		},
+		{
+			"key": "CHAINS_TIMEOUT",
+			"label": "CLI 超时（秒）",
+			"type": "number",
+			"required": false,
+			"default": 120
+		}
+	],
+	"permissions": {
+		"network": "bridge",
+		"capAdd": [],
+		"privileged": false
+	},
+	"locality": "any",
+	"resources": {
+		"cpus": 1,
+		"memory": "1g",
+		"pidsLimit": 128
+	},
+	"healthcheck": {
+		"path": "/healthz",
+		"intervalMs": 10000,
+		"timeoutMs": 3000,
+		"retries": 6
+	},
+	"artifacts": {
+		"path": "/artifacts",
+		"maxFileBytes": 104857600
+	},
+	"tools": [
+		{
+			"name": "list_calls",
+			"description": "调用历史"
+		},
+		{
+			"name": "chains_guide",
+			"description": "AI 用法契约"
+		},
+		{
+			"name": "chains_inventory",
+			"description": "payload/gadget/preset 清单"
+		},
+		{
+			"name": "chains_describe",
+			"description": "查询节点定义"
+		},
+		{
+			"name": "chains_generate",
+			"description": "自由链生成载荷"
+		},
+		{
+			"name": "chains_generate_preset",
+			"description": "按 preset 生成载荷"
+		},
+		{
+			"name": "chains_validate_chain",
+			"description": "校验链连通性"
+		},
+		{
+			"name": "chains_exec",
+			"description": "CLI 透传"
+		},
+		{
+			"name": "chains_services",
+			"description": "远端服务管理"
+		}
+	],
+	"ui": {
+		"entry": "/ui/index.html",
+		"title": "Java Chains 使用历史",
+		"protocol": 1,
+		"sidebar": {
+			"label": "Java Chains",
+			"icon": "/ui/icon.svg"
+		}
+	}
+}

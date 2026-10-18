@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Java Chains 使用历史</title>
+		<link rel="stylesheet" href="./base.css" />
+		<link rel="stylesheet" href="./app.css" />
+	</head>
+	<body>
+		<div class="pui-page jc-page">
+			<div class="pui-bar">
+				<div>
+					<h1>使用历史</h1>
+					<p id="meta" class="pui-sub">正在连接插件主机…</p>
+				</div>
+				<div class="pui-actions">
+					<span id="status" class="pui-pill">连接中</span>
+					<label class="pui-check"><input id="auto" type="checkbox" checked /> 自动刷新</label>
+					<button id="refresh" class="pui-btn primary" type="button">刷新</button>
+				</div>
+			</div>
+
+			<section class="pui-card pui-card--flush">
+				<div class="pui-card-head">
+					<h2>工具调用</h2>
+					<span id="count" class="pui-sub"></span>
+				</div>
+				<div id="pager" class="jc-pager" hidden>
+					<span id="page-info" class="pui-sub"></span>
+					<div class="jc-pager__controls">
+						<button id="prev" class="pui-btn" type="button">上一页</button>
+						<button id="next" class="pui-btn" type="button">下一页</button>
+					</div>
+				</div>
+				<table id="table" class="pui-table">
+					<thead>
+						<tr>
+							<th>时间</th>
+							<th>工具</th>
+							<th>目标</th>
+							<th>结果</th>
+							<th class="num">耗时</th>
+							<th class="num">大小</th>
+							<th class="num">产物</th>
+						</tr>
+					</thead>
+					<tbody id="rows"><tr><td colspan="7" class="pui-empty">正在读取…</td></tr></tbody>
+				</table>
+				<p id="empty" class="pui-empty" hidden>还没有 Java Chains 调用记录。Agent 调用工具后这里会出现条目。</p>
+			</section>
+
+			<p class="pui-hint">历史保留最近 200 条，参数中的 token、password、secret 会显示为 ***。</p>
+
+			<div id="detail" class="jc-modal" hidden>
+				<div class="jc-modal__backdrop" id="detail-backdrop"></div>
+				<div class="jc-modal__panel">
+					<div class="jc-modal__head">
+						<h2>调用详情</h2>
+						<span id="detail-title" class="pui-sub"></span>
+						<button id="detail-close" class="pui-btn" type="button">关闭</button>
+					</div>
+					<div class="jc-modal__body">
+						<div id="detail-meta" class="jc-detail-meta"></div>
+						<pre id="detail-body" class="pui-output"></pre>
+					</div>
+				</div>
+			</div>
+		</div>
+		<script src="./sdk.js"></script>
+		<script src="./app.js"></script>
+	</body>
+</html>
