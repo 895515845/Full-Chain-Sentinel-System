@@ -2084,6 +2084,16 @@ export class SentinelRuntime {
 		}
 	}
 
+	getPluginUiFile(hostId: string, pluginId: string, relative: string): Promise<{ contentType: string; data: Buffer }> {
+		return pluginService.fetchPluginUiFile(this.agentDir, hostId, pluginId, relative);
+	}
+
+	/** Sidebar preference only; it does not touch the container or the mount. */
+	async setPluginSidebar(hostId: string, pluginId: string, pinned: boolean): Promise<SentinelPluginsView> {
+		pluginService.setPluginSidebarPinned(this.agentDir, hostId, pluginId, pinned);
+		return pluginService.listPlugins(this.agentDir);
+	}
+
 	/** The console-side switch: off unmounts the tools but leaves the container running. */
 	async setPluginEnabled(hostId: string, pluginId: string, enabled: boolean): Promise<SentinelPluginsView> {
 		this.assertNoRunningSession("插件");

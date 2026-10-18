@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AboutPage } from "./components/AboutPage.tsx";
 import { ApiModelPage } from "./components/ApiModelPage.tsx";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
-import { AppSider } from "./components/AppSider.tsx";
+import { AppSider, type PluginNavEntry } from "./components/AppSider.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { ConsentGate } from "./components/ConsentGate.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
@@ -220,7 +220,16 @@ export function App() {
 		nonce: string;
 		token: string;
 	} | null>(null);
-	const pendingPluginUi = useRef<{ plugin: SentinelPluginView; nonce: string } | null>(null);
+	const [pluginPage, setPluginPage] = useState<{
+		plugin: SentinelPluginView;
+		nonce: string;
+		token: string;
+	} | null>(null);
+	const pendingPluginUi = useRef<{
+		plugin: SentinelPluginView;
+		nonce: string;
+		mode: "overlay" | "page";
+	} | null>(null);
 	const pluginUiResolvers = useRef(
 		new Map<string, (message: Extract<SentinelServerMessage, { type: "plugin_ui_result" }>) => void>(),
 	);
@@ -543,7 +552,8 @@ export function App() {
 					const pending = pendingPluginUi.current;
 					if (!pending) break;
 					pendingPluginUi.current = null;
-					setPluginUi({ ...pending, token: message.token });
+					if (pending.mode === "page") setPluginPage({ ...pending, token: message.token });
+					else setPluginUi({ ...pending, token: message.token });
 					break;
 				}
 				case "plugin_ui_result": {
@@ -1101,9 +1111,29 @@ export function App() {
 		[projectAction, send],
 	);
 
-	const openPage = useCallback((next: SentinelPageId) => {
-		setPage(next);
-	}, []);
+	const pluginPages = useMemo<PluginNavEntry[]>(() => {
+		const entries = (pluginsView?.plugins ?? []).flatMap((plugin): PluginNavEntry[] => {
+			const ui = plugin.manifest.ui;
+			const sidebar = ui?.sidebar;
+			if (!plugin.pinned || !ui || !sidebar) return [];
+			const label = sidebar.label || ui.title || plugin.manifest.name;
+			const iconFile = sidebar.icon.split("/").filter(Boolean).pop() ?? "";
+			const iconUrl =
+				plugin.state === "running" && iconFile
+					? `/plugin-icon/${encodeURIComponent(plugin.hostId)}/${encodeURIComponent(plugin.manifest.id)}/${encodeURIComponent(iconFile)}`
+					: null;
+			return [
+				{
+					page: `plugin:${encodeURIComponent(plugin.hostId)}:${encodeURIComponent(plugin.manifest.id)}`,
+					label,
+					title: `${label} · ${plugin.hostName}`,
+					iconUrl,
+					disabled: plugin.state !== "running",
+				},
+			];
+		});
+		return entries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+	}, [pluginsView]);
 
 	const navigate = useCallback(
 		(entryId: string) => {
@@ -1201,10 +1231,42 @@ export function App() {
 				typeof crypto !== "undefined" && "randomUUID" in crypto
 					? crypto.randomUUID()
 					: `nonce-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-			pendingPluginUi.current = { plugin, nonce };
+			pendingPluginUi.current = { plugin, nonce, mode: "overlay" };
 			send({ type: "plugin_ui_open", hostId: plugin.hostId, pluginId: plugin.manifest.id });
 		},
 		[send],
+	);
+
+	/** Open a pinned plugin as a full page in the content area. */
+	const openPluginPage = useCallback(
+		(pageId: string): void => {
+			const parts = pageId.split(":");
+			const hostId = decodeURIComponent(parts[1] ?? "");
+			const pluginId = decodeURIComponent(parts.slice(2).join(":"));
+			const plugin = pluginsView?.plugins.find(
+				(entry) => entry.hostId === hostId && entry.manifest.id === pluginId,
+			);
+			if (!plugin) return;
+			const nonce =
+				typeof crypto !== "undefined" && "randomUUID" in crypto
+					? crypto.randomUUID()
+					: `nonce-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			pendingPluginUi.current = { plugin, nonce, mode: "page" };
+			send({ type: "plugin_ui_open", hostId, pluginId });
+		},
+		[pluginsView, send],
+	);
+
+	const openPage = useCallback(
+		(next: SentinelPageId) => {
+			setPage(next);
+			if (next.startsWith("plugin:")) {
+				openPluginPage(next);
+			} else {
+				setPluginPage(null);
+			}
+		},
+		[openPluginPage],
 	);
 
 	/**
@@ -1213,7 +1275,8 @@ export function App() {
 	 */
 	const callPluginUi = useCallback(
 		(method: string, params: unknown): Promise<PluginUiCallResult> => {
-			if (!pluginUi) return Promise.resolve({ ok: false, error: "插件界面未打开" });
+			const active = pluginUi ?? pluginPage;
+			if (!active) return Promise.resolve({ ok: false, error: "插件界面未打开" });
 			const requestId =
 				typeof crypto !== "undefined" && "randomUUID" in crypto
 					? crypto.randomUUID()
@@ -1230,19 +1293,20 @@ export function App() {
 				send({
 					type: "plugin_ui_call",
 					requestId,
-					hostId: pluginUi.plugin.hostId,
-					pluginId: pluginUi.plugin.manifest.id,
+					hostId: active.plugin.hostId,
+					pluginId: active.plugin.manifest.id,
 					method,
 					params,
 				});
 			});
 		},
-		[pluginUi, send],
+		[pluginUi, pluginPage, send],
 	);
 
 	const pluginUiContext = useMemo<PluginUiContext | null>(() => {
-		if (!pluginUi) return null;
-		const plugin = pluginUi.plugin;
+		const active = pluginUi ?? pluginPage;
+		if (!active) return null;
+		const plugin = active.plugin;
 		return {
 			plugin: {
 				id: plugin.manifest.id,
@@ -1255,7 +1319,7 @@ export function App() {
 			tools: plugin.manifest.tools,
 			configKeys: plugin.configured,
 		};
-	}, [pluginUi, snapshot?.project?.name]);
+	}, [pluginUi, pluginPage, snapshot?.project?.name]);
 
 	/** Re-read whatever the active page (or overlay) is showing. */
 	const refreshPage = useCallback(() => {
@@ -1368,6 +1432,12 @@ export function App() {
 		if (page !== "settings.plugins" || !connected) return;
 		loadPlugins();
 	}, [page, connected, loadPlugins]);
+
+	// Pinned plugin pages live in the sidebar, so the plugin list has to load on
+	// connect rather than only when the plugin settings page is opened.
+	useEffect(() => {
+		if (connected) loadPlugins();
+	}, [connected, loadPlugins]);
 
 	// Leaving the page drops the remembered query, so a judgment arriving while the
 	// operator is elsewhere does not trigger a query nobody is looking at.
@@ -1619,6 +1689,7 @@ export function App() {
 					});
 				}}
 				activePage={page}
+				pluginPages={pluginPages}
 				onNavigate={openPage}
 				connected={connected}
 				mode={mode}
@@ -1717,7 +1788,25 @@ export function App() {
 					) : null}
 					{/* The gate replaces the chat page only: settings and the project list
 					    must stay reachable, or a first run could never build the image. */}
-					{needsProject && page === "chat" ? (
+					{page.startsWith("plugin:") ? (
+						pluginPage && pluginUiContext ? (
+							<div className="page-card plugin-page-card">
+								<PluginUiOverlay
+									variant="page"
+									plugin={pluginPage.plugin}
+									nonce={pluginPage.nonce}
+									token={pluginPage.token}
+									context={pluginUiContext}
+									onCall={callPluginUi}
+									onClose={() => {}}
+								/>
+							</div>
+						) : (
+							<div className="page-card">
+								<p className="muted">正在打开插件界面…</p>
+							</div>
+						)
+					) : needsProject && page === "chat" ? (
 						<ProjectGate
 							projects={projects}
 							busy={streaming}
@@ -2536,6 +2625,9 @@ export function App() {
 											runPluginAction({ type: "fetch_plugin_artifact", hostId, pluginId, path })
 										}
 										onOpenUi={openPluginUi}
+										onSetSidebar={(hostId, pluginId, pinned) =>
+											runPluginAction({ type: "set_plugin_sidebar", hostId, pluginId, pinned })
+										}
 									/>
 								) : (
 									<div className="ws-empty">

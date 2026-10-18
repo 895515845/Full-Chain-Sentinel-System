@@ -24,6 +24,7 @@ export interface PluginAuditEntry {
 		| "stop"
 		| "enable"
 		| "disable"
+		| "sidebar"
 		| "config"
 		| "artifact"
 		| "ui-open"

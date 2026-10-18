@@ -49,6 +49,15 @@ interface MenuEntry {
 	icon: MenuIcon;
 }
 
+/** A plugin UI the operator pinned to the workbench group. */
+export interface PluginNavEntry {
+	page: SentinelPageId;
+	label: string;
+	title: string;
+	iconUrl: string | null;
+	disabled: boolean;
+}
+
 /**
  * Groups mirror the operator's workflow: the work itself, then configuration.
  * 文件 and 子代理 are opened from the chat page instead of living here.
@@ -114,6 +123,7 @@ export function AppSider({
 	activeSessionId,
 	runningSessions,
 	engines,
+	pluginPages,
 	pendingApprovals,
 	/** Findings still waiting for review, shown as the hub's badge. */
 	pendingVulns,
@@ -137,6 +147,7 @@ export function AppSider({
 	modelConfigured: boolean;
 	sessions: SessionInfoView[];
 	engines: SentinelEngine[];
+	pluginPages: PluginNavEntry[];
 	activeSessionId: string | null;
 	/** Session ids with a background run. */
 	runningSessions: string[];
@@ -562,6 +573,25 @@ export function AppSider({
 								</div>
 							);
 						})}
+						{group.group === "工作台"
+							? pluginPages.map((entry) => (
+									<button
+										key={entry.page}
+										type="button"
+										className={`menu-item plugin-menu-item ${activePage === entry.page ? "active" : ""}`}
+										disabled={entry.disabled}
+										title={entry.title}
+										onClick={() => onNavigate(entry.page)}
+									>
+										{entry.iconUrl ? (
+											<img className="menu-plugin-icon" src={entry.iconUrl} alt="" />
+										) : (
+											<PluginIcon />
+										)}
+										<span className="menu-label">{entry.label}</span>
+									</button>
+								))
+							: null}
 					</div>
 				))}
 			</nav>

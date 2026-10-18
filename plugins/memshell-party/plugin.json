@@ -78,6 +78,9 @@
 	"ui": {
 		"entry": "/ui/index.html",
 		"title": "调用历史",
-		"protocol": 1
+		"protocol": 1,
+		"sidebar": {
+			"label": "MemShellParty"
+		}
 	}
 }

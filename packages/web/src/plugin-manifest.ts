@@ -99,6 +99,13 @@ export interface SentinelPluginArtifacts {
  * sandboxed iframe; `entry` is the container path of the HTML document and every
  * other asset is resolved relative to it.
  */
+export interface SentinelPluginUiSidebar {
+	/** Sidebar label; falls back to the UI title or plugin name. */
+	label: string;
+	/** Icon under /ui/, e.g. `/ui/icon.svg`; empty falls back to the generic icon. */
+	icon: string;
+}
+
 export interface SentinelPluginUi {
 	/** Container path of the entry document, e.g. `/ui/index.html`. */
 	entry: string;
@@ -106,6 +113,8 @@ export interface SentinelPluginUi {
 	title: string;
 	/** Bridge protocol; only 1 is understood for now. */
 	protocol: number;
+	/** Author's suggestion to offer a sidebar entry; the operator still opts in. */
+	sidebar: SentinelPluginUiSidebar | null;
 }
 
 /**
@@ -310,11 +319,20 @@ function normalize(raw: Record<string, unknown>): SentinelPluginManifest {
 	const buildRaw = asRecord(raw.build) ?? {};
 	const uiRaw = asRecord(raw.ui);
 	const hasUi = raw.ui !== undefined && raw.ui !== null;
+	const sidebarRaw = asRecord(uiRaw?.sidebar);
+	const sidebar: SentinelPluginUiSidebar | null =
+		hasUi && uiRaw?.sidebar !== undefined && uiRaw.sidebar !== false
+			? {
+					label: asText(sidebarRaw?.label) || asText(uiRaw?.title),
+					icon: asText(sidebarRaw?.icon),
+				}
+			: null;
 	const ui: SentinelPluginUi | null = hasUi
 		? {
 				entry: asText(uiRaw?.entry),
 				title: asText(uiRaw?.title),
 				protocol: typeof uiRaw?.protocol === "number" ? Math.round(uiRaw.protocol) : PLUGIN_UI_PROTOCOL,
+				sidebar,
 			}
 		: null;
 	const network = permissionsRaw.network;
@@ -534,6 +552,17 @@ export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 	}
 
 	if (manifest.ui) {
+		if (manifest.ui.sidebar) {
+			if (manifest.ui.sidebar.label.length > PLUGIN_LIMITS.maxNameChars) {
+				errors.push(`ui.sidebar.label 不能超过 ${PLUGIN_LIMITS.maxNameChars} 个字符`);
+			}
+			const icon = manifest.ui.sidebar.icon;
+			if (icon) {
+				if (!/^\/ui\/[A-Za-z0-9._-]+\.(svg|png)$/.test(icon) || icon.split("/").includes("..")) {
+					errors.push("ui.sidebar.icon 必须是 /ui/ 下的 .svg 或 .png 路径");
+				}
+			}
+		}
 		if (!manifest.ui.title) manifest.ui.title = manifest.name;
 		const entry = manifest.ui.entry;
 		if (!entry) errors.push("ui.entry 不能为空");

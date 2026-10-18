@@ -337,6 +337,18 @@ test("installs a plugin and mounts it on the next session", async () => {
 	expect(JSON.stringify(install?.detail)).not.toContain("secret");
 });
 
+test("pins a plugin to the sidebar without touching the host", async () => {
+	const pending = nextPlugins();
+	send({ type: "set_plugin_sidebar", hostId: localHostId, pluginId: PLUGIN_ID, pinned: true });
+	const message = await pending;
+	expect(message.view.plugins[0]?.pinned).toBe(true);
+
+	const unpin = nextPlugins();
+	send({ type: "set_plugin_sidebar", hostId: localHostId, pluginId: PLUGIN_ID, pinned: false });
+	const after = await unpin;
+	expect(after.view.plugins[0]?.pinned).toBe(false);
+});
+
 test("serves the plugin frontend through a capability URL", async () => {
 	const opened = waitFor((message) => message.type === "plugin_ui_opened");
 	send({ type: "plugin_ui_open", hostId: localHostId, pluginId: PLUGIN_ID });

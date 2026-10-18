@@ -34,6 +34,7 @@ export function PluginUiOverlay({
 	context,
 	onCall,
 	onClose,
+	variant = "overlay",
 }: {
 	plugin: SentinelPluginView;
 	nonce: string;
@@ -42,6 +43,8 @@ export function PluginUiOverlay({
 	context: PluginUiContext;
 	onCall: (method: string, params: unknown) => Promise<PluginUiCallResult>;
 	onClose: () => void;
+	/** `page` embeds the same surface in the content area instead of a full-screen layer. */
+	variant?: "overlay" | "page";
 }) {
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const callRef = useRef(onCall);
@@ -131,24 +134,31 @@ export function PluginUiOverlay({
 	}, [context, nonce]);
 
 	// Escape closes the overlay; the iframe cannot take it away from the operator.
+	// The page variant lives in the content area, so it has no close affordance.
 	useEffect(() => {
+		if (variant !== "overlay") return;
 		const onKeyDown = (event: KeyboardEvent): void => {
 			if (event.key === "Escape") onClose();
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [onClose]);
+	}, [onClose, variant]);
 
 	useEffect(() => {
+		if (variant !== "overlay") return;
 		const previous = document.body.style.overflow;
 		document.body.style.overflow = "hidden";
 		return () => {
 			document.body.style.overflow = previous;
 		};
-	}, []);
+	}, [variant]);
 
 	return (
-		<div className="plugin-ui-layer" role="dialog" aria-modal="true">
+		<div
+			className={`plugin-ui-layer${variant === "page" ? " plugin-ui-layer--page" : ""}`}
+			role="dialog"
+			aria-modal={variant === "overlay"}
+		>
 			<div className="plugin-ui-head">
 				<div className="plugin-ui-id">
 					<div className="plugin-ui-title">
@@ -167,9 +177,11 @@ export function PluginUiOverlay({
 					<button type="button" className="plugin-ui-reload" onClick={retry} title="重新加载界面">
 						重载
 					</button>
-					<button type="button" className="plugin-ui-close" onClick={onClose}>
-						关闭
-					</button>
+					{variant === "overlay" ? (
+						<button type="button" className="plugin-ui-close" onClick={onClose}>
+							关闭
+						</button>
+					) : null}
 				</div>
 			</div>
 			<div className="plugin-ui-body">

@@ -173,6 +173,34 @@ function issuePluginUiToken(hostId: string, pluginId: string): string {
 	return token;
 }
 
+/** A plugin's sidebar icon, proxied through the console session (same-origin <img>). */
+async function servePluginIcon(
+	runtime: SentinelRuntime,
+	request: IncomingMessage,
+	response: ServerResponse,
+): Promise<void> {
+	const parts = (request.url ?? "/").split("?")[0].split("/").filter(Boolean);
+	try {
+		const hostId = decodeURIComponent(parts[1] ?? "");
+		const pluginId = decodeURIComponent(parts[2] ?? "");
+		const file = decodeURIComponent(parts[3] ?? "");
+		if (!hostId || !pluginId || !/^[A-Za-z0-9._-]+\.(svg|png)$/.test(file)) {
+			sendJson(response, { error: "没有这个图标" }, 404);
+			return;
+		}
+		const asset = await runtime.getPluginUiFile(hostId, pluginId, file);
+		response.writeHead(200, {
+			"content-type": file.endsWith(".svg") ? "image/svg+xml" : "image/png",
+			"content-length": String(asset.data.length),
+			"cache-control": "private, max-age=60",
+			"x-content-type-options": "nosniff",
+		});
+		response.end(asset.data);
+	} catch {
+		sendJson(response, { error: "没有这个图标" }, 404);
+	}
+}
+
 /**
  * Serve a plugin's frontend through the console's own origin.
  *
@@ -812,6 +840,10 @@ export async function startSentinelServer(
 			// closed separately in the upgrade handler.
 			if (path.startsWith("/api/") && !isConsentExemptPath(path) && consentFor(auth?.username ?? null).required) {
 				sendJson(response, { error: "consent_required" }, 403);
+				return;
+			}
+			if (path.startsWith("/plugin-icon/")) {
+				void servePluginIcon(runtime, request, response);
 				return;
 			}
 			if (path === "/api/health") {
@@ -1470,6 +1502,17 @@ export async function startSentinelServer(
 				case "stop_plugin": {
 					try {
 						broadcast({ type: "plugins", view: await runtime.stopPlugin(message.hostId, message.pluginId) });
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "set_plugin_sidebar": {
+					try {
+						broadcast({
+							type: "plugins",
+							view: await runtime.setPluginSidebar(message.hostId, message.pluginId, message.pinned),
+						});
 					} catch (error) {
 						sendError(socket, error instanceof Error ? error.message : String(error));
 					}

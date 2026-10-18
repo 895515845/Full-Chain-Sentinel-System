@@ -57,11 +57,14 @@ token，放进 iframe 路径；静态资源请求靠这个 token 通过校验，
 "ui": {
   "entry": "/ui/index.html",
   "title": "侦察面板",
-  "protocol": 1
+  "protocol": 1,
+  "sidebar": { "label": "侦察", "icon": "/ui/icon.svg" }
 }
 ```
 
 浮层由控制台负责标题、版本、连接状态（连接中/已连接/未连接）、重载和关闭；12 秒内没有收到 SDK 握手会显示错误与「重试」。插件未运行时「打开界面」不可用。
+
+`ui.sidebar` 是作者对侧边栏入口的建议，默认不显示；操作员在插件抽屉勾选「显示在侧栏」后才固定到左侧工作台组。勾选后点侧栏条目会在主内容区打开同一个沙箱界面（不是浮层），仍然使用同一次 `plugin_ui_open` 签发的 token；插件停止时条目置灰，卸载时消失。
 
 v1 不再细分 `ui.permissions`：插件一旦声明界面，就获得 `context`、`artifact.read`、`tool.call`、`config.write`、`storage` 五类方法。`network` 显式写 `true` 会被校验拒绝。
 
@@ -69,7 +72,8 @@ v1 不再细分 `ui.permissions`：插件一旦声明界面，就获得 `context
 
 - `entry` 必须是容器内的绝对路径，以 `.html` 结尾；其余资源相对 `entry` 所在目录。控制台会保留 `/ui/` 之后的完整路径，例如 `/ui/panel/index.html` 会代理到 `/plugins/<id>/ui/panel/index.html`，`./app.js` 也在 `panel/` 下解析。
 - `protocol` 当前为 1；控制台只接受认识的值。
-- 不声明 `ui` 的插件没有「打开界面」入口。
+- `ui.sidebar` 可写成 `true`（使用默认标签）或 `{ "label": "...", "icon": "/ui/icon.svg" }`；`label` 缺省回退到 `ui.title` / 插件名，`icon` 必须是 `/ui/` 下平铺的 `.svg` 或 `.png`，缺省用通用插件图标。
+- 不声明 `ui` 的插件没有「打开界面」入口，也没有侧栏开关。
 - v1 不允许 `network` / 自定义 `sandbox`；需要外网时由插件容器自己请求，再把结果通过工具或产物交给 UI。
 
 ## 4.1 官方基础样式

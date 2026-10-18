@@ -120,6 +120,7 @@ export function PluginPanel({
 	onCloseArtifacts,
 	onFetchArtifact,
 	onOpenUi,
+	onSetSidebar,
 	onCloseManifest,
 }: {
 	view: SentinelPluginsView;
@@ -157,6 +158,8 @@ export function PluginPanel({
 	onFetchArtifact: (hostId: string, pluginId: string, path: string) => void;
 	/** Open the plugin's own frontend, when it ships one. */
 	onOpenUi: (plugin: SentinelPluginView) => void;
+	/** Pin or unpin a plugin's UI on the sidebar. */
+	onSetSidebar: (hostId: string, pluginId: string, pinned: boolean) => void;
 	/** Close the install drawer by dropping the uploaded manifest. */
 	onCloseManifest: () => void;
 }) {
@@ -1283,6 +1286,19 @@ export function PluginPanel({
 										>
 											打开界面
 										</button>
+									) : null}
+									{selected.manifest.ui?.sidebar ? (
+										<label className="plugin-sidebar-toggle" title="固定在左侧菜单，点开后在主内容区直接使用">
+											<input
+												type="checkbox"
+												checked={selected.pinned}
+												disabled={busy}
+												onChange={(event) =>
+													onSetSidebar(selected.hostId, selected.manifest.id, event.target.checked)
+												}
+											/>
+											显示在侧栏
+										</label>
 									) : null}
 									<button
 										type="button"

@@ -57,6 +57,8 @@ export interface PluginStateFile {
 	hosts: PluginHostRecord[];
 	/** Plugin keys the operator switched off; absent means enabled. */
 	disabled: string[];
+	/** Plugin keys pinned to the console sidebar, as `${hostId}/${pluginId}`. */
+	sidebar: string[];
 	/** Last runtime state per plugin key, for synchronous session mounts. */
 	lastKnown: Record<string, PluginMountState>;
 	/** Status of the discovered local host; it has no saved record to hold one. */
@@ -78,6 +80,7 @@ export function emptyPluginState(): PluginStateFile {
 		indexUrl: "",
 		hosts: [],
 		disabled: [],
+		sidebar: [],
 		lastKnown: {},
 		localStatus: { at: null, ok: true },
 	};
@@ -176,6 +179,9 @@ export function normalizePluginState(raw: unknown): PluginStateFile {
 		hosts,
 		disabled: Array.isArray(value.disabled)
 			? value.disabled.filter((entry): entry is string => typeof entry === "string")
+			: [],
+		sidebar: Array.isArray(value.sidebar)
+			? [...new Set(value.sidebar.filter((entry): entry is string => typeof entry === "string"))]
 			: [],
 		lastKnown,
 		localStatus: asStatus(value.localStatus),
@@ -322,6 +328,26 @@ export function setPluginEnabled(
 	if (enabled) disabled.delete(key);
 	else disabled.add(key);
 	state.disabled = [...disabled].sort();
+	writePluginState(agentDir, state);
+	return state;
+}
+
+export function pluginPinnedToSidebar(agentDir: string, hostId: string, pluginId: string): boolean {
+	return readPluginState(agentDir).sidebar.includes(pluginKey(hostId, pluginId));
+}
+
+export function setPluginPinnedToSidebar(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	pinned: boolean,
+): PluginStateFile {
+	const state = readPluginState(agentDir);
+	const key = pluginKey(hostId, pluginId);
+	const sidebar = new Set(state.sidebar);
+	if (pinned) sidebar.add(key);
+	else sidebar.delete(key);
+	state.sidebar = [...sidebar].sort();
 	writePluginState(agentDir, state);
 	return state;
 }

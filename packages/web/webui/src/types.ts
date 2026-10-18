@@ -35,6 +35,8 @@ export type SentinelPageId =
 	| "settings.websearch"
 	| "settings.mcp"
 	| "settings.plugins"
+	/** A pinned plugin UI page: `plugin:<hostId>:<pluginId>`. */
+	| `plugin:${string}`
 	| "about";
 
 /** Reasoning effort levels pi accepts, ascending. */
@@ -959,6 +961,7 @@ export type SentinelClientMessage =
 	| { type: "start_plugin"; hostId: string; pluginId: string }
 	| { type: "stop_plugin"; hostId: string; pluginId: string }
 	| { type: "set_plugin_enabled"; hostId: string; pluginId: string; enabled: boolean }
+	| { type: "set_plugin_sidebar"; hostId: string; pluginId: string; pinned: boolean }
 	/** Empty secret values keep the stored secret; other empty values clear the key. */
 	| { type: "save_plugin_config"; hostId: string; pluginId: string; values: Record<string, string> }
 	| { type: "get_plugin_logs"; hostId: string; pluginId: string }
@@ -1384,6 +1387,11 @@ export interface SentinelPluginBuild {
 }
 
 /** Optional frontend served from the plugin image under `/ui/`. */
+export interface SentinelPluginUiSidebar {
+	label: string;
+	icon: string;
+}
+
 export interface SentinelPluginUi {
 	/** Container path of the entry document, e.g. `/ui/index.html`. */
 	entry: string;
@@ -1391,6 +1399,8 @@ export interface SentinelPluginUi {
 	title: string;
 	/** Bridge protocol; only 1 is understood. */
 	protocol: number;
+	/** Author's sidebar suggestion; the operator opts in per plugin. */
+	sidebar: SentinelPluginUiSidebar | null;
 }
 
 /** A tool as advertised before install; the running MCP server remains authoritative. */
@@ -1455,6 +1465,8 @@ export interface SentinelPluginView {
 	healthy: boolean;
 	/** The console-side switch; off means its tools are not mounted. */
 	enabled: boolean;
+	/** Pinned to the console sidebar by the operator. */
+	pinned: boolean;
 	/** Config keys that have a stored value. */
 	configured: string[];
 	/** Stored values of non-secret fields; secrets only appear in `configured`. */

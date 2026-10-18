@@ -1132,6 +1132,8 @@ export type SentinelClientMessage =
 	| { type: "start_plugin"; hostId: string; pluginId: string }
 	| { type: "stop_plugin"; hostId: string; pluginId: string }
 	| { type: "set_plugin_enabled"; hostId: string; pluginId: string; enabled: boolean }
+	/** Pin or unpin a plugin's UI on the console sidebar (local preference). */
+	| { type: "set_plugin_sidebar"; hostId: string; pluginId: string; pinned: boolean }
 	/** Empty secret values keep the stored secret; other empty values clear the key. */
 	| { type: "save_plugin_config"; hostId: string; pluginId: string; values: Record<string, string> }
 	| { type: "get_plugin_logs"; hostId: string; pluginId: string }
@@ -1585,6 +1587,8 @@ export interface SentinelPluginView {
 	healthy: boolean;
 	/** The console-side switch; off means its tools are not mounted. */
 	enabled: boolean;
+	/** Pinned to the console sidebar by the operator. */
+	pinned: boolean;
 	/** Config keys that have a stored value. */
 	configured: string[];
 	/** Stored values of non-secret fields; secrets only appear in `configured`. */

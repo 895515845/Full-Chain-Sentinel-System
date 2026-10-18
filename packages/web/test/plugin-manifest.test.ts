@@ -169,10 +169,31 @@ describe("parsePluginManifest", () => {
 			entry: "/ui/index.html",
 			title: "侦察工具集",
 			protocol: 1,
+			sidebar: null,
 		});
 		expect(parsePluginManifest(validManifest()).ok).toBe(true);
 		const without = parsePluginManifest(validManifest());
 		expect(without.ok && without.manifest.ui).toBeNull();
+	});
+
+	test("accepts a sidebar suggestion and validates its icon", () => {
+		const ok = parsePluginManifest(
+			validManifest({
+				ui: {
+					entry: "/ui/index.html",
+					title: "面板",
+					protocol: 1,
+					sidebar: { label: "侦察", icon: "/ui/icon.svg" },
+				},
+			}),
+		);
+		expect(ok.ok && ok.manifest.ui?.sidebar).toEqual({ label: "侦察", icon: "/ui/icon.svg" });
+		for (const icon of ["/ui/../icon.svg", "icon.svg", "/ui/icon.gif", "/ui/sub/../x.svg"]) {
+			const bad = parsePluginManifest(
+				validManifest({ ui: { entry: "/ui/index.html", protocol: 1, sidebar: { icon } } }),
+			);
+			expect(bad.ok, icon).toBe(false);
+		}
 	});
 
 	test("rejects a frontend entry that is not an absolute html path", () => {

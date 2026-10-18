@@ -21,11 +21,13 @@ import {
 	hostIdFor,
 	type PluginHostRecord,
 	type PluginHostStatus,
+	pluginPinnedToSidebar,
 	readPluginState,
 	recordPluginHostStatus,
 	rememberPluginStates,
 	removePluginHost,
 	savePluginHost,
+	setPluginPinnedToSidebar,
 	setPluginEnabled as setStoredPluginEnabled,
 } from "./plugin-store.ts";
 
@@ -60,6 +62,8 @@ export interface PluginView {
 	state: HostPluginView["state"];
 	healthy: boolean;
 	enabled: boolean;
+	/** Pinned to the console sidebar by the operator. */
+	pinned: boolean;
 	configured: string[];
 	/** Non-secret values, so the edit form can show what is stored. */
 	values: Record<string, string>;
@@ -179,6 +183,7 @@ function toPluginView(agentDir: string, host: PluginHostRecord, plugin: HostPlug
 		state: plugin.state,
 		healthy: plugin.healthy,
 		enabled: knownEnabled(agentDir, host.id, plugin.manifest.id),
+		pinned: pluginPinnedToSidebar(agentDir, host.id, plugin.manifest.id),
 		configured: plugin.configured,
 		values: plugin.values,
 		hostPort: plugin.hostPort,
@@ -438,6 +443,23 @@ export function stopPlugin(agentDir: string, hostId: string, pluginId: string): 
 }
 
 /** The console-side switch. It only stops mounting tools; the container keeps running. */
+export function setPluginSidebarPinned(agentDir: string, hostId: string, pluginId: string, pinned: boolean): void {
+	findHost(agentDir, hostId);
+	try {
+		setPluginPinnedToSidebar(agentDir, hostId, pluginId, pinned);
+		appendPluginAudit(agentDir, { action: "sidebar", hostId, pluginId, ok: true, detail: { pinned } });
+	} catch (error) {
+		appendPluginAudit(agentDir, {
+			action: "sidebar",
+			hostId,
+			pluginId,
+			ok: false,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		throw error;
+	}
+}
+
 export function setPluginEnabled(agentDir: string, hostId: string, pluginId: string, enabled: boolean): void {
 	try {
 		setStoredPluginEnabled(agentDir, hostId, pluginId, enabled);
@@ -570,6 +592,39 @@ export async function listPluginArtifacts(
 		`/v1/plugins/${encodeURIComponent(pluginId)}/artifacts`,
 	);
 	return payload.artifacts;
+}
+
+/** One static file from the plugin's /ui directory (sidebar icon), with a small cap. */
+export async function fetchPluginUiFile(
+	agentDir: string,
+	hostId: string,
+	pluginId: string,
+	relative: string,
+): Promise<{ contentType: string; data: Buffer }> {
+	const host = findHost(agentDir, hostId);
+	const segments = relative.split("/").filter(Boolean);
+	if (segments.some((segment) => segment === "." || segment === "..")) {
+		throw new PluginServiceError("界面资源路径非法", 400);
+	}
+	const path = `/plugins/${encodeURIComponent(pluginId)}/ui/${segments.map(encodeURIComponent).join("/")}`;
+	let response: Response;
+	try {
+		response = await fetch(`${host.url}${path}`, {
+			headers: { authorization: `Bearer ${host.token}` },
+			signal: AbortSignal.timeout(15000),
+		});
+	} catch (error) {
+		throw new PluginServiceError(
+			`读取插件界面资源失败：${error instanceof Error ? error.message : String(error)}`,
+			502,
+		);
+	}
+	if (!response.ok) {
+		throw new PluginServiceError(`读取插件界面资源失败（HTTP ${response.status}）`, 502);
+	}
+	const data = Buffer.from(await response.arrayBuffer());
+	if (data.length > 2 * 1024 * 1024) throw new PluginServiceError("界面资源超过 2MB 上限", 413);
+	return { contentType: response.headers.get("content-type") ?? "application/octet-stream", data };
 }
 
 export async function downloadPluginArtifact(

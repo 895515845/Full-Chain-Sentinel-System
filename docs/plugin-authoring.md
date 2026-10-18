@@ -42,10 +42,15 @@ zip -r my-plugin.zip my-plugin/
 插件可以在镜像里带一个前端，由控制台以沙箱 iframe 打开：
 
 ```json
-"ui": { "entry": "/ui/index.html", "title": "侦察面板", "protocol": 1 }
+"ui": {
+  "entry": "/ui/index.html",
+  "title": "侦察面板",
+  "protocol": 1,
+  "sidebar": { "label": "侦察", "icon": "/ui/icon.svg" }
+}
 ```
 
-静态文件放在镜像的 `/ui/`，用相对路径互相引用。视觉基线用 `templates/plugin-ui-shared/base.css`
+静态文件放在镜像的 `/ui/`，用相对路径互相引用。`ui.sidebar` 只是建议入口，操作员在插件抽屉里勾选「显示在侧栏」后才会固定到工作台组；`icon` 必须是 `/ui/` 下平铺的 svg/png。视觉基线用 `templates/plugin-ui-shared/base.css`
 （复制成 `ui/base.css`，`pui-*` class）；不要自己另写一套 `:root` 颜色。HTTP server 需要把 `/ui/*` 当静态文件返回，
 参考 `examples/plugins/hello-world/server.mjs`。
 

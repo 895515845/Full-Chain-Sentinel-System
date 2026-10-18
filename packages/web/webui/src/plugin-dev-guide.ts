@@ -61,7 +61,12 @@ my-plugin/
   "tools": [
     { "name": "recon_scan", "description": "扫描一个域名" }
   ],
-  "ui": { "entry": "/ui/index.html", "title": "侦察面板", "protocol": 1 }
+  "ui": {
+    "entry": "/ui/index.html",
+    "title": "侦察面板",
+    "protocol": 1,
+    "sidebar": { "label": "侦察", "icon": "/ui/icon.svg" }
+  }
 }
 ~~~
 
@@ -190,6 +195,7 @@ createServer((req, res) => {
 - 入口是 ui.entry 指向的 HTML；其余资源用相对路径（./app.js），不能用绝对路径 /app.js。
 - 必须在页面里引入同目录的 sdk.js，并等 SentinelPlugin.connect() 返回后再发请求。
 - 控制台浮层已经有插件名、版本、连接状态、重载和关闭；页面从工具栏开始，不要重复宿主标题。
+- ui.sidebar 只是建议：操作员在插件抽屉勾选「显示在侧栏」后才会固定到左侧工作台组；点侧栏条目会在主内容区打开同一个界面。icon 必须是 /ui/ 下平铺的 svg/png，label 缺省用 ui.title 或插件名。
 - 页面是 opaque origin，不要依赖控制台 cookie；静态资源用相对路径，控制台会自动带上本次打开的能力 token。
 - 从 templates/plugin-ui-shared/base.css 复制一份 base.css 到 /ui/，用 pui-page / pui-bar / pui-card /
   pui-table / pui-btn / pui-input / pui-pill / pui-output 这些 class 组织页面；不要自己再定义一套字体和颜色。
