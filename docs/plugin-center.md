@@ -141,6 +141,15 @@ zip -r my-plugin.zip my-plugin/
 - `mcp.requestTimeoutMs` 是可选的单次调用超时，单位毫秒，范围 5000–1800000，默认 300000。MCP 客户端自己的默认超时是 60 秒，长任务插件必须显式调大。
 - `capAdd` 只允许 `NET_RAW`、`NET_ADMIN`、`NET_BIND_SERVICE`、`SYS_PTRACE`。
 
+### 5.4 官方插件
+
+官方插件是随控制台发布的策展包，不走远程市场：
+
+- 列表在插件页的「官方插件」tab，卡片展示名称、版本、工具、权限、包大小与源码；已安装的显示当前版本，版本不同时提示「更新到 vX」。
+- 点安装打开与上传插件包相同的抽屉：选择主机、确认权限、勾选构建同意，然后由服务端直接用内置的 manifest 和 zip 安装，客户端不接触包体。
+- 更新是手动的，不会自动重建容器；卸载/启停/配置与普通插件一致。
+- 首批只有 MemShellParty；目录定义在 `packages/web/official-plugins.json`，`scripts/generate-official-plugins.mjs` 把目录打成 zip 并生成 `src/official-plugins.generated.ts`，随 `npm run build` 更新。离线控制台也能安装。
+
 ## 6. plugin-host
 
 ### 6.1 交付与启动

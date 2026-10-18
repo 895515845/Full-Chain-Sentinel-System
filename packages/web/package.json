@@ -11,14 +11,15 @@
 	"types": "./dist/index.d.ts",
 	"scripts": {
 		"clean": "shx rm -rf dist webui/dist",
-		"build": "npm run build:webui && node scripts/generate-embedded-assets.mjs && tsc -p tsconfig.json",
+		"build": "npm run build:official && npm run build:webui && node scripts/generate-embedded-assets.mjs && tsc -p tsconfig.json",
 		"build:webui": "vite build webui",
 		"build:assets": "node scripts/generate-embedded-assets.mjs",
 		"build:binary": "bash ../../scripts/build-web-binaries.sh",
 		"check:webui": "tsc -p webui/tsconfig.json --noEmit",
 		"test": "vitest --run",
 		"start": "node dist/index.js",
-		"plugin-host": "node src/index.ts plugin-host"
+		"plugin-host": "node src/index.ts plugin-host",
+		"build:official": "node scripts/generate-official-plugins.mjs"
 	},
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "^1.1.0",

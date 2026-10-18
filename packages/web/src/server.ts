@@ -85,6 +85,7 @@ import {
 	writeContainerNetwork,
 } from "./container-network.ts";
 import { gateCookieHeader, generateGateToken, hasValidGate, isGateEntry, sendGateNotFound } from "./gate.ts";
+import { getOfficialPlugin, listOfficialPlugins } from "./official-plugins.ts";
 import { readPluginPackage } from "./plugin-package.ts";
 import { effectivePluginHosts } from "./plugin-store.ts";
 import { SentinelRuntime } from "./sentinel-session.ts";
@@ -1505,6 +1506,34 @@ export async function startSentinelServer(
 					} catch (error) {
 						sendError(socket, error instanceof Error ? error.message : String(error));
 					}
+					return;
+				}
+				case "list_official_plugins": {
+					sendTo(socket, { type: "official_plugins", plugins: listOfficialPlugins() });
+					return;
+				}
+				case "install_official_plugin": {
+					const official = getOfficialPlugin(message.pluginId);
+					if (!official) {
+						sendError(socket, `没有这个官方插件：${message.pluginId}`);
+						return;
+					}
+					void runtime
+						.installPlugin({
+							hostId: message.hostId,
+							manifest: official.manifest,
+							package: official.packageBase64,
+							allowBuild: message.allowBuild,
+							allowHostNetwork: message.allowHostNetwork,
+							allowPrivileged: message.allowPrivileged,
+							config: message.config,
+						})
+						.then(async () => {
+							broadcast({ type: "plugins", view: await runtime.getPlugins() });
+						})
+						.catch((error: unknown) => {
+							sendError(socket, error instanceof Error ? error.message : String(error));
+						});
 					return;
 				}
 				case "set_plugin_sidebar": {

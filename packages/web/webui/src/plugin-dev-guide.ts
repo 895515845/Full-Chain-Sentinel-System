@@ -292,6 +292,8 @@ curl http://127.0.0.1:7801/healthz
 - 不要在界面里假设同源，不要读 document.cookie，不要 fetch /api。
 - 不要把大段扫描输出直接塞进工具返回值。
 
+官方插件（随控制台内置、在「官方插件」tab 一键安装）和第三方插件走完全相同的契约，没有任何私有接口。
+
 参考实现：examples/plugins/hello-world（带界面）、examples/plugins/recon（CLI 包装）、plugins/memshell-party。
 完整文档：docs/plugin-authoring.md、docs/plugin-ui.md。
 `;

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { readFileBase64 } from "./PocPage.tsx";
+import { OfficialPluginsPanel } from "./OfficialPluginsPanel.tsx";
 import { PluginDevDocs } from "./PluginDevDocs.tsx";
 import type {
+	SentinelOfficialPluginView,
 	SentinelPluginArtifactsView,
 	SentinelPluginConfigField,
 	SentinelPluginHostInput,
@@ -121,6 +123,8 @@ export function PluginPanel({
 	onFetchArtifact,
 	onOpenUi,
 	onSetSidebar,
+	officialPlugins,
+	onChooseOfficial,
 	onCloseManifest,
 }: {
 	view: SentinelPluginsView;
@@ -160,13 +164,16 @@ export function PluginPanel({
 	onOpenUi: (plugin: SentinelPluginView) => void;
 	/** Pin or unpin a plugin's UI on the sidebar. */
 	onSetSidebar: (hostId: string, pluginId: string, pinned: boolean) => void;
+	/** Official packages bundled with the console. */
+	officialPlugins: SentinelOfficialPluginView[];
+	onChooseOfficial: (plugin: SentinelOfficialPluginView) => void;
 	/** Close the install drawer by dropping the uploaded manifest. */
 	onCloseManifest: () => void;
 }) {
 	const [hostDraft, setHostDraft] = useState<HostDraft | null>(null);
 	const [packageFile, setPackageFile] = useState<{ name: string; size: number } | null>(null);
 	const [packageError, setPackageError] = useState<string | null>(null);
-	const [activeTab, setActiveTab] = useState<"plugins" | "docs">("plugins");
+	const [activeTab, setActiveTab] = useState<"plugins" | "official" | "docs">("plugins");
 	const [installHostId, setInstallHostId] = useState("");
 	const [configValues, setConfigValues] = useState<Record<string, string>>({});
 	const [allowBuild, setAllowBuild] = useState(false);
@@ -501,6 +508,18 @@ export function PluginPanel({
 					<button
 						type="button"
 						role="tab"
+						aria-selected={activeTab === "official"}
+						className={activeTab === "official" ? "active" : undefined}
+						onClick={() => {
+							setActiveTab("official");
+							closeDrawer();
+						}}
+					>
+						官方插件<span className="n">{officialPlugins.length}</span>
+					</button>
+					<button
+						type="button"
+						role="tab"
 						aria-selected={activeTab === "docs"}
 						className={activeTab === "docs" ? "active" : undefined}
 						onClick={() => {
@@ -536,6 +555,14 @@ export function PluginPanel({
 
 			{activeTab === "docs" ? (
 				<PluginDevDocs />
+			) : activeTab === "official" ? (
+				<OfficialPluginsPanel
+					plugins={officialPlugins}
+					installed={view.plugins}
+					hosts={view.hosts}
+					busy={busy}
+					onChoose={onChooseOfficial}
+				/>
 			) : (
 				<>
 			{notice ? <div className="mcp-notice">{notice}</div> : null}
@@ -745,7 +772,9 @@ export function PluginPanel({
 							<>
 								<div className="plugin-drawer__head">
 									<div>
-										<div className="plugin-drawer__title">安装插件包</div>
+										<div className="plugin-drawer__title">
+											{pendingManifest.source.startsWith("官方") ? "安装官方插件" : "安装插件包"}
+										</div>
 										<div className="plugin-drawer__sub">
 											{pendingManifest.source}
 											{packageFile ? ` · ${formatSize(packageFile.size)}` : ""}

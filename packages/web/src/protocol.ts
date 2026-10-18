@@ -1134,6 +1134,17 @@ export type SentinelClientMessage =
 	| { type: "set_plugin_enabled"; hostId: string; pluginId: string; enabled: boolean }
 	/** Pin or unpin a plugin's UI on the console sidebar (local preference). */
 	| { type: "set_plugin_sidebar"; hostId: string; pluginId: string; pinned: boolean }
+	| { type: "list_official_plugins" }
+	/** Install a package bundled with the console; the server supplies manifest and bytes. */
+	| {
+			type: "install_official_plugin";
+			hostId: string;
+			pluginId: string;
+			allowBuild: boolean;
+			allowHostNetwork: boolean;
+			allowPrivileged: boolean;
+			config: Record<string, string>;
+	  }
 	/** Empty secret values keep the stored secret; other empty values clear the key. */
 	| { type: "save_plugin_config"; hostId: string; pluginId: string; values: Record<string, string> }
 	| { type: "get_plugin_logs"; hostId: string; pluginId: string }
@@ -1263,6 +1274,7 @@ export type SentinelServerMessage =
 	| { type: "file_preview"; preview: SentinelFilePreview }
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
+	| { type: "official_plugins"; plugins: SentinelOfficialPluginView[] }
 	| { type: "subagents"; runs: SentinelSubagentRun[]; offset: number; total: number }
 	| { type: "subagent_run"; run: SentinelSubagentRun }
 	| { type: "subagent_event"; runId: string; event: SentinelSubagentEvent }
@@ -1596,6 +1608,13 @@ export interface SentinelPluginView {
 	hostPort: number | null;
 	installedAt: number;
 	lastError: string | null;
+}
+
+/** One bundled official plugin, as listed before installation. */
+export interface SentinelOfficialPluginView {
+	manifest: SentinelPluginManifest;
+	/** Zip size, for the "why is this slow" hint. */
+	sizeBytes: number;
 }
 
 /** Everything the plugin center page renders. */

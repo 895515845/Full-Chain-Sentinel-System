@@ -86,6 +86,7 @@ import type {
 	SentinelPluginArtifactsView,
 	SentinelPluginHostInput,
 	SentinelPluginLogsView,
+	SentinelOfficialPluginView,
 	SentinelPluginManifestView,
 	SentinelPluginView,
 	SentinelPluginsView,
@@ -215,6 +216,8 @@ export function App() {
 	const [pluginArtifacts, setPluginArtifacts] = useState<SentinelPluginArtifactsView | null>(null);
 	const [pendingManifest, setPendingManifest] = useState<SentinelPluginManifestView | null>(null);
 	const [pendingPackage, setPendingPackage] = useState<string | null>(null);
+	const [pendingOfficial, setPendingOfficial] = useState<SentinelOfficialPluginView | null>(null);
+	const [officialPlugins, setOfficialPlugins] = useState<SentinelOfficialPluginView[]>([]);
 	const [pluginUi, setPluginUi] = useState<{
 		plugin: SentinelPluginView;
 		nonce: string;
@@ -529,6 +532,9 @@ export function App() {
 						resolve(message.result);
 					}
 					break;
+				case "official_plugins":
+					setOfficialPlugins(message.plugins);
+					break;
 				case "plugins": {
 					const pending = pendingInstallRef.current;
 					if (pending) {
@@ -539,6 +545,7 @@ export function App() {
 							pendingInstallRef.current = null;
 							setPendingManifest(null);
 							setPendingPackage(null);
+							setPendingOfficial(null);
 							setPluginNotice(
 								`插件「${installed.manifest.name}」安装完成，当前${installed.state === "running" ? "运行中" : "未运行"}。`,
 							);
@@ -1454,8 +1461,10 @@ export function App() {
 	// Pinned plugin pages live in the sidebar, so the plugin list has to load on
 	// connect rather than only when the plugin settings page is opened.
 	useEffect(() => {
-		if (connected) loadPlugins();
-	}, [connected, loadPlugins]);
+		if (!connected) return;
+		loadPlugins();
+		send({ type: "list_official_plugins" });
+	}, [connected, loadPlugins, send]);
 
 	// Leaving the page drops the remembered query, so a judgment arriving while the
 	// operator is elsewhere does not trigger a query nobody is looking at.
@@ -2597,6 +2606,7 @@ export function App() {
 										onCloseManifest={() => {
 											setPendingManifest(null);
 											setPendingPackage(null);
+											setPendingOfficial(null);
 										}}
 										onInspectPackage={(name, data) => {
 											// The old manifest belongs to the previous upload; never let an
@@ -2606,11 +2616,26 @@ export function App() {
 											runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
 										}}
 										onInstall={(input) => {
-											if (!pendingPackage) return;
 											pendingInstallRef.current = {
 												hostId: input.hostId,
 												pluginId: input.manifest.id,
 											};
+											if (pendingOfficial) {
+												runPluginAction(
+													{
+														type: "install_official_plugin",
+														hostId: input.hostId,
+														pluginId: pendingOfficial.manifest.id,
+														allowBuild: input.allowBuild,
+														allowHostNetwork: input.allowHostNetwork,
+														allowPrivileged: input.allowPrivileged,
+														config: input.config,
+													},
+													1800000,
+												);
+												return;
+											}
+											if (!pendingPackage) return;
 											// Building the image and waiting for health can take minutes.
 											runPluginAction(
 												{ type: "install_plugin", ...input, package: pendingPackage },
@@ -2650,6 +2675,12 @@ export function App() {
 										onSetSidebar={(hostId, pluginId, pinned) =>
 											runPluginAction({ type: "set_plugin_sidebar", hostId, pluginId, pinned })
 										}
+										officialPlugins={officialPlugins}
+										onChooseOfficial={(plugin) => {
+											setPendingPackage(null);
+											setPendingOfficial(plugin);
+											setPendingManifest({ manifest: plugin.manifest, source: "官方插件 · 随控制台内置" });
+										}}
 									/>
 								) : (
 									<div className="ws-empty">

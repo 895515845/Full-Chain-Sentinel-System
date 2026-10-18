@@ -91,6 +91,7 @@ zip -r my-plugin.zip my-plugin/
 - 构建标签由主机生成：`sentinel-plugin/<id>:<version>`。
 - Dockerfile 可以 `RUN` 任意命令，这是构建的固有权限；插件页会在安装前明确征得同意。
 - 写 `image` 字段会被拒绝，包只从上传的上下文构建。
+- 官方插件与第三方插件走同一份契约；区别只是包随控制台内置、在「官方插件」tab 里一键安装，作者仍需提供完整的 Dockerfile 与构建上下文。
 - 需要在构建时换镜像源/传参数，用 `build.args`（键是 `[A-Z][A-Z0-9_]*`，最多 16 项），host 会转成 `--build-arg`。
 
 ### 镜像源（强制）
