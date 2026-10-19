@@ -18,6 +18,11 @@ function view(overrides: Partial<SentinelSupervisorView> = {}): SentinelSupervis
 		projectName: "项目一",
 		mode: "intervene",
 		delivery: "confirm",
+		strategy: "offensive",
+		strategyCustomId: null,
+		strategyName: "红队推进",
+		strategyInstructions: "",
+		strategyNote: "优先看横向",
 		status: "running",
 		armedAt: 1,
 		startedAt: 2,
@@ -115,6 +120,8 @@ function render(current: SentinelSupervisorView): string {
 			onStop={() => {}}
 			onRunNow={() => {}}
 			onSetMode={() => {}}
+			onSetStrategy={() => {}}
+			customStrategies={[]}
 			onOpenCall={() => {}}
 			onSendAdvice={() => {}}
 			onIgnoreAdvice={() => {}}
@@ -128,6 +135,8 @@ describe("SupervisorFloatingWindow", () => {
 		expect(html).toContain("监督");
 		expect(html).toContain("漏洞验证");
 		expect(html).toContain("循环");
+		expect(html).toContain("红队推进");
+		expect(html).toContain("优先看横向");
 		expect(html).toContain("观察");
 		expect(html).toContain("介入 · 自动");
 		expect(html).toContain("介入 · 确认");

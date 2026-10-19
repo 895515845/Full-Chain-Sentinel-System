@@ -4,8 +4,11 @@ import type {
 	SentinelModelLibraryView,
 	SentinelModelRoleName,
 	SentinelSupervisorConfig,
+	SentinelSupervisorCustomStrategy,
+	SentinelSupervisorStrategy,
 	SentinelTestResult,
 } from "../types.ts";
+import { SUPERVISOR_STRATEGY_OPTIONS } from "../supervisor-strategy.ts";
 
 /** Which roles can follow 主模型 instead of naming their own entry. */
 const FOLLOW_MAIN = "follow-main";
@@ -38,6 +41,14 @@ interface Draft {
 }
 
 const EMPTY_DRAFT: Draft = { name: "", baseUrl: "", apiKey: "", modelId: "", clearKey: false };
+
+interface CustomStrategyDraft {
+	id?: string;
+	name: string;
+	base: SentinelSupervisorStrategy;
+	description: string;
+	instructions: string;
+}
 
 function draftOf(entry: SentinelModelEntryView): Draft {
 	return {
@@ -87,6 +98,7 @@ export function SettingsPanel({
 	const [supervisorDirty, setSupervisorDirty] = useState(false);
 	const [supervisorTesting, setSupervisorTesting] = useState(false);
 	const [supervisorTest, setSupervisorTest] = useState<SentinelTestResult | null>(null);
+	const [customStrategyDraft, setCustomStrategyDraft] = useState<CustomStrategyDraft | null>(null);
 	useEffect(() => {
 		// Snapshots arrive while a run is active; they must not wipe an unsaved edit.
 		if (!supervisorDirty) setSupervisorDraft(supervisorConfig);
@@ -94,6 +106,64 @@ export function SettingsPanel({
 	const updateSupervisor = (patch: Partial<SentinelSupervisorConfig>): void => {
 		setSupervisorDirty(true);
 		setSupervisorDraft((current) => (current ? { ...current, ...patch } : current));
+	};
+
+	const customStrategies = supervisorDraft?.customStrategies ?? [];
+	const defaultCustomStrategy = customStrategies.find(
+		(entry) => entry.id === supervisorDraft?.defaultCustomStrategyId,
+	);
+	const defaultStrategyValue = defaultCustomStrategy
+		? `custom:${defaultCustomStrategy.id}`
+		: `preset:${supervisorDraft?.defaultStrategy ?? "steady"}`;
+
+	const changeDefaultStrategy = (value: string): void => {
+		if (value.startsWith("custom:")) {
+			const custom = customStrategies.find((entry) => entry.id === value.slice(7));
+			if (!custom) return;
+			updateSupervisor({ defaultCustomStrategyId: custom.id, defaultStrategy: custom.base });
+			return;
+		}
+		updateSupervisor({
+			defaultCustomStrategyId: null,
+			defaultStrategy: value.slice(7) as SentinelSupervisorStrategy,
+		});
+	};
+
+	const commitCustomStrategy = (): void => {
+		if (!customStrategyDraft) return;
+		const name = customStrategyDraft.name.trim().slice(0, 30);
+		const instructions = customStrategyDraft.instructions.trim().slice(0, 500);
+		if (!name || !instructions) return;
+		const now = Date.now();
+		const id = customStrategyDraft.id ?? `custom-${globalThis.crypto?.randomUUID?.() ?? now}`;
+		const next: SentinelSupervisorCustomStrategy = {
+			id,
+			name,
+			base: customStrategyDraft.base,
+			description: customStrategyDraft.description.trim().slice(0, 80) || name,
+			instructions,
+			createdAt:
+				customStrategies.find((entry) => entry.id === id)?.createdAt ?? now,
+			updatedAt: now,
+		};
+		const list = customStrategies.some((entry) => entry.id === id)
+			? customStrategies.map((entry) => (entry.id === id ? next : entry))
+			: [...customStrategies, next];
+		updateSupervisor({
+			customStrategies: list,
+			...(supervisorDraft?.defaultCustomStrategyId === id ? { defaultStrategy: next.base } : {}),
+		});
+		setCustomStrategyDraft(null);
+	};
+
+	const removeCustomStrategy = (id: string): void => {
+		updateSupervisor({
+			customStrategies: customStrategies.filter((entry) => entry.id !== id),
+			...(supervisorDraft?.defaultCustomStrategyId === id
+				? { defaultCustomStrategyId: null, defaultStrategy: "steady" as const }
+				: {}),
+		});
+		if (customStrategyDraft?.id === id) setCustomStrategyDraft(null);
 	};
 
 	if (!library) {
@@ -195,7 +265,7 @@ export function SettingsPanel({
 
 			<h3 className="settings-section">监督</h3>
 			<p className="settings-hint">
-				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里只配置全局阈值和批大小，模式和发送方式在对话里选。
+				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里配置全局阈值、批大小、新会话的默认策略和自定义策略；模式、策略和补充说明在对话里选。
 			</p>
 			{supervisorDraft ? (
 				<div className="supervisor-settings">
@@ -207,6 +277,152 @@ export function SettingsPanel({
 						/>
 						允许在对话中开启监督
 					</label>
+					<label className="supervisor-settings__strategy">
+						默认监督策略
+						<select value={defaultStrategyValue} onChange={(event) => changeDefaultStrategy(event.target.value)}>
+							<optgroup label="预设">
+								{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
+									<option value={`preset:${option.id}`} key={option.id}>
+										{option.label} · {option.hint}
+									</option>
+								))}
+							</optgroup>
+							{customStrategies.length > 0 ? (
+								<optgroup label="自定义">
+									{customStrategies.map((custom) => (
+										<option value={`custom:${custom.id}`} key={custom.id}>
+											{custom.name} · {custom.description}
+										</option>
+									))}
+								</optgroup>
+							) : null}
+						</select>
+						<span className="hint">开启监督时仍可单独选择；这里只决定新会话的默认值。</span>
+					</label>
+					<div className="supervisor-custom">
+						<div className="supervisor-custom__head">
+							<div>
+								<strong>自定义策略</strong>
+								<span>{customStrategies.length} / 12</span>
+							</div>
+							<button
+								type="button"
+								onClick={() =>
+									setCustomStrategyDraft({ name: "", base: "steady", description: "", instructions: "" })
+								}
+								disabled={customStrategies.length >= 12 || customStrategyDraft !== null}
+							>
+								+ 新建
+							</button>
+						</div>
+						{customStrategies.length === 0 && !customStrategyDraft ? (
+							<p className="supervisor-custom__empty">还没有自定义策略。可以基于四种预设，追加自己的关注点。</p>
+						) : null}
+						{customStrategies.map((custom) => (
+							<div className="supervisor-custom__row" key={custom.id}>
+								<div>
+									<strong>{custom.name}</strong>
+									<span>
+										{SUPERVISOR_STRATEGY_OPTIONS.find((option) => option.id === custom.base)?.label ??
+											custom.base}{" "}
+										· {custom.description}
+									</span>
+								</div>
+								<div className="supervisor-custom__actions">
+									<button
+										type="button"
+										onClick={() =>
+											setCustomStrategyDraft({
+												id: custom.id,
+												name: custom.name,
+												base: custom.base,
+												description: custom.description,
+												instructions: custom.instructions,
+											})
+										}
+									>
+										编辑
+									</button>
+									<button type="button" className="danger" onClick={() => removeCustomStrategy(custom.id)}>
+										删除
+									</button>
+								</div>
+							</div>
+						))}
+						{customStrategyDraft ? (
+							<div className="supervisor-custom__editor">
+								<div className="supervisor-custom__editor-title">
+									{customStrategyDraft.id ? "编辑自定义策略" : "新建自定义策略"}
+								</div>
+								<label>
+									名称
+									<input
+										value={customStrategyDraft.name}
+										maxLength={30}
+										onChange={(event) =>
+											setCustomStrategyDraft({ ...customStrategyDraft, name: event.target.value })
+										}
+										placeholder="例如：支付网关专用"
+									/>
+								</label>
+								<label>
+									基础预设
+									<select
+										value={customStrategyDraft.base}
+										onChange={(event) =>
+											setCustomStrategyDraft({
+												...customStrategyDraft,
+												base: event.target.value as SentinelSupervisorStrategy,
+											})
+										}
+									>
+										{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
+											<option value={option.id} key={option.id}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								</label>
+								<label>
+									一句话说明
+									<input
+										value={customStrategyDraft.description}
+										maxLength={80}
+										onChange={(event) =>
+											setCustomStrategyDraft({ ...customStrategyDraft, description: event.target.value })
+										}
+										placeholder="例如：先看授权边界，再验证越权"
+									/>
+								</label>
+								<label>
+									关注点与建议风格
+									<textarea
+										value={customStrategyDraft.instructions}
+										maxLength={500}
+										onChange={(event) =>
+											setCustomStrategyDraft({ ...customStrategyDraft, instructions: event.target.value })
+										}
+										placeholder="例如：优先验证 IDOR；不做目录爆破；建议必须给出对照请求。"
+									/>
+								</label>
+								<p className="hint">自定义说明只改变监督关注点和建议风格，不能放宽授权范围或安全规则。</p>
+								<div className="supervisor-custom__editor-actions">
+									<button type="button" onClick={() => setCustomStrategyDraft(null)}>
+										取消
+									</button>
+									<button
+										type="button"
+										className="primary"
+										disabled={!customStrategyDraft.name.trim() || !customStrategyDraft.instructions.trim()}
+										onClick={commitCustomStrategy}
+									>
+										保存到列表
+									</button>
+								</div>
+							</div>
+						) : null}
+						<p className="hint">先保存到列表，再点下方「保存监督设置」写入配置。</p>
+					</div>
 					<div className="supervisor-settings__grid">
 						<label>
 							每批调用数

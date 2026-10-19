@@ -48,6 +48,33 @@ describe("normalizeSupervisorConfig", () => {
 		expect(normalizeSupervisorConfig({ enabled: false }).enabled).toBe(false);
 		expect(normalizeSupervisorConfig({ enabled: "yes" }).enabled).toBe(true);
 	});
+
+	test("accepts only a known default strategy", () => {
+		expect(normalizeSupervisorConfig({}).defaultStrategy).toBe("steady");
+		expect(normalizeSupervisorConfig({ defaultStrategy: "offensive" }).defaultStrategy).toBe("offensive");
+		expect(normalizeSupervisorConfig({ defaultStrategy: "unknown" }).defaultStrategy).toBe("steady");
+	});
+
+	test("normalizes custom strategies and only defaults to an existing one", () => {
+		const config = normalizeSupervisorConfig({
+			customStrategies: [
+				{
+					id: "custom-pay",
+					name: "支付网关专用",
+					base: "validation",
+					description: "先看越权",
+					instructions: "优先验证 IDOR，不做目录爆破",
+				},
+				{ id: "custom-empty", name: "", base: "steady", instructions: "" },
+			],
+			defaultCustomStrategyId: "custom-pay",
+		});
+		expect(config.customStrategies).toHaveLength(1);
+		expect(config.customStrategies[0]?.id).toBe("custom-pay");
+		expect(config.customStrategies[0]?.base).toBe("validation");
+		expect(config.defaultCustomStrategyId).toBe("custom-pay");
+		expect(normalizeSupervisorConfig({ defaultCustomStrategyId: "missing" }).defaultCustomStrategyId).toBeNull();
+	});
 });
 
 describe("file persistence", () => {

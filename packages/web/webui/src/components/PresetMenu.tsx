@@ -28,14 +28,18 @@ export interface PresetMenuAnchor {
  * where a fixed menu cannot be scrolled into view, so the menu flips upward when
  * the space below is too small.
  */
-export function presetMenuPosition(rect: DOMRect, width = 232): PresetMenuAnchor {
+export function presetMenuPosition(rect: DOMRect, width = 232, maximumHeight = 320): PresetMenuAnchor {
 	const left = Math.max(8, Math.min(rect.left - 6, window.innerWidth - width));
 	const below = window.innerHeight - rect.bottom - 8;
 	const above = rect.top - 8;
 	if (below < 200 && above > below) {
-		return { left, bottom: window.innerHeight - rect.top + 4, maxHeight: Math.max(120, Math.min(320, above)) };
+		return {
+			left,
+			bottom: window.innerHeight - rect.top + 4,
+			maxHeight: Math.max(120, Math.min(maximumHeight, above)),
+		};
 	}
-	return { left, top: rect.bottom + 4, maxHeight: Math.max(120, Math.min(320, below)) };
+	return { left, top: rect.bottom + 4, maxHeight: Math.max(120, Math.min(maximumHeight, below)) };
 }
 
 export function PresetMenu(props: {

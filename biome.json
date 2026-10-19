@@ -35,6 +35,8 @@
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
 			"!**/*.models.ts",
+			"!packages/web/src/official-plugins.generated.ts",
+			"!packages/web/src/embedded-assets.generated.ts",
 			"!packages/mom/data/**/*",
 			"!!**/node_modules"
 		]

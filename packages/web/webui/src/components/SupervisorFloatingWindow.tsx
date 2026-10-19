@@ -11,11 +11,14 @@ import { useState } from "react";
 import type {
 	SentinelSupervisorAdvice,
 	SentinelSupervisorCall,
+	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorEpisode,
 	SentinelSupervisorLog,
 	SentinelSupervisorMode,
+	SentinelSupervisorStrategy,
 	SentinelSupervisorView,
 } from "../types.ts";
+import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyLabel } from "../supervisor-strategy.ts";
 
 const PHASE_LABELS: Record<string, string> = {
 	recon: "侦察",
@@ -174,6 +177,8 @@ export function SupervisorFloatingWindow({
 	onStop,
 	onRunNow,
 	onSetMode,
+	onSetStrategy,
+	customStrategies,
 	onOpenCall,
 	onSendAdvice,
 	onIgnoreAdvice,
@@ -185,6 +190,12 @@ export function SupervisorFloatingWindow({
 	onStop: () => void;
 	onRunNow: () => void;
 	onSetMode: (mode: SentinelSupervisorMode, delivery: "auto" | "confirm") => void;
+	onSetStrategy: (
+		strategy: SentinelSupervisorStrategy,
+		customStrategyId: string | null,
+		note?: string,
+	) => void;
+	customStrategies: SentinelSupervisorCustomStrategy[];
 	onOpenCall: (callId: string) => void;
 	onSendAdvice: (id: string) => void;
 	onIgnoreAdvice: (id: string) => void;
@@ -215,7 +226,9 @@ export function SupervisorFloatingWindow({
 				<div className="svb-heading">
 					<div className="svb-eyebrow">监督 · {view.sessionName}</div>
 					<div className="svb-sub">
-						{modeLabel(mode, delivery)} · 已分析 {view.episodeCount} 个 episode
+						{modeLabel(mode, delivery)} ·{" "}
+						{view.strategyName || supervisorStrategyLabel(view.strategy)} · 已分析 {view.episodeCount} 个
+						episode
 					</div>
 				</div>
 				<span className={`svb-status ${view.status}`}>{statusLabel(view)}</span>
@@ -247,6 +260,55 @@ export function SupervisorFloatingWindow({
 					<span>
 						{view.callCount} 次调用 · {view.episodeCount} 个 episode
 					</span>
+				</div>
+
+				<div className="svb-strategy">
+					<label>
+						<span>监督策略</span>
+						<select
+							value={
+								view.strategyCustomId ? `custom:${view.strategyCustomId}` : `preset:${view.strategy}`
+							}
+							disabled={stopped}
+							onChange={(event) => {
+								const [kind, id] = event.target.value.split(":");
+								if (kind === "custom") {
+									const custom = customStrategies.find((entry) => entry.id === id);
+									if (custom) onSetStrategy(custom.base, custom.id, view.strategyNote);
+									return;
+								}
+								onSetStrategy(id as SentinelSupervisorStrategy, null, view.strategyNote);
+							}}
+						>
+							<optgroup label="预设">
+								{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
+									<option value={`preset:${option.id}`} key={option.id}>
+										{option.label}
+									</option>
+								))}
+							</optgroup>
+							{customStrategies.length > 0 ? (
+								<optgroup label="自定义">
+									{customStrategies.map((custom) => (
+										<option value={`custom:${custom.id}`} key={custom.id}>
+											{custom.name}
+										</option>
+									))}
+								</optgroup>
+							) : null}
+							{view.strategyCustomId &&
+							!customStrategies.some((custom) => custom.id === view.strategyCustomId) ? (
+								<option value={`custom:${view.strategyCustomId}`}>
+									{view.strategyName}（已删除）
+								</option>
+							) : null}
+						</select>
+					</label>
+					{view.strategyNote ? (
+						<span className="svb-strategy-note" title={view.strategyNote}>
+							{view.strategyNote}
+						</span>
+					) : null}
 				</div>
 
 				<div className="svb-mode">

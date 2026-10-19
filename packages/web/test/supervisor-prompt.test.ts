@@ -81,6 +81,10 @@ describe("buildSupervisorInput", () => {
 			trigger: "manual",
 			sessionName: "测试会话",
 			projectName: "项目一",
+			strategy: "validation",
+			strategyName: "支付网关专用",
+			strategyInstructions: "只验证越权，不做目录爆破",
+			strategyNote: "只验证已有漏洞",
 			state: {
 				phase: "vuln_mapping",
 				intent: "测 SQLi",
@@ -116,6 +120,11 @@ describe("buildSupervisorInput", () => {
 		expect(input).toContain("已排除：/admin");
 		expect(input).toContain("curl /api/user?id=1");
 		expect(input).toContain("HTTP/1.1 200 OK");
+		expect(input).toContain("【监督策略】");
+		expect(input).toContain("支付网关专用");
+		expect(input).toContain("漏洞验证");
+		expect(input).toContain("只验证越权，不做目录爆破");
+		expect(input).toContain("只验证已有漏洞");
 	});
 });
 

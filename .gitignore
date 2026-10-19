@@ -70,3 +70,6 @@ packages/coding-agent/examples/extensions/doom-overlay/doom/doomgeneric/doomgene
 
 # workbuddy local agent memory (never tracked)
 .workbuddy-ai/
+
+# Local UI previews/screenshots: generated for design review, never committed.
+droid-ui-previews/

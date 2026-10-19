@@ -143,6 +143,36 @@ test("arming is per conversation and refused after a user message", () => {
 	expect(() => supervisor.arm("s1", "observe", "confirm")).toThrow(/开始对话前/);
 });
 
+test("strategy is stored per conversation and can change with a log", () => {
+	supervisor.arm("s1", "observe", "confirm", "validation", "只验证已有漏洞");
+	expect(supervisor.view("s1")?.strategy).toBe("validation");
+	expect(supervisor.view("s1")?.strategyNote).toBe("只验证已有漏洞");
+	expect(store.getDetail("s1")?.session.strategy).toBe("validation");
+
+	supervisor.setStrategy("s1", "offensive", "优先看横向");
+	expect(supervisor.view("s1")?.strategy).toBe("offensive");
+	expect(supervisor.view("s1")?.strategyNote).toBe("优先看横向");
+	expect(store.getDetail("s1")?.session.strategy).toBe("offensive");
+	expect(store.listLogs("s1").some((log) => log.kind === "strategy" && log.text.includes("红队推进"))).toBe(true);
+});
+
+test("a custom strategy is snapshotted on the conversation", () => {
+	const custom = {
+		id: "custom-pay",
+		name: "支付网关专用",
+		base: "validation" as const,
+		description: "先看越权",
+		instructions: "优先验证 IDOR，不做目录爆破",
+		createdAt: 1,
+		updatedAt: 2,
+	};
+	supervisor.arm("s1", "observe", "confirm", "validation", "本轮备注", custom);
+	expect(supervisor.view("s1")?.strategyCustomId).toBe("custom-pay");
+	expect(supervisor.view("s1")?.strategyName).toBe("支付网关专用");
+	expect(supervisor.view("s1")?.strategyInstructions).toContain("IDOR");
+	expect(store.getDetail("s1")?.session.strategyCustomId).toBe("custom-pay");
+});
+
 test("a batch of calls produces one episode and keeps the rolling state", async () => {
 	supervisor.arm("s1", "observe", "confirm");
 	supervisor.start("s1");

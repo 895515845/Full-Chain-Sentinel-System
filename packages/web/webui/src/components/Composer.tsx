@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatSize, formatTokens } from "../transcript.ts";
 import type {
 	SentinelApiModelSummary,
@@ -7,7 +7,9 @@ import type {
 	SentinelPresetView,
 	SentinelSessionPresetView,
 	SentinelStatsView,
+	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorMode,
+	SentinelSupervisorStrategy,
 	SentinelSupervisorView,
 } from "../types.ts";
 import { attachmentManifest, planAttachments, staleUploads, type UploadedFile, uploadFile } from "../uploads.ts";
@@ -23,6 +25,7 @@ import {
 } from "./icons.tsx";
 import { ModelingMenu } from "./ModelingMenu.tsx";
 import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
+import { SupervisorStartMenu, type SupervisorLaunchMode } from "./SupervisorStartMenu.tsx";
 
 /** Read a pasted/selected image into the base64 payload pi expects. */
 async function readImage(file: File): Promise<SentinelImageAttachment | null> {
@@ -102,6 +105,9 @@ export function Composer({
 	supervisor,
 	supervisorEnabled,
 	supervisorWindowOpen,
+	supervisorDefaultStrategy,
+	supervisorDefaultCustomStrategyId,
+	supervisorCustomStrategies,
 	onArmSupervisor,
 	onShowSupervisorWindow,
 	onToggleNotifyRun,
@@ -161,7 +167,17 @@ export function Composer({
 	supervisorEnabled: boolean;
 	/** Whether the floating window is currently visible. */
 	supervisorWindowOpen: boolean;
-	onArmSupervisor: (mode: SentinelSupervisorMode, delivery: "auto" | "confirm") => void;
+	/** Default chosen in 设置 → 模型; the operator can override it per conversation. */
+	supervisorDefaultStrategy: SentinelSupervisorStrategy;
+	supervisorDefaultCustomStrategyId: string | null;
+	supervisorCustomStrategies: SentinelSupervisorCustomStrategy[];
+	onArmSupervisor: (
+		mode: SentinelSupervisorMode,
+		delivery: "auto" | "confirm",
+		strategy: SentinelSupervisorStrategy,
+		customStrategyId: string | null,
+		note: string,
+	) => void;
 	onShowSupervisorWindow: () => void;
 	onToggleNotifyRun: () => void;
 	onOpenGoal: () => void;
@@ -185,7 +201,30 @@ export function Composer({
 	const [presetMenu, setPresetMenu] = useState<PresetMenuAnchor | null>(null);
 	/** The 带建模数据 picker and what it has checked, applied to the next send. */
 	const [modelingMenu, setModelingMenu] = useState<PresetMenuAnchor | null>(null);
-	const [supervisorMenu, setSupervisorMenu] = useState(false);
+	const [supervisorMenu, setSupervisorMenu] = useState<PresetMenuAnchor | null>(null);
+	const defaultCustomStrategy = supervisorCustomStrategies.find(
+		(entry) => entry.id === supervisorDefaultCustomStrategyId,
+	);
+	const [supervisorStrategy, setSupervisorStrategy] = useState<SentinelSupervisorStrategy>(
+		defaultCustomStrategy?.base ?? supervisorDefaultStrategy,
+	);
+	const [supervisorCustomStrategyId, setSupervisorCustomStrategyId] = useState<string | null>(
+		defaultCustomStrategy?.id ?? null,
+	);
+	const [supervisorStrategyTouched, setSupervisorStrategyTouched] = useState(false);
+	const [supervisorNote, setSupervisorNote] = useState("");
+	const [supervisorLaunchMode, setSupervisorLaunchMode] = useState<SupervisorLaunchMode>("observe");
+	useEffect(() => {
+		if (supervisorStrategyTouched) return;
+		const custom = supervisorCustomStrategies.find((entry) => entry.id === supervisorDefaultCustomStrategyId);
+		setSupervisorStrategy(custom?.base ?? supervisorDefaultStrategy);
+		setSupervisorCustomStrategyId(custom?.id ?? null);
+	}, [
+		supervisorDefaultStrategy,
+		supervisorDefaultCustomStrategyId,
+		supervisorCustomStrategies,
+		supervisorStrategyTouched,
+	]);
 	const [attachSelection, setAttachSelection] = useState<string[]>([]);
 	/** Files already uploaded to the project (or being uploaded, or refused). */
 	const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -309,13 +348,13 @@ export function Composer({
 							<button
 								type="button"
 								className={`composer-tool supervisor-trigger ${supervisor ? "on" : ""}`}
-								onClick={() => {
+								onClick={(event) => {
 									if (supervisor) {
 										onShowSupervisorWindow();
 										return;
 									}
 									if (!freshConversation) return;
-									setSupervisorMenu((open) => !open);
+									setSupervisorMenu(presetMenuPosition(event.currentTarget.getBoundingClientRect(), 452, 470));
 								}}
 								disabled={!hasProject || blocked || (!freshConversation && !supervisor)}
 								title={
@@ -346,39 +385,41 @@ export function Composer({
 								</button>
 							) : null}
 							{supervisorMenu ? (
-								<div className="composer-supervisor-menu">
-									<button
-										type="button"
-										onClick={() => {
-											onArmSupervisor("observe", "confirm");
-											setSupervisorMenu(false);
-										}}
-									>
-										<strong>观察模式</strong>
-										<span>只记录和总结，不改主 Agent</span>
-									</button>
-									<button
-										type="button"
-										onClick={() => {
-											onArmSupervisor("intervene", "auto");
-											setSupervisorMenu(false);
-										}}
-									>
-										<strong>介入 · 自动发送</strong>
-										<span>判断停滞或循环时直接给建议</span>
-									</button>
-									<button
-										type="button"
-										onClick={() => {
-											onArmSupervisor("intervene", "confirm");
-											setSupervisorMenu(false);
-										}}
-									>
-										<strong>介入 · 确认后发送</strong>
-										<span>建议先到悬浮窗，由你决定是否发送</span>
-									</button>
-									<p>开启后可在悬浮窗里切换模式；停止后本次会话不能恢复。</p>
-								</div>
+								<SupervisorStartMenu
+									anchor={supervisorMenu}
+									mode={supervisorLaunchMode}
+									strategy={supervisorStrategy}
+									customStrategyId={supervisorCustomStrategyId}
+									customStrategies={supervisorCustomStrategies}
+									note={supervisorNote}
+									onModeChange={setSupervisorLaunchMode}
+									onStrategyChange={(next) => {
+										setSupervisorStrategyTouched(true);
+										setSupervisorCustomStrategyId(null);
+										setSupervisorStrategy(next);
+									}}
+									onCustomStrategyChange={(id, base) => {
+										setSupervisorStrategyTouched(true);
+										setSupervisorCustomStrategyId(id);
+										setSupervisorStrategy(base);
+									}}
+									onNoteChange={setSupervisorNote}
+									onClose={() => setSupervisorMenu(null)}
+									onStart={() => {
+										const mode = supervisorLaunchMode === "observe" ? "observe" : "intervene";
+										const delivery = supervisorLaunchMode === "auto" ? "auto" : "confirm";
+										onArmSupervisor(
+											mode,
+											delivery,
+											supervisorStrategy,
+											supervisorCustomStrategyId,
+											supervisorNote.trim(),
+										);
+										setSupervisorMenu(null);
+										setSupervisorNote("");
+										setSupervisorStrategyTouched(false);
+									}}
+								/>
 							) : null}
 						</>
 					) : null}

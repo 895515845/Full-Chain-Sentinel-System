@@ -686,6 +686,18 @@ export interface DroidToken {
 // ---------------------------------------------------------------------------
 
 export type SentinelSupervisorMode = "observe" | "intervene";
+
+export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth";
+
+export interface SentinelSupervisorCustomStrategy {
+	id: string;
+	name: string;
+	base: SentinelSupervisorStrategy;
+	description: string;
+	instructions: string;
+	createdAt: number;
+	updatedAt: number;
+}
 export type SentinelSupervisorDelivery = "auto" | "confirm";
 export type SentinelSupervisorStatus = "waiting" | "running" | "stopped" | "error";
 export type SentinelSupervisorProgress = "advancing" | "stalled" | "looping" | "unknown";
@@ -706,6 +718,9 @@ export interface SentinelSupervisorConfig {
 	errorStreak: number;
 	timeoutMs: number;
 	redactSecrets: boolean;
+	defaultStrategy: SentinelSupervisorStrategy;
+	customStrategies: SentinelSupervisorCustomStrategy[];
+	defaultCustomStrategyId: string | null;
 }
 
 export interface SentinelSupervisorTested {
@@ -807,6 +822,11 @@ export interface SentinelSupervisorView {
 	projectName: string | null;
 	mode: SentinelSupervisorMode;
 	delivery: SentinelSupervisorDelivery;
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
 	startedAt: number | null;
@@ -833,6 +853,11 @@ export interface SentinelSupervisorAuditItem {
 	projectName: string | null;
 	mode: SentinelSupervisorMode;
 	delivery: SentinelSupervisorDelivery;
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
 	startedAt: number | null;
@@ -1278,12 +1303,25 @@ export type SentinelClientMessage =
 	| { type: "test_judge" }
 	| { type: "gate_audit_query"; filter?: SentinelGateFilter; page?: number; pageSize?: number }
 	| { type: "gate_audit_stats"; filter?: SentinelGateFilter }
-	| { type: "supervisor_arm"; mode: SentinelSupervisorMode; delivery: SentinelSupervisorDelivery }
+	| {
+			type: "supervisor_arm";
+			mode: SentinelSupervisorMode;
+			delivery: SentinelSupervisorDelivery;
+			strategy: SentinelSupervisorStrategy;
+			customStrategyId?: string | null;
+			note?: string;
+	  }
 	| { type: "supervisor_stop" }
 	| {
 			type: "supervisor_set_mode";
 			mode: SentinelSupervisorMode;
 			delivery: SentinelSupervisorDelivery;
+	  }
+	| {
+			type: "supervisor_set_strategy";
+			strategy: SentinelSupervisorStrategy;
+			customStrategyId?: string | null;
+			note?: string;
 	  }
 	| { type: "supervisor_run_now" }
 	| { type: "supervisor_call_output"; callId: string }
@@ -1295,6 +1333,8 @@ export type SentinelClientMessage =
 			search?: string;
 			mode?: SentinelSupervisorMode;
 			progress?: SentinelSupervisorProgress;
+			strategy?: SentinelSupervisorStrategy;
+			customStrategyId?: string;
 	  }
 	| { type: "supervisor_detail"; sessionId: string }
 	| { type: "supervisor_advice_action"; id: string; action: "send" | "ignore" }

@@ -1,0 +1,157 @@
+/**
+ * The supervisor arming menu. It deliberately uses the preset-menu shell and
+ * portal/fixed anchoring: the composer lives inside clipped scroll panels, so an
+ * absolutely positioned menu can be cut off at the panel edge.
+ */
+
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { SUPERVISOR_STRATEGY_OPTIONS } from "../supervisor-strategy.ts";
+import type {
+	SentinelSupervisorCustomStrategy,
+	SentinelSupervisorMode,
+	SentinelSupervisorStrategy,
+} from "../types.ts";
+import type { PresetMenuAnchor } from "./PresetMenu.tsx";
+
+export type SupervisorLaunchMode = "observe" | "auto" | "confirm";
+
+const MODES: Array<{ value: SupervisorLaunchMode; label: string; description: string }> = [
+	{ value: "observe", label: "观察", description: "只记录和总结，不改主 Agent" },
+	{ value: "auto", label: "自动发送", description: "判断停滞或循环时直接给建议" },
+	{ value: "confirm", label: "确认后发送", description: "建议先到悬浮窗，由你决定是否发送" },
+];
+
+export function SupervisorStartMenu({
+	anchor,
+	mode,
+	strategy,
+	customStrategyId,
+	customStrategies,
+	note,
+	onModeChange,
+	onStrategyChange,
+	onCustomStrategyChange,
+	onNoteChange,
+	onStart,
+	onClose,
+}: {
+	anchor: PresetMenuAnchor;
+	mode: SupervisorLaunchMode;
+	strategy: SentinelSupervisorStrategy;
+	customStrategyId: string | null;
+	customStrategies: SentinelSupervisorCustomStrategy[];
+	note: string;
+	onModeChange: (mode: SupervisorLaunchMode) => void;
+	onStrategyChange: (strategy: SentinelSupervisorStrategy) => void;
+	onCustomStrategyChange: (id: string, strategy: SentinelSupervisorStrategy) => void;
+	onNoteChange: (note: string) => void;
+	onStart: () => void;
+	onClose: () => void;
+}) {
+	const onCloseRef = useRef(onClose);
+	useEffect(() => {
+		onCloseRef.current = onClose;
+	});
+	useEffect(() => {
+		const mountedAt = performance.now();
+		const close = (event: MouseEvent) => {
+			if (event.timeStamp <= mountedAt) return;
+			onCloseRef.current();
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onCloseRef.current();
+		};
+		window.addEventListener("click", close);
+		window.addEventListener("keydown", onKeyDown);
+		return () => {
+			window.removeEventListener("click", close);
+			window.removeEventListener("keydown", onKeyDown);
+		};
+	}, []);
+
+	const selectedCustom = customStrategies.find((entry) => entry.id === customStrategyId);
+	const selectedOption = SUPERVISOR_STRATEGY_OPTIONS.find((entry) => entry.id === strategy);
+	const title = selectedCustom?.name ?? selectedOption?.label ?? "监督策略";
+	const description = selectedCustom?.description ?? selectedOption?.hint ?? "";
+	const selectedMode = MODES.find((entry) => entry.value === mode) ?? MODES[0];
+
+	return createPortal(
+		<div
+			className="preset-menu composer-supervisor-menu"
+			style={{
+				top: anchor.top,
+				bottom: anchor.bottom,
+				left: anchor.left,
+				maxHeight: anchor.maxHeight,
+			}}
+			onClick={(event) => event.stopPropagation()}
+		>
+			<div className="preset-menu-title composer-supervisor-title">
+				开启监督
+				<span>方式 · 策略 · 说明</span>
+			</div>
+			<div className="composer-supervisor-modes">
+				{MODES.map((entry) => (
+					<button
+						type="button"
+						key={entry.value}
+						className={mode === entry.value ? "on" : ""}
+						onClick={() => onModeChange(entry.value)}
+					>
+						{entry.label}
+					</button>
+				))}
+			</div>
+			<div className="composer-supervisor-mode-hint">{selectedMode?.description}</div>
+			<div className="composer-supervisor-panel">
+				<div className="composer-supervisor-nav">
+					{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
+						<button
+							type="button"
+							key={option.id}
+							className={!customStrategyId && strategy === option.id ? "on" : ""}
+							onClick={() => onStrategyChange(option.id)}
+						>
+							{option.label}
+						</button>
+					))}
+					{customStrategies.length > 0 ? (
+						<div className="composer-supervisor-nav-label">自定义</div>
+					) : null}
+					{customStrategies.map((custom) => (
+						<button
+							type="button"
+							key={custom.id}
+							className={customStrategyId === custom.id ? "on" : ""}
+							onClick={() => onCustomStrategyChange(custom.id, custom.base)}
+						>
+							{custom.name}
+						</button>
+					))}
+				</div>
+				<div className="composer-supervisor-detail">
+					<h3>{title}</h3>
+					<p>{description}</p>
+					{selectedCustom?.instructions ? <p>{selectedCustom.instructions}</p> : null}
+					<label className="composer-supervisor-note">
+						补充说明 · 可选
+						<textarea
+							value={note}
+							maxLength={200}
+							onChange={(event) => onNoteChange(event.target.value)}
+							placeholder="例如：只允许测试 10.0.0.5，禁止删除业务数据"
+						/>
+					</label>
+				</div>
+			</div>
+			<div className="composer-supervisor-foot">
+				<span>策略不会放宽安全规则</span>
+				<button type="button" className="primary small" onClick={onStart}>
+					开始监督
+				</button>
+			</div>
+		</div>,
+		document.body,
+	);
+}

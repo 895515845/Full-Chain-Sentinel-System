@@ -233,6 +233,7 @@ import type {
 	SentinelSupervisorLog,
 	SentinelSupervisorMode,
 	SentinelSupervisorProgress,
+	SentinelSupervisorStrategy,
 	SentinelSupervisorView,
 	SentinelTestResult,
 	SentinelToolInfo,
@@ -3235,13 +3236,35 @@ export class SentinelRuntime {
 	// Supervision
 	// -----------------------------------------------------------------------
 
+	private resolveCustomStrategy(id: string | null | undefined) {
+		if (!id) return null;
+		const custom = readSupervisorConfig(this.agentDir).customStrategies.find((entry) => entry.id === id);
+		if (!custom) throw new Error("自定义监督策略不存在或已被删除");
+		return custom;
+	}
+
 	/** Arm supervision for the viewed conversation; only before its first message. */
-	armSupervisor(mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
+	armSupervisor(
+		mode: SentinelSupervisorMode,
+		delivery: "auto" | "confirm",
+		strategy?: SentinelSupervisorStrategy,
+		note?: string,
+		customStrategyId?: string | null,
+	): SentinelSupervisorView {
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
 		if (active.taskSession) throw new Error("工程任务的会话不能单独开启监督");
-		if (!readSupervisorConfig(this.agentDir).enabled) throw new Error("监督功能已在 设置 → 模型 中关闭");
-		return this.supervisor.arm(active.key, mode, delivery);
+		const config = readSupervisorConfig(this.agentDir);
+		if (!config.enabled) throw new Error("监督功能已在 设置 → 模型 中关闭");
+		const custom = this.resolveCustomStrategy(customStrategyId);
+		return this.supervisor.arm(
+			active.key,
+			mode,
+			delivery,
+			custom?.base ?? strategy ?? config.defaultStrategy,
+			note ?? "",
+			custom,
+		);
 	}
 
 	stopSupervisor(): SentinelSupervisorView | null {
@@ -3254,6 +3277,17 @@ export class SentinelRuntime {
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
 		return this.supervisor.setMode(active.key, mode, delivery);
+	}
+
+	setSupervisorStrategy(
+		strategy: SentinelSupervisorStrategy,
+		note?: string,
+		customStrategyId?: string | null,
+	): SentinelSupervisorView {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		const custom = this.resolveCustomStrategy(customStrategyId);
+		return this.supervisor.setStrategy(active.key, custom?.base ?? strategy, note, custom);
 	}
 
 	runSupervisorNow(): void {
@@ -3275,6 +3309,8 @@ export class SentinelRuntime {
 		search?: string;
 		mode?: "observe" | "intervene";
 		progress?: SentinelSupervisorProgress;
+		strategy?: SentinelSupervisorStrategy;
+		customStrategyId?: string;
 	}): SentinelSupervisorAuditPage {
 		return this.supervisor.listAudit(query);
 	}

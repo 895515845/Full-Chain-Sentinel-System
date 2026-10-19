@@ -14,9 +14,12 @@ import type {
 	SentinelSupervisorDetail,
 	SentinelSupervisorEpisode,
 	SentinelSupervisorLog,
+	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorMode,
 	SentinelSupervisorProgress,
+	SentinelSupervisorStrategy,
 } from "../types.ts";
+import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyLabel } from "../supervisor-strategy.ts";
 
 const PHASE_LABELS: Record<string, string> = {
 	recon: "侦察",
@@ -134,6 +137,7 @@ export function SupervisorAuditPage({
 	page,
 	detail,
 	projects,
+	customStrategies,
 	onQuery,
 	onSelect,
 	onBack,
@@ -142,12 +146,15 @@ export function SupervisorAuditPage({
 	page: SentinelSupervisorAuditPage | null;
 	detail: SentinelSupervisorDetail | null;
 	projects: SentinelProjectInfo[];
+	customStrategies: SentinelSupervisorCustomStrategy[];
 	onQuery: (query: {
 		page?: number;
 		projectId?: string;
 		search?: string;
 		mode?: SentinelSupervisorMode;
 		progress?: SentinelSupervisorProgress;
+		strategy?: SentinelSupervisorStrategy;
+		customStrategyId?: string;
 	}) => void;
 	onSelect: (sessionId: string) => void;
 	onBack: () => void;
@@ -156,6 +163,8 @@ export function SupervisorAuditPage({
 	const [projectId, setProjectId] = useState("");
 	const [mode, setMode] = useState<"" | SentinelSupervisorMode>("");
 	const [progress, setProgress] = useState<"" | SentinelSupervisorProgress>("");
+	const [strategy, setStrategy] = useState<"" | SentinelSupervisorStrategy>("");
+	const [customStrategyId, setCustomStrategyId] = useState("");
 	const [search, setSearch] = useState("");
 	const stats = page?.stats ?? {
 		total: 0,
@@ -172,91 +181,125 @@ export function SupervisorAuditPage({
 		search: search || undefined,
 		mode: mode || undefined,
 		progress: progress || undefined,
+		strategy: strategy || undefined,
+		customStrategyId: customStrategyId || undefined,
 	});
 
 	return (
-		<div className="sva-page">
+		<div className="page-card sva-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					监督
 					<span className="ws-panel__sub">全部对话的监督审计 · 只读</span>
 				</div>
-				<div className="sva-head-actions">
-					<button type="button" onClick={() => onQuery(query(page?.page ?? 1))}>
-						刷新
-					</button>
-				</div>
+				<button type="button" className="ghost" onClick={() => onQuery(query(page?.page ?? 1))}>
+					刷新
+				</button>
 			</div>
 
 			<div className="ws-panel__body sva-body">
 				<div className="sva-content">
-					<div className="sva-filters">
-						<select
-							value={projectId}
-							onChange={(event) => setProjectId(event.target.value)}
-							aria-label="按项目筛选"
-						>
-							<option value="">全部项目</option>
-							{projects.map((project) => (
-								<option value={project.id} key={project.id}>
-									{project.name}
-								</option>
-							))}
-						</select>
-						<select
-							value={mode}
-							onChange={(event) => setMode(event.target.value as "" | SentinelSupervisorMode)}
-							aria-label="按模式筛选"
-						>
-							<option value="">全部模式</option>
-							<option value="observe">观察</option>
-							<option value="intervene">介入</option>
-						</select>
-						<select
-							value={progress}
-							onChange={(event) => setProgress(event.target.value as "" | SentinelSupervisorProgress)}
-							aria-label="按进度筛选"
-						>
-							<option value="">全部进度</option>
-							<option value="advancing">有进展</option>
-							<option value="stalled">停滞</option>
-							<option value="looping">循环</option>
-							<option value="unknown">未判断</option>
-						</select>
-						<input
-							placeholder="搜索会话 / 项目 / 意图"
-							value={search}
-							onChange={(event) => setSearch(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") onQuery(query(1));
-							}}
-						/>
-						<button type="button" className="primary" onClick={() => onQuery(query(1))}>
+					<div className="gate-filters sva-filters">
+						<label>
+							项目
+							<select
+								value={projectId}
+								onChange={(event) => setProjectId(event.target.value)}
+							>
+								<option value="">全部项目</option>
+								{projects.map((project) => (
+									<option value={project.id} key={project.id}>
+										{project.name}
+									</option>
+								))}
+							</select>
+						</label>
+						<label>
+							模式
+							<select
+								value={mode}
+								onChange={(event) => setMode(event.target.value as "" | SentinelSupervisorMode)}
+							>
+								<option value="">全部模式</option>
+								<option value="observe">观察</option>
+								<option value="intervene">介入</option>
+							</select>
+						</label>
+						<label>
+							进度
+							<select
+								value={progress}
+								onChange={(event) => setProgress(event.target.value as "" | SentinelSupervisorProgress)}
+							>
+								<option value="">全部进度</option>
+								<option value="advancing">有进展</option>
+								<option value="stalled">停滞</option>
+								<option value="looping">循环</option>
+								<option value="unknown">未判断</option>
+							</select>
+						</label>
+						<label>
+							策略
+							<select
+								value={strategy}
+								onChange={(event) => setStrategy(event.target.value as "" | SentinelSupervisorStrategy)}
+							>
+								<option value="">全部预设</option>
+								{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
+									<option value={option.id} key={option.id}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</label>
+						{customStrategies.length > 0 ? (
+							<label>
+								自定义
+								<select
+									value={customStrategyId}
+									onChange={(event) => setCustomStrategyId(event.target.value)}
+								>
+									<option value="">全部</option>
+									{customStrategies.map((custom) => (
+										<option value={custom.id} key={custom.id}>
+											{custom.name}
+										</option>
+									))}
+								</select>
+							</label>
+						) : null}
+						<label className="sva-search">
+							关键字
+							<input
+								placeholder="会话 / 项目 / 意图"
+								value={search}
+								onChange={(event) => setSearch(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") onQuery(query(1));
+								}}
+							/>
+						</label>
+						<button type="button" className="ghost" onClick={() => onQuery(query(1))}>
 							查询
 						</button>
 					</div>
 
-					<div className="sva-kpis">
-						<div className="sva-kpi">
-							<b>{stats.total}</b>
-							<span>监督会话</span>
-						</div>
-						<div className="sva-kpi ok">
-							<b>{stats.advancing}</b>
-							<span>有进展</span>
-						</div>
-						<div className="sva-kpi warn">
-							<b>{stats.stalled}</b>
-							<span>停滞</span>
-						</div>
-						<div className="sva-kpi bad">
-							<b>{stats.looping}</b>
-							<span>循环</span>
-						</div>
-						<div className="sva-kpi">
-							<b>{stats.pendingAdvice}</b>
-							<span>待确认建议</span>
-						</div>
+					<div className="gate-summary sva-summary">
+						<span>
+							监督会话 <b>{stats.total}</b>
+						</span>
+						<span className="ok">
+							有进展 <b>{stats.advancing}</b>
+						</span>
+						<span className="warn">
+							停滞 <b>{stats.stalled}</b>
+						</span>
+						<span className="bad">
+							循环 <b>{stats.looping}</b>
+						</span>
+						<span>
+							待确认建议 <b>{stats.pendingAdvice}</b>
+						</span>
 					</div>
 
 					{!page ? (
@@ -272,6 +315,7 @@ export function SupervisorAuditPage({
 										<th>会话 / 项目</th>
 										<th>阶段</th>
 										<th>进度</th>
+										<th>策略</th>
 										<th>调用 / EP</th>
 										<th>建议</th>
 										<th>tokens</th>
@@ -302,6 +346,11 @@ export function SupervisorAuditPage({
 											<td>
 												<span className={`sva-pill ${progressClass(item.progress)}`}>
 													{progressLabel(item.progress)}
+												</span>
+											</td>
+											<td>
+												<span className="sva-pill">
+													{item.strategyName || supervisorStrategyLabel(item.strategy)}
 												</span>
 											</td>
 											<td className="sva-mono">
@@ -355,7 +404,8 @@ export function SupervisorAuditPage({
 									{detail.session.projectName ?? "未选择项目"} ·{" "}
 									{detail.session.mode === "observe"
 										? "观察"
-										: `介入 · ${detail.session.delivery === "auto" ? "自动" : "确认"}`}
+										: `介入 · ${detail.session.delivery === "auto" ? "自动" : "确认"}`}{" "}
+									· {detail.session.strategyName || supervisorStrategyLabel(detail.session.strategy)}
 								</p>
 							</div>
 							<button type="button" onClick={onBack} aria-label="关闭详情">
@@ -380,7 +430,17 @@ export function SupervisorAuditPage({
 									<b>{formatTokens(detail.session.usage.total)}</b>
 									<span>tokens</span>
 								</div>
+								<div>
+									<b>{detail.session.strategyName || supervisorStrategyLabel(detail.session.strategy)}</b>
+									<span>策略</span>
+								</div>
 							</div>
+							{detail.session.strategyInstructions ? (
+								<p className="sva-drawer-note">策略说明：{detail.session.strategyInstructions}</p>
+							) : null}
+							{detail.session.strategyNote ? (
+								<p className="sva-drawer-note">补充：{detail.session.strategyNote}</p>
+							) : null}
 
 							{detail.session.intent ? <p className="sva-drawer-intent">{detail.session.intent}</p> : null}
 							{detail.session.lastError ? (

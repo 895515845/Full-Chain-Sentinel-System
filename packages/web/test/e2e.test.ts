@@ -3057,12 +3057,46 @@ test("supervision is armed per conversation before the first message, audited, a
 	expect(fresh.supervisor).toBeNull();
 	expect(fresh.supervisorConfig.enabled).toBe(true);
 
-	send({ type: "supervisor_arm", mode: "observe", delivery: "confirm" });
+	const customStrategy = {
+		id: "custom-e2e",
+		name: "E2E 支付专用",
+		base: "validation" as const,
+		description: "先看越权",
+		instructions: "优先验证 IDOR，不做目录爆破",
+		createdAt: 1,
+		updatedAt: 1,
+	};
+	send({
+		type: "save_supervisor_config",
+		config: {
+			...fresh.supervisorConfig,
+			customStrategies: [customStrategy],
+			defaultCustomStrategyId: "custom-e2e",
+		},
+	});
+	await waitFor(
+		(message) =>
+			message.type === "supervisor_config" &&
+			message.config.customStrategies.some((entry) => entry.id === "custom-e2e"),
+	);
+
+	send({
+		type: "supervisor_arm",
+		mode: "observe",
+		delivery: "confirm",
+		strategy: "validation",
+		customStrategyId: "custom-e2e",
+		note: "只验证已有漏洞",
+	});
 	const waitingMessage = (await waitFor(
 		(message) => message.type === "supervisor_state" && message.supervisor?.status === "waiting",
 	)) as { supervisor: SentinelSupervisorView };
 	const waiting = waitingMessage.supervisor;
 	expect(waiting.mode).toBe("observe");
+	expect(waiting.strategy).toBe("validation");
+	expect(waiting.strategyName).toBe("E2E 支付专用");
+	expect(waiting.strategyInstructions).toContain("IDOR");
+	expect(waiting.strategyNote).toBe("只验证已有漏洞");
 	expect(waiting.callCount).toBe(0);
 	const sessionId = waiting.sessionId;
 	expect(sessionId).not.toBe("");
@@ -3072,9 +3106,21 @@ test("supervision is armed per conversation before the first message, audited, a
 	const audit = (await waitFor((message) => message.type === "supervisor_audit")) as {
 		page: SentinelSupervisorAuditPage;
 	};
-	expect(audit.page.items.some((item) => item.sessionId === sessionId && item.status === "waiting")).toBe(true);
+	expect(
+		audit.page.items.some(
+			(item) => item.sessionId === sessionId && item.status === "waiting" && item.strategy === "validation",
+		),
+	).toBe(true);
 	expect(audit.page.stats.total).toBeGreaterThanOrEqual(1);
 	expect(audit.page.stats.pendingAdvice).toBe(0);
+
+	send({ type: "supervisor_audit", page: 1, customStrategyId: "custom-e2e" });
+	const customAudit = (await waitFor(
+		(message) =>
+			message.type === "supervisor_audit" && message.page.items.some((item) => item.sessionId === sessionId),
+	)) as { page: SentinelSupervisorAuditPage };
+	expect(customAudit.page.total).toBe(1);
+	expect(customAudit.page.items[0]?.strategyName).toBe("E2E 支付专用");
 
 	// Mode and delivery are per conversation, not a global setting.
 	send({ type: "supervisor_set_mode", mode: "intervene", delivery: "auto" });
@@ -3085,6 +3131,23 @@ test("supervision is armed per conversation before the first message, audited, a
 			message.supervisor.delivery === "auto",
 	)) as { supervisor: SentinelSupervisorView };
 	expect(intervenedMessage.supervisor.status).toBe("waiting");
+
+	send({ type: "supervisor_set_strategy", strategy: "offensive", note: "优先看横向" });
+	const strategyMessage = (await waitFor(
+		(message) =>
+			message.type === "supervisor_state" &&
+			message.supervisor?.strategy === "offensive" &&
+			message.supervisor.strategyNote === "优先看横向",
+	)) as { supervisor: SentinelSupervisorView };
+	expect(strategyMessage.supervisor.strategy).toBe("offensive");
+
+	send({ type: "supervisor_audit", page: 1, strategy: "offensive" });
+	const offensiveAudit = (await waitFor(
+		(message) =>
+			message.type === "supervisor_audit" &&
+			message.page.items.some((item) => item.sessionId === sessionId && item.strategy === "offensive"),
+	)) as { page: SentinelSupervisorAuditPage };
+	expect(offensiveAudit.page.total).toBe(1);
 
 	send({ type: "supervisor_detail", sessionId });
 	const detail = (await waitFor((message) => message.type === "supervisor_detail")) as {
@@ -3106,7 +3169,13 @@ test("supervision is armed per conversation before the first message, audited, a
 	expect(stoppedMessage.supervisor.endedAt).not.toBeNull();
 
 	// A stopped conversation cannot be re-armed; a new conversation is required.
-	send({ type: "supervisor_arm", mode: "observe", delivery: "confirm" });
+	send({
+		type: "supervisor_arm",
+		mode: "observe",
+		delivery: "confirm",
+		strategy: "validation",
+		note: "只验证已有漏洞",
+	});
 	const refused = await waitFor((message) => message.type === "error" && message.message.includes("停止"));
 	expect(refused.type).toBe("error");
 }, 30000);

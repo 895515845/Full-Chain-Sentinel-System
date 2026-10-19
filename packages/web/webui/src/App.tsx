@@ -443,6 +443,9 @@ export function App() {
 		errorStreak: 3,
 		timeoutMs: 180000,
 		redactSecrets: true,
+		defaultStrategy: "steady",
+		customStrategies: [],
+		defaultCustomStrategyId: null,
 	});
 	const [supervisorWindowOpen, setSupervisorWindowOpen] = useState(false);
 	/** Episodes since this console opened the conversation; the view carries the state, not the history. */
@@ -2292,8 +2295,18 @@ export function App() {
 									supervisor={supervisor}
 									supervisorEnabled={supervisorConfig.enabled}
 									supervisorWindowOpen={supervisorWindowOpen}
-									onArmSupervisor={(mode, delivery) => {
-										send({ type: "supervisor_arm", mode, delivery });
+									supervisorDefaultStrategy={supervisorConfig.defaultStrategy}
+									supervisorDefaultCustomStrategyId={supervisorConfig.defaultCustomStrategyId}
+									supervisorCustomStrategies={supervisorConfig.customStrategies}
+									onArmSupervisor={(mode, delivery, strategy, customStrategyId, note) => {
+										send({
+											type: "supervisor_arm",
+											mode,
+											delivery,
+											strategy,
+											customStrategyId,
+											note,
+										});
 										setSupervisorWindowOpen(true);
 									}}
 									onShowSupervisorWindow={showSupervisorWindow}
@@ -2424,6 +2437,7 @@ export function App() {
 						page={supervisorAudit}
 						detail={supervisorDetail}
 						projects={projects}
+						customStrategies={supervisorConfig.customStrategies}
 						onQuery={(query) => {
 							setSupervisorDetail(null);
 							send({ type: "supervisor_audit", ...query });
@@ -3100,6 +3114,10 @@ export function App() {
 					onStop={() => send({ type: "supervisor_stop" })}
 					onRunNow={() => send({ type: "supervisor_run_now" })}
 					onSetMode={(mode, delivery) => send({ type: "supervisor_set_mode", mode, delivery })}
+					onSetStrategy={(strategy, customStrategyId, note) =>
+						send({ type: "supervisor_set_strategy", strategy, customStrategyId, note })
+					}
+					customStrategies={supervisorConfig.customStrategies}
 					onOpenCall={(callId) => send({ type: "supervisor_call_output", callId })}
 					onSendAdvice={(id) => send({ type: "supervisor_advice_action", id, action: "send" })}
 					onIgnoreAdvice={(id) => send({ type: "supervisor_advice_action", id, action: "ignore" })}

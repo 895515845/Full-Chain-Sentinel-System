@@ -790,6 +790,14 @@ export async function startSentinelServer(
 	const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
+		// Swagger UI is rendered inside a sandboxed srcdoc iframe (opaque origin), so
+		// that iframe cannot present the gate/session cookies. These two paths are
+		// the generic reader library only — no console data — and must stay reachable
+		// or the API document pane renders blank.
+		if (path.startsWith("/assets/swagger-ui-")) {
+			serveStatic(webuiDistDir(), path, response);
+			return;
+		}
 		// The gate answers before anything else — before the auth endpoints too, so a
 		// scanner that does not know the entry URL never learns that a console, or its
 		// first-run setup flow, is here at all.
@@ -2470,7 +2478,13 @@ export async function startSentinelServer(
 					});
 					return;
 				case "supervisor_arm": {
-					const view = runtime.armSupervisor(message.mode, message.delivery);
+					const view = runtime.armSupervisor(
+						message.mode,
+						message.delivery,
+						message.strategy,
+						message.note,
+						message.customStrategyId,
+					);
 					broadcast({ type: "supervisor_state", supervisor: view });
 					return;
 				}
@@ -2481,6 +2495,11 @@ export async function startSentinelServer(
 				}
 				case "supervisor_set_mode": {
 					const view = runtime.setSupervisorMode(message.mode, message.delivery);
+					broadcast({ type: "supervisor_state", supervisor: view });
+					return;
+				}
+				case "supervisor_set_strategy": {
+					const view = runtime.setSupervisorStrategy(message.strategy, message.note, message.customStrategyId);
 					broadcast({ type: "supervisor_state", supervisor: view });
 					return;
 				}
@@ -2517,6 +2536,8 @@ export async function startSentinelServer(
 							search: message.search,
 							mode: message.mode,
 							progress: message.progress,
+							strategy: message.strategy,
+							customStrategyId: message.customStrategyId,
 						}),
 					} satisfies SentinelServerMessage);
 					return;

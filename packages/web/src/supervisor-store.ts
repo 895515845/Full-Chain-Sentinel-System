@@ -21,6 +21,7 @@ import type {
 	SentinelSupervisorMode,
 	SentinelSupervisorProgress,
 	SentinelSupervisorStatus,
+	SentinelSupervisorStrategy,
 } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
@@ -37,6 +38,11 @@ CREATE TABLE IF NOT EXISTS supervisor_sessions (
   project_name TEXT,
   mode TEXT NOT NULL,
   delivery TEXT NOT NULL,
+  strategy TEXT NOT NULL DEFAULT 'steady',
+  strategy_custom_id TEXT,
+  strategy_name TEXT NOT NULL DEFAULT '',
+  strategy_instructions TEXT NOT NULL DEFAULT '',
+  strategy_note TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   armed_at INTEGER NOT NULL,
   started_at INTEGER,
@@ -105,6 +111,11 @@ interface SessionRow {
 	project_name: string | null;
 	mode: string;
 	delivery: string;
+	strategy: string;
+	strategy_custom_id: string | null;
+	strategy_name: string;
+	strategy_instructions: string;
+	strategy_note: string;
 	status: string;
 	armed_at: number;
 	started_at: number | null;
@@ -147,6 +158,10 @@ function num(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function assertStrategy(value: string): SentinelSupervisorStrategy {
+	return value === "validation" || value === "offensive" || value === "stealth" ? value : "steady";
+}
+
 function auditItem(row: SessionRow): SentinelSupervisorAuditItem {
 	return {
 		sessionId: row.session_id,
@@ -156,6 +171,11 @@ function auditItem(row: SessionRow): SentinelSupervisorAuditItem {
 		projectName: row.project_name,
 		mode: row.mode === "intervene" ? "intervene" : "observe",
 		delivery: row.delivery === "auto" ? "auto" : "confirm",
+		strategy: assertStrategy(row.strategy),
+		strategyCustomId: row.strategy_custom_id,
+		strategyName: row.strategy_name,
+		strategyInstructions: row.strategy_instructions ?? "",
+		strategyNote: row.strategy_note ?? "",
 		status: (["waiting", "running", "stopped", "error"] as const).includes(row.status as SentinelSupervisorStatus)
 			? (row.status as SentinelSupervisorStatus)
 			: "error",
@@ -214,6 +234,14 @@ export interface SupervisorAuditQuery {
 	search?: string;
 	mode?: SentinelSupervisorMode;
 	progress?: SentinelSupervisorProgress;
+	strategy?: SentinelSupervisorStrategy;
+	customStrategyId?: string;
+}
+
+function ensureColumn(db: SqliteDatabase, table: string, column: string, definition: string): void {
+	const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name?: string }>;
+	if (columns.some((entry) => entry.name === column)) return;
+	db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export class SupervisorStore {
@@ -223,16 +251,23 @@ export class SupervisorStore {
 		mkdirSync(dirname(path), { recursive: true });
 		this.db = openSqliteDatabase(path);
 		this.db.exec(SCHEMA);
+		// Existing supervisor.db files predate the strategy columns.
+		ensureColumn(this.db, "supervisor_sessions", "strategy", "TEXT NOT NULL DEFAULT 'steady'");
+		ensureColumn(this.db, "supervisor_sessions", "strategy_custom_id", "TEXT");
+		ensureColumn(this.db, "supervisor_sessions", "strategy_name", "TEXT NOT NULL DEFAULT ''");
+		ensureColumn(this.db, "supervisor_sessions", "strategy_instructions", "TEXT NOT NULL DEFAULT ''");
+		ensureColumn(this.db, "supervisor_sessions", "strategy_note", "TEXT NOT NULL DEFAULT ''");
 	}
 
 	upsertSession(item: SentinelSupervisorAuditItem): void {
 		this.db
 			.prepare(
 				`INSERT INTO supervisor_sessions (
-					session_id, session_path, session_name, project_id, project_name, mode, delivery, status,
-					armed_at, started_at, ended_at, phase, intent, progress, episode_count, call_count,
-					advice_count, tokens_input, tokens_output, tokens_total, last_error, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					session_id, session_path, session_name, project_id, project_name, mode, delivery, strategy,
+					strategy_custom_id, strategy_name, strategy_instructions, strategy_note, status, armed_at,
+					started_at, ended_at, phase, intent, progress, episode_count, call_count, advice_count,
+					tokens_input, tokens_output, tokens_total, last_error, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(session_id) DO UPDATE SET
 					session_path=excluded.session_path,
 					session_name=excluded.session_name,
@@ -240,6 +275,11 @@ export class SupervisorStore {
 					project_name=excluded.project_name,
 					mode=excluded.mode,
 					delivery=excluded.delivery,
+					strategy=excluded.strategy,
+					strategy_custom_id=excluded.strategy_custom_id,
+					strategy_name=excluded.strategy_name,
+					strategy_instructions=excluded.strategy_instructions,
+					strategy_note=excluded.strategy_note,
 					status=excluded.status,
 					armed_at=excluded.armed_at,
 					started_at=excluded.started_at,
@@ -264,6 +304,11 @@ export class SupervisorStore {
 				item.projectName,
 				item.mode,
 				item.delivery,
+				item.strategy,
+				item.strategyCustomId,
+				item.strategyName,
+				item.strategyInstructions,
+				item.strategyNote,
 				item.status,
 				item.armedAt,
 				item.startedAt,
@@ -378,9 +423,9 @@ export class SupervisorStore {
 			values.push(query.projectId);
 		}
 		if (query.search?.trim()) {
-			clauses.push("(session_name LIKE ? OR project_name LIKE ? OR intent LIKE ?)");
+			clauses.push("(session_name LIKE ? OR project_name LIKE ? OR intent LIKE ? OR strategy_name LIKE ?)");
 			const like = `%${query.search.trim()}%`;
-			values.push(like, like, like);
+			values.push(like, like, like, like);
 		}
 		if (query.mode) {
 			clauses.push("mode = ?");
@@ -389,6 +434,14 @@ export class SupervisorStore {
 		if (query.progress) {
 			clauses.push("progress = ?");
 			values.push(query.progress);
+		}
+		if (query.strategy) {
+			clauses.push("strategy = ?");
+			values.push(query.strategy);
+		}
+		if (query.customStrategyId) {
+			clauses.push("strategy_custom_id = ?");
+			values.push(query.customStrategyId);
 		}
 		const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 		const count = this.db.prepare(`SELECT COUNT(*) AS n FROM supervisor_sessions ${where}`).get(...values) as

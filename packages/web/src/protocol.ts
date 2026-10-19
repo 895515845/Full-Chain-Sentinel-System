@@ -951,6 +951,22 @@ export type SentinelEngineEvent = SentinelSubagentEvent;
 /** Two operator-visible modes. Both only observe; intervention never blocks. */
 export type SentinelSupervisorMode = "observe" | "intervene";
 
+/** How the supervisor weights its attention; never relaxes safety rules. */
+export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth";
+
+/** One operator-defined strategy: a named overlay on top of a base preset. */
+export interface SentinelSupervisorCustomStrategy {
+	id: string;
+	name: string;
+	base: SentinelSupervisorStrategy;
+	/** Short line shown in the picker. */
+	description: string;
+	/** Extra focus/advice guidance; cannot relax safety rules. */
+	instructions: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
 /** How a pending intervention is delivered when the mode is intervene. */
 export type SentinelSupervisorDelivery = "auto" | "confirm";
 
@@ -972,6 +988,12 @@ export interface SentinelSupervisorConfig {
 	errorStreak: number;
 	timeoutMs: number;
 	redactSecrets: boolean;
+	/** Default for a new conversation; the operator can override it before arming. */
+	defaultStrategy: SentinelSupervisorStrategy;
+	/** Global operator-defined strategies, available in every project. */
+	customStrategies: SentinelSupervisorCustomStrategy[];
+	/** When set, a new conversation defaults to this custom strategy. */
+	defaultCustomStrategyId: string | null;
 }
 
 /** One endpoint/test pair the supervisor inferred from an episode. */
@@ -1075,6 +1097,11 @@ export interface SentinelSupervisorView {
 	projectName: string | null;
 	mode: SentinelSupervisorMode;
 	delivery: SentinelSupervisorDelivery;
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
 	startedAt: number | null;
@@ -1103,6 +1130,11 @@ export interface SentinelSupervisorAuditItem {
 	projectName: string | null;
 	mode: SentinelSupervisorMode;
 	delivery: SentinelSupervisorDelivery;
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
 	startedAt: number | null;
@@ -1489,6 +1521,11 @@ export type SentinelClientMessage =
 			type: "supervisor_arm";
 			mode: SentinelSupervisorMode;
 			delivery: SentinelSupervisorDelivery;
+			strategy: SentinelSupervisorStrategy;
+			/** Set when the operator picked a saved custom strategy. */
+			customStrategyId?: string | null;
+			/** Optional operator note, capped at 200 characters. */
+			note?: string;
 	  }
 	| { type: "supervisor_stop" }
 	/** Change the per-conversation mode/delivery; applies to the next episode. */
@@ -1496,6 +1533,13 @@ export type SentinelClientMessage =
 			type: "supervisor_set_mode";
 			mode: SentinelSupervisorMode;
 			delivery: SentinelSupervisorDelivery;
+	  }
+	/** Change the per-conversation strategy; applies to the next episode. */
+	| {
+			type: "supervisor_set_strategy";
+			strategy: SentinelSupervisorStrategy;
+			customStrategyId?: string | null;
+			note?: string;
 	  }
 	| { type: "supervisor_run_now" }
 	/** Full output of one call, read from the session file by callId. */
@@ -1508,6 +1552,8 @@ export type SentinelClientMessage =
 			search?: string;
 			mode?: SentinelSupervisorMode;
 			progress?: SentinelSupervisorProgress;
+			strategy?: SentinelSupervisorStrategy;
+			customStrategyId?: string;
 	  }
 	| { type: "supervisor_detail"; sessionId: string }
 	| { type: "supervisor_advice_action"; id: string; action: "send" | "ignore" }

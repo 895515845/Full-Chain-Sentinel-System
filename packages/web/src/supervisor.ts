@@ -18,6 +18,7 @@ import type {
 	SentinelSupervisorAuditPage,
 	SentinelSupervisorCall,
 	SentinelSupervisorConfig,
+	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorDetail,
 	SentinelSupervisorEpisode,
 	SentinelSupervisorLog,
@@ -25,19 +26,21 @@ import type {
 	SentinelSupervisorProgress,
 	SentinelSupervisorState,
 	SentinelSupervisorStatus,
+	SentinelSupervisorStrategy,
 	SentinelSupervisorTested,
 	SentinelSupervisorTrigger,
 	SentinelSupervisorUsage,
 	SentinelSupervisorView,
 	SentinelTestResult,
 } from "./protocol.ts";
-import { readSupervisorConfig } from "./supervisor-config.ts";
+import { isSupervisorStrategy, readSupervisorConfig } from "./supervisor-config.ts";
 import { digestToolCall, type SupervisorDigestInput } from "./supervisor-digest.ts";
 import {
 	buildAdviceText,
 	buildSupervisorInput,
 	buildSupervisorTestInput,
 	parseSupervisorEpisode,
+	SUPERVISOR_STRATEGY_LABELS,
 	SUPERVISOR_SYSTEM_PROMPT,
 } from "./supervisor-prompt.ts";
 import type { SupervisorAuditQuery, SupervisorStore } from "./supervisor-store.ts";
@@ -53,6 +56,11 @@ const MAX_LOGS = 100;
 const MAX_TESTED = 200;
 const MAX_DEAD_ENDS = 200;
 const MAX_EVIDENCE = 50;
+const MAX_STRATEGY_NOTE = 200;
+
+function clipStrategyNote(value: string): string {
+	return value.trim().slice(0, MAX_STRATEGY_NOTE);
+}
 
 export interface SupervisorObservation {
 	record: SentinelSupervisorCall;
@@ -72,6 +80,11 @@ interface PersistedState {
 	status: SentinelSupervisorStatus;
 	mode: SentinelSupervisorMode;
 	delivery: "auto" | "confirm";
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	armedAt: number;
 	startedAt: number | null;
 	endedAt: number | null;
@@ -93,6 +106,11 @@ interface SupervisorSession {
 	projectName: string | null;
 	mode: SentinelSupervisorMode;
 	delivery: "auto" | "confirm";
+	strategy: SentinelSupervisorStrategy;
+	strategyCustomId: string | null;
+	strategyName: string;
+	strategyInstructions: string;
+	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	/** False for a session that was never armed; `view` stays null for those. */
 	armed: boolean;
@@ -215,6 +233,8 @@ function parsePersistedState(value: unknown): Partial<PersistedState> {
 	const progressValue = asString(state?.progress);
 	const modeValue = asString(record.mode);
 	const deliveryValue = asString(record.delivery);
+	const strategyValue = asString(record.strategy);
+	const strategyCustomIdValue = asString(record.strategyCustomId);
 	const statusValue = asString(record.status);
 	return {
 		status: (["waiting", "running", "stopped", "error"] as const).includes(statusValue as SentinelSupervisorStatus)
@@ -222,6 +242,12 @@ function parsePersistedState(value: unknown): Partial<PersistedState> {
 			: undefined,
 		mode: modeValue === "intervene" ? "intervene" : modeValue === "observe" ? "observe" : undefined,
 		delivery: deliveryValue === "auto" ? "auto" : deliveryValue === "confirm" ? "confirm" : undefined,
+		strategy: isSupervisorStrategy(strategyValue) ? strategyValue : undefined,
+		strategyCustomId: strategyCustomIdValue || null,
+		strategyName: typeof record.strategyName === "string" ? record.strategyName.slice(0, 30) : undefined,
+		strategyInstructions:
+			typeof record.strategyInstructions === "string" ? record.strategyInstructions.slice(0, 500) : undefined,
+		strategyNote: typeof record.strategyNote === "string" ? clipStrategyNote(record.strategyNote) : undefined,
 		armedAt: asNumber(record.armedAt) || undefined,
 		startedAt: typeof record.startedAt === "number" ? record.startedAt : null,
 		endedAt: typeof record.endedAt === "number" ? record.endedAt : null,
@@ -411,6 +437,11 @@ export class Supervisor {
 			projectName: input.projectName,
 			mode: persisted.mode ?? "observe",
 			delivery: persisted.delivery ?? "confirm",
+			strategy: persisted.strategy ?? "steady",
+			strategyCustomId: persisted.strategyCustomId ?? null,
+			strategyName: persisted.strategyName ?? SUPERVISOR_STRATEGY_LABELS[persisted.strategy ?? "steady"],
+			strategyInstructions: persisted.strategyInstructions ?? "",
+			strategyNote: persisted.strategyNote ?? "",
 			status: persisted.status ?? "stopped",
 			armed: Object.keys(persisted).length > 0,
 			armedAt: persisted.armedAt ?? Date.now(),
@@ -455,7 +486,14 @@ export class Supervisor {
 		this.sessions.delete(sessionId);
 	}
 
-	arm(sessionId: string, mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
+	arm(
+		sessionId: string,
+		mode: SentinelSupervisorMode,
+		delivery: "auto" | "confirm",
+		strategy: SentinelSupervisorStrategy = "steady",
+		note = "",
+		customStrategy: SentinelSupervisorCustomStrategy | null = null,
+	): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
 		if (session.armed && session.status === "stopped") {
 			throw new Error("本次会话的监督已停止；请在新对话重新开启");
@@ -463,6 +501,11 @@ export class Supervisor {
 		if (this.hasUserMessages(session)) throw new Error("监督只能在开始对话前开启");
 		session.mode = mode;
 		session.delivery = delivery;
+		session.strategy = customStrategy?.base ?? strategy;
+		session.strategyCustomId = customStrategy?.id ?? null;
+		session.strategyName = customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[session.strategy];
+		session.strategyInstructions = customStrategy?.instructions ?? "";
+		session.strategyNote = clipStrategyNote(note);
 		session.status = "waiting";
 		session.armed = true;
 		session.armedAt = Date.now();
@@ -491,7 +534,7 @@ export class Supervisor {
 		this.log(
 			session,
 			"arm",
-			`已开启监督：${mode === "observe" ? "观察模式" : `介入模式（${delivery === "auto" ? "自动发送" : "确认后发送"}）`}`,
+			`已开启监督：${mode === "observe" ? "观察模式" : `介入模式（${delivery === "auto" ? "自动发送" : "确认后发送"}）`} · ${session.strategyName}`,
 		);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
@@ -543,6 +586,26 @@ export class Supervisor {
 			"mode",
 			`切换为${mode === "observe" ? "观察模式" : `介入模式（${delivery === "auto" ? "自动发送" : "确认后发送"}）`}`,
 		);
+		this.emit(session);
+		return this.view(sessionId) as SentinelSupervisorView;
+	}
+
+	setStrategy(
+		sessionId: string,
+		strategy: SentinelSupervisorStrategy,
+		note?: string,
+		customStrategy: SentinelSupervisorCustomStrategy | null = null,
+	): SentinelSupervisorView {
+		const session = this.requireSession(sessionId);
+		if (session.status === "stopped") throw new Error("本次会话的监督已停止");
+		session.strategy = customStrategy?.base ?? strategy;
+		session.strategyCustomId = customStrategy?.id ?? null;
+		session.strategyName = customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[session.strategy];
+		session.strategyInstructions = customStrategy?.instructions ?? "";
+		if (note !== undefined) session.strategyNote = clipStrategyNote(note);
+		this.persist(session);
+		this.upsert(session);
+		this.log(session, "strategy", `监督策略切换为：${session.strategyName}`);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
 	}
@@ -614,6 +677,11 @@ export class Supervisor {
 			projectName: session.projectName,
 			mode: session.mode,
 			delivery: session.delivery,
+			strategy: session.strategy,
+			strategyCustomId: session.strategyCustomId,
+			strategyName: session.strategyName,
+			strategyInstructions: session.strategyInstructions,
+			strategyNote: session.strategyNote,
 			status: session.status,
 			armedAt: session.armedAt,
 			startedAt: session.startedAt,
@@ -813,6 +881,10 @@ export class Supervisor {
 				calls,
 				sessionName: this.view(session.sessionId)?.sessionName ?? "对话",
 				projectName: session.projectName,
+				strategy: session.strategy,
+				strategyName: session.strategyName,
+				strategyInstructions: session.strategyInstructions,
+				strategyNote: session.strategyNote,
 			});
 			const reply = await this.call(resolved.config, input, controller.signal);
 			// The session may have been deleted or stopped while the model answered.
@@ -987,6 +1059,11 @@ export class Supervisor {
 			status: session.status,
 			mode: session.mode,
 			delivery: session.delivery,
+			strategy: session.strategy,
+			strategyCustomId: session.strategyCustomId,
+			strategyName: session.strategyName,
+			strategyInstructions: session.strategyInstructions,
+			strategyNote: session.strategyNote,
 			armedAt: session.armedAt,
 			startedAt: session.startedAt,
 			endedAt: session.endedAt,
@@ -1017,6 +1094,11 @@ export class Supervisor {
 			projectName: session.projectName,
 			mode: session.mode,
 			delivery: session.delivery,
+			strategy: session.strategy,
+			strategyCustomId: session.strategyCustomId,
+			strategyName: session.strategyName,
+			strategyInstructions: session.strategyInstructions,
+			strategyNote: session.strategyNote,
 			status: session.status,
 			armedAt: session.armedAt,
 			startedAt: session.startedAt,

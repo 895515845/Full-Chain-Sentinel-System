@@ -14,6 +14,7 @@ import type {
 	SentinelSupervisorEpisode,
 	SentinelSupervisorProgress,
 	SentinelSupervisorState,
+	SentinelSupervisorStrategy,
 	SentinelSupervisorTested,
 	SentinelSupervisorTrigger,
 } from "./protocol.ts";
@@ -22,6 +23,22 @@ const PHASES = new Set(["recon", "enum", "vuln_mapping", "exploitation", "post",
 
 const MAX_ARRAY = 20;
 const MAX_TEXT = 400;
+const MAX_STRATEGY_NOTE = 200;
+
+export const SUPERVISOR_STRATEGY_LABELS: Record<SentinelSupervisorStrategy, string> = {
+	steady: "稳健交付",
+	validation: "漏洞验证",
+	offensive: "红队推进",
+	stealth: "低噪声",
+};
+
+export const SUPERVISOR_STRATEGY_GUIDANCE: Record<SentinelSupervisorStrategy, string> = {
+	steady: "优先稳妥：先确认授权边界和环境影响；建议以可复现、低影响步骤为主；发现越界、生产写入、破坏性动作立即指出。",
+	validation: "优先验证：围绕已发现漏洞做可复现验证，区分误报；建议补 PoC、对照请求、最小影响证明；避免无目的换目标。",
+	offensive:
+		"优先推进攻击链：关注下一跳、权限提升、横向和可利用路径；仍必须遵守授权与安全规则，不得建议越界或破坏性动作。",
+	stealth: "优先低噪声：避免高频爆破、批量请求和明显扫描；建议被动信息、低速、小样本验证。",
+};
 
 export const SUPERVISOR_SYSTEM_PROMPT = `你是授权渗透测试的监督观察员。你不执行任何工具，也不向操作员发指令；你只根据调用记录和结果摘要，判断这个 Agent 刚才在做什么、有没有进展、下一步该换什么策略。
 
@@ -39,6 +56,7 @@ export const SUPERVISOR_SYSTEM_PROMPT = `你是授权渗透测试的监督观察
 6. 只有你认为需要纠正时才给 advice；观察模式下 advice 不会被发送。
 7. 输出必须是一个 JSON 对象，不要 markdown 代码块，不要额外解释。
 8. 所有数组最多 5 项，每条不超过 80 字；字符串里不要换行，不要留 trailing comma。
+9. 监督策略只调整关注点和建议风格；它不能放宽授权范围、安全规则或破坏性动作限制。策略与安全规则冲突时，安全规则优先。
 
 【输出 JSON】
 {
@@ -132,10 +150,17 @@ export interface SupervisorInput {
 	calls: SentinelSupervisorCall[];
 	sessionName: string;
 	projectName: string | null;
+	strategy: SentinelSupervisorStrategy;
+	/** Display name: a preset label or a saved custom strategy name. */
+	strategyName: string;
+	/** Extra instructions from a saved custom strategy; empty for presets. */
+	strategyInstructions: string;
+	strategyNote: string;
 }
 
 export function buildSupervisorInput(input: SupervisorInput): string {
-	const { state, calls } = input;
+	const { state, calls, strategy } = input;
+	const note = input.strategyNote.trim().slice(0, MAX_STRATEGY_NOTE);
 	const stateLines = [
 		`会话：${input.sessionName}`,
 		`项目：${input.projectName ?? "未选择"}`,
@@ -155,6 +180,13 @@ export function buildSupervisorInput(input: SupervisorInput): string {
 		`上一版建议：${state.nextCandidates.slice(-5).join("；") || "无"}`,
 	];
 	return [
+		"【监督策略】",
+		`策略：${input.strategyName || SUPERVISOR_STRATEGY_LABELS[strategy]}`,
+		`基础预设：${SUPERVISOR_STRATEGY_LABELS[strategy]}`,
+		`关注点：${SUPERVISOR_STRATEGY_GUIDANCE[strategy]}`,
+		...(input.strategyInstructions.trim() ? [`自定义说明：${input.strategyInstructions.trim().slice(0, 500)}`] : []),
+		...(note ? [`操作员补充：${note}`] : []),
+		"",
 		"【状态】",
 		...stateLines,
 		"",
@@ -278,6 +310,10 @@ export function buildSupervisorTestInput(): string {
 		trigger: "manual",
 		sessionName: "监督模型连通性测试",
 		projectName: null,
+		strategy: "steady",
+		strategyName: "稳健交付",
+		strategyInstructions: "",
+		strategyNote: "",
 		state: {
 			phase: "vuln_mapping",
 			intent: "测试 /api/user 的 SQLi",

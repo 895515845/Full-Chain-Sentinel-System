@@ -21,6 +21,11 @@ function item(overrides: Partial<SentinelSupervisorAuditItem> = {}): SentinelSup
 		projectName: "支付网关",
 		mode: "observe",
 		delivery: "confirm",
+		strategy: "steady",
+		strategyCustomId: null,
+		strategyName: "稳健交付",
+		strategyInstructions: "",
+		strategyNote: "",
 		status: "running",
 		armedAt: 1,
 		startedAt: 2,
@@ -95,6 +100,7 @@ function render(withDetail: boolean): string {
 			page={page}
 			detail={withDetail ? detail : null}
 			projects={[{ id: "p1", name: "支付网关", cwd: "/tmp" }]}
+			customStrategies={[]}
 			onQuery={() => {}}
 			onSelect={() => {}}
 			onBack={() => {}}
@@ -108,6 +114,8 @@ describe("SupervisorAuditPage", () => {
 		const html = render(true);
 		expect(html).toContain("全部模式");
 		expect(html).toContain("全部进度");
+		expect(html).toContain("全部预设");
+		expect(html).toContain("稳健交付");
 		expect(html).toContain("监督会话");
 		expect(html).toContain("支付接口复测");
 		expect(html).toContain("12.4k");
