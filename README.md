@@ -293,13 +293,13 @@ https://www.qianwenai.com/models/qwen-flash
 
 在设置->插件,添加即可。
 
-![[Pasted image 20261017233410.png]]
+<img src="images/Pasted%20image%2020261017233410.png" alt="插件中心" width="900" />
 
 ### 如何开发插件？
 
 再开发文档页面，复制全文，直接复制给 AI，然后提需求即可。
 
-![[Pasted image 20261017233500.png]]
+<img src="images/Pasted%20image%2020261017233500.png" alt="插件开发文档" width="900" />
 
 亦可直接参考仓库里面提供的测试插件“memshell-party”
 
