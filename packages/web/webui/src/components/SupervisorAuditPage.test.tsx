@@ -1,14 +1,19 @@
 /**
  * Option A: the audit page is a table-first view. These assertions pin the
- * filters, KPI strip, row content and the right-side detail drawer.
+ * filters, KPI strip, row content and the detail modal.
+ *
+ * The detail opens in the console's own modal shell (Overlay) over the table;
+ * with no selection the table is all there is.
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import type {
+	SentinelSupervisorAdvice,
 	SentinelSupervisorAuditItem,
 	SentinelSupervisorAuditPage,
 	SentinelSupervisorDetail,
+	SentinelSupervisorEpisode,
 } from "../types.ts";
 import { SupervisorAuditPage } from "./SupervisorAuditPage.tsx";
 
@@ -51,47 +56,53 @@ const page: SentinelSupervisorAuditPage = {
 	stats: { total: 1, advancing: 0, stalled: 1, looping: 0, stopped: 0, pendingAdvice: 1 },
 };
 
+const episode = (seq: number): SentinelSupervisorEpisode => ({
+	id: `ep${seq}`,
+	sessionId: "s1",
+	seq,
+	at: 1_700_000_000_000 + seq * 1000,
+	trigger: "batch",
+	phase: "vuln_mapping",
+	intent: `第 ${seq} 轮`,
+	actions: [],
+	outcomes: [],
+	tested: [],
+	deadEnds: ["/api/user?id SQLi"],
+	newEvidence: [],
+	openQuestions: [],
+	nextCandidates: ["转向 IDOR"],
+	duplicateSignals: [],
+	progress: "stalled",
+	confidence: 0.8,
+	advice: null,
+	model: "stub",
+	usage: { input: 10, output: 5, total: 15 },
+	error: null,
+	durationMs: 100,
+});
+
+const advice = (seq: number): SentinelSupervisorAdvice => ({
+	id: `a${seq}`,
+	sessionId: "s1",
+	episodeId: `ep${seq}`,
+	at: 1_700_000_000_000 + seq * 1000,
+	delivery: "confirm",
+	status: "pending",
+	text: `建议 ${seq}`,
+	sentAt: null,
+});
+
 const detail: SentinelSupervisorDetail = {
 	session: item(),
-	episodes: [
-		{
-			id: "ep1",
-			sessionId: "s1",
-			seq: 1,
-			at: 1_700_000_000_000,
-			trigger: "batch",
-			phase: "vuln_mapping",
-			intent: "SQLi 无差异",
-			actions: [],
-			outcomes: [],
-			tested: [],
-			deadEnds: ["/api/user?id SQLi"],
-			newEvidence: [],
-			openQuestions: [],
-			nextCandidates: ["转向 IDOR"],
-			duplicateSignals: [],
-			progress: "stalled",
-			confidence: 0.8,
-			advice: null,
-			model: "stub",
-			usage: { input: 10, output: 5, total: 15 },
-			error: null,
-			durationMs: 100,
-		},
-	],
-	logs: [{ at: 1_700_000_000_000, kind: "episode", text: "episode 完成" }],
-	advice: [
-		{
-			id: "a1",
-			sessionId: "s1",
-			episodeId: "ep1",
-			at: 1_700_000_000_000,
-			delivery: "confirm",
-			status: "pending",
-			text: "停止 SQLi",
-			sentAt: null,
-		},
-	],
+	// A page holds three episodes and three advice, twenty log lines: seven
+	// episodes make three pages, the others two, so each pager differs.
+	episodes: [1, 2, 3, 4, 5, 6, 7].map(episode),
+	logs: Array.from({ length: 21 }, (_, index) => ({
+		at: 1_700_000_000_000 + index * 1000,
+		kind: "episode" as const,
+		text: `episode 完成 ${index + 1}`,
+	})),
+	advice: [1, 2, 3, 4].map(advice),
 };
 
 function render(withDetail: boolean): string {
@@ -110,7 +121,7 @@ function render(withDetail: boolean): string {
 }
 
 describe("SupervisorAuditPage", () => {
-	test("renders filters, stats, the table and a detail drawer", () => {
+	test("renders filters, stats, the table and a detail modal", () => {
 		const html = render(true);
 		expect(html).toContain("全部模式");
 		expect(html).toContain("全部进度");
@@ -120,14 +131,47 @@ describe("SupervisorAuditPage", () => {
 		expect(html).toContain("支付接口复测");
 		expect(html).toContain("12.4k");
 		expect(html).toContain("待确认建议");
+		expect(html).toContain("已停止");
 		expect(html).toContain("Episode");
 		expect(html).toContain("episode 完成");
 		expect(html).toContain("打开会话");
+		expect(html).toContain("modal-backdrop");
 	});
 
-	test("without a selection the table is shown without a drawer", () => {
+	test("the row carries the session status, its mode and a localized trigger", () => {
+		const html = render(true);
+		expect(html).toContain("监督中");
+		expect(html).toContain("观察");
+		expect(html).toContain("批量触发");
+		expect(html).toContain("停滞");
+	});
+
+	test("every column counts its entries and pages on its own", () => {
+		const html = render(true);
+		expect(html).toContain("Episode <span class=\"sva-count\">7</span>");
+		expect(html).toContain("建议 <span class=\"sva-count\">4</span>");
+		expect(html).toContain("日志 <span class=\"sva-count\">21</span>");
+		// Episodes page three at a time, advice and logs page two times.
+		expect(html).toContain("1 / 3");
+		expect(html).toContain("1 / 2");
+		// The first page only, not the whole list.
+		expect(html).toContain("第 3 轮");
+		expect(html).not.toContain("第 4 轮");
+	});
+
+	test("an advice states its status in a badge, not in a coloured border", () => {
+		const html = render(true);
+		// The card keeps one neutral border; the state rides on a badge, the way
+		// a gate row states its verdict.
+		expect(html).toContain('class="sva-advice pending"');
+		expect(html).toContain('class="sva-advice-status sva-flag warn"');
+		expect(html).toContain("待确认");
+	});
+
+	test("without a selection there is no modal, only the table", () => {
 		const html = render(false);
 		expect(html).toContain("支付接口复测");
 		expect(html).not.toContain("打开会话");
+		expect(html).not.toContain("modal-backdrop");
 	});
 });

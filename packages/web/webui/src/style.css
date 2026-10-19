@@ -5556,6 +5556,11 @@ button.link {
 	color: var(--dim);
 }
 
+/* A level no reviewer has ruled on: the agent's own guess, marked as such. */
+.vuln-cvss-self {
+	color: var(--faint);
+}
+
 /* Severity and CVSS disagree: a warning, never a block. */
 .vuln-warn {
 	margin-left: 6px;
@@ -13859,584 +13864,6 @@ button.link {
 	opacity: 0.55;
 }
 
-/* ---------- Ops Table audit page (option A) ---------- */
-.sva-page {
-	display: flex;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
-	flex-direction: column;
-	padding: var(--gutter);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--card);
-}
-
-.sva-head-actions button {
-	height: 28px;
-	padding: 0 10px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--card);
-	color: var(--dim);
-	font-size: 11.5px;
-	cursor: pointer;
-}
-
-.sva-head-actions button:hover {
-	border-color: var(--accent);
-	color: var(--accent);
-}
-
-.sva-body {
-	flex-direction: row;
-	gap: 0;
-	min-height: 0;
-	overflow: hidden;
-	padding-top: 12px;
-}
-
-.sva-content {
-	flex: 1;
-	min-width: 0;
-	overflow: auto;
-	padding-right: 12px;
-}
-
-.sva-filters {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	flex-wrap: wrap;
-	margin-bottom: 9px;
-}
-
-.sva-filters select,
-.sva-filters input {
-	height: 29px;
-	padding: 0 8px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--card);
-	color: var(--text);
-	font-size: 11.5px;
-}
-
-.sva-filters input {
-	min-width: 210px;
-	flex: 1;
-}
-
-.sva-filters button {
-	height: 29px;
-	padding: 0 10px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--card);
-	color: var(--text);
-	font-size: 11.5px;
-	cursor: pointer;
-}
-
-.sva-filters button.primary {
-	border-color: var(--accent);
-	background: var(--accent);
-	color: #fff;
-}
-
-.sva-kpis {
-	display: grid;
-	grid-template-columns: repeat(5, minmax(0, 1fr));
-	gap: 8px;
-	margin-bottom: 10px;
-}
-
-.sva-kpi {
-	padding: 9px 10px;
-	border: 1px solid var(--border);
-	border-radius: 7px;
-	background: var(--card);
-}
-
-.sva-kpi b {
-	display: block;
-	color: var(--text-bright);
-	font-family: var(--mono);
-	font-size: 18px;
-	font-weight: 500;
-	line-height: 1.15;
-}
-
-.sva-kpi span {
-	color: var(--faint);
-	font-size: 10px;
-}
-
-.sva-kpi.ok b {
-	color: var(--ok);
-}
-
-.sva-kpi.warn b {
-	color: var(--warn);
-}
-
-.sva-kpi.bad b {
-	color: var(--danger);
-}
-
-.sva-table-wrap {
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	background: var(--card);
-}
-
-.sva-table {
-	width: 100%;
-	border-collapse: collapse;
-	table-layout: fixed;
-}
-
-.sva-table th {
-	padding: 8px 9px;
-	border-bottom: 1px solid var(--border);
-	background: var(--raised);
-	color: var(--dim);
-	font-size: 10px;
-	font-weight: 500;
-	text-align: left;
-	white-space: nowrap;
-}
-
-.sva-table th:nth-child(1) {
-	width: 74px;
-}
-
-.sva-table th:nth-child(2) {
-	width: 22%;
-}
-
-.sva-table th:nth-child(3) {
-	width: 78px;
-}
-
-.sva-table th:nth-child(4) {
-	width: 64px;
-}
-
-.sva-table th:nth-child(5) {
-	width: 66px;
-}
-
-.sva-table th:nth-child(6) {
-	width: 76px;
-}
-
-.sva-table th:nth-child(7) {
-	width: 48px;
-}
-
-.sva-table th:nth-child(8) {
-	width: 62px;
-}
-
-.sva-table td {
-	padding: 8px 9px;
-	border-bottom: 1px solid var(--border);
-	color: var(--text);
-	font-size: 10.5px;
-	vertical-align: middle;
-}
-
-.sva-table tbody tr:last-child td {
-	border-bottom: 0;
-}
-
-.sva-table tbody tr {
-	cursor: pointer;
-}
-
-.sva-table tbody tr:hover {
-	background: var(--raised);
-}
-
-.sva-table tbody tr.selected {
-	background: var(--accent-dim);
-}
-
-.sva-table tbody tr:focus-visible {
-	outline: 2px solid var(--accent-ring);
-	outline-offset: -2px;
-}
-
-.sva-status {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	white-space: nowrap;
-}
-
-.sva-dot {
-	display: inline-block;
-	width: 6px;
-	height: 6px;
-	flex: none;
-	border-radius: 50%;
-	background: var(--faint);
-}
-
-.sva-dot.ok {
-	background: var(--ok);
-}
-
-.sva-dot.warn {
-	background: var(--warn);
-}
-
-.sva-dot.bad {
-	background: var(--danger);
-}
-
-.sva-session {
-	min-width: 0;
-}
-
-.sva-session b {
-	display: block;
-	overflow: hidden;
-	color: var(--text-bright);
-	font-size: 11px;
-	font-weight: 500;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.sva-session span {
-	display: block;
-	overflow: hidden;
-	margin-top: 1px;
-	color: var(--faint);
-	font-size: 9.5px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.sva-pill {
-	display: inline-flex;
-	align-items: center;
-	max-width: 100%;
-	height: 18px;
-	overflow: hidden;
-	padding: 0 6px;
-	border-radius: 9px;
-	background: var(--raised);
-	color: var(--dim);
-	font-size: 9.5px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.sva-pill.ok {
-	background: var(--ok-dim);
-	color: var(--ok);
-}
-
-.sva-pill.warn {
-	background: var(--warn-dim);
-	color: var(--warn);
-}
-
-.sva-pill.bad {
-	background: var(--danger-dim);
-	color: var(--danger);
-}
-
-.sva-mono {
-	color: var(--dim) !important;
-	font-family: var(--mono);
-	font-size: 9.5px !important;
-}
-
-.sva-faint {
-	color: var(--faint);
-}
-
-.sva-time {
-	color: var(--faint) !important;
-	font-size: 9.5px !important;
-	white-space: nowrap;
-}
-
-.sva-advice-count {
-	display: inline-flex;
-	min-width: 17px;
-	height: 17px;
-	align-items: center;
-	justify-content: center;
-	padding: 0 4px;
-	border-radius: 8px;
-	background: var(--warn-dim);
-	color: var(--warn);
-	font-size: 9px;
-}
-
-.sva-table-foot {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 8px 9px;
-	border-top: 1px solid var(--border);
-	color: var(--faint);
-	font-size: 10px;
-}
-
-.sva-pager {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-
-.sva-pager button {
-	height: 24px;
-	padding: 0 7px;
-	border: 1px solid var(--border);
-	border-radius: 4px;
-	background: var(--card);
-	color: var(--dim);
-	font-size: 10px;
-	cursor: pointer;
-}
-
-.sva-pager button:disabled {
-	cursor: not-allowed;
-	opacity: 0.5;
-}
-
-.sva-empty {
-	margin: 8px 0;
-	color: var(--faint);
-	font-size: 11.5px;
-}
-
-.sva-drawer {
-	flex: none;
-	width: 360px;
-	overflow: auto;
-	border-left: 1px solid var(--border);
-	background: var(--card);
-}
-
-.sva-drawer-head {
-	display: flex;
-	align-items: flex-start;
-	gap: 8px;
-	padding: 12px 13px;
-	border-bottom: 1px solid var(--border);
-}
-
-.sva-drawer-head > div {
-	min-width: 0;
-	flex: 1;
-}
-
-.sva-drawer-head h3 {
-	overflow: hidden;
-	margin: 0;
-	color: var(--text-bright);
-	font-size: 12px;
-	font-weight: 600;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.sva-drawer-head p {
-	margin-top: 2px;
-	color: var(--faint);
-	font-size: 9.5px;
-}
-
-.sva-drawer-head > button {
-	height: 22px;
-	padding: 0 6px;
-	border: 0;
-	background: transparent;
-	color: var(--faint);
-	font-size: 16px;
-	line-height: 1;
-	cursor: pointer;
-}
-
-.sva-drawer-body {
-	padding: 11px 13px 14px;
-}
-
-.sva-meta-grid {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 6px;
-}
-
-.sva-meta-grid > div {
-	padding: 6px 7px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--raised);
-}
-
-.sva-meta-grid b {
-	display: block;
-	color: var(--text-bright);
-	font-family: var(--mono);
-	font-size: 11px;
-	font-weight: 500;
-}
-
-.sva-meta-grid span {
-	color: var(--faint);
-	font-size: 9px;
-}
-
-.sva-drawer-intent {
-	margin: 9px 0 0;
-	color: var(--text);
-	font-size: 10.5px;
-	line-height: 1.5;
-}
-
-.sva-drawer-error {
-	margin: 7px 0 0;
-	color: var(--danger);
-	font-size: 10px;
-}
-
-.sva-drawer-note {
-	margin: 7px 0 0;
-	padding: 5px 7px;
-	border-radius: 4px;
-	background: var(--raised);
-	color: var(--dim);
-	font-size: 9.5px;
-	line-height: 1.45;
-}
-
-.sva-drawer-section {
-	margin-top: 12px;
-}
-
-.sva-drawer-section > h4 {
-	margin: 0 0 5px;
-	color: var(--dim);
-	font-size: 10px;
-	font-weight: 500;
-}
-
-.sva-episode,
-.sva-advice {
-	margin-bottom: 6px;
-	padding: 7px 8px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--card);
-}
-
-.sva-episode-head,
-.sva-advice-head {
-	display: flex;
-	align-items: center;
-	gap: 5px;
-	flex-wrap: wrap;
-	color: var(--faint);
-	font-size: 9px;
-}
-
-.sva-episode-trigger {
-	margin-left: auto;
-	font-family: var(--mono);
-}
-
-.sva-episode p {
-	margin: 4px 0 0;
-	color: var(--text);
-	font-size: 10px;
-	line-height: 1.45;
-}
-
-.sva-episode ul {
-	margin: 3px 0 0;
-	padding-left: 15px;
-	color: var(--dim);
-	font-size: 9.5px;
-	line-height: 1.45;
-}
-
-.sva-episode .sva-dead {
-	color: var(--danger);
-}
-
-.sva-episode .sva-next {
-	color: var(--accent);
-}
-
-.sva-advice.pending {
-	border-color: var(--warn);
-}
-
-.sva-advice pre {
-	margin: 4px 0 0;
-	color: var(--text);
-	font-family: var(--sans);
-	font-size: 10px;
-	line-height: 1.45;
-	white-space: pre-wrap;
-}
-
-.sva-log {
-	max-height: 180px;
-	overflow: auto;
-	padding: 5px 6px;
-	border: 1px solid var(--border);
-	border-radius: 5px;
-	background: var(--raised);
-	font-family: var(--mono);
-	font-size: 9px;
-	line-height: 1.5;
-}
-
-.sva-log .sv-log__line {
-	grid-template-columns: 82px minmax(0, 1fr);
-	gap: 5px;
-}
-
-.sva-open-session {
-	width: 100%;
-	height: 28px;
-	margin-top: 12px;
-	border: 1px solid var(--accent);
-	border-radius: 5px;
-	background: var(--accent);
-	color: #fff;
-	font-size: 11px;
-	cursor: pointer;
-}
-
-@media (max-width: 1100px) {
-	.sva-body {
-		flex-direction: column;
-	}
-
-	.sva-content {
-		padding-right: 0;
-	}
-
-	.sva-drawer {
-		width: 100%;
-		max-height: 46%;
-		border-top: 1px solid var(--border);
-		border-left: 0;
-	}
-}
-
 /* ---------- Supervisor visual alignment ----------
    The supervisor surfaces were first built on a 9–10px scale, which made them
    look like a different product. Keep them on the console's 12–13px body scale
@@ -14590,109 +14017,6 @@ button.link {
 
 .svb .sv-advice pre {
 	font-size: 11.5px;
-}
-
-.sva-filters select,
-.sva-filters input,
-.sva-filters button {
-	height: 30px;
-	font-size: 12px;
-}
-
-.sva-kpi b {
-	font-size: 20px;
-}
-
-.sva-kpi span {
-	font-size: 11px;
-}
-
-.sva-table th {
-	padding: 8px 9px;
-	font-size: 11px;
-}
-
-.sva-table td {
-	padding: 9px;
-	font-size: 12px;
-}
-
-.sva-session b {
-	font-size: 12px;
-}
-
-.sva-session span {
-	font-size: 10.5px;
-}
-
-.sva-pill {
-	height: 19px;
-	font-size: 10.5px;
-}
-
-.sva-mono {
-	font-size: 11px !important;
-}
-
-.sva-time {
-	font-size: 10.5px !important;
-}
-
-.sva-table-foot {
-	font-size: 11px;
-}
-
-.sva-pager button {
-	height: 26px;
-	font-size: 11px;
-}
-
-.sva-drawer-head h3 {
-	font-size: 13px;
-}
-
-.sva-drawer-head p {
-	font-size: 10.5px;
-}
-
-.sva-meta-grid b {
-	font-size: 12px;
-}
-
-.sva-meta-grid span {
-	font-size: 10px;
-}
-
-.sva-drawer-intent,
-.sva-drawer-note {
-	font-size: 11.5px;
-}
-
-.sva-drawer-section > h4 {
-	font-size: 11px;
-}
-
-.sva-episode-head,
-.sva-advice-head {
-	font-size: 10px;
-}
-
-.sva-episode p,
-.sva-advice pre {
-	font-size: 11px;
-}
-
-.sva-episode ul {
-	font-size: 10.5px;
-}
-
-.sva-log {
-	font-size: 10px;
-}
-
-.sva-open-session {
-	height: 30px;
-	font-size: 12px;
 }
 
 .composer-supervisor-menu {
@@ -15267,9 +14591,41 @@ button.link {
 	font-size: 12px;
 }
 
-/* Supervisor audit page follows the gate-audit page pattern: labeled 28px
-   filters, a one-line summary strip, and the same 12px table density. */
+/* ---------- Supervisor audit page ----------
+   The audit page follows the gate-audit page pattern: labeled 28px filters,
+   a one-line summary strip, a 12px dense table and a pinned inspector on the
+   right edge.
+
+   The inspector column is always reserved, so opening a row does not reflow
+   the table; below 1200px it turns into a bottom sheet that only appears when
+   a row is selected. */
+
+.sva-page {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+}
+
+.sva-body {
+	min-height: 0;
+	overflow: hidden;
+	padding-top: 12px;
+}
+
+.sva-content {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* Filters: house pattern (28px controls, 11px labels). */
 .sva-filters {
+	flex: none;
 	align-items: flex-end;
 	gap: 8px;
 	margin-bottom: 10px;
@@ -15296,8 +14652,14 @@ button.link {
 	outline: none;
 }
 
+.sva-filters select:focus,
+.sva-filters input:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
 .sva-filters .sva-search {
-	flex: 1;
+	flex: 0 1 320px;
 	min-width: 220px;
 }
 
@@ -15311,6 +14673,7 @@ button.link {
 	font-size: 12px;
 }
 
+/* Summary strip: the same component the gate-audit page uses. */
 .sva-summary {
 	flex: none;
 	margin-bottom: 10px;
@@ -15328,13 +14691,22 @@ button.link {
 	color: var(--danger);
 }
 
-.sva-table-wrap {
+/* The table scrolls in its own box so the header can stick to its top edge. */
+.sva-table-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	border: 1px solid var(--border);
 	border-radius: var(--radius);
+	background: var(--card);
 }
 
 .sva-table {
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
+	width: 100%;
+	min-width: 800px;
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
 	font-size: 12px;
 }
 
@@ -15348,40 +14720,496 @@ button.link {
 	color: var(--dim);
 	font-size: 12px;
 	font-weight: 500;
+	text-align: left;
+	white-space: nowrap;
+}
+
+.sva-table th:nth-child(1) {
+	width: 76px;
+}
+
+.sva-table th:nth-child(2) {
+	width: 24%;
+}
+
+.sva-table th:nth-child(3) {
+	width: 68px;
+}
+
+.sva-table th:nth-child(4) {
+	width: 68px;
+}
+
+.sva-table th:nth-child(5) {
+	width: 84px;
+}
+
+.sva-table th:nth-child(6) {
+	width: 104px;
+}
+
+.sva-table th:nth-child(7) {
+	width: 54px;
+}
+
+.sva-table th:nth-child(8) {
+	width: 68px;
+}
+
+.sva-table th:nth-child(9) {
+	width: 100px;
 }
 
 .sva-table td {
 	padding: 7px 10px;
+	border-bottom: 1px solid var(--border);
+	color: var(--text);
 	font-size: 12px;
+	vertical-align: middle;
 }
 
-.sva-table th:first-child {
-	border-top-left-radius: var(--radius);
+.sva-table tbody tr:last-child td {
+	border-bottom: 0;
 }
 
-.sva-table th:last-child {
-	border-top-right-radius: var(--radius);
+.sva-table tbody tr {
+	cursor: pointer;
+}
+
+.sva-table tbody tr:hover td {
+	background: var(--accent-dim);
+}
+
+.sva-table tbody tr.selected td {
+	background: var(--accent-dim);
+}
+
+.sva-table tbody tr:focus-visible {
+	outline: 2px solid var(--accent-ring);
+	outline-offset: -2px;
+}
+
+.sva-status-cell {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+}
+
+.sva-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	white-space: nowrap;
+}
+
+.sva-status-mode {
+	color: var(--dim);
+	font-size: 10.5px;
+	white-space: nowrap;
+}
+
+.sva-dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--faint);
+}
+
+.sva-dot.ok {
+	background: var(--ok);
+}
+
+.sva-dot.warn {
+	background: var(--warn);
+}
+
+.sva-dot.bad {
+	background: var(--danger);
+}
+
+.sva-session {
+	min-width: 0;
+}
+
+.sva-session b {
+	display: block;
+	overflow: hidden;
+	color: var(--text-bright);
+	font-size: 12px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sva-session span {
+	display: block;
+	overflow: hidden;
+	margin-top: 1px;
+	color: var(--dim);
+	font-size: 10.5px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Table badges follow the .tag / .gate-badge family: 3px radius, 11px, an
+   18px line box. The modal's own small flags use .sva-flag instead. */
+.sva-pill {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	height: 18px;
+	overflow: hidden;
+	padding: 0 6px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sva-flag {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	height: 18px;
+	overflow: hidden;
+	padding: 0 7px;
+	border-radius: 9px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sva-pill.ok,
+.sva-flag.ok {
+	background: var(--ok-dim);
+	color: var(--ok);
+}
+
+.sva-pill.warn,
+.sva-flag.warn {
+	background: var(--warn-dim);
+	color: var(--warn);
+}
+
+.sva-pill.bad,
+.sva-flag.bad {
+	background: var(--danger-dim);
+	color: var(--danger);
+}
+
+.sva-mono {
+	color: var(--dim) !important;
+	font-family: var(--mono);
+	font-size: 11px !important;
+}
+
+.sva-faint {
+	color: var(--faint);
+}
+
+.sva-time {
+	color: var(--dim) !important;
+	font-family: var(--mono);
+	font-size: 11px !important;
+	white-space: nowrap;
+}
+
+.sva-advice-count {
+	display: inline-flex;
+	min-width: 18px;
+	height: 18px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 5px;
+	border-radius: 3px;
+	background: var(--warn-dim);
+	color: var(--warn);
+	font-size: 11px;
+	font-weight: 500;
 }
 
 .sva-table-foot {
-	padding: 9px 0 0;
-	border-top: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	flex: none;
+	padding: 9px 2px 0;
+	color: var(--dim);
 	font-size: 12px;
 }
 
+.sva-pager {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
 .sva-pager button {
-	height: auto;
 	padding: 3px 10px;
 	border-radius: var(--radius);
 	font-size: 12px;
+}
+
+.sva-pager button:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
 }
 
 .sva-pager span {
 	font-size: 12px;
 }
 
-.sva-table-wrap {
-	border: 0;
-	border-radius: 0;
+.sva-empty {
+	margin: 8px 0;
+	color: var(--dim);
+	font-size: 12px;
+}
+
+/* Detail modal: the console's own modal shell (Overlay) carries the chrome,
+   so only the content layout is ours — a one-line metric strip plus three
+   columns that scroll and page on their own. The columns are what scroll:
+   the modal body never does, so the metric strip and the column headers stay
+   put however long the episode list gets. */
+.sva-modal {
+	height: auto;
+	max-height: min(84vh, 780px);
+}
+
+.sva-modal .modal__body {
+	overflow: hidden;
+}
+
+.sva-meta-inline {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 3px 16px;
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.sva-meta-inline b {
+	color: var(--text-bright);
+	font-weight: 600;
+}
+
+.sva-modal-cols {
+	display: grid;
+	flex: 1;
+	min-height: 0;
+	grid-template-columns: 1.4fr 1fr 1fr;
+	grid-template-rows: minmax(0, 1fr);
+	gap: 18px;
+	margin-top: 14px;
+}
+
+/* The intent line is the one thing the supervisor still wants to do. It reads
+   as a highlighted quote: the same box the floating window uses (.svb-intent)
+   with an accent edge on the left. */
+.sva-intent {
+	margin: 10px 0 0;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-left: 2px solid var(--accent-border);
+	border-radius: 7px;
+	background: var(--raised);
+	color: var(--text);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.sva-error {
+	margin: 8px 0 0;
+	padding: 7px 9px;
+	border-radius: var(--radius);
+	background: var(--danger-dim);
+	color: var(--danger);
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.sva-note {
+	margin: 7px 0 0;
+	padding: 6px 8px;
+	border-radius: var(--radius);
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.sva-section {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+	margin: 0;
+}
+
+.sva-section > h4 {
+	flex: none;
+	margin: 0 0 6px;
+	color: var(--dim);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.sva-count {
+	color: var(--faint);
+	font-family: var(--mono);
+	font-size: 11px;
+	font-weight: 400;
+}
+
+.sva-col-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding-right: 2px;
+}
+
+/* The column scrolls; the log must not scroll inside it. It keeps its own box
+   so the third column reads like the other two. */
+.sva-col-scroll .sva-log {
+	max-height: none;
 	overflow: visible;
+}
+
+.sva-col-pager {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding-top: 7px;
+	border-top: 1px solid var(--border);
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.sva-col-pager button {
+	padding: 3px 10px;
+	border-radius: var(--radius);
+	font-size: 12px;
+	line-height: 1;
+}
+
+.sva-episode,
+.sva-advice {
+	margin-bottom: 6px;
+	padding: 8px 9px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.sva-episode-head,
+.sva-advice-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.sva-episode-phase {
+	color: var(--dim);
+}
+
+.sva-episode-trigger {
+	margin-left: auto;
+	color: var(--dim);
+}
+
+.sva-episode p {
+	margin: 5px 0 0;
+	color: var(--text);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.sva-episode ul {
+	margin: 4px 0 0;
+	padding-left: 16px;
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 1.55;
+}
+
+.sva-episode .sva-dead {
+	color: var(--danger);
+}
+
+.sva-episode .sva-next {
+	color: var(--accent);
+}
+
+/* An advice card states its status in a badge, the way a gate row states its
+   verdict in .gate-badge. A coloured border around the whole card was the one
+   shape here that did not belong to the house vocabulary. */
+.sva-advice.ignored {
+	opacity: 0.72;
+}
+
+.sva-advice-status {
+	margin-left: auto;
+}
+
+.sva-advice pre {
+	margin: 5px 0 0;
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: 12px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+}
+
+.sva-log {
+	max-height: 200px;
+	overflow: auto;
+	padding: 6px 7px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+	font-family: var(--mono);
+	font-size: 10.5px;
+	line-height: 1.6;
+}
+
+.sva-log .sv-log__line {
+	grid-template-columns: 84px minmax(0, 1fr);
+	gap: 6px;
+}
+
+@media (max-width: 900px) {
+	/* One column: the modal body scrolls as a whole instead of three short
+	   scroll boxes, so no column is clipped to a single entry. */
+	.sva-modal .modal__body {
+		overflow: auto;
+	}
+	.sva-modal-cols {
+		/* Same reason: `flex: 1` means basis 0, so the grid would report no
+		   height to the body and the sections would overlap. */
+		flex: none;
+		grid-template-columns: 1fr;
+		grid-template-rows: none;
+	}
+	.sva-col-scroll {
+		/* `flex: 1` means basis 0, so an auto-height row would give the scroll
+		   area no height at all and the content would spill over the next
+		   section. */
+		flex: none;
+		overflow: visible;
+	}
 }

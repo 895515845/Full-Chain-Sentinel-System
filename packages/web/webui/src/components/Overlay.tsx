@@ -13,17 +13,23 @@ export function Overlay({
 	subtitle,
 	actions,
 	onClose,
+	className,
 	children,
 }: {
 	title: string;
 	subtitle?: React.ReactNode;
 	actions?: React.ReactNode;
 	onClose: () => void;
+	/** Extra class on the modal box, for panels that size themselves. */
+	className?: string;
 	children: React.ReactNode;
 }) {
 	return (
 		<div className="modal-backdrop" onClick={onClose}>
-			<div className="modal modal--wide" onClick={(event) => event.stopPropagation()}>
+			<div
+				className={className ? `modal modal--wide ${className}` : "modal modal--wide"}
+				onClick={(event) => event.stopPropagation()}
+			>
 				<div className="ws-panel__head">
 					<div className="ws-panel__title">
 						{title}
