@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
+	SentinelGateApproval,
 	SentinelGateDecision,
 	SentinelGateDecisionKind,
 	SentinelGateFilter,
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS gate_decisions (
   command TEXT NOT NULL,
   command_truncated INTEGER NOT NULL DEFAULT 0,
   cwd TEXT,
+  approval TEXT NOT NULL DEFAULT 'ai',
   decision TEXT NOT NULL,
   reason TEXT,
   latency_ms INTEGER NOT NULL,
@@ -53,11 +55,34 @@ CREATE TABLE IF NOT EXISTS gate_decisions (
   total_tokens INTEGER,
   error TEXT
 );
+`;
+
+/**
+ * Indexes are separate from the table so the column migration below can run in
+ * between: an index on a column an older database does not have yet would make
+ * `CREATE INDEX` fail before the column is added.
+ */
+const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_gate_at ON gate_decisions(at DESC);
 CREATE INDEX IF NOT EXISTS idx_gate_decision ON gate_decisions(decision, at DESC);
 CREATE INDEX IF NOT EXISTS idx_gate_session ON gate_decisions(session_id, at DESC);
 CREATE INDEX IF NOT EXISTS idx_gate_project ON gate_decisions(project_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_gate_approval ON gate_decisions(approval, at DESC);
 `;
+
+/**
+ * Add a column that a database written by an older console does not have.
+ *
+ * `ALTER TABLE` has no `IF NOT EXISTS`, and the table is created by the schema
+ * above only when it is missing — so an existing file needs this to pick up a
+ * new column without losing its rows. Every row that predates the column was a
+ * gatekeeper judgment, hence the `'ai'` default.
+ */
+function ensureColumn(db: SqliteDatabase, table: string, column: string, ddl: string): void {
+	const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+	if (columns.some((entry) => entry.name === column)) return;
+	db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
 
 interface DecisionRow {
 	id: string;
@@ -70,6 +95,7 @@ interface DecisionRow {
 	command: string;
 	command_truncated: number;
 	cwd: string | null;
+	approval: string;
 	decision: string;
 	reason: string | null;
 	latency_ms: number;
@@ -91,6 +117,8 @@ export interface GateDecisionInput {
 	tool: string;
 	command: string;
 	cwd?: string | null;
+	/** Defaults to `ai`: the gatekeeper is the only caller that used to record. */
+	approval?: SentinelGateApproval;
 	decision: SentinelGateDecisionKind;
 	reason?: string;
 	latencyMs: number;
@@ -125,6 +153,7 @@ function toDecision(row: DecisionRow): SentinelGateDecision {
 		command: row.command,
 		...(row.command_truncated ? { commandTruncated: true } : {}),
 		cwd: row.cwd,
+		approval: row.approval as SentinelGateApproval,
 		decision: row.decision as SentinelGateDecisionKind,
 		...(row.reason ? { reason: row.reason } : {}),
 		latencyMs: row.latency_ms,
@@ -153,6 +182,12 @@ function whereFor(filter: SentinelGateFilter | undefined): { sql: string; params
 		conditions.push("session_id = ?");
 		params.push(filter.sessionId);
 	}
+	if (filter?.approval && filter.approval.length > 0) {
+		// An empty list means "all three" rather than "none": the page sends the
+		// tab's buckets, and a tab is never empty by construction.
+		conditions.push(`approval IN (${filter.approval.map(() => "?").join(", ")})`);
+		params.push(...filter.approval);
+	}
 	if (filter?.source) {
 		conditions.push("source = ?");
 		params.push(filter.source);
@@ -178,11 +213,14 @@ export class GatekeeperStore {
 		// WAL keeps the audit page's reads from blocking the run that is writing.
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		ensureColumn(this.db, "gate_decisions", "approval", "approval TEXT NOT NULL DEFAULT 'ai'");
+		this.db.exec(INDEXES);
 	}
 
 	/** Append one judgment and return the stored record. */
 	record(input: GateDecisionInput): SentinelGateDecision {
 		const id = `gate-${randomUUID()}`;
+		const approval = input.approval ?? "ai";
 		const command = truncate(input.command, MAX_COMMAND_CHARS);
 		const reason = truncate(input.reason, MAX_TEXT_CHARS);
 		const error = truncate(input.error, MAX_TEXT_CHARS);
@@ -190,8 +228,9 @@ export class GatekeeperStore {
 			.prepare(
 				`INSERT INTO gate_decisions
 				 (id, at, project_id, project_name, session_id, source, tool, command, command_truncated,
-				  cwd, decision, reason, latency_ms, model, model_from, input_tokens, output_tokens, total_tokens, error)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				  cwd, approval, decision, reason, latency_ms, model, model_from, input_tokens, output_tokens,
+				  total_tokens, error)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -204,6 +243,7 @@ export class GatekeeperStore {
 				command.text ?? "",
 				command.cut ? 1 : 0,
 				input.cwd ?? null,
+				approval,
 				input.decision,
 				reason.text ?? null,
 				input.latencyMs,
@@ -225,6 +265,7 @@ export class GatekeeperStore {
 			command: command.text ?? "",
 			...(command.cut ? { commandTruncated: true } : {}),
 			cwd: input.cwd ?? null,
+			approval,
 			decision: input.decision,
 			...(reason.text ? { reason: reason.text } : {}),
 			latencyMs: input.latencyMs,
@@ -235,6 +276,29 @@ export class GatekeeperStore {
 			...(input.totalTokens !== undefined ? { totalTokens: input.totalTokens } : {}),
 			...(error.text ? { error: error.text } : {}),
 		};
+	}
+
+	/**
+	 * Rows per approval bucket, with the filter's other fields applied but not
+	 * `approval` itself.
+	 *
+	 * This exists for the audit page's tab strip: the two tabs split one trail,
+	 * so the count on each tab has to be readable while the other tab is open.
+	 * Answering it from `stats(filter)` would scope the counts to the selected
+	 * tab and show zero on the other one.
+	 */
+	bucketCounts(filter?: SentinelGateFilter): Record<SentinelGateApproval, number> {
+		const byApproval: Record<SentinelGateApproval, number> = { ai: 0, human: 0, auto: 0 };
+		const where = whereFor({ ...filter, approval: undefined });
+		const rows = this.db
+			.prepare(`SELECT approval, COUNT(*) AS n FROM gate_decisions ${where.sql} GROUP BY approval`)
+			.all(...where.params) as unknown as Array<{ approval: string; n: number }>;
+		for (const row of rows) {
+			if (row.approval === "ai" || row.approval === "human" || row.approval === "auto") {
+				byApproval[row.approval] = Number(row.n);
+			}
+		}
+		return byApproval;
 	}
 
 	/** Newest first. `page` is 1-based. */
@@ -261,6 +325,15 @@ export class GatekeeperStore {
 		for (const row of rows) {
 			if (row.decision === "allow" || row.decision === "block" || row.decision === "failed") {
 				byDecision[row.decision] = Number(row.n);
+			}
+		}
+		const approvalRows = this.db
+			.prepare(`SELECT approval, COUNT(*) AS n FROM gate_decisions ${where.sql} GROUP BY approval`)
+			.all(...where.params) as unknown as Array<{ approval: string; n: number }>;
+		const byApproval: Record<SentinelGateApproval, number> = { ai: 0, human: 0, auto: 0 };
+		for (const row of approvalRows) {
+			if (row.approval === "ai" || row.approval === "human" || row.approval === "auto") {
+				byApproval[row.approval] = Number(row.n);
 			}
 		}
 		const total = byDecision.allow + byDecision.block + byDecision.failed;
@@ -295,6 +368,7 @@ export class GatekeeperStore {
 		return {
 			total,
 			byDecision,
+			byApproval,
 			blockRate: total > 0 ? byDecision.block / total : 0,
 			avgLatencyMs: Math.round(Number(aggregate?.avg_latency ?? 0)),
 			totalTokens: Number(aggregate?.tokens ?? 0),

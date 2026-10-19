@@ -1125,7 +1125,7 @@ function CreateEngineForm(props: {
 					<p className="form-hint">
 						启动后指挥官全权调度（免审），各任务在项目容器内自动执行命令；
 						{gateMode === "ai"
-							? "worker 的命令先经守门模型判定，判定结果记录在「守门审计」。"
+							? "worker 的命令先经守门模型判定，判定结果记录在「审批」。"
 							: "无人拦截直接执行。"}
 						人保留暂停 / 终止 / 追加目标与 steer。
 					</p>

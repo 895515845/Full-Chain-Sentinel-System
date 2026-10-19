@@ -169,7 +169,7 @@ export function ProjectsPage({
 											<span>
 												删除项目会连带清理它的容器、
 												{project.vulnCount ? `${project.vulnCount} 条漏洞记录` : "漏洞记录"}与
-												{project.gateCount ? `${project.gateCount} 条守门审计记录` : "守门审计记录"}
+												{project.gateCount ? `${project.gateCount} 条审批记录` : "审批记录"}
 												（不可恢复），输入项目名确认：
 											</span>
 											<input

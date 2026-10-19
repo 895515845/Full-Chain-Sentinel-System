@@ -257,13 +257,15 @@ docker build -t sentinel:latest docker/
 
 ![](images/Pasted%20image%2020261017124651.png)
 
-## 守门审计
+## 审批
 
 建议在设置->模型里面再配置一个小模型，比如 qwen,Hook所有 Bash 调用过程，建议用千问的 API 按量付费，不可以用 CodingPlan 模型，因为 CodingPlan 会有速率限制。
 
 https://www.qianwenai.com/models/qwen-flash
 
 采用小模型监管大模型，最大程度上尽量避免对生产环境造成影响。
+
+侧边栏「审批」有两个标签页：「AI 审批」是守门模型的判定流水（判定值、理由、耗时、模型）；「自动审批」是没有人判定的调用流水——自动执行模式、审批模式的人工放行与人工拦截、以及守门没覆盖的工具（read / edit / write、MCP 开关关闭时），每次 bash、MCP 与插件调用都会留一条。两个标签页合起来覆盖每一次调用且只记一次，支持按项目、会话、来源、时间、关键字筛选。
 
 ![](images/Pasted%20image%2020261017125228.png)
 

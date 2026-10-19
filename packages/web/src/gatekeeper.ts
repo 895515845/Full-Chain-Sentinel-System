@@ -403,6 +403,9 @@ export class Gatekeeper {
 			tool,
 			command: input.command,
 			cwd: input.cwd ?? null,
+			// Everything this class records went through the judge, including the
+			// rows where the judge never answered.
+			approval: "ai" as const,
 		};
 		if (!config) {
 			return this.finishFailure(

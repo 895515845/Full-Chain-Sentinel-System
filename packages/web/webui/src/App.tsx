@@ -60,6 +60,7 @@ import type {
 	SentinelFilePreview,
 	SentinelForkPoint,
 	SentinelGateDecision,
+	SentinelGateApproval,
 	SentinelGateFilter,
 	SentinelGatekeeperConfig,
 	SentinelGateStats,
@@ -391,9 +392,12 @@ export function App() {
 	});
 	const [gateItems, setGateItems] = useState<SentinelGateDecision[]>([]);
 	const [gateStats, setGateStats] = useState<SentinelGateStats | null>(null);
+	const [gateTabCounts, setGateTabCounts] = useState<Record<SentinelGateApproval, number> | null>(null);
 	const [gateTotal, setGateTotal] = useState(0);
 	const [gatePage, setGatePage] = useState(1);
-	const [gateFilter, setGateFilter] = useState<SentinelGateFilter>({});
+	// The audit page opens on 「AI 审批」: the judgment trail is what this page
+	// has always been, and 「自动审批」 is the tab one switches to on purpose.
+	const [gateFilter, setGateFilter] = useState<SentinelGateFilter>({ approval: ["ai"] });
 	/** Failure instant the operator dismissed the fail-open banner for. */
 	const [dismissedGateFailure, setDismissedGateFailure] = useState<number | null>(null);
 	const connectionRef = useRef<SentinelConnection | null>(null);
@@ -620,6 +624,7 @@ export function App() {
 					break;
 				case "gate_audit_stats":
 					setGateStats(message.stats);
+					setGateTabCounts(message.tabCounts);
 					break;
 				case "gate_decision": {
 					// A judgment landed. Re-reading the visible query keeps the page
@@ -1817,9 +1822,9 @@ export function App() {
 									设置 → 模型
 								</button>
 								检查守门端点，或到
-								<button type="button" className="link" onClick={() => setPage("gates")}>
-									守门审计
-								</button>
+							<button type="button" className="link" onClick={() => setPage("gates")}>
+								审批
+							</button>
 								查看失败记录。
 							</span>
 							<button
@@ -2222,25 +2227,28 @@ export function App() {
 							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 							judgeAvailable={modelLibrary?.resolved.judge != null}
 						/>
-					) : page === "gates" ? (
-						<GateAuditPage
-							items={gateItems}
-							stats={gateStats}
-							total={gateTotal}
-							page={gatePage}
-							filter={gateFilter}
-							projects={projects}
-							onQuery={(filter, nextPage) => {
-								setGateFilter(filter);
-								setGatePage(nextPage);
-							}}
-							onOpenSession={(path) => {
-								openPage("chat");
-								send({ type: "switch_session", path });
-							}}
-							sessionPathOf={(sessionId) => sessions.find((session) => session.id === sessionId)?.path ?? null}
-						/>
-					) : page === "settings.model" ? (
+	) : page === "gates" ? (
+					<GateAuditPage
+						items={gateItems}
+						stats={gateStats}
+						tabCounts={gateTabCounts}
+						total={gateTotal}
+						page={gatePage}
+						filter={gateFilter}
+						projects={projects}
+						sessions={sessions}
+						onQuery={(filter, nextPage) => {
+							setGateFilter(filter);
+							setGatePage(nextPage);
+						}}
+						onRefresh={() => loadGates(gateFilter, gatePage)}
+						onOpenSession={(path) => {
+							openPage("chat");
+							send({ type: "switch_session", path });
+						}}
+						sessionPathOf={(sessionId) => sessions.find((session) => session.id === sessionId)?.path ?? null}
+					/>
+				) : page === "settings.model" ? (
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">

@@ -263,7 +263,7 @@ export interface SentinelApprovalRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Gatekeeper (守门审计)
+// Gatekeeper (审批)
 // ---------------------------------------------------------------------------
 
 /**
@@ -274,6 +274,21 @@ export interface SentinelApprovalRequest {
  * the command and clearing it, and the audit page has to keep them apart.
  */
 export type SentinelGateDecisionKind = "allow" | "block" | "failed";
+
+/**
+ * Who let the call through. Every tool call lands in exactly one bucket:
+ *
+ * - `ai`    the gatekeeper judged it — bash and droid_shell in AI 审批, plus MCP
+ *           and plugin tools while the MCP switch is on. The only bucket with a
+ *           verdict, a latency and a token cost.
+ * - `human` 审批模式: the operator approved or rejected it in the queue.
+ * - `auto`  nobody looked: 自动执行 mode, an allow-listed prefix, or a tool the
+ *           judge does not cover (read, edit, write, …).
+ *
+ * The audit page shows the first bucket as 「AI 审批」 and the other two as
+ * 「自动审批」, which together cover every call exactly once.
+ */
+export type SentinelGateApproval = "ai" | "human" | "auto";
 
 /** One gatekeeper judgment, as stored and as streamed to the console. */
 export interface SentinelGateDecision {
@@ -291,6 +306,8 @@ export interface SentinelGateDecision {
 	/** The stored command was cut to the per-record cap. */
 	commandTruncated?: boolean;
 	cwd: string | null;
+	/** Who let it through; see SentinelGateApproval. */
+	approval: SentinelGateApproval;
 	decision: SentinelGateDecisionKind;
 	/** The gatekeeper's BLOCK reason, or the failure text for `failed`. */
 	reason?: string;
@@ -313,6 +330,11 @@ export interface SentinelGateFilter {
 	sessionId?: string;
 	/** Exact source label, e.g. "子代理". */
 	source?: string;
+	/**
+	 * Which buckets to include. An array because the page's 「自动审批」 tab is
+	 * two buckets at once (human + auto); an empty or absent list means all three.
+	 */
+	approval?: SentinelGateApproval[];
 	/** Case-insensitive substring match on the command and the reason. */
 	search?: string;
 	/** Only judgments at or after this epoch millisecond. */
@@ -323,6 +345,8 @@ export interface SentinelGateFilter {
 export interface SentinelGateStats {
 	total: number;
 	byDecision: Record<SentinelGateDecisionKind, number>;
+	/** Rows per approval bucket, so each tab can summarise itself. */
+	byApproval: Record<SentinelGateApproval, number>;
 	/** block / total, 0 when nothing was judged yet. */
 	blockRate: number;
 	avgLatencyMs: number;
@@ -1372,7 +1396,17 @@ export type SentinelServerMessage =
 			raw?: string;
 	  }
 	| { type: "gate_audit"; page: SentinelGatePage }
-	| { type: "gate_audit_stats"; stats: SentinelGateStats }
+	| {
+			type: "gate_audit_stats";
+			stats: SentinelGateStats;
+			/**
+			 * Rows per approval bucket, with every filter but `approval` applied.
+			 * The tab strip is navigation, not a result: its counts must not
+			 * collapse to zero for the tab that is not selected, which is what
+			 * happens when the tab's own approval filter is left in.
+			 */
+			tabCounts: Record<SentinelGateApproval, number>;
+	  }
 	/** One judgment, streamed live so an open audit page prepends it. */
 	| { type: "gate_decision"; decision: SentinelGateDecision }
 	| { type: "api_models"; items: SentinelApiModelSummary[] }

@@ -253,10 +253,18 @@ export interface SentinelProjectInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Gatekeeper (守门审计)
+// Gatekeeper (审批)
 // ---------------------------------------------------------------------------
 
 export type SentinelGateDecisionKind = "allow" | "block" | "failed";
+
+/**
+ * Who let the call through. Every tool call lands in exactly one bucket:
+ * `ai` is judged by the gatekeeper, `human` is an operator approval, `auto` is
+ * nobody. The audit page groups the first as 「AI 审批」 and the other two as
+ * 「自动审批」.
+ */
+export type SentinelGateApproval = "ai" | "human" | "auto";
 
 /** One gatekeeper judgment. */
 export interface SentinelGateDecision {
@@ -271,6 +279,8 @@ export interface SentinelGateDecision {
 	command: string;
 	commandTruncated?: boolean;
 	cwd: string | null;
+	/** Who let it through; see SentinelGateApproval. */
+	approval: SentinelGateApproval;
 	decision: SentinelGateDecisionKind;
 	reason?: string;
 	latencyMs: number;
@@ -289,13 +299,26 @@ export interface SentinelGateFilter {
 	projectId?: string;
 	sessionId?: string;
 	source?: string;
+	/** Which buckets to include; an absent or empty list means all three. */
+	approval?: SentinelGateApproval[];
 	search?: string;
 	since?: number;
 }
 
+/** The audit page's two tabs; 「自动审批」 is two buckets at once. */
+export type SentinelGateTab = "ai" | "auto";
+
+/** The buckets each tab shows. */
+export const SENTINEL_GATE_TAB_BUCKETS: Record<SentinelGateTab, SentinelGateApproval[]> = {
+	ai: ["ai"],
+	auto: ["auto", "human"],
+};
+
 export interface SentinelGateStats {
 	total: number;
 	byDecision: Record<SentinelGateDecisionKind, number>;
+	/** Rows per approval bucket, so each tab can summarise itself. */
+	byApproval: Record<SentinelGateApproval, number>;
 	blockRate: number;
 	avgLatencyMs: number;
 	totalTokens: number;
@@ -345,6 +368,13 @@ export const SENTINEL_GATE_DECISION_LABELS: Record<SentinelGateDecisionKind, str
 	allow: "放行",
 	block: "拦截",
 	failed: "请求失败",
+};
+
+/** How a call got through, in the row badge and the stat tiles. */
+export const SENTINEL_GATE_APPROVAL_LABELS: Record<SentinelGateApproval, string> = {
+	ai: "AI 判定",
+	human: "人工放行",
+	auto: "自动放行",
 };
 
 /** Severity buckets of the vulnerability hub. */
@@ -1161,7 +1191,7 @@ export type SentinelServerMessage =
 	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
 	| { type: "judge_test_result"; result: SentinelTestResult; raw?: string }
 	| { type: "gate_audit"; page: SentinelGatePage }
-	| { type: "gate_audit_stats"; stats: SentinelGateStats }
+	| { type: "gate_audit_stats"; stats: SentinelGateStats; tabCounts: Record<SentinelGateApproval, number> }
 	| { type: "gate_decision"; decision: SentinelGateDecision }
 	| { type: "api_models"; items: SentinelApiModelSummary[] }
 	| { type: "api_model"; model: SentinelApiModel; events: SentinelApiModelEvent[] }

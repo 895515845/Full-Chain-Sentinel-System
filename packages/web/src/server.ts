@@ -2456,7 +2456,13 @@ export async function startSentinelServer(
 					return;
 				}
 				case "gate_audit_stats":
-					sendTo(socket, { type: "gate_audit_stats", stats: runtime.getGateStats(message.filter) });
+					sendTo(socket, {
+						type: "gate_audit_stats",
+						stats: runtime.getGateStats(message.filter),
+						// Without the approval filter: the tab strip counts both tabs
+						// whichever one is open.
+						tabCounts: runtime.getGateBuckets(message.filter),
+					});
 					return;
 				default:
 					sendError(socket, `未知消息类型: ${(message as { type?: string }).type ?? "?"}`);

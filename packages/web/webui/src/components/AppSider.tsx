@@ -73,7 +73,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "droid", label: "安卓设备", icon: DroidIcon },
 			{ page: "pocs", label: "POC 库", icon: PocIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
-			{ page: "gates", label: "守门审计", icon: GateIcon },
+			{ page: "gates", label: "审批", icon: GateIcon },
 		],
 	},
 	{

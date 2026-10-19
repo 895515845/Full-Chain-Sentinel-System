@@ -26,6 +26,12 @@ import {
 } from "../src/tool-gate.ts";
 import { writeTestModel } from "./model-fixtures.ts";
 
+/** What a tool_call handler may answer: block with a reason, or nothing. */
+type ToolCallHandler = (event: {
+	toolName: string;
+	input: Record<string, unknown>;
+}) => Promise<{ block?: boolean; reason?: string } | undefined>;
+
 let root = "";
 let agentDir = "";
 let store: GatekeeperStore;
@@ -125,16 +131,11 @@ describe("stringifyToolArgs", () => {
 
 describe("createToolGateExtension", () => {
 	/** Register the extension against a fake pi and return its tool_call handler. */
-	function handlerFor(
-		gatekeeper: Gatekeeper,
-	): (event: {
-		toolName: string;
-		input: Record<string, unknown>;
-	}) => Promise<{ block?: boolean; reason?: string } | undefined> {
-		let handler: ((event: { toolName: string; input: Record<string, unknown> }) => Promise<unknown>) | undefined;
+	function handlerFor(gatekeeper: Gatekeeper): ToolCallHandler {
+		let handler: ToolCallHandler | undefined;
 		const pi = {
 			on: (name: string, fn: (event: unknown) => Promise<unknown>) => {
-				if (name === "tool_call") handler = fn;
+				if (name === "tool_call") handler = fn as ToolCallHandler;
 				return () => {};
 			},
 		};

@@ -185,7 +185,9 @@ import type {
 	SentinelFileEntry,
 	SentinelFilePreview,
 	SentinelForkPoint,
+	SentinelGateApproval,
 	SentinelGateDecision,
+	SentinelGateDecisionKind,
 	SentinelGateFilter,
 	SentinelGatekeeperConfig,
 	SentinelGatekeeperView,
@@ -245,6 +247,7 @@ import { createSessionTitleTool } from "./session-title-tool.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
+import { createToolAuditExtension } from "./tool-audit.ts";
 import { createToolGateExtension, type ToolGateContext } from "./tool-gate.ts";
 import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } from "./transcript.ts";
 import { createVulnerabilityTools } from "./vuln-tool.ts";
@@ -627,6 +630,14 @@ export class SentinelRuntime {
 				createToolGateExtension({ gatekeeper: this.gatekeeper, agentDir: this.agentDir, context: gate }),
 			);
 		}
+		// The other half of the audit trail: every call the judge does not see is
+		// still recorded, so 「自动审批」 can answer "what did this session do".
+		// Not gated on MCP — it covers read, edit, write and codemode too.
+		if (gate) {
+			extensionFactories.push(
+				createToolAuditExtension({ store: this.gateStore, agentDir: this.agentDir, context: gate }),
+			);
+		}
 		// Loop hygiene is not permission-gated: it only aborts degenerate output
 		// and injects reminders, so it belongs in every session.
 		extensionFactories.push(createLoopGuardExtension());
@@ -995,29 +1006,82 @@ export class SentinelRuntime {
 		return name ? `${name} · 主代理` : "主代理";
 	}
 
+	/**
+	 * One audit row for a call the judge never saw — the 「自动审批」 half of the
+	 * audit page. Best-effort by design: losing a row is better than failing the
+	 * command the row was about, so a storage error is swallowed.
+	 */
+	private recordUnjudged(input: {
+		tool: string;
+		command: string;
+		cwd: string | null;
+		approval: SentinelGateApproval;
+		decision?: SentinelGateDecisionKind;
+		reason?: string;
+		context: Pick<BashGateContext, "label" | "projectId" | "projectName" | "sessionId">;
+	}): void {
+		try {
+			this.gateStore.record({
+				at: Date.now(),
+				latencyMs: 0,
+				projectId: input.context.projectId,
+				projectName: input.context.projectName,
+				sessionId: input.context.sessionId(),
+				source: input.context.label(),
+				tool: input.tool,
+				command: input.command,
+				cwd: input.cwd,
+				approval: input.approval,
+				decision: input.decision ?? "allow",
+				...(input.reason ? { reason: input.reason } : {}),
+			});
+		} catch {
+			// The audit trail must not be able to break a run.
+		}
+	}
+
 	/** Bash tool whose every command passes the gate the session's mode selects. */
 	private createGatedBash(cwd: string, operations: BashOperations, context: BashGateContext) {
 		const gatedOps: BashOperations = {
 			exec: (command, commandCwd, options) => {
 				const mode = context.modeOf();
-				if (mode === "auto") return operations.exec(command, commandCwd, options);
+				const workCwd = containerWorkPath(commandCwd, context.hostWorkDir);
+				// The three branches below are the only place a bash call can be let
+				// through without the judge, so they are also where 「自动审批」 gets
+				// its rows. The `ai` branch records inside `gatekeeper.guard`.
+				if (mode === "auto") {
+					this.recordUnjudged({ tool: "bash", command, cwd: workCwd, approval: "auto", context });
+					return operations.exec(command, commandCwd, options);
+				}
 				if (mode === "review") {
 					// Prefix-allowed commands skip the queue; everything else waits for a decision.
-					if (this.approvals.isAutoAllowed(command)) return operations.exec(command, commandCwd, options);
-					return this.approvals
-						.request(command, commandCwd, options?.signal, context.label())
-						.then((outcome) =>
-							outcome.approved && outcome.command !== undefined
-								? operations.exec(outcome.command, commandCwd, options)
-								: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`)),
-						);
+					if (this.approvals.isAutoAllowed(command)) {
+						this.recordUnjudged({ tool: "bash", command, cwd: workCwd, approval: "auto", context });
+						return operations.exec(command, commandCwd, options);
+					}
+					return this.approvals.request(command, commandCwd, options?.signal, context.label()).then((outcome) => {
+						// Recorded after the operator answered: before that there is no
+						// verdict to write down, and a row guessed now would be a lie
+						// for every rejected command.
+						this.recordUnjudged({
+							tool: "bash",
+							command: outcome.command ?? command,
+							cwd: workCwd,
+							approval: "human",
+							...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? "已拒绝" }),
+							context,
+						});
+						return outcome.approved && outcome.command !== undefined
+							? operations.exec(outcome.command, commandCwd, options)
+							: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`));
+					});
 				}
 				// ai: the operator's prefix allow-list does not apply. Every command is
 				// judged, so "this prefix is fine" can never widen the judge's answer.
 				return this.gatekeeper
 					.guard({
 						command,
-						cwd: containerWorkPath(commandCwd, context.hostWorkDir),
+						cwd: workCwd,
 						source: context.label(),
 						projectId: context.projectId,
 						projectName: context.projectName,
@@ -2376,12 +2440,38 @@ export class SentinelRuntime {
 	private guardDroidCommand(deviceName: string, command: string): Promise<string> {
 		const mode = this.effectiveMode(this.active);
 		const label = `设备「${deviceName}」`;
-		if (mode === "auto") return Promise.resolve(command);
+		const auditContext = {
+			label: () => label,
+			projectId: this.activeProjectId ?? null,
+			projectName: this.activeProjectName ?? null,
+			sessionId: () => this.active?.manager.getSessionId() ?? null,
+		};
+		if (mode === "auto") {
+			this.recordUnjudged({ tool: "droid_shell", command, cwd: "/work", approval: "auto", context: auditContext });
+			return Promise.resolve(command);
+		}
 		if (mode === "review") {
-			if (this.approvals.isAutoAllowed(command)) return Promise.resolve(command);
+			if (this.approvals.isAutoAllowed(command)) {
+				this.recordUnjudged({
+					tool: "droid_shell",
+					command,
+					cwd: "/work",
+					approval: "auto",
+					context: auditContext,
+				});
+				return Promise.resolve(command);
+			}
 			return this.approvals
 				.request(command, this.activeContainer ? "/work" : "/", undefined, label)
 				.then((outcome) => {
+					this.recordUnjudged({
+						tool: "droid_shell",
+						command: outcome.command ?? command,
+						cwd: "/work",
+						approval: "human",
+						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? "已拒绝" }),
+						context: auditContext,
+					});
 					if (outcome.approved && outcome.command !== undefined) return outcome.command;
 					throw new Error(outcome.reason ?? "已拒绝");
 				});
@@ -3057,6 +3147,14 @@ export class SentinelRuntime {
 	/** Judged counts for the audit page header. */
 	getGateStats(filter?: SentinelGateFilter): SentinelGateStats {
 		return this.gateStore.stats(filter);
+	}
+
+	/**
+	 * Rows per approval bucket for the audit page's tab strip, scoped by every
+	 * filter except the tab's own. See `GatekeeperStore.bucketCounts`.
+	 */
+	getGateBuckets(filter?: SentinelGateFilter): Record<SentinelGateApproval, number> {
+		return this.gateStore.bucketCounts(filter);
 	}
 
 	/** One page of audit records, newest first. */
