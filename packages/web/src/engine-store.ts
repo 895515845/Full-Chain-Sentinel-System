@@ -362,6 +362,11 @@ export class EngineStore {
 		return task;
 	}
 
+	/** One validated finding reached the hub from this task; atomic so a concurrent updateTask cannot lose it. */
+	incrementTaskVulns(id: string): void {
+		this.db.prepare("UPDATE engine_tasks SET vulns = vulns + 1 WHERE id = ?").run(id);
+	}
+
 	updateTask(id: string, patch: Partial<Omit<SentinelEngineTask, "id" | "engineId">>): void {
 		const current = this.getTask(id);
 		if (!current) return;

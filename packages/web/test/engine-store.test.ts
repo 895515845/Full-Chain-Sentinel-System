@@ -68,6 +68,35 @@ test("engine and tasks round-trip", () => {
 	expect(loaded?.tasks[0]?.criteria).toEqual(["枚举出全部 HTTP 端口"]);
 });
 
+test("incrementTaskVulns counts findings and survives a later task update", () => {
+	const engine = store.createEngine({
+		projectId: "p1",
+		projectName: "演示项目",
+		name: "计数场景",
+		targets: [{ target: "10.0.0.3" }],
+		doctrines: ["standard"],
+		limits,
+		gateMode: "auto",
+	});
+	const task = store.createTask({
+		engineId: engine.id,
+		title: "提交漏洞",
+		objective: "o",
+		target: "10.0.0.3",
+		workspace: "w",
+		roundLimit: 3,
+		attempt: 1,
+	});
+	store.incrementTaskVulns(task.id);
+	store.incrementTaskVulns(task.id);
+	// A board refresh updates the same row; the counter must not be overwritten.
+	store.updateTask(task.id, { status: "running" });
+	expect(store.getTask(task.id)?.vulns).toBe(2);
+	expect(store.getEngine(engine.id)?.tasks[0]?.vulns).toBe(2);
+	// A pruned task row makes the late counter a no-op, not a crash.
+	expect(() => store.incrementTaskVulns("task-missing")).not.toThrow();
+});
+
 test("interruptRunning pauses queued and running tasks", () => {
 	const engine = store.createEngine({
 		projectId: "p1",

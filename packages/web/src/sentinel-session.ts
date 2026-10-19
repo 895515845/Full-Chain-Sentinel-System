@@ -918,7 +918,9 @@ export class SentinelRuntime {
 									permissions: subagentPermissions,
 									getSessionId: () => manager.getSessionId(),
 									getSource,
-									onSubmit: () => this.noteGoalFinding(managed),
+									// A task session's goal is the worker's, not managed.goal:
+									// route it to the same counter the main agent uses.
+									onSubmit: task ? task.onFinding : () => this.noteGoalFinding(managed),
 								}),
 							extraTools: [
 								...(subagentPermissions.poc_read ? createPocTools({ store: this.pocs }) : []),

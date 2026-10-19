@@ -878,6 +878,12 @@ export class EngineManager {
 				// paused applies to the tasks started after it resumes.
 				gateMode: entry.engine.gateMode,
 				...input,
+				// The hub counter is persisted here, not in the worker: a finding is
+				// already in the hub when this fires, and the board reads the task row.
+				onFinding: () => {
+					this.store.incrementTaskVulns(taskId);
+					input.onFinding();
+				},
 			});
 		const worker = new EngineWorker(
 			task,
