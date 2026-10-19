@@ -1,5 +1,11 @@
-import { useState } from "react";
-import type { SentinelModelEntryView, SentinelModelLibraryView, SentinelModelRoleName, SentinelTestResult } from "../types.ts";
+import { useEffect, useState } from "react";
+import type {
+	SentinelModelEntryView,
+	SentinelModelLibraryView,
+	SentinelModelRoleName,
+	SentinelSupervisorConfig,
+	SentinelTestResult,
+} from "../types.ts";
 
 /** Which roles can follow 主模型 instead of naming their own entry. */
 const FOLLOW_MAIN = "follow-main";
@@ -8,14 +14,16 @@ const ROLE_HINTS: Record<SentinelModelRoleName, string> = {
 	main: "对话页的主代理；改完下次发送时生效，不打断正在跑的会话",
 	judge: "AI 审批逐条判定 bash 命令；改完立即生效",
 	reviewer: "提交漏洞后自动校准等级与 CVSS；改完立即生效",
+	supervisor: "观察模式每 20 次调用或异常时总结；介入模式只给建议，不阻断工具调用",
 };
 
-const ROLE_ORDER: SentinelModelRoleName[] = ["main", "judge", "reviewer"];
+const ROLE_ORDER: SentinelModelRoleName[] = ["main", "judge", "reviewer", "supervisor"];
 
 const ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
+	supervisor: "监督模型",
 };
 
 interface Draft {
@@ -56,6 +64,9 @@ export function SettingsPanel({
 	onSetRole,
 	onSetReviewerAuto,
 	onTestEntry,
+	supervisorConfig,
+	onSaveSupervisorConfig,
+	onTestSupervisor,
 }: {
 	library: SentinelModelLibraryView | null;
 	onSaveEntry: (entry: { id?: string; name: string; baseUrl: string; apiKey: string | null; modelId: string }) => void;
@@ -64,11 +75,26 @@ export function SettingsPanel({
 	onSetRole: (role: SentinelModelRoleName, target: string | null) => void;
 	onSetReviewerAuto: (enabled: boolean) => void;
 	onTestEntry: (id: string) => Promise<SentinelTestResult | null>;
+	supervisorConfig: SentinelSupervisorConfig | null;
+	onSaveSupervisorConfig: (config: SentinelSupervisorConfig) => void;
+	onTestSupervisor: () => Promise<{ result: SentinelTestResult; raw?: string } | null>;
 }) {
 	const [draft, setDraft] = useState<Draft | null>(null);
 	const [testing, setTesting] = useState<string | null>(null);
 	/** Test results live in this component only: a stored "usable" goes stale. */
 	const [results, setResults] = useState<Record<string, SentinelTestResult | null>>({});
+	const [supervisorDraft, setSupervisorDraft] = useState<SentinelSupervisorConfig | null>(supervisorConfig);
+	const [supervisorDirty, setSupervisorDirty] = useState(false);
+	const [supervisorTesting, setSupervisorTesting] = useState(false);
+	const [supervisorTest, setSupervisorTest] = useState<SentinelTestResult | null>(null);
+	useEffect(() => {
+		// Snapshots arrive while a run is active; they must not wipe an unsaved edit.
+		if (!supervisorDirty) setSupervisorDraft(supervisorConfig);
+	}, [supervisorConfig]);
+	const updateSupervisor = (patch: Partial<SentinelSupervisorConfig>): void => {
+		setSupervisorDirty(true);
+		setSupervisorDraft((current) => (current ? { ...current, ...patch } : current));
+	};
 
 	if (!library) {
 		return (
@@ -109,7 +135,7 @@ export function SettingsPanel({
 		<div className="settings settings--wide">
 			<h3 className="settings-section">角色</h3>
 			<p className="settings-hint">
-				每个角色从下面的模型库里挑一条。守门模型和漏洞评审可以「跟随主模型」，改主模型时它们一起换。
+				每个角色从下面的模型库里挑一条。守门模型、漏洞评审和监督模型可以「跟随主模型」，改主模型时它们一起换。
 			</p>
 			{ROLE_ORDER.map((role) => {
 				const value = library.roles[role] ?? FOLLOW_MAIN;
@@ -166,6 +192,115 @@ export function SettingsPanel({
 					</div>
 				);
 			})}
+
+			<h3 className="settings-section">监督</h3>
+			<p className="settings-hint">
+				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里只配置全局阈值和批大小，模式和发送方式在对话里选。
+			</p>
+			{supervisorDraft ? (
+				<div className="supervisor-settings">
+					<label className="role-card__auto">
+						<input
+							type="checkbox"
+							checked={supervisorDraft.enabled}
+							onChange={(event) => updateSupervisor({ enabled: event.target.checked })}
+						/>
+						允许在对话中开启监督
+					</label>
+					<div className="supervisor-settings__grid">
+						<label>
+							每批调用数
+							<input
+								type="number"
+								min={5}
+								max={100}
+								value={supervisorDraft.batchToolCalls}
+								onChange={(event) => updateSupervisor({ batchToolCalls: Number(event.target.value) || 20 })}
+							/>
+						</label>
+						<label>
+							重复阈值
+							<input
+								type="number"
+								min={2}
+								max={50}
+								value={supervisorDraft.duplicateThreshold}
+								onChange={(event) =>
+									updateSupervisor({ duplicateThreshold: Number(event.target.value) || 3 })
+								}
+							/>
+						</label>
+						<label>
+							无新证据阈值
+							<input
+								type="number"
+								min={2}
+								max={50}
+								value={supervisorDraft.noProgressCalls}
+								onChange={(event) =>
+									updateSupervisor({ noProgressCalls: Number(event.target.value) || 10 })
+								}
+							/>
+						</label>
+						<label>
+							连续报错阈值
+							<input
+								type="number"
+								min={2}
+								max={50}
+								value={supervisorDraft.errorStreak}
+								onChange={(event) =>
+									updateSupervisor({ errorStreak: Number(event.target.value) || 3 })
+								}
+							/>
+						</label>
+						<label>
+							超时（秒）
+							<input
+								type="number"
+								min={5}
+								max={300}
+								value={Math.round(supervisorDraft.timeoutMs / 1000)}
+								onChange={(event) =>
+									updateSupervisor({ timeoutMs: (Number(event.target.value) || 180) * 1000 })
+								}
+							/>
+						</label>
+					</div>
+					<div className="supervisor-settings__actions">
+						<button
+							type="button"
+							className="primary"
+							onClick={() => {
+								onSaveSupervisorConfig(supervisorDraft);
+								setSupervisorDirty(false);
+							}}
+						>
+							保存监督设置
+						</button>
+						<button
+							type="button"
+							disabled={supervisorTesting}
+							onClick={async () => {
+								setSupervisorTesting(true);
+								try {
+									const outcome = await onTestSupervisor();
+									setSupervisorTest(outcome?.result ?? null);
+								} finally {
+									setSupervisorTesting(false);
+								}
+							}}
+						>
+							{supervisorTesting ? "测试中…" : "测试监督模型"}
+						</button>
+						{supervisorTest ? (
+							<span className={supervisorTest.ok ? "tag tag-ok" : "tag tag-bad"}>
+								{supervisorTest.message}
+							</span>
+						) : null}
+					</div>
+				</div>
+			) : null}
 
 			<div className="settings-block__head">
 				<h3 className="settings-section">

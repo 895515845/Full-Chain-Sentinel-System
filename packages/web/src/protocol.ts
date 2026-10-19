@@ -149,8 +149,8 @@ export interface SentinelModelConfig {
 	modelId: string;
 }
 
-/** The three jobs a model can be assigned to. */
-export type SentinelModelRoleName = "main" | "judge" | "reviewer";
+/** The jobs a model can be assigned to. */
+export type SentinelModelRoleName = "main" | "judge" | "reviewer" | "supervisor";
 
 /**
  * One row of the model library as the settings screen sees it. The key itself is
@@ -186,12 +186,14 @@ export interface SentinelModelLibraryView {
 		main: string | null;
 		judge: string;
 		reviewer: string;
+		supervisor: string;
 	};
 	reviewerAuto: boolean;
 	resolved: {
 		main: SentinelResolvedModelView | null;
 		judge: SentinelResolvedModelView | null;
 		reviewer: SentinelResolvedModelView | null;
+		supervisor: SentinelResolvedModelView | null;
 	};
 }
 
@@ -942,6 +944,212 @@ export interface SentinelEngine {
  */
 export type SentinelEngineEvent = SentinelSubagentEvent;
 
+// ---------------------------------------------------------------------------
+// Supervisor (观察 / 介入)
+// ---------------------------------------------------------------------------
+
+/** Two operator-visible modes. Both only observe; intervention never blocks. */
+export type SentinelSupervisorMode = "observe" | "intervene";
+
+/** How a pending intervention is delivered when the mode is intervene. */
+export type SentinelSupervisorDelivery = "auto" | "confirm";
+
+export type SentinelSupervisorStatus = "waiting" | "running" | "stopped" | "error";
+
+export type SentinelSupervisorProgress = "advancing" | "stalled" | "looping" | "unknown";
+
+export type SentinelSupervisorTrigger = "batch" | "duplicate" | "no-progress" | "error-streak" | "manual" | "settled";
+
+export type SentinelSupervisorAdviceStatus = "pending" | "sent" | "ignored";
+
+/** Global settings shown under 设置 → 模型. */
+export interface SentinelSupervisorConfig {
+	/** Master switch; the per-conversation arm remains the actual gate. */
+	enabled: boolean;
+	batchToolCalls: number;
+	duplicateThreshold: number;
+	noProgressCalls: number;
+	errorStreak: number;
+	timeoutMs: number;
+	redactSecrets: boolean;
+}
+
+/** One endpoint/test pair the supervisor inferred from an episode. */
+export interface SentinelSupervisorTested {
+	target: string;
+	test: string;
+	result: string;
+}
+
+/** Compact observation of one tool call; full output stays in the session file. */
+export interface SentinelSupervisorCall {
+	callId: string;
+	at: number;
+	tool: string;
+	args: string;
+	status: "ok" | "error";
+	durationMs: number | null;
+	outputBytes: number;
+	outputHash: string;
+	outputHead: string;
+	outputTail: string;
+	httpStatus: number | null;
+	newEndpoints: string[];
+	newParams: string[];
+	/** A new endpoint, parameter, or tool-reported finding landed on this call. */
+	newEvidence: boolean;
+	signals: string[];
+}
+
+export interface SentinelSupervisorUsage {
+	input: number;
+	output: number;
+	total: number;
+}
+
+/** What the supervisor asks the main agent to do; only intervene mode sends it. */
+export interface SentinelSupervisorAdviceDraft {
+	needed: boolean;
+	reason: string;
+	doNotRepeat: string[];
+	nextActions: string[];
+}
+
+/** One structured episode produced from a batch of calls. */
+export interface SentinelSupervisorEpisode {
+	id: string;
+	sessionId: string;
+	seq: number;
+	at: number;
+	trigger: SentinelSupervisorTrigger;
+	phase: string;
+	intent: string;
+	actions: string[];
+	outcomes: string[];
+	tested: SentinelSupervisorTested[];
+	deadEnds: string[];
+	newEvidence: string[];
+	openQuestions: string[];
+	nextCandidates: string[];
+	duplicateSignals: string[];
+	progress: SentinelSupervisorProgress;
+	confidence: number;
+	advice: SentinelSupervisorAdviceDraft | null;
+	model: string | null;
+	usage: SentinelSupervisorUsage | null;
+	error: string | null;
+	durationMs: number;
+}
+
+/** One intervention record, whether auto-sent or awaiting operator confirmation. */
+export interface SentinelSupervisorAdvice {
+	id: string;
+	sessionId: string;
+	episodeId: string;
+	at: number;
+	delivery: SentinelSupervisorDelivery;
+	status: SentinelSupervisorAdviceStatus;
+	text: string;
+	sentAt: number | null;
+}
+
+/** The rolling state, merged deterministically from episodes. */
+export interface SentinelSupervisorState {
+	phase: string;
+	intent: string;
+	progress: SentinelSupervisorProgress;
+	tested: SentinelSupervisorTested[];
+	deadEnds: string[];
+	newEvidence: string[];
+	openQuestions: string[];
+	nextCandidates: string[];
+	duplicateSignals: string[];
+}
+
+/** Live view of one supervised conversation, carried in the snapshot and pushed live. */
+export interface SentinelSupervisorView {
+	sessionId: string;
+	sessionPath: string | null;
+	sessionName: string;
+	projectId: string | null;
+	projectName: string | null;
+	mode: SentinelSupervisorMode;
+	delivery: SentinelSupervisorDelivery;
+	status: SentinelSupervisorStatus;
+	armedAt: number;
+	startedAt: number | null;
+	endedAt: number | null;
+	model: SentinelResolvedModelView | null;
+	state: SentinelSupervisorState;
+	episodeCount: number;
+	callCount: number;
+	lastEpisodeAt: number | null;
+	lastCallAt: number | null;
+	usage: SentinelSupervisorUsage;
+	lastError: string | null;
+	running: boolean;
+	pendingAdvice: SentinelSupervisorAdvice | null;
+	recentCalls: SentinelSupervisorCall[];
+	/** Latest supervisor log lines, so a reopened window is not blank. */
+	logs: SentinelSupervisorLog[];
+}
+
+/** One global-audit row in 工作台 → 监督. */
+export interface SentinelSupervisorAuditItem {
+	sessionId: string;
+	sessionPath: string | null;
+	sessionName: string;
+	projectId: string | null;
+	projectName: string | null;
+	mode: SentinelSupervisorMode;
+	delivery: SentinelSupervisorDelivery;
+	status: SentinelSupervisorStatus;
+	armedAt: number;
+	startedAt: number | null;
+	endedAt: number | null;
+	updatedAt: number;
+	episodeCount: number;
+	callCount: number;
+	phase: string;
+	intent: string;
+	progress: SentinelSupervisorProgress;
+	adviceCount: number;
+	usage: SentinelSupervisorUsage;
+	lastError: string | null;
+}
+
+export interface SentinelSupervisorAuditStats {
+	total: number;
+	advancing: number;
+	stalled: number;
+	looping: number;
+	stopped: number;
+	/** Sessions with at least one pending advice. */
+	pendingAdvice: number;
+}
+
+export interface SentinelSupervisorAuditPage {
+	items: SentinelSupervisorAuditItem[];
+	total: number;
+	page: number;
+	pageSize: number;
+	stats: SentinelSupervisorAuditStats;
+}
+
+/** One supervisor log line, kept for the floating window and the audit detail. */
+export interface SentinelSupervisorLog {
+	at: number;
+	kind: string;
+	text: string;
+}
+
+export interface SentinelSupervisorDetail {
+	session: SentinelSupervisorAuditItem;
+	episodes: SentinelSupervisorEpisode[];
+	logs: SentinelSupervisorLog[];
+	advice: SentinelSupervisorAdvice[];
+}
+
 /** Snapshot of the runtime state sent on connect and after state changes. */
 export interface SentinelStateSnapshot {
 	mode: SentinelMode;
@@ -998,6 +1206,10 @@ export interface SentinelStateSnapshot {
 	compactionStartedAt: number | null;
 	/** The Droid plugin's toolset switch (device page persists it; the chat toggles it). */
 	droidEnabled: boolean;
+	/** Supervision of the viewed conversation; null when it was never armed. */
+	supervisor: SentinelSupervisorView | null;
+	/** Global supervision settings shown under 设置 → 模型. */
+	supervisorConfig: SentinelSupervisorConfig;
 }
 
 /** A point the conversation can branch from. */
@@ -1272,6 +1484,35 @@ export type SentinelClientMessage =
 	| { type: "test_judge" }
 	| { type: "gate_audit_query"; filter?: SentinelGateFilter; page?: number; pageSize?: number }
 	| { type: "gate_audit_stats"; filter?: SentinelGateFilter }
+	/** Arm supervision before the conversation's first message. */
+	| {
+			type: "supervisor_arm";
+			mode: SentinelSupervisorMode;
+			delivery: SentinelSupervisorDelivery;
+	  }
+	| { type: "supervisor_stop" }
+	/** Change the per-conversation mode/delivery; applies to the next episode. */
+	| {
+			type: "supervisor_set_mode";
+			mode: SentinelSupervisorMode;
+			delivery: SentinelSupervisorDelivery;
+	  }
+	| { type: "supervisor_run_now" }
+	/** Full output of one call, read from the session file by callId. */
+	| { type: "supervisor_call_output"; callId: string }
+	| {
+			type: "supervisor_audit";
+			page?: number;
+			pageSize?: number;
+			projectId?: string;
+			search?: string;
+			mode?: SentinelSupervisorMode;
+			progress?: SentinelSupervisorProgress;
+	  }
+	| { type: "supervisor_detail"; sessionId: string }
+	| { type: "supervisor_advice_action"; id: string; action: "send" | "ignore" }
+	| { type: "save_supervisor_config"; config: SentinelSupervisorConfig }
+	| { type: "test_supervisor" }
 	/**
 	 * Start business modeling in the viewed session. No payload: the objective
 	 * comes from the conversation the operator is already in. Refused while the
@@ -1425,6 +1666,25 @@ export type SentinelServerMessage =
 			/** Non-internal IPv4 addresses of the server, for the listen picker. */
 			lanIps: string[];
 	  }
+	| { type: "supervisor_state"; supervisor: SentinelSupervisorView | null }
+	| {
+			type: "supervisor_episode";
+			episode: SentinelSupervisorEpisode;
+			calls: SentinelSupervisorCall[];
+	  }
+	| { type: "supervisor_log"; sessionId: string; log: SentinelSupervisorLog }
+	| { type: "supervisor_advice"; advice: SentinelSupervisorAdvice }
+	| { type: "supervisor_config"; config: SentinelSupervisorConfig }
+	| { type: "supervisor_audit"; page: SentinelSupervisorAuditPage }
+	| { type: "supervisor_detail"; detail: SentinelSupervisorDetail }
+	| {
+			type: "supervisor_call_output";
+			callId: string;
+			text: string;
+			truncated: boolean;
+			error?: string;
+	  }
+	| { type: "supervisor_test_result"; result: SentinelTestResult; raw?: string }
 	| { type: "error"; message: string };
 
 /**

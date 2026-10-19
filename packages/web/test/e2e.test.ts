@@ -32,6 +32,9 @@ import type {
 	SentinelStateSnapshot,
 	SentinelSubagentEvent,
 	SentinelSubagentRun,
+	SentinelSupervisorAuditPage,
+	SentinelSupervisorDetail,
+	SentinelSupervisorView,
 	SentinelVulnerability,
 } from "../src/protocol.ts";
 import { startSentinelServer } from "../src/server.ts";
@@ -3041,3 +3044,69 @@ test("the commander dispatches with a whitelisted preset and has an outsider ref
 	)) as { engine: SentinelEngine };
 	expect(restored.engine.id).toBe(engine.id);
 }, 120000);
+
+test("supervision is armed per conversation before the first message, audited, and stopped explicitly", async () => {
+	drainIncoming();
+	send({ type: "get_state" });
+	const before = (await waitForFirst((message) => message.type === "snapshot")) as {
+		snapshot: SentinelStateSnapshot;
+	};
+	send({ type: "new_session" });
+	const fresh = await snapshotWhere((snapshot) => snapshot.activeSessionId !== before.snapshot.activeSessionId);
+	// No 监督 click, no supervisor state at all.
+	expect(fresh.supervisor).toBeNull();
+	expect(fresh.supervisorConfig.enabled).toBe(true);
+
+	send({ type: "supervisor_arm", mode: "observe", delivery: "confirm" });
+	const waitingMessage = (await waitFor(
+		(message) => message.type === "supervisor_state" && message.supervisor?.status === "waiting",
+	)) as { supervisor: SentinelSupervisorView };
+	const waiting = waitingMessage.supervisor;
+	expect(waiting.mode).toBe("observe");
+	expect(waiting.callCount).toBe(0);
+	const sessionId = waiting.sessionId;
+	expect(sessionId).not.toBe("");
+
+	// The global audit has the row even before the first prompt.
+	send({ type: "supervisor_audit", page: 1 });
+	const audit = (await waitFor((message) => message.type === "supervisor_audit")) as {
+		page: SentinelSupervisorAuditPage;
+	};
+	expect(audit.page.items.some((item) => item.sessionId === sessionId && item.status === "waiting")).toBe(true);
+	expect(audit.page.stats.total).toBeGreaterThanOrEqual(1);
+	expect(audit.page.stats.pendingAdvice).toBe(0);
+
+	// Mode and delivery are per conversation, not a global setting.
+	send({ type: "supervisor_set_mode", mode: "intervene", delivery: "auto" });
+	const intervenedMessage = (await waitFor(
+		(message) =>
+			message.type === "supervisor_state" &&
+			message.supervisor?.mode === "intervene" &&
+			message.supervisor.delivery === "auto",
+	)) as { supervisor: SentinelSupervisorView };
+	expect(intervenedMessage.supervisor.status).toBe("waiting");
+
+	send({ type: "supervisor_detail", sessionId });
+	const detail = (await waitFor((message) => message.type === "supervisor_detail")) as {
+		detail: SentinelSupervisorDetail;
+	};
+	expect(detail.detail.session.sessionId).toBe(sessionId);
+	expect(detail.detail.session.mode).toBe("intervene");
+
+	// Config lives in 设置 → 模型 and reaches the snapshot.
+	const config = { ...fresh.supervisorConfig, batchToolCalls: 30 };
+	send({ type: "save_supervisor_config", config });
+	const configured = await snapshotWhere((snapshot) => snapshot.supervisorConfig.batchToolCalls === 30);
+	expect(configured.supervisorConfig.enabled).toBe(true);
+
+	send({ type: "supervisor_stop" });
+	const stoppedMessage = (await waitFor(
+		(message) => message.type === "supervisor_state" && message.supervisor?.status === "stopped",
+	)) as { supervisor: SentinelSupervisorView };
+	expect(stoppedMessage.supervisor.endedAt).not.toBeNull();
+
+	// A stopped conversation cannot be re-armed; a new conversation is required.
+	send({ type: "supervisor_arm", mode: "observe", delivery: "confirm" });
+	const refused = await waitFor((message) => message.type === "error" && message.message.includes("停止"));
+	expect(refused.type).toBe("error");
+}, 30000);

@@ -37,6 +37,7 @@ import {
 	SettingsIcon,
 	ShieldIcon,
 	SubagentIcon,
+	SupervisorIcon,
 	VulnIcon,
 } from "./icons.tsx";
 import { SESSION_STATUS_LABELS, SessionStatusControl, SessionStatusRail } from "./SessionStatusControl.tsx";
@@ -74,6 +75,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 			{ page: "pocs", label: "POC 库", icon: PocIcon },
 			{ page: "engine", label: "工程", icon: SubagentIcon },
 			{ page: "gates", label: "审批", icon: GateIcon },
+			{ page: "supervisor", label: "监督", icon: SupervisorIcon },
 		],
 	},
 	{

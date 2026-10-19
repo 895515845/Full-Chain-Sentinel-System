@@ -40,11 +40,12 @@ export const NEW_ENTRY_ID_PREFIX = "zg-model-";
 /** The value a role holds when it should use whatever `main` uses. */
 export const FOLLOW_MAIN = "follow-main";
 
-export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = ["main", "judge", "reviewer"];
+export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = ["main", "judge", "reviewer", "supervisor"];
 export const SENTINEL_MODEL_ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
+	supervisor: "监督模型",
 };
 
 export interface SentinelModelEntry {
@@ -63,6 +64,7 @@ export interface SentinelModelLibrary {
 		main: SentinelRoleMainRef;
 		judge: SentinelRoleRef;
 		reviewer: SentinelRoleRef;
+		supervisor: SentinelRoleRef;
 	};
 	/** When off, submissions are not queued for the reviewer at all. */
 	reviewerAuto: boolean;
@@ -135,6 +137,7 @@ export function normalizeModelLibrary(value: unknown): SentinelModelLibrary {
 			main: mainId && has(mainId) ? { kind: "model", id: mainId } : null,
 			judge: roleRef(rawRoles.judge, { kind: "follow-main" }),
 			reviewer: roleRef(rawRoles.reviewer, { kind: "follow-main" }),
+			supervisor: roleRef(rawRoles.supervisor, { kind: "follow-main" }),
 		},
 		reviewerAuto: typeof source.reviewerAuto === "boolean" ? source.reviewerAuto : true,
 	};
@@ -199,7 +202,12 @@ export function migrateModelLibrary(agentDir: string): SentinelModelLibrary {
 	return normalizeModelLibrary({
 		version: MODEL_LIBRARY_VERSION,
 		entries,
-		roles: { main: has(SENTINEL_PROVIDER_ID) ? { kind: "model", id: SENTINEL_PROVIDER_ID } : null, judge, reviewer },
+		roles: {
+			main: has(SENTINEL_PROVIDER_ID) ? { kind: "model", id: SENTINEL_PROVIDER_ID } : null,
+			judge,
+			reviewer,
+			supervisor: { kind: "follow-main" },
+		},
 		reviewerAuto: true,
 	});
 }
@@ -245,7 +253,7 @@ export function resolveLibraryRole(agentDir: string, role: SentinelModelRoleName
 	if (role === "main") {
 		return mainRef ? resolveEntry(agentDir, library, mainRef.id, false) : null;
 	}
-	const ref: SentinelRoleRef = role === "judge" ? library.roles.judge : library.roles.reviewer;
+	const ref: SentinelRoleRef = library.roles[role as Exclude<SentinelModelRoleName, "main">];
 	if (ref.kind === "model") return resolveEntry(agentDir, library, ref.id, false);
 	return mainRef ? resolveEntry(agentDir, library, mainRef.id, true) : null;
 }
@@ -270,12 +278,14 @@ export function libraryView(agentDir: string): SentinelModelLibraryView {
 			main: library.roles.main?.id ?? null,
 			judge: library.roles.judge.kind === "model" ? library.roles.judge.id : FOLLOW_MAIN,
 			reviewer: library.roles.reviewer.kind === "model" ? library.roles.reviewer.id : FOLLOW_MAIN,
+			supervisor: library.roles.supervisor.kind === "model" ? library.roles.supervisor.id : FOLLOW_MAIN,
 		},
 		reviewerAuto: library.reviewerAuto,
 		resolved: {
 			main: toResolvedModelView(resolveLibraryRole(agentDir, "main")),
 			judge: toResolvedModelView(resolveLibraryRole(agentDir, "judge")),
 			reviewer: toResolvedModelView(resolveLibraryRole(agentDir, "reviewer")),
+			supervisor: toResolvedModelView(resolveLibraryRole(agentDir, "supervisor")),
 		},
 	};
 }

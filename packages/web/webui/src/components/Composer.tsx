@@ -7,9 +7,20 @@ import type {
 	SentinelPresetView,
 	SentinelSessionPresetView,
 	SentinelStatsView,
+	SentinelSupervisorMode,
+	SentinelSupervisorView,
 } from "../types.ts";
 import { attachmentManifest, planAttachments, staleUploads, type UploadedFile, uploadFile } from "../uploads.ts";
-import { ApiModelIcon, BellIcon, DroidIcon, FilesIcon, ImageIcon, SubagentIcon, TargetIcon } from "./icons.tsx";
+import {
+	ApiModelIcon,
+	BellIcon,
+	DroidIcon,
+	FilesIcon,
+	ImageIcon,
+	SubagentIcon,
+	SupervisorIcon,
+	TargetIcon,
+} from "./icons.tsx";
 import { ModelingMenu } from "./ModelingMenu.tsx";
 import { PresetMenu, type PresetMenuAnchor, presetMenuPosition } from "./PresetMenu.tsx";
 
@@ -39,6 +50,14 @@ export function composerHint(preset: SentinelSessionPresetView | null): string {
 	return custom || DEFAULT_HINT;
 }
 
+/** Tokens per second, with enough precision to be useful at low speeds. */
+export function formatThroughput(value: number): string {
+	if (!Number.isFinite(value) || value <= 0) return "—";
+	if (value >= 100) return value.toFixed(0);
+	if (value >= 10) return value.toFixed(1);
+	return value.toFixed(2);
+}
+
 /**
  * One attachment in the composer: uploading, stored, or refused. The file itself
  * is already in the project's work dir by the time it is stored — the message
@@ -66,6 +85,7 @@ interface PendingAttachment {
 export function Composer({
 	streaming,
 	stats,
+	throughput,
 	hasProject,
 	projectId,
 	blockedReason,
@@ -79,6 +99,11 @@ export function Composer({
 	freshConversation,
 	presets,
 	preset,
+	supervisor,
+	supervisorEnabled,
+	supervisorWindowOpen,
+	onArmSupervisor,
+	onShowSupervisorWindow,
 	onToggleNotifyRun,
 	onOpenGoal,
 	onStartModeling,
@@ -90,6 +115,8 @@ export function Composer({
 }: {
 	streaming: boolean;
 	stats: SentinelStatsView | null;
+	/** Average output speed of the latest run; null before any assistant usage is seen. */
+	throughput: { tokPerSec: number; outputTokens: number; durationMs: number } | null;
 	hasProject: boolean;
 	/** The active project's id; null while none is selected. Uploads land in its work dir. */
 	projectId: string | null;
@@ -128,6 +155,14 @@ export function Composer({
 	presets: readonly SentinelPresetView[];
 	/** The preset the viewed session runs under; null means the default agent. */
 	preset: SentinelSessionPresetView | null;
+	/** Supervision of this conversation; null until the operator arms it. */
+	supervisor: SentinelSupervisorView | null;
+	/** Global feature switch from 设置 → 模型. */
+	supervisorEnabled: boolean;
+	/** Whether the floating window is currently visible. */
+	supervisorWindowOpen: boolean;
+	onArmSupervisor: (mode: SentinelSupervisorMode, delivery: "auto" | "confirm") => void;
+	onShowSupervisorWindow: () => void;
 	onToggleNotifyRun: () => void;
 	onOpenGoal: () => void;
 	onStartModeling: () => void;
@@ -150,6 +185,7 @@ export function Composer({
 	const [presetMenu, setPresetMenu] = useState<PresetMenuAnchor | null>(null);
 	/** The 带建模数据 picker and what it has checked, applied to the next send. */
 	const [modelingMenu, setModelingMenu] = useState<PresetMenuAnchor | null>(null);
+	const [supervisorMenu, setSupervisorMenu] = useState(false);
 	const [attachSelection, setAttachSelection] = useState<string[]>([]);
 	/** Files already uploaded to the project (or being uploaded, or refused). */
 	const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -268,6 +304,84 @@ export function Composer({
 				    change what the input means: one makes it an objective the agent
 				    keeps working on, the other re-briefs who is reading it. */}
 				<div className="composer-goal-row">
+					{supervisorEnabled ? (
+						<>
+							<button
+								type="button"
+								className={`composer-tool supervisor-trigger ${supervisor ? "on" : ""}`}
+								onClick={() => {
+									if (supervisor) {
+										onShowSupervisorWindow();
+										return;
+									}
+									if (!freshConversation) return;
+									setSupervisorMenu((open) => !open);
+								}}
+								disabled={!hasProject || blocked || (!freshConversation && !supervisor)}
+								title={
+									supervisor
+										? supervisor.status === "stopped"
+											? "监督已停止；点击查看本次监督记录"
+											: "打开监督悬浮窗；收起窗口不会停止监督"
+										: !freshConversation
+											? "监督只能在开始对话前开启"
+											: "开启监督：观察，或介入并选择自动发送 / 确认后发送"
+								}
+							>
+								<SupervisorIcon />
+								{supervisor
+									? supervisor.status === "stopped"
+										? "监督已停止"
+										: "监督中"
+									: "监督"}
+							</button>
+							{supervisor && !supervisorWindowOpen ? (
+								<button
+									type="button"
+									className="composer-tool supervisor-show"
+									onClick={onShowSupervisorWindow}
+									title="重新显示监督悬浮窗；监督仍在继续"
+								>
+									显示悬浮窗
+								</button>
+							) : null}
+							{supervisorMenu ? (
+								<div className="composer-supervisor-menu">
+									<button
+										type="button"
+										onClick={() => {
+											onArmSupervisor("observe", "confirm");
+											setSupervisorMenu(false);
+										}}
+									>
+										<strong>观察模式</strong>
+										<span>只记录和总结，不改主 Agent</span>
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											onArmSupervisor("intervene", "auto");
+											setSupervisorMenu(false);
+										}}
+									>
+										<strong>介入 · 自动发送</strong>
+										<span>判断停滞或循环时直接给建议</span>
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											onArmSupervisor("intervene", "confirm");
+											setSupervisorMenu(false);
+										}}
+									>
+										<strong>介入 · 确认后发送</strong>
+										<span>建议先到悬浮窗，由你决定是否发送</span>
+									</button>
+									<p>开启后可在悬浮窗里切换模式；停止后本次会话不能恢复。</p>
+								</div>
+							) : null}
+						</>
+					) : null}
 					<button
 						type="button"
 						className={`composer-tool preset-trigger ${preset ? "on" : ""}`}
@@ -560,23 +674,25 @@ export function Composer({
 					)}
 				</div>
 			</div>
-			<div className="status-line">
-				{blocked ? (
-					<span className="status-alert">已锁定</span>
-				) : streaming ? (
-					<span className="status-alert">运行中…</span>
-				) : (
-					"空闲"
-				)}
-				{stats ? (
-					<>
-						{" · Token 输入 "}
-						{formatTokens(stats.tokens.input)}
-						{" / 输出 "}
-						{formatTokens(stats.tokens.output)}
-						{stats.cost > 0 ? ` · 花费 $${stats.cost.toFixed(4)}` : ""}
-					</>
-				) : null}
+			<div className="status-line status-line--centered">
+				<span title="按本轮每个 assistant 消息的 output tokens 与该消息耗时计算，不含工具执行时间">
+					{blocked ? "已锁定" : streaming ? "运行中…" : "空闲"}
+					{stats
+						? ` · Token 输入 ${formatTokens(stats.tokens.input)} / 输出 ${formatTokens(stats.tokens.output)}${
+								stats.cost > 0 ? ` · 花费 $${stats.cost.toFixed(4)}` : ""
+							}`
+						: ""}
+					{" · "}
+					{throughput
+						? `本轮均速 ${formatThroughput(throughput.tokPerSec)} tok/s${
+								streaming
+									? "（生成中）"
+									: ` · ${formatTokens(throughput.outputTokens)} tokens / ${(throughput.durationMs / 1000).toFixed(1)}s`
+							}`
+						: streaming
+							? "本轮生成中…"
+							: "本轮 tok/s —"}
+				</span>
 			</div>
 		</div>
 	);

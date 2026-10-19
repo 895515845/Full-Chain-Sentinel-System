@@ -47,6 +47,20 @@ test("an unknown custom message still renders nothing", () => {
 	expect(html).toBe("");
 });
 
+test("a supervisor advice message stays visible and auditable", () => {
+	const html = renderToStaticMarkup(
+		createElement(MessageView, {
+			message: custom(
+				"zg-supervisor-advice",
+				"【监督建议 · 非操作员指令】\n判断：SQLi 已排除\n建议下一步：转向 IDOR",
+			),
+		}),
+	);
+	expect(html).toContain("监督建议已介入");
+	expect(html).toContain("supervisor-advice-row");
+	expect(html).toContain("转向 IDOR");
+});
+
 /**
  * A settled run folds a thinking block into one StepRow with a three-line
  * preview. The row's 「还有 N 行」 button used to be a dead end: the row called

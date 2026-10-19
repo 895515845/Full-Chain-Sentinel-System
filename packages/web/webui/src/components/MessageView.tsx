@@ -430,6 +430,20 @@ export function MessageView({
 				</details>
 			);
 		}
+		// Supervisor advice is a real intervention: unlike an internal marker it
+		// must stay visible, so the operator can see exactly what was injected.
+		if (message.customType === "zg-supervisor-advice") {
+			const text = textFromContent(message.content);
+			return (
+				<div className="supervisor-advice-row">
+					<div className="supervisor-advice-row__head">
+						<span>监督建议已介入</span>
+						{message.timestamp ? <span>{formatTime(message.timestamp)}</span> : null}
+					</div>
+					<pre>{text}</pre>
+				</div>
+			);
+		}
 		// Business-modeling rows: the briefing the button injected and the line that
 		// closed the run. They fold like a summary — the operator needs the boundary
 		// in the transcript, not the whole briefing in the way.

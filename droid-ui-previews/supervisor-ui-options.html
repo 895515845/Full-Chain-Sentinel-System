@@ -1,0 +1,1161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>监督界面方案预览 · 全链哨兵</title>
+<style>
+:root {
+  color-scheme: light;
+  --nav: #001529;
+  --nav-child: #000c17;
+  --nav-text: #ffffffbf;
+  --nav-dim: #ffffff73;
+  --nav-active: #273352;
+  --bg: #f3f5f8;
+  --card: #ffffff;
+  --raised: #f8f9fb;
+  --border: #e6e8eb;
+  --border-strong: #d9dde3;
+  --text: #1f2329;
+  --bright: #111418;
+  --dim: #606266;
+  --faint: #9aa1ab;
+  --accent: #0960bd;
+  --accent-soft: #eaf3ff;
+  --accent-border: #0960bd33;
+  --ok: #67c23a;
+  --ok-soft: #f0f9eb;
+  --warn: #e6a23c;
+  --warn-soft: #fdf6ec;
+  --danger: #f56c6c;
+  --danger-soft: #fef0f0;
+  --info: #0958d9;
+  --info-soft: #e6f4ff;
+  --console: #0b0f14;
+  --console-2: #111821;
+  --console-3: #17212c;
+  --console-border: #243140;
+  --console-text: #c9d1d9;
+  --console-dim: #8b949e;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --shadow: 0 18px 48px rgb(15 23 42 / 18%);
+  --radius: 8px;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  padding: 0 0 82px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, h4, p { margin: 0; }
+pre { margin: 0; font-family: var(--mono); }
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--border);
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(12px);
+}
+.brandline { display: flex; align-items: center; gap: 12px; min-width: 280px; }
+.brandmark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--nav);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+.brandline h1 { color: var(--bright); font-size: 16px; font-weight: 600; letter-spacing: 0.2px; }
+.brandline p { margin-top: 2px; color: var(--faint); font-size: 11.5px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tabgroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+.tabgroup > span { padding: 0 6px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.tab {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.tab:hover { color: var(--accent); background: #fff; }
+.tab.active { background: #fff; color: var(--accent); box-shadow: 0 1px 3px rgb(15 23 42 / 10%); font-weight: 600; }
+.tab.compare { border: 1px solid var(--border); background: #fff; }
+
+main { max-width: 1380px; margin: 0 auto; padding: 24px 26px 12px; }
+.view { display: none; }
+.view.active { display: block; }
+.demo {
+  position: relative;
+  width: 100%;
+  height: 720px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.shell-host { height: 100%; }
+.shell-host > .mock { height: 100%; }
+.mock { display: flex; background: var(--bg); }
+.mock-sider {
+  display: flex;
+  flex: 0 0 208px;
+  flex-direction: column;
+  background: var(--nav);
+  color: var(--nav-text);
+  overflow: hidden;
+}
+.sider-brand {
+  display: flex;
+  height: 54px;
+  flex: 0 0 54px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  border-bottom: 1px solid #ffffff12;
+  color: #fff;
+  font-size: 13px;
+}
+.sider-brand .shield {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid #ffffff66;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.project-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 10px 8px;
+  padding: 8px 9px;
+  border: 1px solid #ffffff1a;
+  border-radius: 6px;
+  background: #ffffff0d;
+  color: #ffffffd9;
+  font-size: 11.5px;
+}
+.project-select span:last-child { color: var(--nav-dim); }
+.sider-nav { flex: 1; overflow: auto; padding: 2px 0 10px; }
+.nav-group { padding: 8px 16px 4px; color: var(--nav-dim); font-size: 10px; letter-spacing: 0.8px; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  margin: 1px 8px;
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--nav-text);
+  font-size: 12px;
+}
+.nav-item.active { background: var(--nav-active); color: #fff; }
+.nav-item:hover { background: #0d2136; }
+.nav-dot { width: 5px; height: 5px; border-radius: 50%; background: #ffffff42; }
+.nav-item.active .nav-dot { background: #fff; }
+.sider-foot { padding: 12px 16px; border-top: 1px solid #ffffff12; color: var(--nav-dim); font-size: 11px; }
+.mock-main { position: relative; display: flex; min-width: 0; flex: 1; flex-direction: column; background: var(--bg); }
+.mock-top {
+  display: flex;
+  height: 46px;
+  flex: 0 0 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+.mock-top b { color: var(--bright); font-size: 13px; font-weight: 600; }
+.mock-top .crumb { color: var(--faint); font-size: 11px; }
+.mock-top .top-actions { display: flex; gap: 7px; margin-left: auto; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: var(--raised);
+  color: var(--dim);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--danger-soft); color: var(--danger); }
+.pill.info { background: var(--info-soft); color: var(--info); }
+
+/* ---------- mock chat ---------- */
+.chat-shell { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.chat-body { flex: 1; overflow: auto; padding: 22px 28px 12px; }
+.chat-day { margin: 0 auto 12px; width: fit-content; color: var(--faint); font-size: 10.5px; }
+.msg { max-width: 680px; margin-bottom: 14px; }
+.msg.user { margin-left: auto; }
+.msg-name { margin-bottom: 4px; color: var(--faint); font-size: 10.5px; }
+.msg.user .msg-name { text-align: right; }
+.bubble {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.msg.user .bubble { border-color: var(--accent-border); background: var(--accent-soft); }
+.tool-card { margin-top: 8px; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
+.tool-head { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-bottom: 1px solid var(--border); background: var(--raised); }
+.tool-name { color: var(--bright); font-family: var(--mono); font-size: 10.5px; }
+.tool-status { font-size: 10px; }
+.tool-status.ok { color: var(--ok); }
+.tool-status.bad { color: var(--danger); }
+.tool-time { margin-left: auto; color: var(--faint); font-size: 10px; }
+.tool-card pre { padding: 8px 10px; overflow: auto; color: #4d5560; background: #fbfcfd; font-size: 10.5px; line-height: 1.55; }
+.mock-composer { flex: none; padding: 10px 28px 12px; border-top: 1px solid var(--border); background: #fff; }
+.composer-input { display: flex; height: 36px; align-items: center; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 7px; color: var(--faint); font-size: 11.5px; }
+.composer-status { margin-top: 7px; color: var(--faint); font-size: 10.5px; text-align: center; }
+
+/* ---------- floating panels ---------- */
+.float-panel { position: absolute; right: 20px; bottom: 20px; z-index: 4; display: flex; flex-direction: column; overflow: hidden; }
+.fa {
+  width: 446px;
+  max-height: 620px;
+  border: 1px solid var(--console-border);
+  border-radius: 10px;
+  background: var(--console);
+  color: var(--console-text);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 48%);
+  font-size: 11.5px;
+}
+.fa-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--console-border); background: var(--console-2); }
+.fa-live { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px #67c23a22; }
+.fa-title { color: #e6edf3; font-size: 12px; font-weight: 600; }
+.fa-status { padding: 1px 6px; border-radius: 9px; background: #67c23a1f; color: #8bd46a; font-size: 9.5px; }
+.fa-head-actions { display: flex; gap: 5px; margin-left: auto; }
+.fa-btn { height: 23px; padding: 0 7px; border: 1px solid #2d3b4b; border-radius: 4px; background: transparent; color: #aeb9c6; font-size: 10px; }
+.fa-btn:hover { border-color: #4b627b; color: #e6edf3; }
+.fa-btn.danger { color: #f08a8a; border-color: #613131; }
+.fa-body { overflow: auto; padding: 10px 11px 12px; }
+.fa-mode { display: flex; gap: 4px; margin-bottom: 9px; }
+.fa-mode button { height: 24px; padding: 0 7px; border: 1px solid #2d3b4b; border-radius: 4px; background: transparent; color: #9aa7b5; font-size: 10px; }
+.fa-mode button.on { border-color: #3c7fb8; background: #12304a; color: #a9d5ff; }
+.fa-mode .run { margin-left: auto; color: #8bd46a; border-color: #355c36; }
+.fa-state { padding: 9px 10px; border: 1px solid #263443; border-radius: 6px; background: #0f1721; }
+.fa-state-top { display: flex; align-items: center; gap: 7px; }
+.fa-phase { color: #e6edf3; font-size: 13px; font-weight: 600; }
+.fa-progress { padding: 1px 6px; border-radius: 9px; background: #3a2b16; color: #e8b765; font-size: 9.5px; }
+.fa-model { margin-left: auto; color: #728092; font-family: var(--mono); font-size: 9.5px; }
+.fa-intent { margin-top: 6px; color: #c6d1dd; font-size: 11.5px; line-height: 1.55; }
+.fa-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 9px; }
+.fa-kpi { padding: 7px 8px; border: 1px solid #263443; border-radius: 5px; background: #111a24; }
+.fa-kpi b { display: block; color: #e6edf3; font-family: var(--mono); font-size: 14px; font-weight: 500; }
+.fa-kpi span { color: #728092; font-size: 9.5px; }
+.fa-section { margin-top: 10px; }
+.fa-section h4 { margin: 0 0 5px; color: #8b97a6; font-size: 10px; font-weight: 500; letter-spacing: 0.3px; }
+.fa-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.fa-tag { padding: 2px 6px; border: 1px solid #2b3948; border-radius: 4px; background: #131c26; color: #9eacbb; font-size: 9.5px; }
+.fa-tag.warn { border-color: #5b431f; color: #d8a45e; }
+.fa-list { margin: 0; padding-left: 15px; color: #aab6c3; font-size: 10.5px; line-height: 1.6; }
+.fa-advice { margin-top: 10px; padding: 8px 9px; border: 1px solid #5b431f; border-radius: 6px; background: #211b11; }
+.fa-advice-title { display: flex; align-items: center; gap: 6px; color: #e8b765; font-size: 10px; font-weight: 600; }
+.fa-advice-title span { margin-left: auto; color: #8d7650; font-weight: 400; }
+.fa-advice p { margin-top: 4px; color: #c9b48f; font-size: 10.5px; line-height: 1.5; }
+.fa-advice-actions { display: flex; gap: 5px; margin-top: 7px; }
+.fa-advice-actions button { height: 23px; padding: 0 7px; border: 1px solid #6b4e21; border-radius: 4px; background: transparent; color: #e8b765; font-size: 10px; }
+.fa-advice-actions button.primary { background: #8a5d17; border-color: #8a5d17; color: #fff; }
+.fa-log { max-height: 92px; overflow: auto; padding: 6px 7px; border: 1px solid #263443; border-radius: 5px; background: #0c131b; color: #8b97a6; font-family: var(--mono); font-size: 9.5px; line-height: 1.55; }
+.fa-log b { color: #c6d1dd; font-weight: 400; }
+.fa-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; border-top: 1px solid var(--console-border); background: var(--console-2); color: #667486; font-size: 9.5px; }
+.fa-foot a { color: #8aa6c2; text-decoration: none; }
+
+.fb {
+  width: 438px;
+  max-height: 610px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 20px 48px rgb(15 23 42 / 24%);
+  overflow: hidden;
+  font-size: 11.5px;
+}
+.fb-head { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px 10px; border-bottom: 1px solid var(--border); }
+.fb-head h3 { color: var(--bright); font-size: 13px; font-weight: 600; }
+.fb-head p { margin-top: 2px; color: var(--faint); font-size: 10.5px; }
+.fb-head .pill { margin-left: auto; }
+.fb-body { max-height: 500px; overflow: auto; padding: 12px 15px 14px; }
+.fb-phase-row { display: flex; align-items: center; gap: 8px; }
+.fb-phase { color: var(--bright); font-size: 15px; font-weight: 600; }
+.fb-progress { height: 5px; margin-top: 9px; overflow: hidden; border-radius: 3px; background: var(--raised); }
+.fb-progress span { display: block; width: 62%; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #4a9fe8); }
+.fb-progress-meta { display: flex; justify-content: space-between; margin-top: 4px; color: var(--faint); font-size: 10px; }
+.fb-intent { margin-top: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--raised); color: var(--text); font-size: 11.5px; line-height: 1.55; }
+.fb-tabs { display: flex; gap: 2px; margin: 12px 0 9px; padding: 3px; border-radius: 6px; background: var(--raised); }
+.fb-tab { flex: 1; height: 25px; border: 0; border-radius: 4px; background: transparent; color: var(--dim); font-size: 10.5px; }
+.fb-tab.on { background: #fff; color: var(--accent); box-shadow: 0 1px 2px rgb(15 23 42 / 10%); font-weight: 600; }
+.fb-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fb-chip { padding: 2px 7px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--dim); font-size: 9.5px; }
+.fb-chip.bad { border-color: #f6c7c7; background: var(--danger-soft); color: var(--danger); }
+.fb-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 10.5px; }
+.fb-table th { padding: 5px 6px; border-bottom: 1px solid var(--border); color: var(--faint); font-weight: 500; text-align: left; }
+.fb-table td { padding: 6px; border-bottom: 1px solid var(--border); color: var(--text); }
+.fb-table tr:last-child td { border-bottom: 0; }
+.fb-table code { color: var(--dim); font-family: var(--mono); font-size: 9.5px; }
+.fb-advice { margin-top: 10px; padding: 10px; border: 1px solid #f0d3a4; border-radius: 8px; background: #fffaf0; }
+.fb-advice-head { display: flex; align-items: center; gap: 6px; color: #8a5d17; font-size: 10.5px; font-weight: 600; }
+.fb-advice-head span { margin-left: auto; color: #b08a54; font-weight: 400; }
+.fb-advice p { margin-top: 5px; color: #67502f; font-size: 10.5px; line-height: 1.55; }
+.fb-advice-actions { display: flex; gap: 6px; margin-top: 8px; }
+.fb-advice-actions button { height: 25px; padding: 0 9px; border: 1px solid #e2c28e; border-radius: 4px; background: #fff; color: #8a5d17; font-size: 10.5px; }
+.fb-advice-actions button.primary { background: #b77a1d; border-color: #b77a1d; color: #fff; }
+.fb-speed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--faint); font-size: 10px; }
+.fb-speed b { color: var(--accent); font-family: var(--mono); font-weight: 500; }
+.fb-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 15px; border-top: 1px solid var(--border); background: var(--raised); color: var(--faint); font-size: 9.5px; }
+.fb-foot button { height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--dim); font-size: 10px; }
+.fb-foot button.danger { color: var(--danger); border-color: #f3c4c4; }
+
+.fc {
+  width: 392px;
+  max-height: 610px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 20px 48px rgb(15 23 42 / 22%);
+  overflow: hidden;
+  font-size: 11.5px;
+}
+.fc-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.fc-head h3 { color: var(--bright); font-size: 12.5px; font-weight: 600; }
+.fc-head .pill { margin-left: auto; }
+.fc-body { max-height: 510px; overflow: auto; padding: 12px 14px 14px; }
+.fc-state { padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--raised); }
+.fc-state-top { display: flex; align-items: center; gap: 7px; }
+.fc-state-top b { color: var(--bright); font-size: 13px; }
+.fc-state p { margin-top: 5px; color: var(--dim); font-size: 10.5px; line-height: 1.55; }
+.fc-rail { position: relative; margin-top: 14px; padding-left: 24px; }
+.fc-rail::before { content: ""; position: absolute; left: 6px; top: 5px; bottom: 5px; width: 1px; background: var(--border); }
+.fc-event { position: relative; margin-bottom: 11px; }
+.fc-dot { position: absolute; left: -22px; top: 3px; width: 7px; height: 7px; border: 2px solid #fff; border-radius: 50%; background: var(--border-strong); box-shadow: 0 0 0 1px var(--border-strong); }
+.fc-event.ok .fc-dot { background: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.fc-event.warn .fc-dot { background: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.fc-event.bad .fc-dot { background: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+.fc-time { color: var(--faint); font-family: var(--mono); font-size: 9.5px; }
+.fc-event-title { margin-top: 1px; color: var(--text); font-size: 11px; }
+.fc-event-note { margin-top: 1px; color: var(--dim); font-size: 10px; line-height: 1.45; }
+.fc-next { margin-top: 12px; padding: 8px 9px; border: 1px solid var(--accent-border); border-radius: 6px; background: var(--accent-soft); }
+.fc-next h4 { color: var(--accent); font-size: 10px; font-weight: 600; }
+.fc-next p { margin-top: 3px; color: #405d7c; font-size: 10.5px; }
+.fc-foot { display: flex; justify-content: space-between; padding: 8px 14px; border-top: 1px solid var(--border); color: var(--faint); font-size: 9.5px; }
+.fc-foot button { border: 0; background: transparent; color: var(--accent); font-size: 10px; }
+
+/* ---------- option summary ---------- */
+.option-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.option-summary h3 { color: var(--bright); font-size: 13px; font-weight: 600; }
+.option-summary h3 span { margin-left: 7px; color: var(--accent); font-size: 10.5px; font-weight: 500; }
+.option-summary p { margin-top: 4px; max-width: 760px; color: var(--dim); font-size: 11.5px; line-height: 1.55; }
+.option-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+.option-meta span { padding: 2px 7px; border-radius: 4px; background: var(--raised); color: var(--faint); font-size: 10px; }
+.pick {
+  flex: none;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pick:hover { background: var(--accent-soft); }
+.pick.selected { background: var(--accent); color: #fff; }
+
+/* ---------- audit pages ---------- */
+.audit-page { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: auto; padding: 18px 20px 20px; }
+.audit-head { display: flex; align-items: flex-start; gap: 14px; }
+.audit-head h2 { color: var(--bright); font-size: 18px; font-weight: 600; }
+.audit-head p { margin-top: 3px; color: var(--faint); font-size: 11px; }
+.audit-head .head-actions { display: flex; gap: 7px; margin-left: auto; }
+.audit-head button, .filterbar button, .pager button {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--dim);
+  font-size: 11px;
+}
+.audit-head button.primary, .filterbar button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 14px 0 10px; }
+.filterbar select, .filterbar input {
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--text);
+  font-size: 11px;
+}
+.filterbar input { min-width: 210px; flex: 1; }
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 11px; }
+.kpi { padding: 10px 11px; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
+.kpi b { display: block; color: var(--bright); font-family: var(--mono); font-size: 18px; font-weight: 500; }
+.kpi span { color: var(--faint); font-size: 10px; }
+.kpi.warn b { color: var(--warn); }
+.kpi.bad b { color: var(--danger); }
+.kpi.ok b { color: var(--ok); }
+.table-card { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.data-table th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.data-table td { padding: 10px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 10.5px; vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: 0; }
+.data-table tbody tr:hover { background: #fbfcfd; }
+.data-table tbody tr.selected { background: var(--accent-soft); }
+.status-dot { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--faint); vertical-align: 1px; }
+.status-dot.ok { background: var(--ok); }
+.status-dot.warn { background: var(--warn); }
+.status-dot.bad { background: var(--danger); }
+.status-dot.info { background: var(--info); }
+.session-cell b { display: block; color: var(--bright); font-size: 11px; font-weight: 500; }
+.session-cell span { color: var(--faint); font-size: 9.5px; }
+.mono { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+.table-foot { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--border); color: var(--faint); font-size: 10px; }
+.pager { display: flex; gap: 5px; }
+.drawer {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 350px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: #fff;
+  box-shadow: -8px 0 24px rgb(15 23 42 / 8%);
+}
+.drawer-head { display: flex; align-items: flex-start; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--border); }
+.drawer-head h3 { color: var(--bright); font-size: 12px; font-weight: 600; }
+.drawer-head p { margin-top: 2px; color: var(--faint); font-size: 10px; }
+.drawer-head button { margin-left: auto; border: 0; background: transparent; color: var(--faint); font-size: 14px; }
+.drawer-body { padding: 12px 14px; }
+.drawer-section { margin-bottom: 13px; }
+.drawer-section h4 { margin-bottom: 5px; color: var(--dim); font-size: 10px; font-weight: 500; }
+.drawer-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.drawer-meta div { padding: 6px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--raised); }
+.drawer-meta b { display: block; color: var(--bright); font-family: var(--mono); font-size: 11px; font-weight: 500; }
+.drawer-meta span { color: var(--faint); font-size: 9px; }
+.episode { padding: 7px 8px; border: 1px solid var(--border); border-radius: 5px; background: #fff; margin-bottom: 5px; }
+.episode-head { display: flex; gap: 6px; color: var(--faint); font-size: 9px; }
+.episode p { margin-top: 4px; color: var(--text); font-size: 10px; line-height: 1.45; }
+.episode .dead { margin-top: 2px; color: var(--danger); font-size: 9.5px; }
+.drawer-log { max-height: 130px; overflow: auto; padding: 6px 7px; border: 1px solid var(--border); border-radius: 5px; background: #fbfcfd; font-family: var(--mono); font-size: 9px; line-height: 1.55; color: var(--dim); }
+.drawer-advice { padding: 8px; border: 1px solid #f0d3a4; border-radius: 6px; background: #fffaf0; color: #67502f; font-size: 10px; line-height: 1.5; }
+.drawer-advice b { color: #8a5d17; }
+
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+.board-col { min-height: 420px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #f7f8fa; }
+.board-col-head { display: flex; align-items: center; gap: 6px; padding: 1px 2px 8px; color: var(--dim); font-size: 10.5px; font-weight: 600; }
+.board-col-head span { margin-left: auto; padding: 0 5px; border-radius: 8px; background: #fff; color: var(--faint); font-size: 9px; }
+.board-card { margin-bottom: 7px; padding: 9px; border: 1px solid var(--border); border-top: 2px solid var(--border-strong); border-radius: 6px; background: #fff; }
+.board-card.ok { border-top-color: var(--ok); }
+.board-card.warn { border-top-color: var(--warn); }
+.board-card.bad { border-top-color: var(--danger); }
+.board-card.info { border-top-color: var(--info); }
+.board-card h4 { color: var(--bright); font-size: 10.5px; font-weight: 600; }
+.board-card .project { margin-top: 1px; color: var(--faint); font-size: 9px; }
+.board-card .intent { margin-top: 6px; color: var(--dim); font-size: 10px; line-height: 1.45; }
+.board-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; color: var(--faint); font-size: 9px; }
+.board-meta span { padding: 1px 5px; border-radius: 3px; background: var(--raised); }
+.board-advice { margin-top: 6px; padding: 4px 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-size: 9px; }
+.analytics-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 9px; margin-bottom: 11px; }
+.chart-card { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font-size: 10.5px; }
+.chart-head span { color: var(--faint); font-size: 9.5px; }
+.chart { display: block; width: 100%; height: 118px; margin-top: 8px; }
+.analysis-side { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.analysis-side h4 { color: var(--dim); font-size: 10.5px; }
+.issue-row { display: flex; align-items: center; gap: 7px; padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 10px; }
+.issue-row:last-child { border-bottom: 0; }
+.issue-row b { margin-left: auto; color: var(--bright); font-family: var(--mono); font-size: 11px; }
+.issue-bar { width: 64px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--raised); }
+.issue-bar span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.audit-note { margin-top: 10px; color: var(--faint); font-size: 10px; }
+
+/* ---------- compare ---------- */
+.compare-wrap { padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
+.compare-wrap h2 { color: var(--bright); font-size: 18px; }
+.compare-wrap > p { margin-top: 4px; color: var(--dim); font-size: 12px; }
+.compare-table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 11px; }
+.compare-table th { padding: 9px; border-bottom: 1px solid var(--border); background: var(--raised); color: var(--dim); font-weight: 500; text-align: left; }
+.compare-table td { padding: 10px 9px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+.compare-table td small { display: block; margin-top: 2px; color: var(--faint); font-size: 9.5px; }
+.compare-table tr.recommended { background: #fbfdff; }
+.compare-table tr.recommended td:first-child { border-left: 3px solid var(--accent); }
+.recommend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.rec-card { flex: 1 1 240px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.rec-card h3 { color: var(--bright); font-size: 12px; }
+.rec-card p { margin-top: 4px; color: var(--dim); font-size: 10.5px; line-height: 1.5; }
+.rec-card b { color: var(--accent); }
+
+/* ---------- choice bar ---------- */
+.choicebar {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 900px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 16%);
+  transform: translateX(-50%);
+  font-size: 11px;
+}
+.choicebar strong { color: var(--bright); font-weight: 500; }
+.choicebar span { color: var(--dim); }
+.choicebar button { height: 26px; padding: 0 9px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: #fff; font-size: 10.5px; }
+@media (max-width: 1120px) {
+  .top { padding: 12px 16px; }
+  main { padding: 16px; }
+  .demo { height: 680px; }
+  .fa { width: 410px; }
+  .fb { width: 410px; }
+  .fc { width: 370px; }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .analytics-grid { grid-template-columns: 1fr; }
+  .board { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brandline">
+    <div class="brandmark">哨</div>
+    <div>
+      <h1>监督界面方案预览</h1>
+      <p>悬浮窗 3 套 · 侧栏审计 3 套 · 点击方案底部按钮选择</p>
+    </div>
+  </div>
+  <div class="tabs">
+    <div class="tabgroup">
+      <span>悬浮窗</span>
+      <button class="tab active" data-target="float-a">A · Console Dock</button>
+      <button class="tab" data-target="float-b">B · Inspector Card</button>
+      <button class="tab" data-target="float-c">C · Timeline Rail</button>
+    </div>
+    <div class="tabgroup">
+      <span>侧栏审计</span>
+      <button class="tab" data-target="side-a">A · Ops Table</button>
+      <button class="tab" data-target="side-b">B · Triage Board</button>
+      <button class="tab" data-target="side-c">C · Analytics</button>
+    </div>
+    <button class="tab compare" data-target="compare">方案对比</button>
+  </div>
+</header>
+
+<main>
+
+<section class="view active" id="float-a">
+  <div class="demo">
+    <div class="shell-host" data-template="chat-shell"></div>
+    <aside class="float-panel fa">
+      <div class="fa-head">
+        <span class="fa-live"></span>
+        <span class="fa-title">监督</span>
+        <span class="fa-status">观察中</span>
+        <div class="fa-head-actions">
+          <button class="fa-btn">收起</button>
+          <button class="fa-btn danger">停止</button>
+        </div>
+      </div>
+      <div class="fa-body">
+        <div class="fa-mode">
+          <button class="on">观察</button>
+          <button>介入 · 自动</button>
+          <button>介入 · 确认</button>
+          <button class="run">立即分析</button>
+        </div>
+        <div class="fa-state">
+          <div class="fa-state-top">
+            <span class="fa-phase">漏洞验证</span>
+            <span class="fa-progress">停滞</span>
+            <span class="fa-model">MiniMax-M3.1</span>
+          </div>
+          <div class="fa-intent">重复测试 /api/user 的 SQLi，响应没有变化；准备转向 IDOR。</div>
+          <div class="fa-kpis">
+            <div class="fa-kpi"><b>42</b><span>调用</span></div>
+            <div class="fa-kpi"><b>3</b><span>episode</span></div>
+            <div class="fa-kpi"><b>12.4k</b><span>tokens</span></div>
+          </div>
+        </div>
+        <div class="fa-section">
+          <h4>已排除</h4>
+          <div class="fa-tags">
+            <span class="fa-tag warn">/api/user?id SQLi</span>
+            <span class="fa-tag">/admin 目录爆破</span>
+            <span class="fa-tag">login.php 弱口令</span>
+          </div>
+        </div>
+        <div class="fa-section">
+          <h4>下一步候选</h4>
+          <ul class="fa-list">
+            <li>切换 id 做越权对比</li>
+            <li>检查 /api/order 的权限边界</li>
+            <li>读取前端 app.js 的接口清单</li>
+          </ul>
+        </div>
+        <div class="fa-advice">
+          <div class="fa-advice-title">待确认建议 <span>14:35:12</span></div>
+          <p>同一接口已重复 4 次且无新证据。建议停止 SQLi，改用低权限账号对比 id 的响应差异。</p>
+          <div class="fa-advice-actions">
+            <button class="primary">发送给 Agent</button>
+            <button>忽略</button>
+          </div>
+        </div>
+        <div class="fa-section">
+          <h4>日志</h4>
+          <div class="fa-log">
+            <div><b>14:32</b> 触发分析：20 次调用（batch）</div>
+            <div><b>14:33</b> episode：vuln_mapping · looping</div>
+            <div><b>14:35</b> advice pending：等待操作员确认</div>
+          </div>
+        </div>
+      </div>
+      <div class="fa-foot"><span>收起窗口不停止监督</span><a href="#">查看完整日志 →</a></div>
+    </aside>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 A · Console Dock <span>实时操作台</span></h3>
+      <p>深色终端风格，信息密度最高，适合全程开着悬浮窗盯盘。状态、episode、待确认建议和日志都在一屏内，和“攻击控制台”的气质一致。</p>
+      <div class="option-meta"><span>密度：高</span><span>实时感：强</span><span>实现成本：中</span><span>适合：全程盯盘</span></div>
+    </div>
+    <button class="pick" data-kind="float" data-pick="float-a">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="float-b">
+  <div class="demo">
+    <div class="shell-host" data-template="chat-shell"></div>
+    <aside class="float-panel fb">
+      <div class="fb-head">
+        <div>
+          <h3>监督 · 支付网关复测</h3>
+          <p>观察模式 · 已分析 3 个 episode</p>
+        </div>
+        <span class="pill warn">等待确认</span>
+      </div>
+      <div class="fb-body">
+        <div class="fb-phase-row">
+          <span class="fb-phase">漏洞验证</span>
+          <span class="pill warn">停滞</span>
+          <span class="pill ok">有 1 条建议</span>
+        </div>
+        <div class="fb-intent">重复测试 <code>/api/user?id</code> 的 SQLi，响应长度和 hash 都没变化；当前假设已排除，建议转向 IDOR。</div>
+        <div class="fb-progress"><span></span></div>
+        <div class="fb-progress-meta"><span>本轮 42 次调用</span><span>3 / 5 episode</span></div>
+        <div class="fb-tabs">
+          <button class="fb-tab on">状态</button>
+          <button class="fb-tab">过程</button>
+          <button class="fb-tab">日志</button>
+        </div>
+        <div class="fb-chips">
+          <span class="fb-chip bad">SQLi 已排除</span>
+          <span class="fb-chip">目录爆破无新增</span>
+          <span class="fb-chip">低权限账号可用</span>
+          <span class="fb-chip">/api/order 未测</span>
+        </div>
+        <table class="fb-table">
+          <thead><tr><th>目标</th><th>测试</th><th>结果</th></tr></thead>
+          <tbody>
+            <tr><td><code>/api/user?id</code></td><td>SQLi</td><td><span class="pill bad">无差异</span></td></tr>
+            <tr><td><code>/api/order</code></td><td>权限边界</td><td><span class="pill info">待测</span></td></tr>
+            <tr><td><code>/admin</code></td><td>目录枚举</td><td><span class="pill warn">无新增</span></td></tr>
+          </tbody>
+        </table>
+        <div class="fb-advice">
+          <div class="fb-advice-head">监督建议 · 待确认 <span>14:35</span></div>
+          <p>停止对 id=1 的 SQLi 变体；用低权限账号请求 id=2 / id=100，比较响应差异，优先验证 IDOR。</p>
+          <div class="fb-advice-actions">
+            <button class="primary">发送给 Agent</button>
+            <button>忽略</button>
+            <button>查看来源</button>
+          </div>
+        </div>
+        <div class="fb-speed"><span>本轮均速 <b>77.6 tok/s</b></span><span>24.5k tokens / 315.6s</span></div>
+      </div>
+      <div class="fb-foot"><span>收起窗口不会停止监督</span><button>立即分析</button><button class="danger">停止监督</button></div>
+    </aside>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 B · Inspector Card <span>最接近现有控制台</span></h3>
+      <p>浅色卡片、标签页、进度条和待确认建议，和现有 React 控制台的视觉语言一致。信息分层清楚，适合“看一眼状态，再决定要不要介入”的使用方式。</p>
+      <div class="option-meta"><span>密度：中</span><span>实时感：中</span><span>实现成本：低</span><span>适合：日常监督</span></div>
+    </div>
+    <button class="pick" data-kind="float" data-pick="float-b">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="float-c">
+  <div class="demo">
+    <div class="shell-host" data-template="chat-shell"></div>
+    <aside class="float-panel fc">
+      <div class="fc-head">
+        <h3>监督 · 支付网关复测</h3>
+        <span class="pill warn">停滞</span>
+      </div>
+      <div class="fc-body">
+        <div class="fc-state">
+          <div class="fc-state-top"><b>漏洞验证</b><span class="pill warn">停滞</span></div>
+          <p>SQLi 连续 4 次无差异；建议转向 IDOR，用低权限账号对比不同 id 的响应。</p>
+        </div>
+        <div class="fc-rail">
+          <div class="fc-event ok"><span class="fc-dot"></span><div class="fc-time">12:49:20</div><div class="fc-event-title">开启监督 · 观察模式</div></div>
+          <div class="fc-event ok"><span class="fc-dot"></span><div class="fc-time">12:51:37</div><div class="fc-event-title">recon · 静态分析 app.js</div><div class="fc-event-note">发现 3 个未记录接口</div></div>
+          <div class="fc-event warn"><span class="fc-dot"></span><div class="fc-time">14:32:10</div><div class="fc-event-title">漏洞验证 · 停滞</div><div class="fc-event-note">20 次调用没有新证据</div></div>
+          <div class="fc-event bad"><span class="fc-dot"></span><div class="fc-time">14:35:12</div><div class="fc-event-title">建议待确认</div><div class="fc-event-note">停止 SQLi，转向 IDOR</div></div>
+        </div>
+        <div class="fc-next"><h4>下一步</h4><p>切换 id=2 / id=100 做越权对比；检查 /api/order 的权限边界。</p></div>
+        <div class="fa-log" style="background:#fbfcfd;border-color:var(--border);color:var(--dim);margin-top:10px">
+          <div><b>14:35</b> 建议已生成，等待操作员确认</div>
+          <div><b>14:36</b> 本轮均速 77.6 tok/s</div>
+        </div>
+      </div>
+      <div class="fc-foot"><span>本轮 tok/s 77.6</span><button>展开完整过程</button><button>停止监督</button></div>
+    </aside>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 C · Timeline Rail <span>低干扰观察</span></h3>
+      <p>用时间线讲“发生了什么”，而不是堆指标。适合长时间挂机、低频查看，或者把悬浮窗当审计侧栏用；缺点是调用很多时不如表格紧凑。</p>
+      <div class="option-meta"><span>密度：低</span><span>实时感：中</span><span>实现成本：中</span><span>适合：低频查看</span></div>
+    </div>
+    <button class="pick" data-kind="float" data-pick="float-c">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="side-a">
+  <div class="demo">
+    <div class="mock">
+      <aside class="mock-sider">
+        <div class="sider-brand"><span class="shield">哨</span> 全链哨兵</div>
+        <div class="project-select"><span>支付网关复测</span><span>⌄</span></div>
+        <nav class="sider-nav">
+          <div class="nav-group">工作台</div>
+          <div class="nav-item"><span class="nav-dot"></span>对话</div>
+          <div class="nav-item"><span class="nav-dot"></span>项目</div>
+          <div class="nav-item"><span class="nav-dot"></span>漏洞</div>
+          <div class="nav-item"><span class="nav-dot"></span>业务建模</div>
+          <div class="nav-item"><span class="nav-dot"></span>POC 库</div>
+          <div class="nav-item"><span class="nav-dot"></span>工程</div>
+          <div class="nav-item"><span class="nav-dot"></span>审批</div>
+          <div class="nav-item active"><span class="nav-dot"></span>监督</div>
+          <div class="nav-group">系统</div>
+          <div class="nav-item"><span class="nav-dot"></span>设置</div>
+          <div class="nav-item"><span class="nav-dot"></span>关于</div>
+        </nav>
+        <div class="sider-foot">admin</div>
+      </aside>
+      <div class="mock-main">
+        <div class="mock-top"><b>工作台</b><span class="crumb">/ 监督</span><div class="top-actions"><span class="pill">全部项目</span><span class="pill">最近 7 天</span></div></div>
+        <div class="audit-page">
+          <div class="audit-head">
+            <div><h2>监督</h2><p>全部对话的监督审计 · 只读</p></div>
+            <div class="head-actions"><button>导出</button><button class="primary">刷新</button></div>
+          </div>
+          <div class="filterbar">
+            <select><option>全部项目</option><option>支付网关</option><option>订单服务</option></select>
+            <select><option>全部模式</option><option>观察</option><option>介入</option></select>
+            <select><option>全部进度</option><option>有进展</option><option>停滞</option><option>循环</option></select>
+            <input placeholder="搜索会话 / 项目 / 意图" />
+            <button class="primary">查询</button>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><b>12</b><span>监督会话</span></div>
+            <div class="kpi ok"><b>4</b><span>有进展</span></div>
+            <div class="kpi warn"><b>5</b><span>停滞</span></div>
+            <div class="kpi bad"><b>3</b><span>循环</span></div>
+            <div class="kpi"><b>2</b><span>待确认建议</span></div>
+          </div>
+          <div class="table-card" style="position:relative;min-height:380px">
+            <table class="data-table">
+              <thead><tr><th style="width:62px">状态</th><th style="width:210px">会话 / 项目</th><th style="width:82px">阶段</th><th style="width:66px">进度</th><th style="width:78px">调用 / EP</th><th style="width:52px">建议</th><th style="width:72px">tokens</th><th>最近更新</th></tr></thead>
+              <tbody>
+                <tr class="selected"><td><span class="status-dot warn"></span>监督中</td><td class="session-cell"><b>支付接口复测</b><span>支付网关</span></td><td>漏洞验证</td><td><span class="pill warn">停滞</span></td><td class="mono">42 / 3</td><td>1</td><td class="mono">12.4k</td><td>2 分钟前</td></tr>
+                <tr><td><span class="status-dot ok"></span>监督中</td><td class="session-cell"><b>后台权限枚举</b><span>admin-portal</span></td><td>枚举</td><td><span class="pill ok">有进展</span></td><td class="mono">18 / 1</td><td>0</td><td class="mono">4.1k</td><td>5 分钟前</td></tr>
+                <tr><td><span class="status-dot bad"></span>监督中</td><td class="session-cell"><b>订单导出探测</b><span>order-api</span></td><td>漏洞验证</td><td><span class="pill bad">循环</span></td><td class="mono">64 / 5</td><td>2</td><td class="mono">22.8k</td><td>8 分钟前</td></tr>
+                <tr><td><span class="status-dot ok"></span>监督中</td><td class="session-cell"><b>内网横向</b><span>10.0.0.0/24</span></td><td>利用</td><td><span class="pill ok">有进展</span></td><td class="mono">31 / 2</td><td>0</td><td class="mono">9.2k</td><td>12 分钟前</td></tr>
+                <tr><td><span class="status-dot"></span>已停止</td><td class="session-cell"><b>微信小程序</b><span>mini-app</span></td><td>侦察</td><td><span class="pill">未知</span></td><td class="mono">12 / 1</td><td>0</td><td class="mono">2.3k</td><td>1 小时前</td></tr>
+              </tbody>
+            </table>
+            <div class="table-foot"><span>共 12 个会话</span><div class="pager"><button>上一页</button><button>1</button><button>2</button><button>下一页</button></div></div>
+
+          </div>
+          <p class="audit-note">表格 + 右侧抽屉：一眼扫完所有会话，选中后再看 episode 和日志。</p>
+        </div>
+        <aside class="drawer">
+          <div class="drawer-head"><div><h3>支付接口复测</h3><p>支付网关 · 观察模式</p></div><button>×</button></div>
+          <div class="drawer-body">
+            <div class="drawer-section"><h4>当前状态</h4><div class="drawer-meta"><div><b>漏洞验证</b><span>阶段</span></div><div><b>停滞</b><span>进度</span></div><div><b>42</b><span>调用</span></div><div><b>12.4k</b><span>tokens</span></div></div></div>
+            <div class="drawer-section"><h4>Episode</h4>
+              <div class="episode"><div class="episode-head"><span>14:32</span><span class="pill warn">停滞</span></div><p>SQLi 4 次无差异；目录爆破无新增。</p><div class="dead">已排除：/api/user?id SQLi</div></div>
+              <div class="episode"><div class="episode-head"><span>13:58</span><span class="pill ok">有进展</span></div><p>发现 /api/order 和低权限账号。</p></div>
+            </div>
+            <div class="drawer-section"><h4>建议</h4><div class="drawer-advice"><b>待确认：</b>停止 SQLi，切换 id 做越权对比。</div></div>
+            <div class="drawer-section"><h4>日志</h4><div class="drawer-log"><div>14:32 trigger batch · 20 calls</div><div>14:33 episode · looping</div><div>14:35 advice pending</div></div></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 A · Ops Table <span>审计优先</span></h3>
+      <p>最像现有控制台的管理页：筛选、KPI、密集表格和右侧详情抽屉。适合“先扫异常，再点进去看证据”的审计流程，实现成本也最低。</p>
+      <div class="option-meta"><span>密度：高</span><span>实时感：中</span><span>实现成本：低</span><span>适合：审计 / 回看</span></div>
+    </div>
+    <button class="pick" data-kind="side" data-pick="side-a">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="side-b">
+  <div class="demo">
+    <div class="mock">
+      <aside class="mock-sider">
+        <div class="sider-brand"><span class="shield">哨</span> 全链哨兵</div>
+        <div class="project-select"><span>支付网关复测</span><span>⌄</span></div>
+        <nav class="sider-nav">
+          <div class="nav-group">工作台</div>
+          <div class="nav-item"><span class="nav-dot"></span>对话</div>
+          <div class="nav-item"><span class="nav-dot"></span>项目</div>
+          <div class="nav-item"><span class="nav-dot"></span>漏洞</div>
+          <div class="nav-item"><span class="nav-dot"></span>业务建模</div>
+          <div class="nav-item"><span class="nav-dot"></span>POC 库</div>
+          <div class="nav-item"><span class="nav-dot"></span>工程</div>
+          <div class="nav-item"><span class="nav-dot"></span>审批</div>
+          <div class="nav-item active"><span class="nav-dot"></span>监督</div>
+          <div class="nav-group">系统</div>
+          <div class="nav-item"><span class="nav-dot"></span>设置</div>
+          <div class="nav-item"><span class="nav-dot"></span>关于</div>
+        </nav>
+        <div class="sider-foot">admin</div>
+      </aside>
+      <div class="mock-main">
+        <div class="mock-top"><b>工作台</b><span class="crumb">/ 监督</span><div class="top-actions"><span class="pill">全部项目</span><span class="pill">最近 7 天</span></div></div>
+        <div class="audit-page">
+          <div class="audit-head"><div><h2>监督</h2><p>按进度分组的全部对话 · 只读</p></div><div class="head-actions"><button>导出</button><button class="primary">刷新</button></div></div>
+          <div class="filterbar"><select><option>全部项目</option><option>支付网关</option><option>订单服务</option></select><select><option>全部模式</option><option>观察</option><option>介入</option></select><input placeholder="搜索会话 / 项目 / 意图" /><button class="primary">查询</button></div>
+          <div class="board">
+            <div class="board-col">
+              <div class="board-col-head"><span class="status-dot ok"></span>有进展<span>4</span></div>
+              <div class="board-card ok"><h4>后台权限枚举</h4><div class="project">admin-portal · 观察</div><div class="intent">已拿到低权限账号，正在枚举接口权限边界。</div><div class="board-meta"><span>18 调用</span><span>1 EP</span><span>4.1k</span></div></div>
+              <div class="board-card ok"><h4>内网横向</h4><div class="project">10.0.0.0/24 · 观察</div><div class="intent">SMB 凭据可用，准备测试下一跳。</div><div class="board-meta"><span>31 调用</span><span>2 EP</span><span>9.2k</span></div></div>
+              <div class="board-card info"><h4>小程序接口梳理</h4><div class="project">mini-app · 介入·确认</div><div class="intent">从 app.js 提取到 3 个未记录接口。</div><div class="board-meta"><span>12 调用</span><span>1 EP</span><span>2.3k</span></div></div>
+            </div>
+            <div class="board-col">
+              <div class="board-col-head"><span class="status-dot warn"></span>停滞<span>5</span></div>
+              <div class="board-card warn"><h4>支付接口复测</h4><div class="project">支付网关 · 观察</div><div class="intent">SQLi 4 次无差异；目录爆破无新增。</div><div class="board-meta"><span>42 调用</span><span>3 EP</span><span>12.4k</span></div><div class="board-advice">待确认建议 1 条</div></div>
+              <div class="board-card warn"><h4>登录爆破</h4><div class="project">auth · 介入·自动</div><div class="intent">同一字典跑了两遍，没有新结果。</div><div class="board-meta"><span>20 调用</span><span>2 EP</span><span>7.6k</span></div></div>
+            </div>
+            <div class="board-col">
+              <div class="board-col-head"><span class="status-dot bad"></span>循环<span>3</span></div>
+              <div class="board-card bad"><h4>订单导出探测</h4><div class="project">order-api · 介入·确认</div><div class="intent">反复请求 /api/export，响应完全一致。</div><div class="board-meta"><span>64 调用</span><span>5 EP</span><span>22.8k</span></div><div class="board-advice">建议已忽略 1 条</div></div>
+              <div class="board-card bad"><h4>POC 重放</h4><div class="project">poc-lab · 观察</div><div class="intent">同一 POC 连续重放，没有新证据。</div><div class="board-meta"><span>28 调用</span><span>4 EP</span><span>8.8k</span></div></div>
+            </div>
+            <div class="board-col">
+              <div class="board-col-head"><span class="status-dot"></span>已结束<span>3</span></div>
+              <div class="board-card"><h4>微信小程序</h4><div class="project">mini-app · 观察</div><div class="intent">已停止监督，保留 1 个 episode。</div><div class="board-meta"><span>12 调用</span><span>1 EP</span><span>2.3k</span></div></div>
+              <div class="board-card"><h4>资产测绘</h4><div class="project">开源 · 观察</div><div class="intent">完成一轮 FOFA 资产梳理。</div><div class="board-meta"><span>9 调用</span><span>1 EP</span><span>1.7k</span></div></div>
+            </div>
+          </div>
+          <p class="audit-note">看板按进度分组：先找“停滞 / 循环”，再点卡片看会话；适合值班时快速分诊。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 B · Triage Board <span>分诊优先</span></h3>
+      <p>用“有进展 / 停滞 / 循环 / 已结束”四列代替表格。异常会话会自己浮到对应列，适合值班时快速找需要介入的会话；细节需要点进卡片。</p>
+      <div class="option-meta"><span>密度：中</span><span>实时感：强</span><span>实现成本：中</span><span>适合：值班分诊</span></div>
+    </div>
+    <button class="pick" data-kind="side" data-pick="side-b">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="side-c">
+  <div class="demo">
+    <div class="mock">
+      <aside class="mock-sider">
+        <div class="sider-brand"><span class="shield">哨</span> 全链哨兵</div>
+        <div class="project-select"><span>支付网关复测</span><span>⌄</span></div>
+        <nav class="sider-nav">
+          <div class="nav-group">工作台</div>
+          <div class="nav-item"><span class="nav-dot"></span>对话</div>
+          <div class="nav-item"><span class="nav-dot"></span>项目</div>
+          <div class="nav-item"><span class="nav-dot"></span>漏洞</div>
+          <div class="nav-item"><span class="nav-dot"></span>业务建模</div>
+          <div class="nav-item"><span class="nav-dot"></span>POC 库</div>
+          <div class="nav-item"><span class="nav-dot"></span>工程</div>
+          <div class="nav-item"><span class="nav-dot"></span>审批</div>
+          <div class="nav-item active"><span class="nav-dot"></span>监督</div>
+          <div class="nav-group">系统</div>
+          <div class="nav-item"><span class="nav-dot"></span>设置</div>
+          <div class="nav-item"><span class="nav-dot"></span>关于</div>
+        </nav>
+        <div class="sider-foot">admin</div>
+      </aside>
+      <div class="mock-main">
+        <div class="mock-top"><b>工作台</b><span class="crumb">/ 监督</span><div class="top-actions"><span class="pill">最近 7 天</span></div></div>
+        <div class="audit-page">
+          <div class="audit-head"><div><h2>监督</h2><p>全局监督质量与异常趋势</p></div><div class="head-actions"><button>导出</button><button class="primary">刷新</button></div></div>
+          <div class="filterbar"><select><option>全部项目</option><option>支付网关</option><option>订单服务</option></select><select><option>最近 24 小时</option><option>最近 7 天</option><option>最近 30 天</option></select><input placeholder="搜索会话 / 项目 / 意图" /><button class="primary">查询</button></div>
+          <div class="kpis">
+            <div class="kpi"><b>12</b><span>监督会话</span></div>
+            <div class="kpi ok"><b>4</b><span>有进展</span></div>
+            <div class="kpi warn"><b>5</b><span>停滞</span></div>
+            <div class="kpi bad"><b>3</b><span>循环</span></div>
+            <div class="kpi"><b>41.2</b><span>平均 tok/s</span></div>
+          </div>
+          <div class="analytics-grid">
+            <div class="chart-card">
+              <div class="chart-head">Episode 趋势 <span>最近 12 小时</span></div>
+              <svg class="chart" viewBox="0 0 620 120" preserveAspectRatio="none" aria-label="Episode 趋势">
+                <defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0960bd" stop-opacity=".22"/><stop offset="1" stop-color="#0960bd" stop-opacity="0"/></linearGradient></defs>
+                <path d="M0,94 L52,88 L104,76 L156,82 L208,58 L260,64 L312,42 L364,49 L416,32 L468,38 L520,22 L572,28 L620,14 L620,120 L0,120 Z" fill="url(#area)"/>
+                <path d="M0,94 L52,88 L104,76 L156,82 L208,58 L260,64 L312,42 L364,49 L416,32 L468,38 L520,22 L572,28 L620,14" fill="none" stroke="#0960bd" stroke-width="2"/>
+                <g fill="#9aa1ab" font-size="8"><text x="0" y="118">02:00</text><text x="200" y="118">06:00</text><text x="400" y="118">10:00</text><text x="580" y="118">14:00</text></g>
+              </svg>
+            </div>
+            <div class="analysis-side">
+              <h4>问题分布</h4>
+              <div class="issue-row"><span class="status-dot warn"></span>停滞 <div class="issue-bar"><span style="width:62%;background:#e6a23c"></span></div><b>5</b></div>
+              <div class="issue-row"><span class="status-dot bad"></span>循环 <div class="issue-bar"><span style="width:38%;background:#f56c6c"></span></div><b>3</b></div>
+              <div class="issue-row"><span class="status-dot ok"></span>有进展 <div class="issue-bar"><span style="width:48%;background:#67c23a"></span></div><b>4</b></div>
+              <div class="issue-row"><span class="status-dot info"></span>待确认建议 <div class="issue-bar"><span style="width:24%;background:#0958d9"></span></div><b>2</b></div>
+              <div class="issue-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:8px">平均判定耗时 <b>18.4s</b></div>
+            </div>
+          </div>
+          <div class="table-card">
+            <table class="data-table">
+              <thead><tr><th style="width:80px">状态</th><th style="width:220px">会话 / 项目</th><th style="width:90px">阶段</th><th style="width:70px">进度</th><th style="width:86px">调用 / EP</th><th style="width:58px">建议</th><th>tokens</th></tr></thead>
+              <tbody>
+                <tr><td><span class="status-dot warn"></span>监督中</td><td class="session-cell"><b>支付接口复测</b><span>支付网关</span></td><td>漏洞验证</td><td><span class="pill warn">停滞</span></td><td class="mono">42 / 3</td><td>1</td><td class="mono">12.4k</td></tr>
+                <tr><td><span class="status-dot bad"></span>监督中</td><td class="session-cell"><b>订单导出探测</b><span>order-api</span></td><td>漏洞验证</td><td><span class="pill bad">循环</span></td><td class="mono">64 / 5</td><td>2</td><td class="mono">22.8k</td></tr>
+                <tr><td><span class="status-dot ok"></span>监督中</td><td class="session-cell"><b>后台权限枚举</b><span>admin-portal</span></td><td>枚举</td><td><span class="pill ok">有进展</span></td><td class="mono">18 / 1</td><td>0</td><td class="mono">4.1k</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="audit-note">趋势 + 分诊指标 + 明细：适合每天先看整体质量，再下钻到会话。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="option-summary">
+    <div>
+      <h3>方案 C · Analytics + Table <span>全局质量</span></h3>
+      <p>顶部用 KPI 和趋势图回答“今天监督有没有用”，下面再放明细表。适合负责人或复盘场景；如果只想找某个会话，信息层级比 A 多一层。</p>
+      <div class="option-meta"><span>密度：低</span><span>实时感：中</span><span>实现成本：高</span><span>适合：复盘 / 汇报</span></div>
+    </div>
+    <button class="pick" data-kind="side" data-pick="side-c">选择这个方案</button>
+  </div>
+</section>
+
+<section class="view" id="compare">
+  <div class="compare-wrap">
+    <h2>六套方案对比</h2>
+    <p>悬浮窗解决“运行中看什么、什么时候介入”，侧栏解决“事后怎么查、怎么分诊”。可以各选一套组合。</p>
+    <table class="compare-table">
+      <thead><tr><th>方案</th><th>信息密度</th><th>实时感</th><th>实现成本</th><th>最适合</th><th>需要注意</th></tr></thead>
+      <tbody>
+        <tr class="recommended"><td><b>悬浮窗 A · Console Dock</b><small>深色终端操作台</small></td><td>高</td><td>强</td><td>中</td><td>全程盯盘、批量排查</td><td>视觉重量大，长时间看可能疲劳</td></tr>
+        <tr><td><b>悬浮窗 B · Inspector Card</b><small>浅色卡片 + 标签页</small></td><td>中</td><td>中</td><td>低</td><td>日常监督、确认建议</td><td>和现有控制台最接近，差异化最小</td></tr>
+        <tr><td><b>悬浮窗 C · Timeline Rail</b><small>时间线观察</small></td><td>低</td><td>中</td><td>中</td><td>低频查看、长任务挂机</td><td>调用很多时不如表格紧凑</td></tr>
+        <tr class="recommended"><td><b>侧栏 A · Ops Table</b><small>筛选 + 表格 + 抽屉</small></td><td>高</td><td>中</td><td>低</td><td>审计、回看、定位问题</td><td>不够“值班感”，异常需要自己扫</td></tr>
+        <tr><td><b>侧栏 B · Triage Board</b><small>按进度分四列</small></td><td>中</td><td>强</td><td>中</td><td>值班分诊、快速找停滞/循环</td><td>细节和日志需要点进卡片</td></tr>
+        <tr><td><b>侧栏 C · Analytics</b><small>KPI + 趋势 + 明细</small></td><td>低</td><td>中</td><td>高</td><td>日复盘、质量汇报</td><td>实现和视觉设计成本最高</td></tr>
+      </tbody>
+    </table>
+    <div class="recommend">
+      <div class="rec-card"><h3>推荐组合一：B + A</h3><p><b>Inspector Card + Ops Table</b>。最平衡：悬浮窗沿用现有视觉，侧栏适合审计；实现成本最低，适合先上线。</p></div>
+      <div class="rec-card"><h3>推荐组合二：A + B</h3><p><b>Console Dock + Triage Board</b>。最有“安全操作台”气质：悬浮窗高密度盯盘，侧栏按进度分诊；适合值班场景。</p></div>
+      <div class="rec-card"><h3>推荐组合三：C + C</h3><p><b>Timeline Rail + Analytics</b>。低干扰观察 + 全局趋势；适合挂机和研究型使用，但实现成本最高。</p></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="choicebar">
+  <strong>当前选择</strong>
+  <span id="choice-text">悬浮窗未选 · 侧栏未选</span>
+  <button id="copy-choice">复制选择</button>
+</div>
+
+<template id="chat-shell">
+  <div class="mock">
+    <aside class="mock-sider">
+      <div class="sider-brand"><span class="shield">哨</span> 全链哨兵</div>
+      <div class="project-select"><span>支付网关复测</span><span>⌄</span></div>
+      <nav class="sider-nav">
+        <div class="nav-group">工作台</div>
+        <div class="nav-item active"><span class="nav-dot"></span>对话</div>
+        <div class="nav-item"><span class="nav-dot"></span>项目</div>
+        <div class="nav-item"><span class="nav-dot"></span>漏洞</div>
+        <div class="nav-item"><span class="nav-dot"></span>业务建模</div>
+        <div class="nav-item"><span class="nav-dot"></span>POC 库</div>
+        <div class="nav-item"><span class="nav-dot"></span>工程</div>
+        <div class="nav-item"><span class="nav-dot"></span>审批</div>
+        <div class="nav-item"><span class="nav-dot"></span>监督</div>
+        <div class="nav-group">系统</div>
+        <div class="nav-item"><span class="nav-dot"></span>设置</div>
+        <div class="nav-item"><span class="nav-dot"></span>关于</div>
+      </nav>
+      <div class="sider-foot">admin</div>
+    </aside>
+    <div class="mock-main">
+      <div class="mock-top">
+        <b>对话</b><span class="crumb">支付网关复测 / 支付接口复测</span>
+        <div class="top-actions"><span class="pill">观察</span><span class="pill">自动执行</span></div>
+      </div>
+      <div class="chat-shell">
+        <div class="chat-body">
+          <div class="chat-day">今天 14:32</div>
+          <div class="msg user">
+            <div class="msg-name">操作员</div>
+            <div class="bubble">继续测 /api/user，重点看越权和订单接口。</div>
+          </div>
+          <div class="msg">
+            <div class="msg-name">主 Agent</div>
+            <div class="bubble">先用低权限账号对比不同 id 的响应，同时检查 /api/order 的权限边界。</div>
+            <div class="tool-card">
+              <div class="tool-head"><span class="tool-name">bash</span><span class="tool-status ok">成功</span><span class="tool-time">0.4s</span></div>
+              <pre>curl -s -o /dev/null -w '%{http_code} %{size_download}\n' 'http://target/api/user?id=1'</pre>
+            </div>
+          </div>
+          <div class="msg">
+            <div class="msg-name">主 Agent</div>
+            <div class="bubble">/api/user 的 SQLi 响应没有变化，已排除；下一步切到 IDOR。</div>
+          </div>
+        </div>
+        <div class="mock-composer">
+          <div class="composer-input">输入目标与任务，Enter 发送，Shift+Enter 换行</div>
+          <div class="composer-status">空闲 · Token 输入 102.5k / 输出 38.0k · 本轮均速 77.6 tok/s · 24.5k tokens / 315.6s</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+const views = [...document.querySelectorAll('.view')];
+const tabs = [...document.querySelectorAll('.tab[data-target]')];
+function show(id) {
+  views.forEach((view) => view.classList.toggle('active', view.id === id));
+  tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.target === id));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+tabs.forEach((tab) => tab.addEventListener('click', () => show(tab.dataset.target)));
+
+document.querySelectorAll('[data-template]').forEach((host) => {
+  const template = document.getElementById(host.dataset.template);
+  if (template) host.appendChild(template.content.cloneNode(true));
+});
+
+const picks = { float: null, side: null };
+const names = {
+  'float-a': '悬浮窗 A · Console Dock',
+  'float-b': '悬浮窗 B · Inspector Card',
+  'float-c': '悬浮窗 C · Timeline Rail',
+  'side-a': '侧栏 A · Ops Table',
+  'side-b': '侧栏 B · Triage Board',
+  'side-c': '侧栏 C · Analytics',
+};
+function updateChoice() {
+  document.querySelectorAll('[data-pick]').forEach((button) => {
+    const selected = picks[button.dataset.kind] === button.dataset.pick;
+    button.classList.toggle('selected', selected);
+    button.textContent = selected ? '已选择' : '选择这个方案';
+  });
+  const float = picks.float ? names[picks.float] : '悬浮窗未选';
+  const side = picks.side ? names[picks.side] : '侧栏未选';
+  document.getElementById('choice-text').textContent = `${float} · ${side}`;
+}
+document.querySelectorAll('[data-pick]').forEach((button) => {
+  button.addEventListener('click', () => {
+    picks[button.dataset.kind] = button.dataset.pick;
+    updateChoice();
+  });
+});
+document.getElementById('copy-choice').addEventListener('click', async () => {
+  const text = document.getElementById('choice-text').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    document.getElementById('copy-choice').textContent = '已复制';
+    setTimeout(() => { document.getElementById('copy-choice').textContent = '复制选择'; }, 1200);
+  } catch {
+    window.prompt('复制下面的选择：', text);
+  }
+});
+updateChoice();
+</script>
+</body>
+</html>

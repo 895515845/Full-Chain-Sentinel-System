@@ -413,6 +413,10 @@ export async function startSentinelServer(
 			// of records, so the whole list is what goes out.
 			onApiModelChange: () => broadcastApiModels(),
 			onDroidChange: () => broadcastDroidDevices(),
+			onSupervisorState: (view) => broadcast({ type: "supervisor_state", supervisor: view }),
+			onSupervisorEpisode: (episode, calls) => broadcast({ type: "supervisor_episode", episode, calls }),
+			onSupervisorLog: (sessionId, log) => broadcast({ type: "supervisor_log", sessionId, log }),
+			onSupervisorAdvice: (advice) => broadcast({ type: "supervisor_advice", advice }),
 		},
 	});
 
@@ -1728,8 +1732,9 @@ export async function startSentinelServer(
 					const purgedCaptures = runtime.purgeProjectCaptures(message.id);
 					const purgedAssets = runtime.purgeProjectAssets(message.id);
 					const purgedWebSearch = runtime.purgeProjectWebSearch(message.id);
+					const purgedSupervisor = runtime.purgeProjectSupervisor(message.id);
 					console.error(
-						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录、${purgedWebSearch} 条 Web 搜索记录`,
+						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录、${purgedWebSearch} 条 Web 搜索记录、${purgedSupervisor} 个监督会话`,
 					);
 					// The removed project's container is gone, so its sessions cannot run;
 					// the console falls back to the project-required state.
@@ -2464,6 +2469,88 @@ export async function startSentinelServer(
 						tabCounts: runtime.getGateBuckets(message.filter),
 					});
 					return;
+				case "supervisor_arm": {
+					const view = runtime.armSupervisor(message.mode, message.delivery);
+					broadcast({ type: "supervisor_state", supervisor: view });
+					return;
+				}
+				case "supervisor_stop": {
+					const view = runtime.stopSupervisor();
+					broadcast({ type: "supervisor_state", supervisor: view });
+					return;
+				}
+				case "supervisor_set_mode": {
+					const view = runtime.setSupervisorMode(message.mode, message.delivery);
+					broadcast({ type: "supervisor_state", supervisor: view });
+					return;
+				}
+				case "supervisor_run_now":
+					runtime.runSupervisorNow();
+					return;
+				case "supervisor_call_output": {
+					try {
+						const output = runtime.getSupervisorCallOutput(message.callId);
+						sendTo(socket, {
+							type: "supervisor_call_output",
+							callId: message.callId,
+							text: output.text,
+							truncated: output.truncated,
+						} satisfies SentinelServerMessage);
+					} catch (error) {
+						sendTo(socket, {
+							type: "supervisor_call_output",
+							callId: message.callId,
+							text: "",
+							truncated: false,
+							error: error instanceof Error ? error.message : String(error),
+						} satisfies SentinelServerMessage);
+					}
+					return;
+				}
+				case "supervisor_audit":
+					sendTo(socket, {
+						type: "supervisor_audit",
+						page: runtime.listSupervisorAudit({
+							page: message.page,
+							pageSize: message.pageSize,
+							projectId: message.projectId,
+							search: message.search,
+							mode: message.mode,
+							progress: message.progress,
+						}),
+					} satisfies SentinelServerMessage);
+					return;
+				case "supervisor_detail": {
+					const detail = runtime.getSupervisorDetail(message.sessionId);
+					if (!detail) {
+						sendError(socket, "监督记录不存在");
+						return;
+					}
+					sendTo(socket, { type: "supervisor_detail", detail } satisfies SentinelServerMessage);
+					return;
+				}
+				case "supervisor_advice_action": {
+					const advice =
+						message.action === "send"
+							? runtime.sendSupervisorAdvice(message.id)
+							: runtime.ignoreSupervisorAdvice(message.id);
+					broadcast({ type: "supervisor_advice", advice });
+					return;
+				}
+				case "save_supervisor_config": {
+					const config = runtime.saveSupervisorConfig(message.config);
+					broadcast({ type: "supervisor_config", config });
+					broadcastSnapshot();
+					return;
+				}
+				case "test_supervisor": {
+					const outcome = await runtime.testSupervisor();
+					sendTo(socket, {
+						type: "supervisor_test_result",
+						...outcome,
+					} satisfies SentinelServerMessage);
+					return;
+				}
 				default:
 					sendError(socket, `未知消息类型: ${(message as { type?: string }).type ?? "?"}`);
 			}

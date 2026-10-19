@@ -10,7 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as resolveFsPath } from "node:path";
+import { basename, dirname, join, resolve as resolveFsPath } from "node:path";
 import {
 	type AgentSessionEvent,
 	type BashOperations,
@@ -224,6 +224,16 @@ import type {
 	SentinelStateSnapshot,
 	SentinelSubagentEvent,
 	SentinelSubagentRun,
+	SentinelSupervisorAdvice,
+	SentinelSupervisorAuditPage,
+	SentinelSupervisorCall,
+	SentinelSupervisorConfig,
+	SentinelSupervisorDetail,
+	SentinelSupervisorEpisode,
+	SentinelSupervisorLog,
+	SentinelSupervisorMode,
+	SentinelSupervisorProgress,
+	SentinelSupervisorView,
 	SentinelTestResult,
 	SentinelToolInfo,
 	SentinelVulnerability,
@@ -247,6 +257,9 @@ import { createSessionTitleTool } from "./session-title-tool.ts";
 import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
+import { SUPERVISOR_ADVICE_CUSTOM_TYPE, Supervisor, type SupervisorTestOutcome } from "./supervisor.ts";
+import { readSupervisorConfig, writeSupervisorConfig } from "./supervisor-config.ts";
+import { SupervisorStore, supervisorDbPath } from "./supervisor-store.ts";
 import { createToolAuditExtension } from "./tool-audit.ts";
 import { createToolGateExtension, type ToolGateContext } from "./tool-gate.ts";
 import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } from "./transcript.ts";
@@ -296,6 +309,14 @@ export interface SentinelRuntimeHooks {
 	onApiModelChange(): void;
 	/** A device came online/went offline, or the device page's data changed. */
 	onDroidChange(): void;
+	/** Live supervision state of a conversation. */
+	onSupervisorState(view: SentinelSupervisorView | null): void;
+	/** One supervisor episode settled; the floating window appends it. */
+	onSupervisorEpisode(episode: SentinelSupervisorEpisode, calls: SentinelSupervisorCall[]): void;
+	/** One supervisor log line. */
+	onSupervisorLog(sessionId: string, log: SentinelSupervisorLog): void;
+	/** A new or updated intervention record. */
+	onSupervisorAdvice(advice: SentinelSupervisorAdvice): void;
 }
 
 /**
@@ -391,6 +412,8 @@ interface ManagedSession {
 	assetQueries: number;
 	/** Web-search (Tavily) calls this session has made, shared with sub-agents. */
 	webQueries: number;
+	/** Tool calls whose start event was seen, keyed by call id, for the supervisor digest. */
+	toolStarts?: Map<string, { toolName: string; args: unknown; at: number; parentToolCallId?: string }>;
 }
 
 /** Extra wiring a task session needs beyond a console session. */
@@ -467,6 +490,8 @@ export class SentinelRuntime {
 	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
+	private readonly supervisorStore: SupervisorStore;
+	private readonly supervisor: Supervisor;
 
 	private sessions = new Map<string, ManagedSession>();
 	private activeKey: string | undefined;
@@ -527,6 +552,18 @@ export class SentinelRuntime {
 			{ onDecision: (decision) => this.hooks.onGateDecision(decision) },
 			this.agentDir,
 		);
+		this.supervisorStore = new SupervisorStore(supervisorDbPath(this.agentDir));
+		this.supervisor = new Supervisor({
+			agentDir: this.agentDir,
+			store: this.supervisorStore,
+			hooks: {
+				onState: (view) => this.hooks.onSupervisorState(view),
+				onEpisode: (episode, calls) => this.hooks.onSupervisorEpisode(episode, calls),
+				onLog: (sessionId, log) => this.hooks.onSupervisorLog(sessionId, log),
+				onAdvice: (advice) => this.hooks.onSupervisorAdvice(advice),
+				onSendAdvice: (advice) => this.injectSupervisorAdvice(advice),
+			},
+		});
 	}
 
 	private get active(): ManagedSession | undefined {
@@ -919,6 +956,14 @@ export class SentinelRuntime {
 		// contribute skills and prompt templates.
 		await created.session.bindExtensions({});
 		managed.key = manager.getSessionId();
+		if (!task) {
+			this.supervisor.attach({
+				sessionId: managed.key,
+				manager,
+				projectId: this.activeProjectId ?? null,
+				projectName: this.activeProjectName ?? null,
+			});
+		}
 		// The modeling tools are declared in every console session (see
 		// modelingToolLoadout); this only puts the read tool in place when the
 		// conversation carries attached records.
@@ -939,7 +984,41 @@ export class SentinelRuntime {
 		managed.unsubscribe = created.session.subscribe((event) => {
 			// Only the viewed session streams events; background sessions run silently.
 			if (managed.key === this.activeKey) this.hooks.onSessionEvent(event);
-			if (event.type === "tool_execution_start" && managed.goal) managed.goal.roundToolCalls += 1;
+			if (event.type === "tool_execution_start") {
+				if (managed.goal) managed.goal.roundToolCalls += 1;
+				if (!task) {
+					managed.toolStarts ??= new Map();
+					managed.toolStarts.set(event.toolCallId, {
+						toolName: event.toolName,
+						args: event.args,
+						at: Date.now(),
+						...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
+					});
+				}
+			}
+			if (event.type === "tool_execution_end") {
+				const start = managed.toolStarts?.get(event.toolCallId);
+				managed.toolStarts?.delete(event.toolCallId);
+				// Supervision follows the conversation on screen only. A background
+				// session keeps its state, but it does not spend supervisor calls.
+				if (
+					!task &&
+					start &&
+					!event.parentToolCallId &&
+					managed.key === this.activeKey &&
+					this.supervisor.statusOf(managed.key) === "running"
+				) {
+					this.supervisor.observeToolCall(managed.key, {
+						callId: event.toolCallId,
+						toolName: start.toolName,
+						args: start.args,
+						result: event.result,
+						isError: event.isError,
+						durationMs: event.durationMs,
+						at: start.at,
+					});
+				}
+			}
 			if (event.type === "agent_settled") {
 				// The round is closed before the snapshot goes out: a console that saw
 				// the settled state first would show a round that never finished.
@@ -947,6 +1026,11 @@ export class SentinelRuntime {
 				this.afterRoundSettled(managed, event.aborted);
 				this.hooks.onStateChange();
 				return;
+			}
+			// Any run start (a prompt, a goal continuation, a queued steer that
+			// becomes a turn) is the moment an armed conversation starts collecting.
+			if (event.type === "agent_start" && managed.key === this.activeKey) {
+				if (this.supervisor.statusOf(managed.key) === "waiting") this.supervisor.start(managed.key);
 			}
 			if (event.type === "agent_end") this.hooks.onStateChange();
 			if (event.type === "compaction_start") {
@@ -2927,6 +3011,9 @@ export class SentinelRuntime {
 		if (attachModelIds && attachModelIds.length > 0 && branchUserMessages(active.manager.getBranch()).length === 0) {
 			await this.attachModelingRecords(active, attachModelIds);
 		}
+		// Supervision was armed before the conversation; the first prompt is what
+		// starts collecting. An unarmed session has no supervisor state at all.
+		if (this.supervisor.statusOf(active.key) === "waiting") this.supervisor.start(active.key);
 		// A steer joins the run already in flight: keep its start time, let the
 		// operator's latest choice decide whether the run is reported.
 		active.run = {
@@ -3144,6 +3231,110 @@ export class SentinelRuntime {
 		return this.gatekeeper.resolve();
 	}
 
+	// -----------------------------------------------------------------------
+	// Supervision
+	// -----------------------------------------------------------------------
+
+	/** Arm supervision for the viewed conversation; only before its first message. */
+	armSupervisor(mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (active.taskSession) throw new Error("工程任务的会话不能单独开启监督");
+		if (!readSupervisorConfig(this.agentDir).enabled) throw new Error("监督功能已在 设置 → 模型 中关闭");
+		return this.supervisor.arm(active.key, mode, delivery);
+	}
+
+	stopSupervisor(): SentinelSupervisorView | null {
+		const active = this.active;
+		if (!active) return null;
+		return this.supervisor.stop(active.key);
+	}
+
+	setSupervisorMode(mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		return this.supervisor.setMode(active.key, mode, delivery);
+	}
+
+	runSupervisorNow(): void {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		this.supervisor.runNow(active.key);
+	}
+
+	getSupervisorCallOutput(callId: string): { text: string; truncated: boolean } {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		return this.supervisor.getCallOutput(active.key, callId);
+	}
+
+	listSupervisorAudit(query: {
+		page?: number;
+		pageSize?: number;
+		projectId?: string;
+		search?: string;
+		mode?: "observe" | "intervene";
+		progress?: SentinelSupervisorProgress;
+	}): SentinelSupervisorAuditPage {
+		return this.supervisor.listAudit(query);
+	}
+
+	getSupervisorDetail(sessionId: string): SentinelSupervisorDetail | null {
+		return this.supervisor.getDetail(sessionId);
+	}
+
+	sendSupervisorAdvice(id: string): SentinelSupervisorAdvice {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		return this.supervisor.sendAdvice(active.key, id);
+	}
+
+	ignoreSupervisorAdvice(id: string): SentinelSupervisorAdvice {
+		const active = this.active;
+		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		return this.supervisor.ignoreAdvice(active.key, id);
+	}
+
+	getSupervisorConfig(): SentinelSupervisorConfig {
+		return readSupervisorConfig(this.agentDir);
+	}
+
+	saveSupervisorConfig(config: SentinelSupervisorConfig): SentinelSupervisorConfig {
+		writeSupervisorConfig(this.agentDir, config);
+		this.hooks.onStateChange();
+		return readSupervisorConfig(this.agentDir);
+	}
+
+	testSupervisor(): Promise<SupervisorTestOutcome> {
+		return this.supervisor.test();
+	}
+
+	/** Deleting a project deletes its supervision audit, like its other records. */
+	purgeProjectSupervisor(projectId: string): number {
+		const page = this.supervisor.listAudit({ projectId, page: 1, pageSize: 1 });
+		this.supervisor.deleteProject(projectId);
+		return page.total;
+	}
+
+	private injectSupervisorAdvice(advice: SentinelSupervisorAdvice): void {
+		const managed = this.sessions.get(advice.sessionId);
+		if (!managed) return;
+		const content = `${advice.text}\n\n（这是监督观察员的建议，不是操作员的指令；是否采纳由你判断。）`;
+		void managed.session
+			.sendCustomMessage(
+				{
+					customType: SUPERVISOR_ADVICE_CUSTOM_TYPE,
+					content,
+					display: true,
+					details: { adviceId: advice.id, episodeId: advice.episodeId, at: advice.at },
+				},
+				managed.session.isStreaming ? { deliverAs: "steer" } : {},
+			)
+			.catch((error: unknown) => {
+				console.error(`[sentinel] 监督建议注入失败：${error instanceof Error ? error.message : String(error)}`);
+			});
+	}
+
 	/** Judged counts for the audit page header. */
 	getGateStats(filter?: SentinelGateFilter): SentinelGateStats {
 		return this.gateStore.stats(filter);
@@ -3354,6 +3545,7 @@ export class SentinelRuntime {
 				}
 				managed.unsubscribe();
 				managed.session.dispose();
+				this.supervisor.deleteSession(managed.key);
 				this.sessions.delete(managed.key);
 				if (this.activeKey === managed.key) this.activeKey = undefined;
 				break;
@@ -3363,6 +3555,11 @@ export class SentinelRuntime {
 			throw new Error("会话文件不存在（可能已被删除）");
 		}
 		unlinkSync(normalized);
+		// An unloaded session has no ManagedSession to carry its id; the file name
+		// carries it (`<timestamp>_<sessionId>.jsonl`), so its audit can go too.
+		const file = basename(normalized, ".jsonl");
+		const separator = file.lastIndexOf("_");
+		if (separator >= 0) this.supervisor.deleteSession(file.slice(separator + 1));
 	}
 
 	/** Only files inside the managed session directory may be renamed or deleted. */
@@ -3595,6 +3792,8 @@ export class SentinelRuntime {
 			modeling: this.modelingView(active),
 			modelingAttached: this.modelingAttachedView(active),
 			droidEnabled: this.droidOn,
+			supervisor: this.activeKey ? this.supervisor.view(this.activeKey) : null,
+			supervisorConfig: readSupervisorConfig(this.agentDir),
 			gatekeeper,
 			compacting: active?.session.isCompacting ?? false,
 			compactionStartedAt: active?.compactionStartedAt ?? null,
@@ -3837,6 +4036,7 @@ export class SentinelRuntime {
 		this.assets.close();
 		this.webSearchLog.close();
 		this.subscriptions.stop();
+		this.supervisor.close();
 		this.gateStore.close();
 	}
 }

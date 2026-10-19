@@ -19,6 +19,7 @@ import {
 	ChevronUp,
 	Container,
 	Download,
+	Eye,
 	FileCode,
 	FileText,
 	Folder,
@@ -258,6 +259,11 @@ export function CheckIcon(props: IconProps) {
 /** Sider menu: the gatekeeper audit log of AI 审批 judgments. */
 export function GateIcon(props: IconProps) {
 	return <ShieldCheck size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu and composer: supervision of the conversation. */
+export function SupervisorIcon(props: IconProps) {
+	return <Eye size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /**

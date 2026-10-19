@@ -147,10 +147,11 @@ export function groupRuns(messages: readonly AgentMessageView[]): RunGroup[] {
 
 /**
  * Whether a message is a notice the console folds into its own card: loop-guard
- * aborts, modeling start/close rows. The loop guard lands at the END of a run
- * (the nudge is injected once the run has settled), so a run may legitimately
- * end on one — and it must still fold, because the card already says why the
- * run was cut.
+ * aborts, modeling start/close rows, and supervisor advice. The loop guard
+ * lands at the END of a run (the nudge is injected once the run has settled),
+ * so a run may legitimately end on one — and it must still fold, because the
+ * card already says why the run was cut. Supervisor advice is also a notice:
+ * it can land after an aborted turn, and must not leave the run open.
  */
 export function isNoticeMessage(message: AgentMessageView): boolean {
 	return (

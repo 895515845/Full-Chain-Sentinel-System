@@ -35,6 +35,8 @@ import { RunFold } from "./components/RunFold.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { SubagentPanel } from "./components/SubagentPanel.tsx";
+import { SupervisorAuditPage } from "./components/SupervisorAuditPage.tsx";
+import { SupervisorFloatingWindow } from "./components/SupervisorFloatingWindow.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
 import { groupRuns, messageKey, runFoldState, textFromContent } from "./transcript.ts";
@@ -98,6 +100,14 @@ import type {
 	SentinelStatsView,
 	SentinelSubagentEvent,
 	SentinelSubagentRun,
+	SentinelSupervisorAdvice,
+	SentinelSupervisorAuditPage,
+	SentinelSupervisorConfig,
+	SentinelSupervisorDetail,
+	SentinelSupervisorEpisode,
+	SentinelSupervisorLog,
+	SentinelSupervisorMode,
+	SentinelSupervisorView,
 	SentinelTestResult,
 	SentinelToolInfo,
 	SentinelVulnerability,
@@ -255,6 +265,17 @@ export function App() {
 	 */
 	const [notifyRun, setNotifyRun] = useState<boolean | null>(null);
 	const [stats, setStats] = useState<SentinelStatsView | null>(null);
+	/**
+	 * Output speed of the latest run, accumulated from assistant message usage.
+	 * It is keyed by session so switching conversations cannot show another
+	 * session's speed.
+	 */
+	const [runThroughput, setRunThroughput] = useState<{
+		sessionId: string | null;
+		tokPerSec: number;
+		outputTokens: number;
+		durationMs: number;
+	} | null>(null);
 	const [liveText, setLiveText] = useState("");
 	const [liveThinking, setLiveThinking] = useState("");
 	const [liveTools, setLiveTools] = useState<LiveTool[]>([]);
@@ -409,9 +430,40 @@ export function App() {
 	const assetTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const mcpTestResolverRef = useRef<((result: SentinelMcpTestResult | null) => void) | null>(null);
 	const judgeTestResolverRef = useRef<((result: { result: SentinelTestResult; raw?: string } | null) => void) | null>(null);
+	const supervisorTestResolverRef = useRef<
+		((result: { result: SentinelTestResult; raw?: string } | null) => void) | null
+	>(null);
+	/** Supervision of the viewed conversation; null until it is armed. */
+	const [supervisor, setSupervisor] = useState<SentinelSupervisorView | null>(null);
+	const [supervisorConfig, setSupervisorConfig] = useState<SentinelSupervisorConfig>({
+		enabled: true,
+		batchToolCalls: 20,
+		duplicateThreshold: 3,
+		noProgressCalls: 10,
+		errorStreak: 3,
+		timeoutMs: 180000,
+		redactSecrets: true,
+	});
+	const [supervisorWindowOpen, setSupervisorWindowOpen] = useState(false);
+	/** Episodes since this console opened the conversation; the view carries the state, not the history. */
+	const [supervisorEpisodes, setSupervisorEpisodes] = useState<SentinelSupervisorEpisode[]>([]);
+	const [supervisorLogs, setSupervisorLogs] = useState<SentinelSupervisorLog[]>([]);
+	const [supervisorAudit, setSupervisorAudit] = useState<SentinelSupervisorAuditPage | null>(null);
+	const [supervisorDetail, setSupervisorDetail] = useState<SentinelSupervisorDetail | null>(null);
+	const [supervisorCallOutput, setSupervisorCallOutput] = useState<{
+		callId: string;
+		text: string;
+		truncated: boolean;
+		error?: string;
+	} | null>(null);
+	const supervisorSessionRef = useRef<string | null>(null);
+	const supervisorDetailSessionRef = useRef<string | null>(null);
 	/** The audit query on screen, so a live judgment can refresh exactly that view. */
 	const gateQueryRef = useRef<{ filter: SentinelGateFilter; page: number } | null>(null);
 	const snapshotRef = useRef<SentinelStateSnapshot | null>(null);
+	const runOutputTokensRef = useRef(0);
+	const runGenerationMsRef = useRef(0);
+	const assistantStartedAtRef = useRef<number | null>(null);
 	/** Directory the file panel is showing; read by handlers that must re-list it. */
 	const filePathRef = useRef("/work");
 	/** Path the preview pane is showing, so a write can refresh it. */
@@ -444,6 +496,18 @@ export function App() {
 				case "snapshot": {
 					snapshotRef.current = message.snapshot;
 					setSnapshot(message.snapshot);
+					setSupervisor(message.snapshot.supervisor);
+					setSupervisorConfig(message.snapshot.supervisorConfig);
+					const nextSupervisorSession = message.snapshot.supervisor?.sessionId ?? null;
+					if (supervisorSessionRef.current !== nextSupervisorSession) {
+						supervisorSessionRef.current = nextSupervisorSession;
+						supervisorDetailSessionRef.current = null;
+						setSupervisorEpisodes([]);
+						setSupervisorLogs(message.snapshot.supervisor?.logs ?? []);
+					} else if (message.snapshot.supervisor) {
+						setSupervisorLogs(message.snapshot.supervisor.logs);
+					}
+					if (!message.snapshot.supervisor) setSupervisorWindowOpen(false);
 					// Drop optimistic bubbles whose message has landed in the snapshot:
 					// once the persisted user-message count covers the send, it is rendered there.
 					const userCount = message.snapshot.messages.filter(
@@ -640,6 +704,71 @@ export function App() {
 					connectionRef.current?.send({ type: "gate_audit_stats", filter: query.filter });
 					break;
 				}
+				case "supervisor_state":
+					setSupervisor(message.supervisor);
+					if (message.supervisor) {
+						if (supervisorSessionRef.current !== message.supervisor.sessionId) {
+							supervisorSessionRef.current = message.supervisor.sessionId;
+							supervisorDetailSessionRef.current = null;
+							setSupervisorEpisodes([]);
+						}
+						setSupervisorLogs(message.supervisor.logs);
+					} else {
+						supervisorSessionRef.current = null;
+						supervisorDetailSessionRef.current = null;
+						setSupervisorEpisodes([]);
+						setSupervisorLogs([]);
+						setSupervisorWindowOpen(false);
+					}
+					break;
+				case "supervisor_episode":
+					if (supervisorSessionRef.current === message.episode.sessionId) {
+						setSupervisorEpisodes((prev) => [...prev.slice(-49), message.episode]);
+					}
+					break;
+				case "supervisor_log":
+					if (supervisorSessionRef.current === message.sessionId) {
+						setSupervisorLogs((prev) => [...prev.slice(-99), message.log]);
+					}
+					break;
+				case "supervisor_advice":
+					setSupervisor((prev) => {
+						if (!prev || prev.sessionId !== message.advice.sessionId) return prev;
+						if (message.advice.status === "pending") return { ...prev, pendingAdvice: message.advice };
+						if (prev.pendingAdvice?.id === message.advice.id) return { ...prev, pendingAdvice: null };
+						return prev;
+					});
+					if (message.advice.status === "pending") {
+						pushError("监督有一条待确认的建议，请打开监督悬浮窗查看");
+					}
+					break;
+				case "supervisor_config":
+					setSupervisorConfig(message.config);
+					break;
+				case "supervisor_audit":
+					setSupervisorAudit(message.page);
+					break;
+				case "supervisor_detail":
+					setSupervisorDetail(message.detail);
+					if (supervisorSessionRef.current === message.detail.session.sessionId) {
+						setSupervisorEpisodes(message.detail.episodes);
+					}
+					break;
+				case "supervisor_call_output":
+					setSupervisorCallOutput({
+						callId: message.callId,
+						text: message.text,
+						truncated: message.truncated,
+						...(message.error ? { error: message.error } : {}),
+					});
+					break;
+				case "supervisor_test_result":
+					if (supervisorTestResolverRef.current) {
+						const resolve = supervisorTestResolverRef.current;
+						supervisorTestResolverRef.current = null;
+						resolve({ result: message.result, ...(message.raw ? { raw: message.raw } : {}) });
+					}
+					break;
 				case "environment": {
 					setEnvReport(message.report);
 					setImageBuilding(message.building);
@@ -960,6 +1089,10 @@ export function App() {
 
 	const handleSessionEvent = useCallback((event: SessionEventView) => {
 		if (event.type === "agent_start") {
+			runOutputTokensRef.current = 0;
+			runGenerationMsRef.current = 0;
+			assistantStartedAtRef.current = null;
+			setRunThroughput(null);
 			setRunActive(true);
 			return;
 		}
@@ -968,6 +1101,7 @@ export function App() {
 			// already moved into the transcript when it ended.
 			const role = (event.message as { role?: string } | undefined)?.role;
 			if (role === "assistant") {
+				assistantStartedAtRef.current = Date.now();
 				setLiveText("");
 				setLiveThinking("");
 			}
@@ -994,6 +1128,22 @@ export function App() {
 			}
 			if (message.role === "system") return;
 			if (message.role === "assistant") {
+				const usage = (message as { usage?: { output?: number } }).usage;
+				const outputTokens = usage?.output ?? 0;
+				const startedAt =
+					(message as { timestamp?: number }).timestamp ?? assistantStartedAtRef.current ?? Date.now();
+				const durationMs = Math.max(1, Date.now() - startedAt);
+				assistantStartedAtRef.current = null;
+				if (outputTokens > 0) {
+					runOutputTokensRef.current += outputTokens;
+					runGenerationMsRef.current += durationMs;
+					setRunThroughput({
+						sessionId: snapshotRef.current?.activeSessionId ?? null,
+						tokPerSec: runOutputTokensRef.current / (runGenerationMsRef.current / 1000),
+						outputTokens: runOutputTokensRef.current,
+						durationMs: runGenerationMsRef.current,
+					});
+				}
 				setLiveText("");
 				setLiveThinking("");
 				// An assistant turn that only requests tools renders nothing on its own:
@@ -1312,9 +1462,31 @@ export function App() {
 			} else {
 				setPluginPage(null);
 			}
+			if (next === "supervisor") {
+				setSupervisorDetail(null);
+				connectionRef.current?.send({ type: "supervisor_audit", page: 1 });
+			}
 		},
 		[openPluginPage],
 	);
+
+	const showSupervisorWindow = useCallback(() => {
+		if (!supervisor) return;
+		setSupervisorWindowOpen(true);
+		if (supervisorEpisodes.length === 0 && supervisorDetailSessionRef.current !== supervisor.sessionId) {
+			supervisorDetailSessionRef.current = supervisor.sessionId;
+			send({ type: "supervisor_detail", sessionId: supervisor.sessionId });
+		}
+	}, [supervisor, supervisorEpisodes.length, send]);
+
+	// Switching conversations while the window stays open re-reads the new
+	// session's episode history once, without looping when the list is empty.
+	useEffect(() => {
+		if (!supervisorWindowOpen || !supervisor) return;
+		if (supervisorDetailSessionRef.current === supervisor.sessionId) return;
+		supervisorDetailSessionRef.current = supervisor.sessionId;
+		send({ type: "supervisor_detail", sessionId: supervisor.sessionId });
+	}, [supervisorWindowOpen, supervisor, send]);
 
 	/**
 	 * One bridge call from the iframe. The server validates the method and the
@@ -1400,6 +1572,9 @@ export function App() {
 			case "gates":
 				// Re-read the view on screen rather than resetting it to page 1.
 				loadGates(gateFilter, gatePage);
+				break;
+			case "supervisor":
+				send({ type: "supervisor_audit", page: supervisorAudit?.page ?? 1 });
 				break;
 			case "settings.notify":
 				send({ type: "get_notify_config" });
@@ -2068,6 +2243,15 @@ export function App() {
 								<Composer
 									streaming={streaming}
 									stats={stats}
+									throughput={
+										runThroughput && runThroughput.sessionId === (snapshot?.activeSessionId ?? null)
+											? {
+													tokPerSec: runThroughput.tokPerSec,
+													outputTokens: runThroughput.outputTokens,
+													durationMs: runThroughput.durationMs,
+												}
+											: null
+									}
 									hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 									projectId={snapshot?.project?.id ?? null}
 									blockedReason={
@@ -2105,6 +2289,14 @@ export function App() {
 									onEndModeling={() => send({ type: "end_modeling" })}
 									presets={presets ?? []}
 									preset={snapshot?.preset ?? null}
+									supervisor={supervisor}
+									supervisorEnabled={supervisorConfig.enabled}
+									supervisorWindowOpen={supervisorWindowOpen}
+									onArmSupervisor={(mode, delivery) => {
+										send({ type: "supervisor_arm", mode, delivery });
+										setSupervisorWindowOpen(true);
+									}}
+									onShowSupervisorWindow={showSupervisorWindow}
 									onSetPreset={(presetId) => send({ type: "set_session_preset", presetId })}
 									onSend={(text, behavior, images, attachModelIds) => {
 										const userCount = (snapshotRef.current?.messages ?? []).filter(
@@ -2227,7 +2419,24 @@ export function App() {
 							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 							judgeAvailable={modelLibrary?.resolved.judge != null}
 						/>
-	) : page === "gates" ? (
+	) : page === "supervisor" ? (
+					<SupervisorAuditPage
+						page={supervisorAudit}
+						detail={supervisorDetail}
+						projects={projects}
+						onQuery={(query) => {
+							setSupervisorDetail(null);
+							send({ type: "supervisor_audit", ...query });
+						}}
+						onSelect={(sessionId) => send({ type: "supervisor_detail", sessionId })}
+						onBack={() => setSupervisorDetail(null)}
+						onOpenSession={(path) => {
+							setPage("chat");
+							setSupervisorDetail(null);
+							send({ type: "switch_session", path });
+						}}
+					/>
+				) : page === "gates" ? (
 					<GateAuditPage
 						items={gateItems}
 						stats={gateStats}
@@ -2264,6 +2473,23 @@ export function App() {
 									onDuplicateEntry={(id) => send({ type: "duplicate_model_entry", id })}
 									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
 									onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
+									supervisorConfig={supervisorConfig}
+									onSaveSupervisorConfig={(config) => send({ type: "save_supervisor_config", config })}
+									onTestSupervisor={async () => {
+										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
+											(resolve) => {
+												supervisorTestResolverRef.current = resolve;
+												connectionRef.current?.send({ type: "test_supervisor" });
+												window.setTimeout(() => {
+													if (supervisorTestResolverRef.current === resolve) {
+														supervisorTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 130000);
+											},
+										);
+										return result;
+									}}
 									onTestEntry={async (id) => {
 										const result = await new Promise<SentinelTestResult | null>((resolve) => {
 											modelTestResolverRef.current = resolve;
@@ -2864,6 +3090,33 @@ export function App() {
 					}
 					onDecideAll={(approved) => send({ type: "decide_all", approved })}
 				/>
+			) : null}
+			{supervisor && supervisorWindowOpen ? (
+				<SupervisorFloatingWindow
+					view={supervisor}
+					episodes={supervisorEpisodes}
+					logs={supervisorLogs}
+					onHide={() => setSupervisorWindowOpen(false)}
+					onStop={() => send({ type: "supervisor_stop" })}
+					onRunNow={() => send({ type: "supervisor_run_now" })}
+					onSetMode={(mode, delivery) => send({ type: "supervisor_set_mode", mode, delivery })}
+					onOpenCall={(callId) => send({ type: "supervisor_call_output", callId })}
+					onSendAdvice={(id) => send({ type: "supervisor_advice_action", id, action: "send" })}
+					onIgnoreAdvice={(id) => send({ type: "supervisor_advice_action", id, action: "ignore" })}
+				/>
+			) : null}
+			{supervisorCallOutput ? (
+				<Overlay
+					title="监督 · 调用输出"
+					subtitle={supervisorCallOutput.truncated ? "输出过长，已截断" : supervisorCallOutput.callId}
+					onClose={() => setSupervisorCallOutput(null)}
+				>
+					{supervisorCallOutput.error ? (
+						<p className="warn-text">{supervisorCallOutput.error}</p>
+					) : (
+						<pre className="sv-call-output">{supervisorCallOutput.text || "（空输出）"}</pre>
+					)}
+				</Overlay>
 			) : null}
 			{viewer ? <OutputViewer title={viewer.title} output={viewer.output} onClose={() => setViewer(null)} /> : null}
 			{goalOpen ? (
