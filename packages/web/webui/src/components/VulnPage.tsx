@@ -72,6 +72,18 @@ function severityClass(severity: SentinelVulnSeverity): string {
 	return `vuln-sev vuln-sev-${severity}`;
 }
 
+/**
+ * Whether the level on the record is still the agent's own guess.
+ *
+ * A record the reviewer has ruled on carries a calibrated number. One whose
+ * review failed — or has not come back yet — carries what the agent claimed,
+ * and the console labels it 「自评」 instead of presenting it as a verdict.
+ */
+function isAgentRating(review?: SentinelVulnReview): boolean {
+	if (!review) return false;
+	return review.state === "failed" || review.state === "queued";
+}
+
 /** The severity bucket a CVSS base score maps to; used for the mismatch hint. */
 function severityForScore(score: number): SentinelVulnSeverity {
 	if (score >= 9) return "critical";
@@ -278,7 +290,10 @@ export function VulnPage({
 									<span className={severityClass(item.severity)}>
 										{SENTINEL_VULN_SEVERITY_LABELS[item.severity]}
 									</span>
-									<span className="vuln-cvss">{item.cvss.toFixed(1)}</span>
+									<span className={isAgentRating(item.review) ? "vuln-cvss vuln-cvss-self" : "vuln-cvss"}>
+										{isAgentRating(item.review) ? "自评 " : ""}
+										{item.cvss.toFixed(1)}
+									</span>
 									<ReviewChip review={item.review} />
 									{item.severityMismatch ? (
 										<span className="vuln-warn" title="等级与 CVSS 分数不一致">
@@ -433,9 +448,17 @@ export function VulnDetail({
 						</div>
 						<div className="vuln-detail__meta">
 							<span className={severityClass(vuln.severity)}>{SENTINEL_VULN_SEVERITY_LABELS[vuln.severity]}</span>
-							<span className="vuln-cvss">CVSS {vuln.cvss.toFixed(1)}</span>
+							<span className={isAgentRating(vuln.review) ? "vuln-cvss vuln-cvss-self" : "vuln-cvss"}>
+								{isAgentRating(vuln.review) ? "自评 CVSS " : "CVSS "}
+								{vuln.cvss.toFixed(1)}
+							</span>
 							{vuln.cvssVector ? <span className="data-mono">{vuln.cvssVector}</span> : null}
 							<span>{SENTINEL_VULN_STATUS_LABELS[vuln.status]}</span>
+							{vuln.review?.verdict === "dubious" ? (
+								<span className="vuln-warn" title={vuln.review.reason ?? "评审认为证据不足以支撑结论"}>
+									评审存疑
+								</span>
+							) : null}
 							{vuln.severityMismatch ? (
 								<span className="vuln-warn" title="等级与 CVSS 分数不一致">
 									等级与分数不一致

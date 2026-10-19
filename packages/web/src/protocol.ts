@@ -549,6 +549,15 @@ export interface SentinelVulnReview {
 	model?: string;
 	/** Failure reason, present when state is "failed". */
 	error?: string;
+	/**
+	 * The agent's own rating, kept beside the reviewer's verdict.
+	 *
+	 * The record carries these numbers until the reviewer rules — and keeps
+	 * them after a failed review — so the console can say 「自评」 instead of
+	 * presenting an unverified number as a calibrated one.
+	 */
+	agentSeverity?: SentinelVulnSeverity;
+	agentCvss?: number;
 	at: number;
 }
 

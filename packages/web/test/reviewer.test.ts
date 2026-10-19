@@ -215,11 +215,62 @@ test("parseVerdict accepts fenced JSON and rejects unusable metrics", () => {
 	const body = '"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H","dubious":false,"reason":"ok"';
 	expect(parseVerdict(`\`\`\`json\n{${body}}\n\`\`\``).metrics.s).toBe("U");
 	expect(() => parseVerdict("no json here")).toThrow();
-	expect(() => parseVerdict(`{${body.replace('"av":"N"', '"av":"Network"')}}`)).toThrow(/AV/);
+	// A metric that is neither the spec's letter nor its word still fails.
+	expect(() => parseVerdict(`{${body.replace('"av":"N"', '"av":"某处"')}}`)).toThrow(/AV/);
 	expect(() => parseVerdict(`{${body.replace('"dubious":false', '"dubious":"no"')}}`)).toThrow(/dubious/);
 	expect(() => parseVerdict('{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H"}')).toThrow(
 		/dubious/,
 	);
+});
+
+test("a reply that answers in words or in a vector is still read", () => {
+	// A model that does not use the spec's letters used to lose the review
+	// outright, and the record then kept the agent's own rating as if it had
+	// been checked.
+	const words = parseVerdict(
+		'{"av":"Network","ac":"Low","pr":"Low","ui":"None","s":"Unchanged","c":"High","i":"None","a":"None","dubious":false,"reason":"ok"}',
+	);
+	expect(words.metrics).toEqual({ av: "N", ac: "L", pr: "L", ui: "N", s: "U", c: "H", i: "N", a: "N" });
+	const vector = parseVerdict(
+		'{"vector":"CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N","dubious":false,"reason":"ok"}',
+	);
+	expect(vector.metrics).toEqual({ av: "N", ac: "L", pr: "L", ui: "N", s: "U", c: "H", i: "N", a: "N" });
+	// Some models nest the metrics under their own key.
+	const nested = parseVerdict(
+		'{"metrics":{"av":"N","ac":"L","pr":"L","ui":"N","s":"U","c":"H","i":"N","a":"N"},"dubious":false,"reason":"ok"}',
+	);
+	expect(nested.metrics).toEqual({ av: "N", ac: "L", pr: "L", ui: "N", s: "U", c: "H", i: "N", a: "N" });
+	// The same word means different things per metric, so the mapping is not
+	// global: "Local" is an AV, "Low" is not.
+	expect(() =>
+		parseVerdict(
+			'{"av":"Low","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"N","a":"N","dubious":false,"reason":"ok"}',
+		),
+	).toThrow(/AV/);
+});
+
+test("the capability answers are read out of the reply", () => {
+	// They are the second channel the clip works on, so they have to survive
+	// the same tolerance the metrics get: flat, nested, or spelled out.
+	const flat = parseVerdict(
+		'{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H","read":"partial","write":false,"down":false,"cross":false,"dubious":false,"reason":"ok"}',
+	);
+	expect(flat.capabilities).toEqual({ read: "partial", write: false, down: false, cross: false });
+	const nested = parseVerdict(
+		'{"metrics":{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H"},"capabilities":{"read":"total","write":true,"down":true,"cross":true},"dubious":false,"reason":"ok"}',
+	);
+	expect(nested.capabilities).toEqual({ read: "total", write: true, down: true, cross: true });
+	// A reply without them is still a usable verdict.
+	const none = parseVerdict(
+		'{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H","dubious":false,"reason":"ok"}',
+	);
+	expect(none.capabilities).toBeUndefined();
+	// A half answer is dropped whole: clipping one axis because the model
+	// mentioned it would clip axes it said nothing about.
+	const partial = parseVerdict(
+		'{"av":"N","ac":"L","pr":"N","ui":"N","s":"U","c":"H","i":"H","a":"H","read":"partial","write":false,"dubious":false,"reason":"ok"}',
+	);
+	expect(partial.capabilities).toBeUndefined();
 });
 
 test("queued reviews left by a crashed process are recovered", async () => {

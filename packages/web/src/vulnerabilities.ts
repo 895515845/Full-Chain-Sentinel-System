@@ -290,8 +290,15 @@ export class VulnerabilityStore {
 		const label = vulnLabel(prefix, number);
 		const now = new Date().toISOString();
 		// Fresh submissions start queued for the reviewer LLM; it calibrates the
-		// agent's self-assigned rating asynchronously at the hub layer.
-		const review: SentinelVulnReview = { state: "queued", at: Date.now() };
+		// agent's self-assigned rating asynchronously at the hub layer. The
+		// agent's own numbers ride along so the console can label them as
+		// 「自评」 for as long as no reviewer verdict exists.
+		const review: SentinelVulnReview = {
+			state: "queued",
+			at: Date.now(),
+			agentSeverity: input.severity,
+			agentCvss: input.cvss,
+		};
 		this.db
 			.prepare(
 				`INSERT INTO vulnerabilities (
@@ -416,6 +423,10 @@ export class VulnerabilityStore {
 			verdict: verdict.dubious ? "dubious" : "solid",
 			reason: verdict.reason,
 			model: verdict.model,
+			// The agent's own numbers stay on the record beside the verdict, so
+			// the console can show what the claim was before the calibration.
+			...(existing.review.agentSeverity ? { agentSeverity: existing.review.agentSeverity } : {}),
+			...(typeof existing.review.agentCvss === "number" ? { agentCvss: existing.review.agentCvss } : {}),
 			at: Date.now(),
 		};
 		this.db
@@ -482,7 +493,10 @@ export class VulnerabilityStore {
 		if (!existing || existing.review.state !== "queued") return;
 		this.db
 			.prepare("UPDATE vulnerabilities SET review = ? WHERE id = ?")
-			.run(JSON.stringify({ state: "skipped", at: Date.now() } satisfies SentinelVulnReview), id);
+			.run(
+				JSON.stringify({ ...existing.review, state: "skipped", at: Date.now() } satisfies SentinelVulnReview),
+				id,
+			);
 	}
 
 	/** Drop every queued review, so turning automatic review off clears the backlog. */
@@ -695,6 +709,8 @@ function normalizeReview(raw: string | null): SentinelVulnReview {
 			...(typeof value.reason === "string" ? { reason: value.reason } : {}),
 			...(typeof value.model === "string" ? { model: value.model } : {}),
 			...(typeof value.error === "string" ? { error: value.error } : {}),
+			...(value.agentSeverity ? { agentSeverity: value.agentSeverity } : {}),
+			...(typeof value.agentCvss === "number" ? { agentCvss: value.agentCvss } : {}),
 			at: typeof value.at === "number" ? value.at : 0,
 		};
 	} catch {

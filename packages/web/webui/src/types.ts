@@ -430,6 +430,9 @@ export interface SentinelVulnReview {
 	reason?: string;
 	model?: string;
 	error?: string;
+	/** The agent's own rating, kept beside the reviewer's verdict. */
+	agentSeverity?: SentinelVulnSeverity;
+	agentCvss?: number;
 	at: number;
 }
 
