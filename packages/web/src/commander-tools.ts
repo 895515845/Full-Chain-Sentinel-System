@@ -42,6 +42,14 @@ export interface CommanderPort {
 	abortTask(taskId: string, reason: string): MaybePromise<{ ok: boolean; error?: string }>;
 	/** Queue an instruction into a running task (intel injection, mid-course correction). */
 	steerTask(taskId: string, instruction: string): MaybePromise<{ ok: boolean; error?: string }>;
+	/**
+	 * Continue a non-running task in its own conversation. Used for recovery from
+	 * provider errors and for new phases on top of finished work.
+	 */
+	continueTask(
+		taskId: string,
+		input: { instruction: string; criteria: string[]; roundLimit: number | null },
+	): MaybePromise<{ task?: SentinelEngineTask; position?: number; error?: string }>;
 	/** The task board right now, for `list_tasks`. */
 	board(): SentinelEngineTask[];
 	/** Declare the engine finished; refused while work is outstanding. */
@@ -69,7 +77,10 @@ export function formatTaskBoard(tasks: readonly SentinelEngineTask[]): string {
 				// re-dispatched as the same preset is the same attempt twice.
 				`，预设：${task.presetName ?? "默认 Agent"}` +
 				(task.summary ? `，结论：${task.summary}` : "") +
-				(task.error ? `，错误：${task.error}` : ""),
+				(task.error ? `，错误：${task.error}` : "") +
+				// Terminal and paused tasks keep their conversation; saying so here is
+				// what makes continue_task discoverable at the moment it is needed.
+				(task.status === "queued" || task.status === "running" ? "" : "；可 continue_task 续跑"),
 		)
 		.join("\n");
 }
@@ -264,6 +275,63 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 		},
 	});
 
+	const continueTask = defineTool({
+		name: "continue_task",
+		label: "Continue task",
+		description:
+			"Continue a task that ended (done, failed, blocked, aborted) or was paused, reusing its existing conversation and conclusions. Use after a transient model failure (429, timeout), when its round budget ran out, or to start a new phase on top of finished work. Not for queued/running tasks: use steer_task for those.",
+		promptSnippet: "Continue an ended task in its existing conversation",
+		promptGuidelines: [
+			"Use this for recovery: the worker already has the transcript, so tell it what to do next rather than restating the whole objective",
+			"Use dispatch_task instead when the work should start from a clean context or on a different target",
+			"One continuation adds one more run; it does not rewrite the task's original objective unless you provide new criteria",
+		],
+		parameters: Type.Object({
+			task_id: Type.String({ description: "The ended or paused task to continue, from list_tasks." }),
+			instruction: Type.String({
+				minLength: 1,
+				description:
+					"What to do next, written as a continuation: account for what the worker already found and state the new goal.",
+			}),
+			criteria: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Acceptance criteria for this continuation; when given they replace the original criteria for the goal.",
+				}),
+			),
+			round_limit: Type.Optional(
+				Type.Number({
+					minimum: 1,
+					maximum: 99,
+					description: "Additional automatic continuation rounds to grant; omit to use the engine default.",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params): Promise<AgentToolResult> {
+			const result = await port.continueTask(params.task_id.trim(), {
+				instruction: params.instruction.trim(),
+				criteria: (params.criteria ?? []).map((item) => item.trim()).filter(Boolean),
+				roundLimit: params.round_limit ?? null,
+			});
+			if (result.error || !result.task) {
+				return {
+					content: [{ type: "text", text: `续跑失败：${result.error ?? "未知错误"}` }],
+					details: undefined,
+					isError: true,
+				};
+			}
+			return {
+				content: [
+					{
+						type: "text",
+						text: `任务已重新排队续跑：${result.task.id}「${result.task.title}」，当前排队位置 ${result.position ?? 0}。它会带着原有会话继续，结束后会收到结果摘要。`,
+					},
+				],
+				details: undefined,
+			};
+		},
+	});
+
 	const engineDone = defineTool({
 		name: "engine_done",
 		label: "Finish engine",
@@ -288,5 +356,5 @@ export function createCommanderTools(port: CommanderPort): ToolDefinition[] {
 		},
 	});
 
-	return [dispatch, listTasks, abortTask, steerTask, engineDone];
+	return [dispatch, listTasks, abortTask, steerTask, continueTask, engineDone];
 }

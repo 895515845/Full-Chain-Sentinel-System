@@ -1940,6 +1940,13 @@ export interface SentinelEngineLimits {
 	maxRetries: number;
 }
 
+export interface SentinelEngineTaskContinue {
+	instruction: string;
+	criteria: string[];
+	roundLimit: number;
+	requestedAt: number;
+}
+
 export interface SentinelEngineTask {
 	id: string;
 	engineId: string;
@@ -1951,6 +1958,8 @@ export interface SentinelEngineTask {
 	attempt: number;
 	criteria: string[];
 	roundLimit: number;
+	/** A requested continuation that has not started yet. */
+	pendingContinue: SentinelEngineTaskContinue | null;
 	/**
 	 * Which preset agent this task runs as, fixed at dispatch. `presetName` is
 	 * copied in rather than resolved from the preset library, so the board still

@@ -97,6 +97,47 @@ test("incrementTaskVulns counts findings and survives a later task update", () =
 	expect(() => store.incrementTaskVulns("task-missing")).not.toThrow();
 });
 
+test("a pending continuation round-trips and is cleared when it starts", () => {
+	const engine = store.createEngine({
+		projectId: "p6",
+		projectName: "P6",
+		name: "续跑场景",
+		targets: [{ target: "t" }],
+		doctrines: ["standard"],
+		limits,
+		gateMode: "auto",
+	});
+	const task = store.createTask({
+		engineId: engine.id,
+		title: "续跑任务",
+		objective: "o",
+		target: "t",
+		workspace: "w",
+		roundLimit: 3,
+		attempt: 1,
+	});
+	store.updateTask(task.id, {
+		status: "queued",
+		pendingContinue: {
+			instruction: "从 429 中恢复，继续枚举",
+			criteria: ["全部子域已解析"],
+			roundLimit: 4,
+			requestedAt: 123,
+		},
+	});
+	expect(store.getTask(task.id)?.pendingContinue).toEqual({
+		instruction: "从 429 中恢复，继续枚举",
+		criteria: ["全部子域已解析"],
+		roundLimit: 4,
+		requestedAt: 123,
+	});
+	// Starting the worker consumes the request; a later ordinary update must not
+	// resurrect it, or every board refresh would queue the task again.
+	store.updateTask(task.id, { status: "running", pendingContinue: null });
+	store.updateTask(task.id, { status: "running", usage: { input: 1, output: 2, total: 3, cost: null } });
+	expect(store.getTask(task.id)?.pendingContinue).toBeNull();
+});
+
 test("interruptRunning pauses queued and running tasks", () => {
 	const engine = store.createEngine({
 		projectId: "p1",
@@ -360,6 +401,8 @@ test("a database written before preset columns existed is migrated to no restric
 	expect(migrated.getEngine("engine-old")?.presetIds).toEqual([]);
 	expect(migrated.getTask("task-old")?.presetId).toBeNull();
 	expect(migrated.getTask("task-old")?.presetName).toBeNull();
+	// Nothing was waiting to continue either.
+	expect(migrated.getTask("task-old")?.pendingContinue).toBeNull();
 	// Presets stayed optional for it too, so its dispatches are unchanged.
 	expect(migrated.getEngine("engine-old")?.presetOptional).toBe(true);
 	migrated.setEnginePresets("engine-old", ["web-recon"]);

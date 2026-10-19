@@ -200,6 +200,30 @@ test("resuming adds rounds, clears the fuse, and reports the pause reason", () =
 	expect(afterFuse.noProgressStreak).toBe(0);
 });
 
+test("resuming a finished goal clears its terminal record", () => {
+	const completed = completeGoal(recordSubmission(startRound(newGoal(), "initial", 1000), 1100), {
+		summary: "目标达成",
+		evidence: ["nmap 输出"],
+		submitted: 1,
+		findingsNote: "",
+		criteria: [],
+		at: 2000,
+	});
+	const revived = resumeGoal(completed, 2, 3000);
+	expect(revived.status).toBe("active");
+	expect(revived.completion).toBeUndefined();
+	expect(revived.endedAt).toBeUndefined();
+	// The work already done is kept; only the verdict is withdrawn.
+	expect(revived.submitted).toBe(1);
+	expect(revived.rounds).toHaveLength(1);
+
+	const blocked = blockGoal(closeRound(startRound(newGoal(), "initial", 4000), 4100), "缺少凭据", ["401"], 3, 4200);
+	const afterBlock = resumeGoal(blocked, 1, 4300);
+	expect(afterBlock.blocked).toBeUndefined();
+	expect(afterBlock.blockerStreak).toBe(0);
+	expect(afterBlock.lastBlocker).toBeUndefined();
+});
+
 test("the stored goal is read back from the branch, last entry wins", () => {
 	const goal = startRound(newGoal(), "initial", 1000);
 	const entries = [
@@ -266,6 +290,21 @@ test("the injected contract carries the objective, the criteria, and the data bo
 	expect(continuation).toContain("已完成：\n  - 扫完端口");
 	expect(continuation).toContain("待办：\n  - 看 web");
 	expect(continuation).toContain("不要重述已经完成的部分");
+	// The open round is the last entry; the conclusion still comes from the one
+	// that just closed.
+	expect(continuation).toContain("上一轮结论：已完成：扫完端口");
+
+	// A commander continuation adds its instruction above the recorded progress,
+	// and the data boundary still applies to the objective text.
+	const directed = buildGoalContract(
+		startRound(withProgress, "continue", 1700),
+		"continue",
+		"  重试被 429 中断的端口扫描  ",
+	);
+	expect(directed).toContain("指挥官本次续跑指令");
+	expect(directed).toContain("重试被 429 中断的端口扫描");
+	expect(directed).toContain("以本指令为准");
+	expect(buildGoalContract(goal, "initial", "   ")).not.toContain("指挥官本次续跑指令");
 });
 
 test("refundRound gives a consumed continuation back, never below zero", () => {

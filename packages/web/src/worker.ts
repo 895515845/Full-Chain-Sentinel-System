@@ -17,6 +17,7 @@ import {
 	advanceGoal,
 	blockGoal,
 	buildGoalContract,
+	clampRoundLimit,
 	completeGoal,
 	createGoal,
 	diffUsage,
@@ -33,7 +34,13 @@ import {
 	startRound,
 } from "./goal.ts";
 import type { GoalPort } from "./goal-tool.ts";
-import type { SentinelEngineEvent, SentinelEngineTask, SentinelGoal, SentinelGoalUsage } from "./protocol.ts";
+import type {
+	SentinelEngineEvent,
+	SentinelEngineTask,
+	SentinelEngineTaskContinue,
+	SentinelGoal,
+	SentinelGoalUsage,
+} from "./protocol.ts";
 import { messageText } from "./transcript.ts";
 
 export interface WorkerSession {
@@ -49,7 +56,8 @@ export interface WorkerSession {
 /** How the engine acquires the console-owned session for one task. */
 export type AcquireTaskSession = (input: {
 	taskSessionId: string | null;
-	paused: boolean;
+	/** Reopen the task's existing conversation instead of creating a new one. */
+	reopen: boolean;
 	goalPort: GoalPort;
 	onFinding(): void;
 }) => Promise<{ session: WorkerSession; manager: SessionManager }>;
@@ -134,9 +142,13 @@ export class EngineWorker {
 
 	/** Acquire (or reattach to) the session and start the first round. */
 	async start(): Promise<void> {
+		const continuation = this.task.pendingContinue;
 		const { session, manager } = await this.acquire({
 			taskSessionId: this.task.sessionId,
-			paused: this.task.status === "paused",
+			// A task with a session id is always continued in that conversation,
+			// whether it is a restart resume, a commander continuation, or a task the
+			// operator reopened after it ended.
+			reopen: this.task.sessionId !== null,
 			goalPort: this.goalPort(),
 			onFinding: () => this.noteFinding(),
 		});
@@ -145,7 +157,11 @@ export class EngineWorker {
 		this.unsubscribeWorker = session.subscribe((event) => this.onEvent(event));
 		this.hooks.onStarted(manager.getSessionId());
 
-		if (this.task.status === "paused") {
+		if (continuation) {
+			await this.continueGoal(continuation);
+			return;
+		}
+		if (this.task.status === "paused" && this.task.sessionId !== null) {
 			this.resumeGoal();
 			return;
 		}
@@ -213,6 +229,55 @@ export class EngineWorker {
 			.catch((error: unknown) => {
 				this.settle("failed", `恢复失败：${errorText(error)}`, this.currentUsage());
 			});
+	}
+
+	/**
+	 * Commander continuation: reopen the task's own conversation and either revive
+	 * its goal (paused, failed, blocked, or completed) or, for a conversation that
+	 * predates goals, start a new goal on top of it. The old transcript stays in
+	 * context; only the goal counters are extended.
+	 */
+	private async continueGoal(continuation: SentinelEngineTaskContinue): Promise<void> {
+		const session = this.requireSession();
+		const restored = readGoalState(this.manager?.getBranch() ?? []);
+		const criteria = continuation.criteria.map((item) => item.trim()).filter(Boolean);
+		const at = Date.now();
+		if (restored) {
+			const base = criteria.length > 0 ? { ...restored, criteria } : restored;
+			this.goal = startRound(resumeGoal(base, continuation.roundLimit, at), "continue", at);
+			this.submitted = restored.submitted;
+		} else {
+			this.goal = startRound(
+				createGoal({
+					id: `goal-${this.task.id}-c${at}`,
+					objective: this.task.objective,
+					criteria: criteria.length > 0 ? criteria : this.task.criteria,
+					roundLimit: clampRoundLimit(continuation.roundLimit),
+					baseline: emptyUsage(),
+					at,
+				}),
+				"initial",
+				at,
+			);
+			this.submitted = 0;
+		}
+		this.roundUsageStart = usageOf(session.getSessionStats());
+		this.roundToolCalls = 0;
+		this.persistGoal();
+		this.armTimeLimit();
+		this.hooks.onProgress();
+		try {
+			await session.sendCustomMessage(
+				{
+					customType: GOAL_MESSAGE_CUSTOM_TYPE,
+					content: buildGoalContract(this.goal, "continue", continuation.instruction),
+					display: true,
+				},
+				{ triggerTurn: true },
+			);
+		} catch (error) {
+			this.settle("failed", `续跑启动失败：${errorText(error)}`, this.currentUsage());
+		}
 	}
 
 	/** Stop the run in flight; settles as aborted unless already terminal. */
@@ -313,13 +378,15 @@ export class EngineWorker {
 		const round = this.goal.rounds[this.goal.rounds.length - 1];
 		const summary =
 			round?.summaryFromTool === true ? undefined : extractRoundSummary(lastAssistantText(session.messages));
+		const stoppedWithError = lastStopReason(session.messages) === "error";
+		const providerError = stoppedWithError ? lastAssistantErrorMessage(session.messages) : undefined;
 		const outcome = aborted
 			? ("aborted" as const)
 			: this.goal.status === "completed"
 				? ("completed" as const)
 				: this.goal.status === "blocked"
 					? ("blocked" as const)
-					: lastStopReason(session.messages) === "error"
+					: stoppedWithError
 						? ("error" as const)
 						: ("continued" as const);
 		let goal = finishRound(this.goal, {
@@ -346,15 +413,33 @@ export class EngineWorker {
 			this.settle("failed", `任务超出 token 上限（已用 ${this.currentUsage().total}）`, this.currentUsage());
 			return;
 		}
+		if (outcome === "error") {
+			// The provider already exhausted its own retries. Another round starts the
+			// same request again, so the decision belongs to the commander: it sees the
+			// error and can continue on this conversation when the endpoint recovers.
+			this.goal = goal;
+			this.persistGoal();
+			this.hooks.onProgress();
+			this.settle(
+				"failed",
+				`模型请求中断：${providerError ?? "原因未知"}（可用 continue_task 在原会话上续跑）`,
+				this.currentUsage(),
+			);
+			return;
+		}
 		const decision = advanceGoal(goal, at);
 		goal = decision.goal;
 		this.goal = goal;
 		this.persistGoal();
 		this.hooks.onProgress();
 		if (decision.action === "stop") {
-			// The round budget or the no-progress fuse tripped: the task has
-			// nothing more to give on its own, so it goes back to the commander.
-			this.settle("failed", goal.pauseNote ?? "自动续跑停止", this.currentUsage());
+			// The round budget or the no-progress fuse tripped: the task has nothing
+			// more to give on its own, so it goes back to the commander.
+			this.settle(
+				"failed",
+				`${goal.pauseNote ?? "自动续跑停止"}（可用 continue_task 在原会话上续跑）`,
+				this.currentUsage(),
+			);
 			return;
 		}
 		const next = startRound(goal, "continue", at);
@@ -449,6 +534,12 @@ function lastAssistantText(messages: readonly unknown[]): string | undefined {
 function lastStopReason(messages: readonly unknown[]): string | undefined {
 	const last = [...messages].reverse().find((message) => (message as { role?: string }).role === "assistant");
 	return (last as { stopReason?: string } | undefined)?.stopReason;
+}
+
+function lastAssistantErrorMessage(messages: readonly unknown[]): string | undefined {
+	const last = [...messages].reverse().find((message) => (message as { role?: string }).role === "assistant");
+	const error = (last as { errorMessage?: unknown } | undefined)?.errorMessage;
+	return typeof error === "string" && error.trim() ? error.trim() : undefined;
 }
 
 export function errorText(error: unknown): string {

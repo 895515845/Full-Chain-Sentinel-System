@@ -52,6 +52,7 @@ function task(over: Partial<SentinelEngineTask>): SentinelEngineTask {
 		roundLimit: 3,
 		presetId: null,
 		presetName: null,
+		pendingContinue: null,
 		sessionId: null,
 		startedAt: null,
 		endedAt: null,

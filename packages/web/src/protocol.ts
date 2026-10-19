@@ -880,6 +880,21 @@ export interface SentinelEngineLimits {
 	maxRetries: number;
 }
 
+/**
+ * A commander-requested continuation waiting for a worker slot. It is stored on
+ * the task row, not in memory, so a service restart while it is queued does not
+ * silently drop the instruction.
+ */
+export interface SentinelEngineTaskContinue {
+	/** What the worker should do next, on top of its existing conversation. */
+	instruction: string;
+	/** Extra automatic rounds; empty means keep the goal's existing criteria. */
+	criteria: string[];
+	/** Additional continuation rounds to grant, not a total. */
+	roundLimit: number;
+	requestedAt: number;
+}
+
 /** One task the commander dispatched. Executed by its own agent session. */
 export interface SentinelEngineTask {
 	id: string;
@@ -896,6 +911,12 @@ export interface SentinelEngineTask {
 	/** Acceptance criteria the commander attached; the worker's goal enforces them. */
 	criteria: string[];
 	roundLimit: number;
+	/**
+	 * A requested continuation that has not started yet. While it is set and the
+	 * task is queued, the next worker reopens the task's own session file instead
+	 * of starting a new conversation.
+	 */
+	pendingContinue: SentinelEngineTaskContinue | null;
 	/**
 	 * Which preset agent this task runs as, fixed at dispatch. `presetName` is
 	 * copied in rather than resolved from the preset library, so the board still

@@ -436,10 +436,14 @@ export interface TaskSessionOptions {
 	 * human, so `ai` routes its commands through the gatekeeper instead.
 	 */
 	gateMode: "auto" | "ai";
-	/** pi session id when resuming a paused task; null for a fresh one. */
+	/** pi session id to reopen; null for a fresh task. */
 	taskSessionId: string | null;
-	/** True when the task is being resumed (reopen its session file). */
-	paused: boolean;
+	/**
+	 * True when the task already has a conversation to reopen (resume after a
+	 * restart, or a commander-requested continuation). The file is required: a
+	 * task that lost its transcript is not silently restarted as a new one.
+	 */
+	reopen: boolean;
 	/** Goal tools bind to the engine worker's goal state, not the console's. */
 	goalPort: GoalPort;
 	/** A finding was submitted; the worker counts it towards its goal. */
@@ -1061,26 +1065,43 @@ export class SentinelRuntime {
 		options: TaskSessionOptions,
 	): Promise<{ session: ManagedSession["session"]; manager: SessionManager; unsubscribe: () => void }> {
 		const sessionDir = getDefaultSessionDir(options.project.cwd, this.agentDir);
-		// A paused task reopens its own session file, so its goal and transcript
-		// come back exactly as they were; a fresh task starts a new one. The file is
-		// named `<timestamp>_<sessionId>.jsonl`, so the id is resolved, not pasted.
-		const resumedFile =
-			options.paused && options.taskSessionId
-				? SessionManager.findById(options.project.cwd, options.taskSessionId, sessionDir)
-				: undefined;
-		const manager = resumedFile
-			? SessionManager.open(resumedFile, sessionDir || undefined, options.project.cwd)
-			: SessionManager.create(options.project.cwd, sessionDir || undefined);
+		// A continuation or a resume reopens the task's own conversation. A live
+		// session cannot be reused as-is: its goal tools still point at the worker
+		// that owned it, so it is rebuilt from the same manager with the new worker's
+		// goal port. A dead one is opened from its file. Either way, a missing file
+		// is an error rather than a silent fresh start: the continuation was asked
+		// to build on prior work.
+		let manager: SessionManager;
+		let rebuilt = false;
+		if (options.reopen) {
+			if (!options.taskSessionId) throw new Error("任务没有可恢复的会话，无法在原会话上继续");
+			const existing = this.sessions.get(options.taskSessionId);
+			if (existing) {
+				if (existing.session.isStreaming) throw new Error("任务会话仍在运行，请先中止再续跑");
+				existing.unsubscribe();
+				existing.session.dispose();
+				this.sessions.delete(existing.key);
+				manager = existing.manager;
+				rebuilt = true;
+			} else {
+				const file = SessionManager.findById(options.project.cwd, options.taskSessionId, sessionDir);
+				if (!file) throw new Error("任务会话文件不存在，无法在原会话上继续；请重新派发任务");
+				manager = SessionManager.open(file, sessionDir || undefined, options.project.cwd);
+			}
+		} else {
+			manager = SessionManager.create(options.project.cwd, sessionDir || undefined);
+		}
 		// A fresh task records the preset it was dispatched with in its own file, so
 		// the choice travels with the conversation: reopening it in the console shows
 		// the preset badge, and a task resumed after a restart picks it up from the
 		// branch. A reopened file already has the entry and must not get a second one.
-		if (!resumedFile && options.presetId) {
+		if (!options.reopen && options.presetId) {
 			manager.appendCustomEntry(SESSION_PRESET_CUSTOM_TYPE, { id: options.presetId, at: Date.now() });
 		}
 		const key = await this.createSessionInto(manager, options);
 		const managed = this.sessions.get(key);
 		if (!managed) throw new Error("任务会话创建失败");
+		if (rebuilt) this.hooks.onStateChange();
 		return {
 			session: managed.session,
 			manager: managed.manager,

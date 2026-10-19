@@ -33,6 +33,7 @@ import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { listDoctrines, resolveDoctrines, type SentinelDoctrine } from "./doctrines.ts";
 import { EngineStore } from "./engine-store.ts";
 import { resolveJudgeEndpoint } from "./gatekeeper.ts";
+import { clampRoundLimit } from "./goal.ts";
 import { modelsJsonPath, readCommanderModelConfig, SENTINEL_COMMANDER_PROVIDER_ID } from "./model-config.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { sendDingTalk } from "./notify.ts";
@@ -45,6 +46,7 @@ import type {
 	SentinelEngineCreateInput,
 	SentinelEngineEvent,
 	SentinelEngineGateMode,
+	SentinelEngineTask,
 	SentinelGoalUsage,
 	SentinelPreset,
 	SentinelProjectInfo,
@@ -284,6 +286,15 @@ export class EngineManager {
 		if (entry.engine.status !== "paused") throw new Error("只有已暂停的工程才能继续");
 		this.store.setEngineStatus(id, "running", null, null);
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		// A continuation that was waiting for a slot when the process stopped is
+		// still an explicit commander decision; requeue it. Other interrupted tasks
+		// stay paused for the commander to inspect and continue deliberately.
+		for (const task of entry.engine.tasks) {
+			if (task.status === "paused" && task.pendingContinue) {
+				this.store.updateTask(task.id, { status: "queued", endedAt: null });
+			}
+		}
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		entry.nudges = 0;
 		await this.startCommander(entry, "resume");
 		this.tick();
@@ -444,6 +455,62 @@ export class EngineManager {
 		return { ok: true };
 	}
 
+	/**
+	 * Continue a task that is no longer running. The task's own session file is
+	 * reopened, so the worker keeps its transcript, findings, and conclusions; the
+	 * goal is revived with extra rounds (or created if the file predates goals).
+	 *
+	 * This is the recovery path for a conversation that died for a reason the
+	 * worker cannot fix itself — a 429, a timeout, an exhausted round budget — and
+	 * the way the commander starts a new phase on top of finished work. Only the
+	 * operator or commander can start it; the engine never continues terminal
+	 * tasks on its own.
+	 */
+	continueTask(
+		taskId: string,
+		input: { instruction: string; criteria: string[]; roundLimit: number | null },
+	): { task?: SentinelEngineTask; position?: number; error?: string } {
+		const task = this.store.getTask(taskId);
+		if (!task) return { error: `任务 ${taskId} 不存在（可能已完成、已删除或 id 有误）` };
+		const entry = this.live.get(task.engineId);
+		if (!entry) return { error: "任务所属工程不存在" };
+		if (entry.engine.status !== "running") return { error: "工程未在运行中，不能续跑任务" };
+		if (task.status === "queued" || task.status === "running") {
+			return { error: `任务 ${taskId} 仍在排队或运行中；要补充指令请用 steer_task` };
+		}
+		if (!task.sessionId) {
+			return { error: `任务 ${taskId} 没有可续跑的会话（启动前就失败了），请用 dispatch_task 重新派发` };
+		}
+		const instruction = input.instruction.trim();
+		if (!instruction) return { error: "续跑指令不能为空" };
+		const tokenLimit = entry.engine.limits.tokenLimit;
+		if (tokenLimit !== null && task.usage && task.usage.total > tokenLimit) {
+			return {
+				error: `任务已用 ${task.usage.total} tokens，超过本工程单任务上限 ${tokenLimit}；续跑会在下一轮被熔断，请派发新任务`,
+			};
+		}
+		const project = this.projectOf(entry.engine);
+		const sessionDir = getDefaultSessionDir(project.cwd, this.agentDir);
+		if (!SessionManager.findById(project.cwd, task.sessionId, sessionDir)) {
+			return { error: `任务 ${taskId} 的会话文件不存在，无法在原会话上继续；请用 dispatch_task 重新派发` };
+		}
+		const criteria = [...new Set(input.criteria.map((item) => item.trim()).filter(Boolean))].slice(0, 20);
+		const roundLimit = clampRoundLimit(input.roundLimit ?? entry.engine.limits.roundLimit);
+		this.store.updateTask(taskId, {
+			status: "queued",
+			endedAt: null,
+			pendingContinue: { instruction, criteria, roundLimit, requestedAt: Date.now() },
+		});
+		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+		this.tick();
+		const position = (this.store.getEngine(entry.engine.id)?.tasks ?? []).filter(
+			(item) => item.status === "queued",
+		).length;
+		const updated = this.store.getTask(taskId);
+		return updated ? { task: updated, position } : { error: "任务续跑状态写入失败" };
+	}
+
 	/** Deterministic progress snapshot the operator can pull at any time. */
 	reportSnapshot(id: string): { filename: string; markdown: string } {
 		const engine = this.store.getEngine(id);
@@ -550,6 +617,13 @@ export class EngineManager {
 					return delivered ? { ok: true } : { ok: false, error: "指令未能注入（任务刚好结束）" };
 				} catch (error) {
 					return { ok: false, error: errorText(error) };
+				}
+			},
+			continueTask: (taskId, input) => {
+				try {
+					return this.continueTask(taskId, input);
+				} catch (error) {
+					return { error: errorText(error) };
 				}
 			},
 			board: () => this.store.getEngine(entry.engine.id)?.tasks ?? entry.engine.tasks,
@@ -931,7 +1005,13 @@ export class EngineManager {
 			},
 		);
 		entry.workers.set(taskId, worker);
-		this.store.updateTask(taskId, { status: "running", startedAt: Date.now() });
+		this.store.updateTask(taskId, {
+			status: "running",
+			startedAt: Date.now(),
+			// A continuation starts a new stretch: the previous conclusion belongs to
+			// the round that just ended, and the answered request must not re-trigger.
+			...(task.pendingContinue ? { pendingContinue: null, summary: null, error: null } : {}),
+		});
 		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
 		try {
@@ -971,7 +1051,9 @@ export class EngineManager {
 						: "已中止";
 		void this.promptCommander(
 			entry,
-			`任务 ${taskId}「${task?.title ?? "?"}」结束（${label}）。\n结论：${outcome.summary}\n请根据结果决定下一步（继续派发、换思路重试、注入情报或收尾）。`,
+			`任务 ${taskId}「${task?.title ?? "?"}」结束（${label}）。\n结论：${outcome.summary}\n` +
+				"如果还要在它原来的会话上继续（例如 429/超时、轮数用完，或在已有成果上开新阶段），用 continue_task；" +
+				"需要换思路重派再用 dispatch_task。",
 		);
 		this.tick();
 	}
@@ -1249,7 +1331,8 @@ export function buildCommanderBrief(
 			: "- 派发前先看「可用预设 Agent」：本工程要求每个任务都必须指定一个预设，省略 preset 会被拒绝；没有完全吻合的就选描述与标签最接近的那个，不要乱选，也不要每次都用同一个。",
 		"- 任务结束后你会收到结果摘要；结合 list_tasks 掌握全局，再决定下一步。",
 		"- 可以把已验证的情报（凭据、指纹、有效打法）通过 steer_task 注入运行中的任务；只传已验证的事实，不传猜测。",
-		"- 失败的任务换思路重派（dispatch_task 带 target 会累计尝试次数）；无价值的任务用 abort_task 中止，不要浪费轮次。",
+		"- 任务因 429、超时、轮数用完或会话结束而停下时，用 continue_task 在它原来的会话上继续：它会带着已有结论和上下文，不需要重新派发。已完成的任务也可以用它，在已有成果上开新阶段。",
+		"- 需要换思路或干净上下文时才用 dispatch_task 重派（带 target 会累计尝试次数）；无价值的任务用 abort_task 中止，不要浪费轮次。",
 		"- 全部目标处理完后，用 engine_done 提交 markdown 总报告：逐目标结论、发现汇总（漏洞中枢编号）、失败清单与原因、建议操作员复核的事项。",
 		"- 侦察能下放就下放：你的价值在编排与决策，不在等待。",
 		...(permissions.bash

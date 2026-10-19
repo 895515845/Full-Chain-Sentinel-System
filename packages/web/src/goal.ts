@@ -343,14 +343,20 @@ export function pauseGoal(
 	};
 }
 
-/** Resume a paused goal with more rounds. The no-progress fuse starts over. */
+/**
+ * Resume a goal with more rounds. The no-progress and blocker fuses start over:
+ * a continuation is a fresh decision by the operator or commander, and the old
+ * verdict must not immediately re-trigger. A completed or blocked goal loses its
+ * terminal record here, because the goal is active again.
+ */
 export function resumeGoal(goal: SentinelGoal, extraRounds: number, at: number): SentinelGoal {
-	const { endedAt: _endedAt, ...rest } = goal;
+	const { endedAt: _endedAt, lastBlocker: _lastBlocker, completion: _completion, blocked: _blocked, ...rest } = goal;
 	return {
 		...rest,
 		status: "active",
 		roundLimit: clampRoundLimit(goal.roundLimit + Math.max(1, Math.round(extraRounds))),
 		noProgressStreak: 0,
+		blockerStreak: 0,
 		pauseReason: undefined,
 		pauseNote: undefined,
 		updatedAt: at,
@@ -425,9 +431,10 @@ function listOrNone(items: readonly string[], empty: string): string {
  * The text injected into the session. For the initial run it is the contract the
  * model works under; for a continuation it is that contract plus the progress so
  * far. The objective and the recorded progress are quoted as data: they come from
- * the operator and from earlier model turns, not from a fresh instruction source.
+ * the operator and from earlier model turns. A continuation instruction comes
+ * from the commander, so it is authoritative for this round.
  */
-export function buildGoalContract(goal: SentinelGoal, kind: "initial" | "continue"): string {
+export function buildGoalContract(goal: SentinelGoal, kind: "initial" | "continue", instruction?: string): string {
 	const criteria =
 		goal.criteria.length > 0
 			? goal.criteria.map((item, index) => `  ${index + 1}. ${item}`).join("\n")
@@ -445,6 +452,14 @@ export function buildGoalContract(goal: SentinelGoal, kind: "initial" | "continu
 		"验收标准（完成时必须逐条给出结论与证据）：",
 		criteria,
 	];
+	const continuation = instruction?.trim();
+	if (continuation) {
+		lines.push(
+			"",
+			"指挥官本次续跑指令（针对已有会话，优先执行；与上文目标冲突时以本指令为准并说明）：",
+			continuation,
+		);
+	}
 	if (kind === "continue") {
 		lines.push(
 			"",
@@ -457,7 +472,9 @@ export function buildGoalContract(goal: SentinelGoal, kind: "initial" | "continu
 		if (goal.progress.blockers.length > 0) {
 			lines.push("阻塞：", listOrNone(goal.progress.blockers, "（无）"));
 		}
-		const previous = goal.rounds[goal.rounds.length - 1];
+		// The caller has already opened the new round, so the last entry is empty;
+		// the conclusion to carry forward is the most recent one that has a summary.
+		const previous = [...goal.rounds].reverse().find((round) => round.summary);
 		if (previous?.summary) lines.push("", `上一轮结论：${previous.summary}`);
 	}
 	lines.push(

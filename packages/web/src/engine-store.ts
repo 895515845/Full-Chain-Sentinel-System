@@ -19,6 +19,7 @@ import type {
 	SentinelEngineStatus,
 	SentinelEngineTarget,
 	SentinelEngineTask,
+	SentinelEngineTaskContinue,
 	SentinelEngineTaskStatus,
 	SentinelGoalUsage,
 } from "./protocol.ts";
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS engine_tasks (
   round_limit INTEGER NOT NULL,
   preset_id TEXT,
   preset_name TEXT,
+  pending_continue TEXT,
   session_id TEXT,
   started_at INTEGER,
   ended_at INTEGER,
@@ -111,6 +113,7 @@ interface TaskRow {
 	round_limit: number;
 	preset_id: string | null;
 	preset_name: string | null;
+	pending_continue: string | null;
 	session_id: string | null;
 	started_at: number | null;
 	ended_at: number | null;
@@ -134,6 +137,7 @@ export class EngineStore {
 		this.db.exec(SCHEMA);
 		this.addGateModeColumn();
 		this.addPresetColumns();
+		this.addContinuationColumn();
 	}
 
 	/**
@@ -169,6 +173,18 @@ export class EngineStore {
 		}
 		if (!taskColumns.some((column) => column.name === "preset_name")) {
 			this.db.exec("ALTER TABLE engine_tasks ADD COLUMN preset_name TEXT");
+		}
+	}
+
+	/**
+	 * Continuation requests postdate the first task rows. A task from before the
+	 * column existed has none, which is exactly the old behavior: it can only be
+	 * continued after an explicit command, never on its own.
+	 */
+	private addContinuationColumn(): void {
+		const columns = this.db.prepare("PRAGMA table_info(engine_tasks)").all() as unknown as Array<{ name: string }>;
+		if (!columns.some((column) => column.name === "pending_continue")) {
+			this.db.exec("ALTER TABLE engine_tasks ADD COLUMN pending_continue TEXT");
 		}
 	}
 
@@ -331,6 +347,7 @@ export class EngineStore {
 			criteria: input.criteria ?? [],
 			presetId: input.presetId ?? null,
 			presetName: input.presetName ?? null,
+			pendingContinue: null,
 			sessionId: null,
 			startedAt: null,
 			endedAt: null,
@@ -374,7 +391,7 @@ export class EngineStore {
 		this.db
 			.prepare(
 				`UPDATE engine_tasks SET status = ?, criteria = ?, preset_id = ?, preset_name = ?, session_id = ?, started_at = ?, ended_at = ?, summary = ?,
-				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ? WHERE id = ?`,
+				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ?, pending_continue = ? WHERE id = ?`,
 			)
 			.run(
 				next.status,
@@ -391,6 +408,7 @@ export class EngineStore {
 				next.title,
 				next.objective,
 				next.roundLimit,
+				next.pendingContinue ? JSON.stringify(next.pendingContinue) : null,
 				id,
 			);
 	}
@@ -478,6 +496,7 @@ function taskFromRow(row: TaskRow): SentinelEngineTask {
 		criteria: parseJson(row.criteria, []) as string[],
 		presetId: row.preset_id,
 		presetName: row.preset_name,
+		pendingContinue: continueFromRow(row.pending_continue),
 		sessionId: row.session_id,
 		startedAt: row.started_at,
 		endedAt: row.ended_at,
@@ -494,6 +513,19 @@ function parseJson<T>(raw: string, fallback: T): T {
 	} catch {
 		return fallback;
 	}
+}
+
+/** A corrupted continuation row must not keep a task permanently queued. */
+function continueFromRow(raw: string | null): SentinelEngineTaskContinue | null {
+	if (!raw) return null;
+	const value = parseJson<Partial<SentinelEngineTaskContinue> | null>(raw, null);
+	if (!value || typeof value.instruction !== "string" || typeof value.roundLimit !== "number") return null;
+	return {
+		instruction: value.instruction,
+		criteria: Array.isArray(value.criteria) ? value.criteria.filter((item) => typeof item === "string") : [],
+		roundLimit: value.roundLimit,
+		requestedAt: typeof value.requestedAt === "number" ? value.requestedAt : 0,
+	};
 }
 
 function truncate(value: string | undefined): string | undefined {
