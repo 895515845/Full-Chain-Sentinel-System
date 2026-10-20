@@ -52,7 +52,7 @@
 - **内置扩展**：codemode（沙箱内脚本批量调工具）、tool_search 与 loop-guard（复读保护）默认启用；MCP 服务器在「设置 → MCP」里维护，存 `~/.sentinel/agent/mcp-servers.json`，会话启动时连接
 - 会话管理：会话挂在侧边栏「对话」下（悬停显示重命名 / 删除）、切换、新建（JSONL 会话文件即审计日志）
 - 会话记录按控制台日志呈现：操作者输入是一行命令回显，代理输出是正文段落。一次运行的过程（思考、工具调用、中间说明）挂在正文左边缘的一条竖轨上，每次调用是轨上一个圆点：运行中蓝色、完成绿色、失败红色，行内显示工具名、命令或最新一行输出、以及结果与耗时；点开某一行才变成深色终端块（命令、完整输出、复制、全屏）。**运行一结束，整段过程自动折成一行「过程 · N 次工具调用 · N 段思考 · 耗时」，正文只留你的指令和最后的总结**，点开可完整回看；失败、中止和正在跑的运行不折叠，错误一定看得见；压缩后保留的那一段前面已经没有指令了，同样折成「过程」行。输出顺序由事件流决定：运行期间消息按到达顺序渲染，运行结束的 snapshot 再统一接管，不会出现文字消失或工具卡片堆到最后（刷新才恢复）
-- **单文件二进制**：`scripts/build-web-binaries.sh` 用 `bun build --compile` 把服务端、前端资源、Dockerfile 和 coding-agent 的包信息打进一个可执行文件（darwin-arm64 / linux-x64），目标机器上不需要 Node、npm 或 node_modules，只需要一个 Docker 守护进程
+- **单文件二进制**：`scripts/build-web-binaries.sh` 用 `bun build --compile` 把服务端、前端资源、Dockerfile 和 coding-agent 的包信息打进一个可执行文件（darwin-arm64 / darwin-x64 / linux-x64 / linux-arm64 / windows-x64），目标机器上不需要 Node、npm 或 node_modules，只需要一个 Docker 守护进程；Windows 版需要 Docker Desktop
 - 模型端点配置：OpenAI 兼容端点（vLLM / one-api / new-api 等）。模型库（名称、地址、角色指向）写在 `~/.sentinel/agent/model-library.json`，SDK 读的 provider 注册表 `~/.sentinel/agent/models.json` 由它同步生成，一条模型一个 provider。**主模型的改动在下次发送时生效**（不打断正在跑的会话），守门模型与漏洞评审改完立即生效
 
 ## 架构
@@ -105,12 +105,15 @@ npm --prefix packages/web run start
 ### 单文件二进制
 
 ```bash
-./scripts/build-web-binaries.sh                      # darwin-arm64 + linux-x64
-./scripts/build-web-binaries.sh --platform linux-x64 # 只构建一个平台
-./scripts/build-web-binaries.sh --skip-build         # 复用已有 dist
+./scripts/build-web-binaries.sh                         # darwin-arm64 + linux-x64
+./scripts/build-web-binaries.sh --platform linux-x64    # 只构建一个平台
+./scripts/build-web-binaries.sh --platform linux-arm64  # Linux arm64
+./scripts/build-web-binaries.sh --platform darwin-x64   # Intel macOS
+./scripts/build-web-binaries.sh --platform windows-x64  # Windows：产出 sentinel-web.exe
+./scripts/build-web-binaries.sh --skip-build            # 复用已有 dist
 ```
 
-产物在 `packages/web/binaries/`：`sentinel-web-<平台>.tar.gz`，解压后是一个 `sentinel-web` 可执行文件，拷到目标机器直接运行：
+产物在 `packages/web/binaries/`。Unix 平台是 `sentinel-web-<平台>.tar.gz`，解压后是一个 `sentinel-web` 可执行文件，拷到目标机器直接运行；Windows 是 `windows-x64/sentinel-web.exe`，不需要解压：
 
 ```bash
 ./sentinel-web --check          # 只跑 Docker 环境检查，未通过时退出码 1

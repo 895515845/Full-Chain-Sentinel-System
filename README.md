@@ -48,6 +48,18 @@ root@VM-0-11-ubuntu:~/sentinel-web# chmod +x sentinel-web
 root@VM-0-11-ubuntu:~/sentinel-web# ./sentinel-web 
 
 ```
+Windows（需要 Docker Desktop，PowerShell 中运行）：
+
+在 Releases 下载 `sentinel-web-windows-x64.exe`，放进一个空目录后执行：
+
+```powershell
+.\sentinel-web-windows-x64.exe
+```
+
+该文件未签名，SmartScreen 可能拦一次，选择「更多信息 → 仍要运行」即可。Windows 默认没有 `openssl`，首次启动会回退到明文 HTTP 并在日志里提示；要保留 HTTPS，安装 OpenSSL，或用 `--tls-cert/--tls-key` 指定证书。容器默认用 host 网络，如果本机 Docker Desktop 不支持 host 网络，在「设置 → 环境」切到桥接后重建容器。
+
+控制台的 Release 资产：`sentinel-web-linux-x64.tar.gz`、`sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`、`sentinel-web-windows-x64.exe`，另有 DroidBridge APK。
+
 首次运行访问需要设置账号密码
 
 ![](images/Pasted%20image%2020261017122835.png)

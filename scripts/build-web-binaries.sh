@@ -14,10 +14,11 @@
 #   --platform <name>  Build only for one platform
 #   --out <dir>        Output directory (default: packages/web/binaries)
 #
-# Platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64
+# Platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64
 #
 # Output:
-#   <out>/sentinel-web-<platform>.tar.gz
+#   <out>/sentinel-web-<platform>.tar.gz   Unix platforms
+#   <out>/windows-x64/sentinel-web.exe     Windows (published as a direct .exe)
 
 set -euo pipefail
 
@@ -50,10 +51,10 @@ done
 
 if [[ -n "$PLATFORM" ]]; then
 	case "$PLATFORM" in
-		darwin-arm64|darwin-x64|linux-x64|linux-arm64) ;;
+		darwin-arm64|darwin-x64|linux-x64|linux-arm64|windows-x64) ;;
 		*)
 			echo "Invalid platform: $PLATFORM"
-			echo "Valid platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64"
+			echo "Valid platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64"
 			exit 1
 			;;
 	esac
@@ -126,6 +127,12 @@ for platform in "${PLATFORMS[@]}"; do
 		bun_target="${bun_target}-baseline"
 	fi
 	mkdir -p "$OUTPUT_DIR/$platform"
+	outfile="$OUTPUT_DIR/$platform/sentinel-web"
+	if [[ "$platform" == windows-* ]]; then
+		# Bun would append .exe itself; naming it here keeps the archive and the
+		# release asset on one path.
+		outfile="$outfile.exe"
+	fi
 	# Disable cwd bunfig.toml/.env autoload so a project's files cannot change how
 	# the console starts, the same way the pi CLI binary is built.
 	bun build --compile \
@@ -135,12 +142,18 @@ for platform in "${PLATFORMS[@]}"; do
 		./dist/web/bun-entry.js \
 		./src/utils/image-resize-worker.ts \
 		./src/extensions/codemode/worker.ts \
-		--outfile "$OUTPUT_DIR/$platform/sentinel-web"
+		--outfile "$outfile"
 done
 
 echo "==> Creating archives..."
 cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
+	if [[ "$platform" == windows-* ]]; then
+		# One self-contained .exe: the release publishes it directly, so a tar/zip
+		# wrapper would only add an extraction step for the operator.
+		echo "Leaving sentinel-web-$platform.exe unarchived"
+		continue
+	fi
 	echo "Creating sentinel-web-$platform.tar.gz..."
 	mv "$platform" sentinel-web
 	tar -czf "sentinel-web-$platform.tar.gz" sentinel-web
@@ -149,11 +162,24 @@ done
 
 echo ""
 echo "==> Build complete!"
-ls -lh sentinel-web-*.tar.gz
+for platform in "${PLATFORMS[@]}"; do
+	if [[ "$platform" == windows-* ]]; then
+		ls -lh "$OUTPUT_DIR/$platform/sentinel-web.exe"
+	else
+		ls -lh "sentinel-web-$platform.tar.gz"
+	fi
+done
 echo ""
 echo "Extracted executables:"
 for platform in "${PLATFORMS[@]}"; do
-	echo "  $OUTPUT_DIR/$platform/sentinel-web"
+	if [[ "$platform" == windows-* ]]; then
+		echo "  $OUTPUT_DIR/$platform/sentinel-web.exe"
+	else
+		echo "  $OUTPUT_DIR/$platform/sentinel-web"
+	fi
 done
 echo ""
-echo "Run one with: $OUTPUT_DIR/${PLATFORMS[0]}/sentinel-web --check"
+first="${PLATFORMS[0]}"
+first_suffix=""
+[[ "$first" == windows-* ]] && first_suffix=".exe"
+echo "Run one with: $OUTPUT_DIR/$first/sentinel-web$first_suffix --check"

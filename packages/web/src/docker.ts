@@ -226,7 +226,10 @@ export async function createContainer(
 	// volume, instead of into the container's own layer, where the file never reaches
 	// the host, the file tools and the file panel cannot see it, and recreating the
 	// container loses it.
-	if (workDir !== "/work") {
+	// A drive-letter path (C:\...) is not a valid destination inside a Linux
+	// container: Docker rejects it as an absolute path, so the same-path mount is
+	// POSIX-only. On Windows /work still carries the project directory.
+	if (process.platform !== "win32" && workDir !== "/work") {
 		mounts.push("-v", `${workDir}:${workDir}`);
 	}
 	const result = await runDocker([
