@@ -142,11 +142,42 @@ export interface SentinelGoalView extends SentinelGoal {
 	running: boolean;
 }
 
+/** USD prices per million tokens, matching pi's model schema. */
+export interface SentinelModelCostRates {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+/** Best-effort prompt cache lifetime in seconds, per retention tier. */
+export interface SentinelModelPromptCache {
+	short?: number;
+	long?: number;
+}
+
+/**
+ * What pi needs to know about a model beyond its id. Absent fields fall back to
+ * pi's own defaults (128k context, 16k output, no reasoning, text only, no
+ * prices, no cache lifetime). `api` defaults to OpenAI Chat Completions.
+ */
+export interface SentinelModelCapabilities {
+	api?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+	input?: Array<"text" | "image">;
+	cost?: SentinelModelCostRates;
+	promptCache?: SentinelModelPromptCache;
+}
+
 /** Model endpoint configuration persisted in models.json. */
 export interface SentinelModelConfig {
 	baseUrl: string;
 	apiKey: string;
 	modelId: string;
+	/** Present when the operator declared capabilities for this model. */
+	capabilities?: SentinelModelCapabilities;
 }
 
 /** The jobs a model can be assigned to. */
@@ -164,6 +195,55 @@ export interface SentinelModelEntryView {
 	hasKey: boolean;
 	/** Roles currently pointing at this entry. */
 	roles: SentinelModelRoleName[];
+	api: string;
+	contextWindow: number | null;
+	maxTokens: number | null;
+	reasoning: boolean;
+	input: Array<"text" | "image">;
+	cost: SentinelModelCostRates | null;
+	promptCache: SentinelModelPromptCache | null;
+}
+
+/**
+ * One channel (provider) in the built-in catalog. The add-model form picks a
+ * channel first, then a model inside it, so the operator never needs a model id.
+ */
+export interface SentinelBuiltinChannel {
+	provider: string;
+	name: string;
+	/** Protocol most models of this channel speak; a model's own value wins. */
+	api: string;
+	/** Primary endpoint for display; `baseUrls` holds every variant for matching. */
+	baseUrl: string;
+	baseUrls: string[];
+	modelCount: number;
+	/** Belongs to the short list of direct vendors shown above "更多渠道". */
+	featured: boolean;
+}
+
+/** One built-in catalog entry offered as a capability template. */
+export interface SentinelBuiltinModelDefaults {
+	provider: string;
+	providerName: string;
+	/** Catalog id; differs from the typed id when this is an approximate match. */
+	modelId: string;
+	api: string;
+	contextWindow: number;
+	maxTokens: number;
+	reasoning: boolean;
+	input: Array<"text" | "image">;
+	cost: SentinelModelCostRates;
+	promptCache: SentinelModelPromptCache | null;
+	/** No same-id entry existed; the form offers this as a choice only. */
+	approximate?: true;
+}
+
+/** One built-in catalog model offered as a ready-made preset in the editor. */
+export interface SentinelBuiltinModelPreset extends SentinelBuiltinModelDefaults {
+	/** Catalog display name; prefills an empty name field. */
+	name: string;
+	/** Catalog endpoint; prefills an empty Base URL field. */
+	baseUrl: string;
 }
 
 /** What a role resolves to right now, so the screen can show the effective endpoint. */
@@ -1342,7 +1422,22 @@ export type SentinelClientMessage =
 			baseUrl: string;
 			apiKey: string | null;
 			modelId: string;
+			/**
+			 * When present this is the complete capability declaration: fields the
+			 * object omits are cleared. Omitted entirely means "keep what is stored".
+			 */
+			capabilities?: SentinelModelCapabilities;
 	  }
+	/** Look up same-id entries in pi's built-in catalog, for the editor's fill button. */
+	| { type: "lookup_model_defaults"; modelId: string; baseUrl: string }
+	/**
+	 * Channels (providers) in pi's built-in catalog. `query` also matches model
+	 * names, so searching "claude" finds Anthropic. `requestId` keeps several
+	 * keystrokes from racing.
+	 */
+	| { type: "list_model_channels"; requestId: number; query: string }
+	/** Every catalog model of one channel, fetched after the channel is picked. */
+	| { type: "list_channel_models"; requestId: number; provider: string }
 	| { type: "remove_model_entry"; id: string }
 	| { type: "duplicate_model_entry"; id: string }
 	/** Point a role at an entry id, at "follow-main", or (main only) at null. */
@@ -1623,6 +1718,19 @@ export type SentinelServerMessage =
 	| { type: "tree"; tree: SessionTreeNode[]; leafId: string | null; forkPoints: SentinelForkPoint[] }
 	/** The whole model screen: library, role assignments, resolved endpoints. */
 	| { type: "model_library"; library: SentinelModelLibraryView }
+	| { type: "model_defaults"; modelId: string; matches: SentinelBuiltinModelDefaults[] }
+	| {
+			type: "model_channels";
+			requestId: number;
+			query: string;
+			channels: SentinelBuiltinChannel[];
+	  }
+	| {
+			type: "channel_models";
+			requestId: number;
+			provider: string;
+			presets: SentinelBuiltinModelPreset[];
+	  }
 	| { type: "model_test_result"; result: SentinelTestResult }
 	| {
 			type: "permissions";

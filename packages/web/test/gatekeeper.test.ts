@@ -157,7 +157,12 @@ describe("resolveJudgeEndpoint", () => {
 		writeCommanderModelConfig(agentDir, { baseUrl: "http://cmdr/v1", apiKey: "", modelId: "cmdr" });
 		writeTestModel(agentDir, { baseUrl: "http://judge/v1", apiKey: "sk-judge", modelId: "judge" }, "judge");
 		expect(resolveJudgeEndpoint(agentDir)).toEqual({
-			config: { baseUrl: "http://judge/v1", apiKey: "sk-judge", modelId: "judge" },
+			config: {
+				baseUrl: "http://judge/v1",
+				apiKey: "sk-judge",
+				modelId: "judge",
+				capabilities: { api: "openai-completions", input: ["text", "image"] },
+			},
 			from: "judge",
 			followedMain: false,
 		});
@@ -168,7 +173,12 @@ describe("resolveJudgeEndpoint", () => {
 		writeCommanderModelConfig(agentDir, { baseUrl: "http://cmdr/v1", apiKey: "", modelId: "cmdr" });
 		expect(resolveJudgeEndpoint(agentDir)).toEqual({
 			// An unauthenticated endpoint is stored with the placeholder bearer.
-			config: { baseUrl: "http://main/v1", apiKey: "sentinel-no-auth", modelId: "main" },
+			config: {
+				baseUrl: "http://main/v1",
+				apiKey: "sentinel-no-auth",
+				modelId: "main",
+				capabilities: { api: "openai-completions", input: ["text", "image"] },
+			},
 			from: "main",
 			followedMain: true,
 		});

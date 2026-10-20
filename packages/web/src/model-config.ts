@@ -2,9 +2,12 @@
  * Provider entries in models.json.
  *
  * The file belongs to the Pi SDK: one provider per model-library entry, keyed by
- * the entry id, api "openai-completions". What the SDK schema has no place for
- * (display names, role assignments, the reviewer switch) lives in
- * model-library.json; see model-library.ts.
+ * the entry id. The wire protocol defaults to openai-completions but the model
+ * form can select pi's other APIs. Capability fields (context window, reasoning,
+ * prices, cache lifetimes) are written when declared and otherwise left to pi's
+ * defaults. What the SDK schema has no place for (display names, role
+ * assignments, the reviewer switch) lives in model-library.json; see
+ * model-library.ts.
  *
  * Three ids are leftovers from the fixed-slot layout. `zg-endpoint` and
  * `zg-judge` are read only by the one-time migration, which reuses them as entry
@@ -14,7 +17,12 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SentinelModelConfig } from "./protocol.ts";
+import type {
+	SentinelModelCapabilities,
+	SentinelModelConfig,
+	SentinelModelCostRates,
+	SentinelModelPromptCache,
+} from "./protocol.ts";
 
 /** Legacy main-endpoint provider id. */
 export const SENTINEL_PROVIDER_ID = "zg-endpoint";
@@ -26,8 +34,7 @@ export const SENTINEL_JUDGE_PROVIDER_ID = "zg-judge";
 /** Bearer placeholder for unauthenticated endpoints; written so Pi treats the provider as credentialed. */
 export const NO_AUTH_PLACEHOLDER_KEY = "sentinel-no-auth";
 
-const DEFAULT_CONTEXT_WINDOW = 128000;
-const DEFAULT_MAX_TOKENS = 16384;
+export const DEFAULT_MODEL_API = "openai-completions";
 
 /**
  * Capabilities declared for the configured model. Pi drops image attachments for
@@ -51,6 +58,66 @@ interface ModelsJson {
 			[k: string]: unknown;
 		}
 	>;
+}
+
+function positiveNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function readCost(value: unknown): SentinelModelCostRates | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const source = value as Record<string, unknown>;
+	const input = nonNegativeNumber(source.input);
+	const output = nonNegativeNumber(source.output);
+	const cacheRead = nonNegativeNumber(source.cacheRead);
+	const cacheWrite = nonNegativeNumber(source.cacheWrite);
+	if (input === undefined || output === undefined || cacheRead === undefined || cacheWrite === undefined) {
+		return undefined;
+	}
+	return { input, output, cacheRead, cacheWrite };
+}
+
+function readPromptCache(value: unknown): SentinelModelPromptCache | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const source = value as Record<string, unknown>;
+	const short = positiveNumber(source.short);
+	const long = positiveNumber(source.long);
+	if (short === undefined && long === undefined) return undefined;
+	return { ...(short !== undefined ? { short } : {}), ...(long !== undefined ? { long } : {}) };
+}
+
+function readInput(value: unknown): Array<"text" | "image"> | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const input = value.filter((item): item is "text" | "image" => item === "text" || item === "image");
+	return input.length > 0 ? [...new Set(input)] : undefined;
+}
+
+function readCapabilities(
+	provider: ModelsJson["providers"][string],
+	model: Record<string, unknown>,
+): SentinelModelCapabilities | undefined {
+	const capabilities: SentinelModelCapabilities = {};
+	// A model-level api would be dead weight now that the writer always puts the
+	// protocol here, but an old hand-written file may still have one.
+	const api =
+		(typeof provider.api === "string" && provider.api) || (typeof model.api === "string" && model.api) || undefined;
+	if (api) capabilities.api = api;
+	const contextWindow = positiveNumber(model.contextWindow);
+	if (contextWindow !== undefined) capabilities.contextWindow = contextWindow;
+	const maxTokens = positiveNumber(model.maxTokens);
+	if (maxTokens !== undefined) capabilities.maxTokens = maxTokens;
+	if (typeof model.reasoning === "boolean") capabilities.reasoning = model.reasoning;
+	const input = readInput(model.input);
+	if (input) capabilities.input = input;
+	const cost = readCost(model.cost);
+	if (cost) capabilities.cost = cost;
+	const promptCache = readPromptCache(model.promptCache);
+	if (promptCache) capabilities.promptCache = promptCache;
+	return Object.keys(capabilities).length > 0 ? capabilities : undefined;
 }
 
 export function modelsJsonPath(agentDir: string): string {
@@ -84,10 +151,12 @@ export function readProviderModelConfig(agentDir: string, providerId: string): S
 	const provider = parsed.providers?.[providerId];
 	const model = provider?.models?.[0];
 	if (!provider?.baseUrl || !model || typeof model.id !== "string") return null;
+	const capabilities = readCapabilities(provider, model);
 	return {
 		baseUrl: provider.baseUrl,
 		apiKey: provider.apiKey ?? "",
 		modelId: model.id,
+		...(capabilities ? { capabilities } : {}),
 	};
 }
 
@@ -109,25 +178,44 @@ export function writeProviderModelConfig(
 	}
 	if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
 	const previous = parsed.providers[providerId];
+	const previousModel = previous?.models?.[0] ?? {};
+	// Old hand-written files may declare the protocol on the model instead of the
+	// provider; keep it if the form does not supply one.
+	const previousModelApi = typeof previousModel.api === "string" ? previousModel.api : undefined;
+	// Start from the old entry so fields the form does not own (thinkingLevelMap,
+	// samplingParams, compat, inputLimits) survive every save.
+	const nextModel: Record<string, unknown> = { ...previousModel, id: config.modelId, name: config.modelId };
+	delete nextModel.api;
+	const capabilities = config.capabilities;
+	if (capabilities) {
+		const contextWindow = positiveNumber(capabilities.contextWindow);
+		if (contextWindow !== undefined) nextModel.contextWindow = contextWindow;
+		else delete nextModel.contextWindow;
+		const maxTokens = positiveNumber(capabilities.maxTokens);
+		if (maxTokens !== undefined) nextModel.maxTokens = maxTokens;
+		else delete nextModel.maxTokens;
+		if (capabilities.reasoning === true) nextModel.reasoning = true;
+		else delete nextModel.reasoning;
+		nextModel.input = readInput(capabilities.input) ?? DEFAULT_MODEL_INPUT;
+		const cost = readCost(capabilities.cost);
+		if (cost) nextModel.cost = cost;
+		else delete nextModel.cost;
+		const promptCache = readPromptCache(capabilities.promptCache);
+		if (promptCache) nextModel.promptCache = promptCache;
+		else delete nextModel.promptCache;
+	} else if (nextModel.input === undefined) {
+		nextModel.input = DEFAULT_MODEL_INPUT;
+	}
 	parsed.providers[providerId] = {
+		...previous,
 		name,
 		baseUrl: config.baseUrl,
 		// Pi requires a credential before it will prompt. Unauthenticated local
 		// endpoints get a placeholder bearer, which they ignore (same trick the
 		// pi docs recommend for Ollama). An empty string would be invalid.
 		apiKey: config.apiKey || NO_AUTH_PLACEHOLDER_KEY,
-		api: "openai-completions",
-		...(previous?.headers ? { headers: previous.headers } : {}),
-		models: [
-			{
-				id: config.modelId,
-				name: config.modelId,
-				contextWindow: DEFAULT_CONTEXT_WINDOW,
-				maxTokens: DEFAULT_MAX_TOKENS,
-				// An operator-edited capability list is kept as-is.
-				input: previous?.models?.[0]?.input ?? DEFAULT_MODEL_INPUT,
-			},
-		],
+		api: capabilities?.api || previous?.api || previousModelApi || DEFAULT_MODEL_API,
+		models: [nextModel],
 	};
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(parsed, null, "\t")}\n`, { mode: 0o600 });

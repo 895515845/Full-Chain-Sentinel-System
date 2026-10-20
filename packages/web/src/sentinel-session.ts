@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve as resolveFsPath } from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSessionEvent,
 	type BashOperations,
@@ -18,7 +19,10 @@ import {
 	createBashTool,
 	createCodemodeExtension,
 	createEditTool,
+	createFindTool,
+	createGrepTool,
 	createLoopGuardExtension,
+	createLsTool,
 	createMcpExtension,
 	createReadTool,
 	createToolSearchExtension,
@@ -115,6 +119,7 @@ import {
 	saveMcpServer as writeMcpServer,
 } from "./mcp-config.ts";
 import { modelsJsonPath } from "./model-config.ts";
+import { listBuiltinChannelModels, listBuiltinChannels, matchBuiltinModelDefaults } from "./model-defaults.ts";
 import {
 	addLibraryEntry,
 	duplicateLibraryEntry,
@@ -182,6 +187,9 @@ import type {
 	SentinelAssetConfigView,
 	SentinelAssetPlatform,
 	SentinelAssetPlatformInput,
+	SentinelBuiltinChannel,
+	SentinelBuiltinModelDefaults,
+	SentinelBuiltinModelPreset,
 	SentinelFileEntry,
 	SentinelFilePreview,
 	SentinelForkPoint,
@@ -201,6 +209,7 @@ import type {
 	SentinelMcpServerInput,
 	SentinelMcpTestResult,
 	SentinelMode,
+	SentinelModelCapabilities,
 	SentinelModelingState,
 	SentinelModelLibraryView,
 	SentinelModelRoleName,
@@ -806,7 +815,14 @@ export class SentinelRuntime {
 		// tools are left out here and named in `excludeTools`, which keeps
 		// tool_search, the transcript and codemode from bringing them back.
 		const baseToolsOverride = {
-			...(permissions.read ? { read: createReadTool(manager.getCwd()) } : {}),
+			...(permissions.read
+				? {
+						read: createReadTool(manager.getCwd()),
+						grep: createGrepTool(manager.getCwd()),
+						find: createFindTool(manager.getCwd()),
+						ls: createLsTool(manager.getCwd()),
+					}
+				: {}),
 			...(permissions.bash ? { bash } : {}),
 			...(permissions.edit ? { edit: createEditTool(manager.getCwd()) } : {}),
 			...(permissions.write ? { write: createWriteTool(manager.getCwd()) } : {}),
@@ -2982,16 +2998,17 @@ export class SentinelRuntime {
 
 	/**
 	 * Move an idle session onto whatever 主模型 resolves to now. A run in flight is
-	 * left alone: the operator's next send is what picks up the change.
+	 * left alone: the operator's next send is what picks up the change. Capability
+	 * edits count as a change too — otherwise a session that started before
+	 * reasoning was enabled would keep the old thinking levels and context window.
 	 */
 	private async syncMainModel(active: ManagedSession): Promise<void> {
 		if (active.session.isStreaming) return;
 		const resolved = resolveLibraryRole(this.agentDir, "main");
 		if (!resolved || !this.modelRuntime) return;
-		const current = active.session.model;
-		if (current?.provider === resolved.entryId && current.id === resolved.config.modelId) return;
 		const model = this.modelRuntime.getModel(resolved.entryId, resolved.config.modelId);
 		if (!model) return;
+		if (sameModelDefinition(active.session.model, model)) return;
 		await active.session.setModel(model);
 	}
 
@@ -3672,6 +3689,48 @@ export class SentinelRuntime {
 	}
 
 	/**
+	 * Built-in capability templates for the editor. Read-only: the operator
+	 * applies them in the form and nothing is written here. The runtime is created
+	 * on demand so the catalog is available before any session exists.
+	 */
+	async lookupModelDefaults(modelId: string, baseUrl: string): Promise<SentinelBuiltinModelDefaults[]> {
+		await this.ensureModelRuntime();
+		if (!this.modelRuntime) return [];
+		return matchBuiltinModelDefaults(
+			this.modelRuntime.getModels(),
+			modelId,
+			baseUrl,
+			(providerId) => this.modelRuntime?.getProvider(providerId)?.name ?? providerId,
+		);
+	}
+
+	/**
+	 * Channels for the first picker. A query also matches model names, so an
+	 * operator who knows "claude" but not "Anthropic" still lands on the vendor.
+	 * Read-only, like the id lookup.
+	 */
+	async listModelChannels(query: string): Promise<SentinelBuiltinChannel[]> {
+		await this.ensureModelRuntime();
+		if (!this.modelRuntime) return [];
+		return listBuiltinChannels(
+			this.modelRuntime.getModels(),
+			query,
+			(providerId) => this.modelRuntime?.getProvider(providerId)?.name ?? providerId,
+		);
+	}
+
+	/** The models of one chosen channel, so the second picker stays in-browser. */
+	async listChannelModels(provider: string): Promise<SentinelBuiltinModelPreset[]> {
+		await this.ensureModelRuntime();
+		if (!this.modelRuntime) return [];
+		return listBuiltinChannelModels(
+			this.modelRuntime.getModels(),
+			provider,
+			(providerId) => this.modelRuntime?.getProvider(providerId)?.name ?? providerId,
+		);
+	}
+
+	/**
 	 * Create or update one library entry. The cached model runtime is dropped so
 	 * the next session creation re-reads models.json and sees a new provider.
 	 */
@@ -3681,6 +3740,7 @@ export class SentinelRuntime {
 		baseUrl: string;
 		apiKey: string | null;
 		modelId: string;
+		capabilities?: SentinelModelCapabilities;
 	}): SentinelModelLibraryView {
 		if (input.id) {
 			updateLibraryEntry(this.agentDir, input.id, {
@@ -3688,6 +3748,7 @@ export class SentinelRuntime {
 				baseUrl: input.baseUrl,
 				apiKey: input.apiKey,
 				modelId: input.modelId,
+				...(input.capabilities ? { capabilities: input.capabilities } : {}),
 			});
 		} else {
 			addLibraryEntry(this.agentDir, {
@@ -3695,6 +3756,7 @@ export class SentinelRuntime {
 				baseUrl: input.baseUrl,
 				apiKey: input.apiKey ?? "",
 				modelId: input.modelId,
+				...(input.capabilities ? { capabilities: input.capabilities } : {}),
 			});
 		}
 		this.modelRuntimeDirty = true;
@@ -4098,6 +4160,27 @@ export class SentinelRuntime {
 		this.supervisor.close();
 		this.gateStore.close();
 	}
+}
+
+/**
+ * Whether a live session already runs an equivalent model. Comparing the whole
+ * definition (not just provider/id) is what lets a capability-only edit reach a
+ * session that was created before the edit.
+ */
+function sameModelDefinition(current: Model<Api> | undefined, next: Model<Api>): boolean {
+	if (!current) return false;
+	return (
+		current.provider === next.provider &&
+		current.id === next.id &&
+		current.api === next.api &&
+		current.baseUrl === next.baseUrl &&
+		current.reasoning === next.reasoning &&
+		current.contextWindow === next.contextWindow &&
+		current.maxTokens === next.maxTokens &&
+		current.input.join(",") === next.input.join(",") &&
+		JSON.stringify(current.cost) === JSON.stringify(next.cost) &&
+		JSON.stringify(current.promptCache) === JSON.stringify(next.promptCache)
+	);
 }
 
 /** First operator instruction, used as the notification subject when unnamed. */

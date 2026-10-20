@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 import {
 	defaultPermissions,
 	effectiveSubagentPlugins,
+	excludeToolsFor,
 	normalizePermissions,
 	PERMISSION_PRESETS,
 	pluginAllowed,
@@ -102,6 +103,15 @@ test("a malformed plugin switch is dropped rather than read as a switch", () => 
 		plugins: { main: { "no-slash-key": false, "local/x": "no", "local/y": false } },
 	});
 	expect(config.plugins.main).toEqual({ "local/y": false });
+});
+
+test("turning read off also denies the discovery tools", () => {
+	const full = defaultPermissions().main;
+	const excluded = excludeToolsFor({ ...full, read: false });
+	expect(excluded).toEqual(expect.arrayContaining(["read", "grep", "find", "ls"]));
+	// Search stays mounted while reading is allowed.
+	const allowed = excludeToolsFor(full);
+	expect(allowed).not.toEqual(expect.arrayContaining(["read", "grep", "find", "ls"]));
 });
 
 test("the effective sub-agent map is the intersection of both agents", () => {

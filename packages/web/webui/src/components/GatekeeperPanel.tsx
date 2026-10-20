@@ -83,27 +83,82 @@ export function GatekeeperPanel({
 	};
 
 	return (
-		<div className="settings settings--wide">
-			<h3 className="settings-section">守门设置（AI 审批）</h3>
-			<p className="settings-hint">
-				AI 审批模式下每条命令都先交给「守门模型」判定：返回 <code>ALLOW</code> 才执行，返回 <code>BLOCK: 理由</code>{" "}
+		<div className="settings settings--wide cockpit gatekeeper">
+			<div className="cockpit-sec">
+				<h3>守门设置（AI 审批）</h3>
+				<span className="cockpit-sec__meta">全局默认 · 判定端点取「守门模型」</span>
+			</div>
+			<p className="gate-prose">
+				AI 审批模式下每条命令都先交给「守门模型」判定：返回 <code>ALLOW</code> 才执行，返回{" "}
+				<code>BLOCK: 理由</code>{" "}
 				则拒绝并把理由回给 Agent。判定失败（超时、报错、返回无法解析）一律放行，并在审计页记为「请求失败」。
 				端点在上面「角色 → 守门模型」里选。
 			</p>
 
-			<div className="gate-endpoint">
-				<span className="gate-endpoint__label">当前生效端点</span>
-				{judgeResolved ? (
-					<span className="gate-endpoint__value">
-						{judgeResolved.entryName} · <strong>{judgeResolved.modelId}</strong>
-						{judgeResolved.followedMain ? <span className="hint">跟随主模型</span> : null}
+			<div className="gate-card">
+				<div className="gate-row gate-endpoint">
+					<span className="gate-row__label">当前生效端点</span>
+					{judgeResolved ? (
+						<span className="gate-endpoint__value">
+							{judgeResolved.entryName} · <strong>{judgeResolved.modelId}</strong>
+							{judgeResolved.followedMain ? <span className="gate-row__tag">跟随主模型</span> : null}
+						</span>
+					) : (
+						<span className="gate-endpoint__value is-missing">无（切到 AI 审批会被拒绝）</span>
+					)}
+					<button
+						type="button"
+						className="cockpit-mini-btn"
+						disabled={judgeResolved === null || testing}
+						onClick={runTest}
+					>
+						{testing ? "判定中…" : "测试判定"}
+					</button>
+				</div>
+				<div className="gate-row gate-mode">
+					<span className="gate-row__label">全局默认模式</span>
+					<div className="mode-switch gate-mode-switch">
+						{SENTINEL_MODES.map((item) => (
+							<button
+								key={item}
+								type="button"
+								className={globalMode === item ? "on" : ""}
+								onClick={() => setGlobalMode(item)}
+							>
+								{SENTINEL_MODE_LABELS[item]}
+							</button>
+						))}
+					</div>
+					<span className="gate-row__hint">
+						新建会话跟随它；已有会话可在对话工具栏单独设定或点「跟随全局」回到默认。
 					</span>
-				) : (
-					<span className="gate-endpoint__value is-missing">无（切到 AI 审批会被拒绝）</span>
-				)}
-				<button type="button" disabled={judgeResolved === null || testing} onClick={runTest}>
-					{testing ? "判定中…" : "测试判定"}
-				</button>
+				</div>
+				<label className="gate-row">
+					<span className="gate-row__label">判定超时（毫秒）</span>
+					<input
+						className="gate-input"
+						value={timeoutMs}
+						inputMode="numeric"
+						onChange={(event) => setTimeoutMs(event.target.value.replace(/[^\d]/g, ""))}
+						placeholder="15000"
+						spellCheck={false}
+					/>
+					<span className="gate-row__hint">超时即放行并记为「请求失败」。范围 1000–120000。</span>
+				</label>
+				<label className="gate-row">
+					<span className="gate-row__label">并发上限</span>
+					<input
+						className="gate-input"
+						value={concurrency}
+						inputMode="numeric"
+						onChange={(event) => setConcurrency(event.target.value.replace(/[^\d]/g, ""))}
+						placeholder="0"
+						spellCheck={false}
+					/>
+					<span className="gate-row__hint">
+						同时进行中的判定数量，0 = 不限制（子代理并行侦察时用得上）。上限 64。
+					</span>
+				</label>
 			</div>
 
 			{result ? (
@@ -114,54 +169,15 @@ export function GatekeeperPanel({
 				</div>
 			) : null}
 
-			<p className="settings-hint">
-				下面的模式是全局默认：新建会话跟随它，已有会话可在对话工具栏单独设定或点「跟随全局」回到默认。
-			</p>
-			<div className="mode-switch gate-mode-switch">
-				{SENTINEL_MODES.map((item) => (
-					<button
-						key={item}
-						type="button"
-						className={globalMode === item ? "on" : ""}
-						onClick={() => setGlobalMode(item)}
-					>
-						{SENTINEL_MODE_LABELS[item]}
-					</button>
-				))}
+			<div className="cockpit-sec">
+				<h3>MCP 工具判定</h3>
 			</div>
-
-			<div className="gate-form">
-				<label>
-					判定超时（毫秒）
-					<input
-						value={timeoutMs}
-						inputMode="numeric"
-						onChange={(event) => setTimeoutMs(event.target.value.replace(/[^\d]/g, ""))}
-						placeholder="15000"
-						spellCheck={false}
-					/>
-					<span className="field-sub">超时即放行并记为「请求失败」。范围 1000–120000。</span>
-				</label>
-				<label>
-					并发上限
-					<input
-						value={concurrency}
-						inputMode="numeric"
-						onChange={(event) => setConcurrency(event.target.value.replace(/[^\d]/g, ""))}
-						placeholder="0"
-						spellCheck={false}
-					/>
-					<span className="field-sub">同时进行中的判定数量，0 = 不限制（子代理并行侦察时用得上）。上限 64。</span>
-				</label>
-			</div>
-
-			<h3 className="settings-section">MCP 工具判定</h3>
-			<p className="settings-hint">
+			<p className="gate-prose">
 				bash 命令在任何模式下都由上面的模式决定；这一段管的是另外一类调用：MCP 与插件工具。
 				打开后，AI 审批模式下每一次这类调用也会先交给守门模型，被拦时把理由回给 Agent。
 				<b>每次调用都要多花一次模型往返</b>，高频只读工具（列目录、查资产）会明显变慢。
 			</p>
-			<div className="gate-options">
+			<div className="gate-card">
 				<label className="gate-option">
 					<input
 						type="checkbox"

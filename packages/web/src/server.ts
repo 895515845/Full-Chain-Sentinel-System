@@ -1142,18 +1142,45 @@ export async function startSentinelServer(
 				case "get_model_library":
 					sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 					return;
+				case "lookup_model_defaults":
+					sendTo(socket, {
+						type: "model_defaults",
+						modelId: message.modelId,
+						matches: await runtime.lookupModelDefaults(message.modelId, message.baseUrl),
+					});
+					return;
+				case "list_model_channels":
+					sendTo(socket, {
+						type: "model_channels",
+						requestId: message.requestId,
+						query: message.query,
+						channels: await runtime.listModelChannels(message.query),
+					});
+					return;
+				case "list_channel_models":
+					sendTo(socket, {
+						type: "channel_models",
+						requestId: message.requestId,
+						provider: message.provider,
+						presets: await runtime.listChannelModels(message.provider),
+					});
+					return;
 				case "save_model_entry":
 					// The view comes back after every mutation, so the screen never has to
 					// guess what the store did (ids, role usage, resolved endpoints).
 					sendTo(socket, { type: "model_library", library: runtime.saveModelEntry(message) });
+					// The engine keeps its own runtime for the commander; models.json just changed.
+					engines?.markModelsDirty();
 					broadcastSnapshot();
 					return;
 				case "remove_model_entry":
 					sendTo(socket, { type: "model_library", library: runtime.removeModelEntry(message.id) });
+					engines?.markModelsDirty();
 					broadcastSnapshot();
 					return;
 				case "duplicate_model_entry":
 					sendTo(socket, { type: "model_library", library: runtime.duplicateModelEntry(message.id) });
+					engines?.markModelsDirty();
 					return;
 				case "set_model_role":
 					sendTo(socket, { type: "model_library", library: runtime.setModelRole(message.role, message.target) });
@@ -2444,6 +2471,9 @@ export async function startSentinelServer(
 						return;
 					}
 					writeCommanderModelConfig(agentDir, message.config);
+					// New engines resolve the commander from models.json; the cached
+					// runtime must re-read it or the save only takes effect after a restart.
+					engines?.markModelsDirty();
 					sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
 					return;
 				}

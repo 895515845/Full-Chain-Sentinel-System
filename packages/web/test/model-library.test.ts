@@ -165,6 +165,7 @@ describe("entry CRUD", () => {
 			baseUrl: "http://k2/v1",
 			apiKey: "sk-keep",
 			modelId: "m2",
+			capabilities: { api: "openai-completions", input: ["text", "image"] },
 		});
 		expect(readModelLibrary(agentDir).entries[0].name).toBe("k2");
 
@@ -206,8 +207,103 @@ describe("entry CRUD", () => {
 			baseUrl: "https://open.bigmodel.cn/api/paas/v4",
 			apiKey: "sk-glm",
 			modelId: "glm-4.7",
+			capabilities: { api: "openai-completions", input: ["text", "image"] },
 		});
 		expect(rolesUsing(readModelLibrary(agentDir), copy.id)).toEqual([]);
+	});
+});
+
+describe("capabilities", () => {
+	test("adds and views the full declaration", () => {
+		const entry = addLibraryEntry(agentDir, {
+			name: "Claude",
+			baseUrl: "https://api.anthropic.com",
+			apiKey: "sk",
+			modelId: "claude-x",
+			capabilities: {
+				api: "anthropic-messages",
+				contextWindow: 200000,
+				maxTokens: 64000,
+				reasoning: true,
+				input: ["text", "image"],
+				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+				promptCache: { short: 300 },
+			},
+		});
+		const view = libraryView(agentDir).entries[0];
+		expect(view).toMatchObject({
+			api: "anthropic-messages",
+			contextWindow: 200000,
+			maxTokens: 64000,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+			promptCache: { short: 300 },
+		});
+		expect(readProviderModelConfig(agentDir, entry.id)?.capabilities?.contextWindow).toBe(200000);
+	});
+
+	test("an entry saved without capabilities reads as pi defaults", () => {
+		addLibraryEntry(agentDir, { name: "plain", baseUrl: "http://p/v1", apiKey: "", modelId: "plain" });
+		expect(libraryView(agentDir).entries[0]).toMatchObject({
+			api: "openai-completions",
+			contextWindow: null,
+			maxTokens: null,
+			reasoning: false,
+			input: ["text", "image"],
+			cost: null,
+			promptCache: null,
+		});
+	});
+
+	test("a later save can turn reasoning and prices back off", () => {
+		const entry = addLibraryEntry(agentDir, {
+			name: "m",
+			baseUrl: "http://m/v1",
+			apiKey: "",
+			modelId: "m",
+			capabilities: {
+				api: "openai-completions",
+				contextWindow: 1000,
+				reasoning: true,
+				cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+			},
+		});
+		updateLibraryEntry(agentDir, entry.id, {
+			name: "m",
+			baseUrl: "http://m/v1",
+			apiKey: null,
+			modelId: "m",
+			capabilities: { api: "openai-completions", contextWindow: 2000, reasoning: false, input: ["text"] },
+		});
+		const view = libraryView(agentDir).entries[0];
+		expect(view.reasoning).toBe(false);
+		expect(view.cost).toBeNull();
+		expect(view.contextWindow).toBe(2000);
+		expect(view.input).toEqual(["text"]);
+	});
+
+	test("rejects invalid capability values before they reach models.json", () => {
+		const base = { name: "x", baseUrl: "http://x/v1", apiKey: "", modelId: "x" };
+		expect(() =>
+			addLibraryEntry(agentDir, {
+				...base,
+				capabilities: { contextWindow: 1000, maxTokens: 2000 },
+			}),
+		).toThrow(/最大输出不能大于上下文窗口/);
+		expect(() => addLibraryEntry(agentDir, { ...base, capabilities: { api: "grpc" } })).toThrow(/不支持的协议/);
+		expect(() =>
+			addLibraryEntry(agentDir, {
+				...base,
+				capabilities: { cost: { input: -1, output: 0, cacheRead: 0, cacheWrite: 0 } },
+			}),
+		).toThrow(/输入价格/);
+		expect(() => addLibraryEntry(agentDir, { ...base, capabilities: { promptCache: { short: 0 } } })).toThrow(
+			/短期缓存时长/,
+		);
+		expect(() => addLibraryEntry(agentDir, { ...base, capabilities: { contextWindow: 1.5 } })).toThrow(/上下文窗口/);
+		// Nothing was written by the failed attempts.
+		expect(readStoredModelLibrary(agentDir)).toBeNull();
 	});
 });
 

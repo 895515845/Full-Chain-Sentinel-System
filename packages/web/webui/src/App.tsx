@@ -36,6 +36,7 @@ import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { SupervisorAuditPage } from "./components/SupervisorAuditPage.tsx";
+import { SupervisorSettingsPanel } from "./components/SupervisorSettingsPanel.tsx";
 import { SupervisorFloatingWindow } from "./components/SupervisorFloatingWindow.tsx";
 import { OutputViewer, ToolCard } from "./components/ToolCard.tsx";
 import { VulnDetail, VulnPage } from "./components/VulnPage.tsx";
@@ -52,6 +53,9 @@ import type {
 	SentinelApiModelFilters,
 	SentinelApiModelSummary,
 	SentinelAssetConfigView,
+	SentinelBuiltinChannel,
+	SentinelBuiltinModelDefaults,
+	SentinelBuiltinModelPreset,
 	SentinelWebSearchConfigView,
 	SentinelAssetPlatform,
 	SentinelClientMessage,
@@ -426,6 +430,15 @@ export function App() {
 	/** Whether the transcript should chase the bottom; turned off by scrolling up. */
 	const transcriptFollowRef = useRef(true);
 	const modelTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
+	const modelDefaultsResolverRef = useRef<((matches: SentinelBuiltinModelDefaults[] | null) => void) | null>(null);
+	const modelChannelRequestRef = useRef(0);
+	const modelChannelResolversRef = useRef(
+		new Map<number, (channels: SentinelBuiltinChannel[] | null) => void>(),
+	);
+	const modelListRequestRef = useRef(0);
+	const modelListResolversRef = useRef(
+		new Map<number, (presets: SentinelBuiltinModelPreset[] | null) => void>(),
+	);
 	const notifyTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const assetTestResolverRef = useRef<((result: SentinelTestResult | null) => void) | null>(null);
 	const mcpTestResolverRef = useRef<((result: SentinelMcpTestResult | null) => void) | null>(null);
@@ -552,6 +565,29 @@ export function App() {
 				case "model_library":
 					setModelLibrary(message.library);
 					break;
+				case "model_defaults":
+					if (modelDefaultsResolverRef.current) {
+						const resolve = modelDefaultsResolverRef.current;
+						modelDefaultsResolverRef.current = null;
+						resolve(message.matches);
+					}
+					break;
+				case "model_channels": {
+					const resolve = modelChannelResolversRef.current.get(message.requestId);
+					if (resolve) {
+						modelChannelResolversRef.current.delete(message.requestId);
+						resolve(message.channels);
+					}
+					break;
+				}
+				case "channel_models": {
+					const resolve = modelListResolversRef.current.get(message.requestId);
+					if (resolve) {
+						modelListResolversRef.current.delete(message.requestId);
+						resolve(message.presets);
+					}
+					break;
+				}
 				case "model_test_result":
 					if (modelTestResolverRef.current) {
 						const resolve = modelTestResolverRef.current;
@@ -1572,6 +1608,9 @@ export function App() {
 				send({ type: "get_model_library" });
 				send({ type: "get_gatekeeper_config" });
 				break;
+			case "settings.supervisor":
+				// supervisorConfig rides the snapshot and every save reply.
+				break;
 			case "gates":
 				// Re-read the view on screen rather than resetting it to page 1.
 				loadGates(gateFilter, gatePage);
@@ -2487,23 +2526,6 @@ export function App() {
 									onDuplicateEntry={(id) => send({ type: "duplicate_model_entry", id })}
 									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
 									onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
-									supervisorConfig={supervisorConfig}
-									onSaveSupervisorConfig={(config) => send({ type: "save_supervisor_config", config })}
-									onTestSupervisor={async () => {
-										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
-											(resolve) => {
-												supervisorTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_supervisor" });
-												window.setTimeout(() => {
-													if (supervisorTestResolverRef.current === resolve) {
-														supervisorTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 130000);
-											},
-										);
-										return result;
-									}}
 									onTestEntry={async (id) => {
 										const result = await new Promise<SentinelTestResult | null>((resolve) => {
 											modelTestResolverRef.current = resolve;
@@ -2516,6 +2538,43 @@ export function App() {
 											}, 20000);
 										});
 										return result;
+									}}
+									onLookupDefaults={async (modelId, baseUrl) => {
+										const matches = await new Promise<SentinelBuiltinModelDefaults[] | null>((resolve) => {
+											modelDefaultsResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "lookup_model_defaults", modelId, baseUrl });
+											window.setTimeout(() => {
+												if (modelDefaultsResolverRef.current === resolve) {
+													modelDefaultsResolverRef.current = null;
+													resolve(null);
+												}
+											}, 10000);
+										});
+										return matches;
+									}}
+									onListChannels={async (query) => {
+										const requestId = ++modelChannelRequestRef.current;
+										return await new Promise<SentinelBuiltinChannel[] | null>((resolve) => {
+											modelChannelResolversRef.current.set(requestId, resolve);
+											connectionRef.current?.send({ type: "list_model_channels", requestId, query });
+											window.setTimeout(() => {
+												if (!modelChannelResolversRef.current.has(requestId)) return;
+												modelChannelResolversRef.current.delete(requestId);
+												resolve(null);
+											}, 10000);
+										});
+									}}
+									onListChannelModels={async (provider) => {
+										const requestId = ++modelListRequestRef.current;
+										return await new Promise<SentinelBuiltinModelPreset[] | null>((resolve) => {
+											modelListResolversRef.current.set(requestId, resolve);
+											connectionRef.current?.send({ type: "list_channel_models", requestId, provider });
+											window.setTimeout(() => {
+												if (!modelListResolversRef.current.has(requestId)) return;
+												modelListResolversRef.current.delete(requestId);
+												resolve(null);
+											}, 10000);
+										});
 									}}
 								/>
 								<GatekeeperPanel
@@ -2530,6 +2589,38 @@ export function App() {
 												window.setTimeout(() => {
 													if (judgeTestResolverRef.current === resolve) {
 														judgeTestResolverRef.current = null;
+														resolve(null);
+													}
+												}, 130000);
+											},
+										);
+										return result;
+									}}
+								/>
+							</div>
+						</div>
+					) : page === "settings.supervisor" ? (
+						<div className="page-card">
+							<div className="ws-panel__head">
+								<div className="ws-panel__title">
+									设置
+									<span className="ws-panel__sub">监督</span>
+								</div>
+							</div>
+							<div className="ws-panel__body">
+								<SupervisorSettingsPanel
+									supervisorConfig={supervisorConfig}
+									library={modelLibrary}
+									onSaveSupervisorConfig={(config) => send({ type: "save_supervisor_config", config })}
+									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
+									onTestSupervisor={async () => {
+										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
+											(resolve) => {
+												supervisorTestResolverRef.current = resolve;
+												connectionRef.current?.send({ type: "test_supervisor" });
+												window.setTimeout(() => {
+													if (supervisorTestResolverRef.current === resolve) {
+														supervisorTestResolverRef.current = null;
 														resolve(null);
 													}
 												}, 130000);

@@ -119,7 +119,7 @@ export interface SentinelPermissionPreset {
 }
 
 export const PERMISSION_LABELS: Record<SentinelPermissionKey, string> = {
-	read: "read 读取文件",
+	read: "read / grep / find / ls 读取与检索文件",
 	bash: "bash 执行命令",
 	edit: "edit 精确编辑",
 	write: "write 写入文件",
@@ -135,7 +135,7 @@ export const PERMISSION_LABELS: Record<SentinelPermissionKey, string> = {
 };
 
 export const PERMISSION_HINTS: Record<SentinelPermissionKey, string> = {
-	read: "读取工作目录中的文件内容",
+	read: "读取文件内容，并按名称或内容检索文件（grep / find / ls 跟随本开关）",
 	bash: "在项目容器内执行命令（审批模式仍会逐条确认）",
 	edit: "对已有文件做精确文本替换",
 	write: "新建或整体覆盖文件",
@@ -359,6 +359,9 @@ export function excludeToolsFor(set: SentinelPermissionSet): string[] {
 	for (const key of ["read", "bash", "edit", "write", "codemode", "tool_search", "spawn_agent"] as const) {
 		if (!set[key]) excluded.push(key);
 	}
+	// Searching is reading: one switch gates read plus the three discovery tools,
+	// so turning read off cannot be bypassed by grepping the workspace.
+	if (!set.read) excluded.push("grep", "find", "ls");
 	// The hub's switches are not 1:1 with tool names: reading covers two tools.
 	if (!set.vuln_submit) excluded.push("vuln_submit");
 	if (!set.vuln_read) excluded.push("vuln_list", "vuln_get");

@@ -26,6 +26,7 @@ export type SentinelPageId =
 	| "gates"
 	| "supervisor"
 	| "settings.model"
+	| "settings.supervisor"
 	| "settings.notify"
 	| "settings.permissions"
 	| "settings.environment"
@@ -107,10 +108,37 @@ export interface SentinelSubagentRun {
 	events?: SentinelSubagentEvent[];
 }
 
+/** USD prices per million tokens, matching pi's model schema. */
+export interface SentinelModelCostRates {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+/** Best-effort prompt cache lifetime in seconds, per retention tier. */
+export interface SentinelModelPromptCache {
+	short?: number;
+	long?: number;
+}
+
+/** What pi needs to know about a model beyond its id. */
+export interface SentinelModelCapabilities {
+	api?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+	input?: Array<"text" | "image">;
+	cost?: SentinelModelCostRates;
+	promptCache?: SentinelModelPromptCache;
+}
+
 export interface SentinelModelConfig {
 	baseUrl: string;
 	apiKey: string;
 	modelId: string;
+	/** Present when the operator declared capabilities for this model. */
+	capabilities?: SentinelModelCapabilities;
 }
 
 /** The jobs a model can be assigned to. */
@@ -124,6 +152,52 @@ export interface SentinelModelEntryView {
 	modelId: string;
 	hasKey: boolean;
 	roles: SentinelModelRoleName[];
+	api: string;
+	contextWindow: number | null;
+	maxTokens: number | null;
+	reasoning: boolean;
+	input: Array<"text" | "image">;
+	cost: SentinelModelCostRates | null;
+	promptCache: SentinelModelPromptCache | null;
+}
+
+/**
+ * One channel (provider) in the built-in catalog. The add-model form picks a
+ * channel first, then a model inside it.
+ */
+export interface SentinelBuiltinChannel {
+	provider: string;
+	name: string;
+	api: string;
+	baseUrl: string;
+	baseUrls: string[];
+	modelCount: number;
+	featured: boolean;
+}
+
+/** One built-in catalog entry offered as a capability template. */
+export interface SentinelBuiltinModelDefaults {
+	provider: string;
+	providerName: string;
+	/** Catalog id; differs from the typed id when this is an approximate match. */
+	modelId: string;
+	api: string;
+	contextWindow: number;
+	maxTokens: number;
+	reasoning: boolean;
+	input: Array<"text" | "image">;
+	cost: SentinelModelCostRates;
+	promptCache: SentinelModelPromptCache | null;
+	/** No same-id entry existed; the form offers this as a choice only. */
+	approximate?: true;
+}
+
+/** One built-in catalog model offered as a ready-made preset in the editor. */
+export interface SentinelBuiltinModelPreset extends SentinelBuiltinModelDefaults {
+	/** Catalog display name; prefills an empty name field. */
+	name: string;
+	/** Catalog endpoint; prefills an empty Base URL field. */
+	baseUrl: string;
 }
 
 /** What a role resolves to right now. */
@@ -1147,7 +1221,14 @@ export type SentinelClientMessage =
 			baseUrl: string;
 			apiKey: string | null;
 			modelId: string;
+			/** Omitted means "keep what is stored"; present replaces the whole declaration. */
+			capabilities?: SentinelModelCapabilities;
 	  }
+	| { type: "lookup_model_defaults"; modelId: string; baseUrl: string }
+	/** Channel list for the add-model form; `requestId` matches the async reply. */
+	| { type: "list_model_channels"; requestId: number; query: string }
+	/** Models of one chosen channel, for the second picker. */
+	| { type: "list_channel_models"; requestId: number; provider: string }
 	| { type: "remove_model_entry"; id: string }
 	| { type: "duplicate_model_entry"; id: string }
 	| { type: "set_model_role"; role: SentinelModelRoleName; target: string | null }
@@ -1379,6 +1460,19 @@ export type SentinelServerMessage =
 	| { type: "sessions"; sessions: SessionInfoView[] }
 	| { type: "tree"; tree: SessionTreeNodeView[]; leafId: string | null; forkPoints: SentinelForkPoint[] }
 	| { type: "model_library"; library: SentinelModelLibraryView }
+	| { type: "model_defaults"; modelId: string; matches: SentinelBuiltinModelDefaults[] }
+	| {
+			type: "model_channels";
+			requestId: number;
+			query: string;
+			channels: SentinelBuiltinChannel[];
+	  }
+	| {
+			type: "channel_models";
+			requestId: number;
+			provider: string;
+			presets: SentinelBuiltinModelPreset[];
+	  }
 	| { type: "model_test_result"; result: SentinelTestResult }
 	| {
 			type: "permissions";

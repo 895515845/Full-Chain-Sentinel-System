@@ -18,6 +18,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+	DEFAULT_MODEL_API,
 	NO_AUTH_PLACEHOLDER_KEY,
 	readProviderModelConfig,
 	removeProviderModelConfig,
@@ -27,9 +28,12 @@ import {
 	writeProviderModelConfig,
 } from "./model-config.ts";
 import type {
+	SentinelModelCapabilities,
 	SentinelModelConfig,
+	SentinelModelCostRates,
 	SentinelModelEntryView,
 	SentinelModelLibraryView,
+	SentinelModelPromptCache,
 	SentinelModelRoleName,
 	SentinelResolvedModelView,
 } from "./protocol.ts";
@@ -83,6 +87,8 @@ export interface SentinelModelEntryInput {
 	baseUrl: string;
 	apiKey: string;
 	modelId: string;
+	/** Present for a form save; omitted means "keep what is stored". */
+	capabilities?: SentinelModelCapabilities;
 }
 
 /** `apiKey: null` keeps the stored key; "" clears it (unauthenticated endpoint). */
@@ -91,7 +97,25 @@ export interface SentinelModelEntryPatch {
 	baseUrl: string;
 	apiKey: string | null;
 	modelId: string;
+	capabilities?: SentinelModelCapabilities;
 }
+
+/**
+ * Protocols pi knows. The editor only offers the four common endpoint shapes,
+ * but a hand-written models.json may name any of these and must round-trip.
+ */
+export const MODEL_APIS = [
+	"openai-completions",
+	"openai-responses",
+	"anthropic-messages",
+	"google-generative-ai",
+	"mistral-conversations",
+	"azure-openai-responses",
+	"openai-codex-responses",
+	"bedrock-converse-stream",
+	"google-vertex",
+	"pi-messages",
+] as const;
 
 export function modelLibraryPath(agentDir: string): string {
 	return `${agentDir}/model-library.json`;
@@ -263,6 +287,7 @@ export function libraryView(agentDir: string): SentinelModelLibraryView {
 	const library = readModelLibrary(agentDir);
 	const entries: SentinelModelEntryView[] = library.entries.map((entry) => {
 		const config = readProviderModelConfig(agentDir, entry.id);
+		const capabilities = config?.capabilities;
 		return {
 			id: entry.id,
 			name: entry.name,
@@ -270,6 +295,13 @@ export function libraryView(agentDir: string): SentinelModelLibraryView {
 			modelId: config?.modelId ?? "",
 			hasKey: Boolean(config?.apiKey && config.apiKey !== NO_AUTH_PLACEHOLDER_KEY),
 			roles: rolesUsing(library, entry.id),
+			api: capabilities?.api ?? DEFAULT_MODEL_API,
+			contextWindow: capabilities?.contextWindow ?? null,
+			maxTokens: capabilities?.maxTokens ?? null,
+			reasoning: capabilities?.reasoning === true,
+			input: capabilities?.input ?? ["text"],
+			cost: capabilities?.cost ?? null,
+			promptCache: capabilities?.promptCache ?? null,
 		};
 	});
 	return {
@@ -307,12 +339,73 @@ function requireEntry(library: SentinelModelLibrary, id: string): SentinelModelE
 	return entry;
 }
 
-function cleanInput(input: SentinelModelEntryPatch): { name: string; baseUrl: string; modelId: string } {
+function positiveInteger(value: number | undefined, label: string): number | undefined {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value <= 0) throw new Error(`${label}必须是正整数`);
+	return value;
+}
+
+/**
+ * Validate the form's capability fields. A provided object is the whole
+ * declaration: omitted fields are cleared, which is what lets the operator turn
+ * reasoning or prices back off. Unvalidated input would reach models.json and
+ * make pi throw only when a session starts, so everything is checked here.
+ */
+function cleanCapabilities(raw: SentinelModelCapabilities | undefined): SentinelModelCapabilities | undefined {
+	if (!raw) return undefined;
+	const api = raw.api?.trim() || DEFAULT_MODEL_API;
+	if (!(MODEL_APIS as readonly string[]).includes(api)) throw new Error(`不支持的协议：${raw.api}`);
+	const contextWindow = positiveInteger(raw.contextWindow, "上下文窗口");
+	const maxTokens = positiveInteger(raw.maxTokens, "最大输出");
+	if (contextWindow !== undefined && maxTokens !== undefined && maxTokens > contextWindow) {
+		throw new Error("最大输出不能大于上下文窗口");
+	}
+	let cost: SentinelModelCostRates | undefined;
+	if (raw.cost) {
+		const rate = (value: unknown, label: string): number => {
+			if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+				throw new Error(`${label}必须是不小于 0 的数字（美元 / 百万 token）`);
+			}
+			return value;
+		};
+		cost = {
+			input: rate(raw.cost.input, "输入价格"),
+			output: rate(raw.cost.output, "输出价格"),
+			cacheRead: rate(raw.cost.cacheRead, "缓存读价格"),
+			cacheWrite: rate(raw.cost.cacheWrite, "缓存写价格"),
+		};
+	}
+	let promptCache: SentinelModelPromptCache | undefined;
+	if (raw.promptCache) {
+		const short = positiveInteger(raw.promptCache.short, "短期缓存时长");
+		const long = positiveInteger(raw.promptCache.long, "长期缓存时长");
+		if (short !== undefined || long !== undefined) {
+			promptCache = { ...(short !== undefined ? { short } : {}), ...(long !== undefined ? { long } : {}) };
+		}
+	}
+	return {
+		api,
+		...(contextWindow !== undefined ? { contextWindow } : {}),
+		...(maxTokens !== undefined ? { maxTokens } : {}),
+		reasoning: raw.reasoning === true,
+		input: Array.isArray(raw.input) && raw.input.includes("image") ? ["text", "image"] : ["text"],
+		...(cost ? { cost } : {}),
+		...(promptCache ? { promptCache } : {}),
+	};
+}
+
+function cleanInput(input: SentinelModelEntryInput | SentinelModelEntryPatch): {
+	name: string;
+	baseUrl: string;
+	modelId: string;
+	capabilities?: SentinelModelCapabilities;
+} {
 	const baseUrl = input.baseUrl.trim();
 	const modelId = input.modelId.trim();
 	if (!baseUrl) throw new Error("Base URL 不能为空");
 	if (!modelId) throw new Error("模型 ID 不能为空");
-	return { name: input.name.trim() || modelId, baseUrl, modelId };
+	const capabilities = cleanCapabilities(input.capabilities);
+	return { name: input.name.trim() || modelId, baseUrl, modelId, ...(capabilities ? { capabilities } : {}) };
 }
 
 /** Add an entry. The first entry becomes the main model, so the app is usable at once. */
@@ -324,6 +417,7 @@ export function addLibraryEntry(agentDir: string, input: SentinelModelEntryInput
 		baseUrl: clean.baseUrl,
 		apiKey: input.apiKey.trim(),
 		modelId: clean.modelId,
+		...(clean.capabilities ? { capabilities: clean.capabilities } : {}),
 	});
 	library.entries.push(entry);
 	if (!library.roles.main) library.roles.main = { kind: "model", id: entry.id };
@@ -338,7 +432,12 @@ export function updateLibraryEntry(agentDir: string, id: string, patch: Sentinel
 	const previous = readProviderModelConfig(agentDir, id);
 	// null keeps the stored key: the form never renders it back.
 	const apiKey = patch.apiKey === null ? (previous?.apiKey ?? "") : patch.apiKey.trim();
-	writeProviderModelConfig(agentDir, id, clean.name, { baseUrl: clean.baseUrl, apiKey, modelId: clean.modelId });
+	writeProviderModelConfig(agentDir, id, clean.name, {
+		baseUrl: clean.baseUrl,
+		apiKey,
+		modelId: clean.modelId,
+		...(clean.capabilities ? { capabilities: clean.capabilities } : {}),
+	});
 	entry.name = clean.name;
 	writeModelLibrary(agentDir, library);
 	return entry;

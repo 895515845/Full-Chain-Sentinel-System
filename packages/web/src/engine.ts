@@ -145,6 +145,8 @@ export class EngineManager {
 	private readonly live = new Map<string, EngineLive>();
 	private modelRuntime: ModelRuntime | undefined;
 	private modelRuntimePromise: Promise<ModelRuntime> | undefined;
+	/** models.json changed since the runtime was created: refresh before the next use. */
+	private modelRuntimeDirty = false;
 	/**
 	 * Set by `dispose()`. A session broadcast that was already in flight resumes
 	 * after the store is closed, and reading it then throws out of a promise
@@ -1111,9 +1113,32 @@ export class EngineManager {
 		return { id: project.id, name: project.name, cwd: project.workDir, container: project.container };
 	}
 
+	/**
+	 * Called after models.json is rewritten (a library save, or the commander
+	 * endpoint in the engine page). The next commander start re-reads the file.
+	 *
+	 * Without this the manager keeps the provider table it loaded when the first
+	 * engine started: a newly added commander endpoint never resolves, and an
+	 * edited base URL or key keeps being ignored until the process restarts.
+	 */
+	markModelsDirty(): void {
+		this.modelRuntimeDirty = true;
+	}
+
 	/** The shared runtime, created on first use; concurrent callers await one creation. */
 	private async ensureModelRuntime(): Promise<ModelRuntime> {
-		if (this.modelRuntime) return this.modelRuntime;
+		if (this.modelRuntime) {
+			if (!this.modelRuntimeDirty) return this.modelRuntime;
+			try {
+				await this.modelRuntime.refresh({ allowNetwork: false });
+			} catch (error) {
+				// Keep the flag so the next start retries instead of serving a stale table.
+				this.modelRuntimeDirty = true;
+				throw error;
+			}
+			this.modelRuntimeDirty = false;
+			return this.modelRuntime;
+		}
 		if (!this.modelRuntimePromise) {
 			this.modelRuntimePromise = ModelRuntime.create({
 				authPath: `${this.agentDir}/auth.json`,
@@ -1121,6 +1146,7 @@ export class EngineManager {
 			});
 		}
 		this.modelRuntime = await this.modelRuntimePromise;
+		this.modelRuntimeDirty = false;
 		return this.modelRuntime;
 	}
 

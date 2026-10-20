@@ -90,6 +90,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 /** The settings row expands into these pages. */
 const SETTINGS_CHILDREN: MenuEntry[] = [
 	{ page: "settings.model", label: "模型", icon: ModelIcon },
+	{ page: "settings.supervisor", label: "监督", icon: SupervisorIcon },
 	{ page: "settings.notify", label: "通知", icon: NotifyIcon },
 	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
 	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },

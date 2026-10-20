@@ -13,6 +13,9 @@ import {
 	createAgentSession,
 	type createBashTool,
 	createEditTool,
+	createFindTool,
+	createGrepTool,
+	createLsTool,
 	createReadTool,
 	createWriteTool,
 	type DefaultResourceLoader,
@@ -123,7 +126,14 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 			// must be listed explicitly alongside the gated bash. Disabled tools are
 			// also denied, so nothing can bring them back.
 			const baseToolsOverride = {
-				...(permissions.read ? { read: createReadTool(options.cwd) } : {}),
+				...(permissions.read
+					? {
+							read: createReadTool(options.cwd),
+							grep: createGrepTool(options.cwd),
+							find: createFindTool(options.cwd),
+							ls: createLsTool(options.cwd),
+						}
+					: {}),
 				...(permissions.bash ? { bash: options.createGatedBash() } : {}),
 				...(permissions.edit ? { edit: createEditTool(options.cwd) } : {}),
 				...(permissions.write ? { write: createWriteTool(options.cwd) } : {}),
