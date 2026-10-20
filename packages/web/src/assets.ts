@@ -8,6 +8,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { EMBEDDED_DOCKERFILE, EMBEDDED_VERSION, EMBEDDED_WEBUI } from "./embedded-assets.generated.ts";
 
@@ -37,9 +38,12 @@ function embeddedWebui(): Map<string, Buffer> {
  * of leading `..` segments.
  */
 export function readWebuiFile(relativePath: string, distDir: string): Buffer | undefined {
-	const onDisk = `${distDir}/${relativePath}`;
+	const onDisk = join(distDir, relativePath);
 	if (existsSync(onDisk)) return readFileSync(onDisk);
-	return embeddedWebui().get(relativePath);
+	// The generator keys the embedded map with forward slashes. Windows
+	// `path.normalize()` turns "assets/app.js" into "assets\\app.js", which would
+	// miss that map and make the server answer a script request with index.html.
+	return embeddedWebui().get(relativePath.replaceAll("\\", "/"));
 }
 
 /**

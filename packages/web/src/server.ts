@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createSecureServer } from "node:https";
 import { networkInterfaces } from "node:os";
-import { dirname, extname, join, normalize, resolve } from "node:path";
+import { dirname, extname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { WebSocket, WebSocketServer } from "ws";
@@ -351,7 +351,9 @@ function sendFile(response: ServerResponse, body: Buffer, relativePath: string):
  */
 function serveStatic(distDir: string, requestPath: string, response: ServerResponse): void {
 	let relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
-	relative = normalize(relative).replace(/^(\.\.[/\\])+/, "");
+	// URL paths are POSIX. Using the platform `normalize` here turns them into
+	// backslashes on Windows and breaks the embedded map, which is keyed with `/`.
+	relative = posix.normalize(relative).replace(/^(\.\.[/\\])+/, "");
 	const filePath = join(distDir, relative);
 	const insideDist = filePath.startsWith(distDir);
 	if (insideDist) {
