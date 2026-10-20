@@ -1308,7 +1308,7 @@ export async function startSentinelServer(
 					);
 					return;
 				case "test_notify": {
-					const result = await runtime.testNotify(message.config);
+					const result = await runtime.testNotify(message.config, message.channel ?? "dingtalk");
 					socket.send(JSON.stringify({ type: "notify_test_result", result } satisfies SentinelServerMessage));
 					return;
 				}

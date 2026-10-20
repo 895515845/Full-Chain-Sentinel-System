@@ -1,19 +1,22 @@
 /**
- * DingTalk custom-robot notifications.
+ * DingTalk and Feishu custom-robot notifications.
  *
- * A finished run posts a markdown message to the configured group robot. Sends
- * are best-effort: they never block or fail the agent run, and the outcome of
- * the most recent attempt is kept for the settings screen.
+ * A finished run posts a message to every enabled group robot. Sends are
+ * best-effort: they never block or fail the agent run, and the outcome of the
+ * most recent attempt is kept for the settings screen.
  *
- * Two robot security modes are supported:
- * - "加签" (signed): the secret signs `${timestamp}\n${secret}` with HMAC-SHA256,
- *   and the signature plus timestamp ride along as query parameters.
+ * Both platforms support the same two security modes:
+ * - "加签" (signed): HMAC-SHA256 over a timestamp/secret pairing. DingTalk puts
+ *   the signature in the query string; Feishu puts timestamp and sign in the
+ *   JSON body.
  * - "自定义关键词" (keyword): the message body must contain the keyword, so it is
  *   prepended to the text.
  */
 
 import { createHmac } from "node:crypto";
 import type {
+	SentinelNotifyChannel,
+	SentinelNotifyChannelConfig,
 	SentinelNotifyConfig,
 	SentinelNotifyStatus,
 	SentinelTestResult,
@@ -186,6 +189,202 @@ export async function testDingTalk(config: SentinelNotifyConfig): Promise<Sentin
 	return status.ok
 		? { ok: true, message: "测试消息已发送，请查看钉钉群" }
 		: { ok: false, message: "发送失败", detail: status.error };
+}
+
+/** Feishu custom-bot requests are limited to 30,000 bytes. */
+const MAX_FEISHU_BODY_BYTES = 30000;
+
+/**
+ * Feishu signature: HMAC-SHA256 with `${timestamp}\n${secret}` as the key and an
+ * empty message, base64-encoded. The timestamp is in seconds and rides in the
+ * body instead of the query string.
+ */
+export function feishuSignature(timestampSeconds: number, secret: string): string {
+	return createHmac("sha256", `${timestampSeconds}\n${secret}`).update("").digest("base64");
+}
+
+/** A Feishu interactive card, with timestamp/sign and the keyword when configured. */
+export function buildFeishuPayload(
+	config: SentinelNotifyChannelConfig,
+	title: string,
+	markdown: string,
+	timestampSeconds: number,
+): string {
+	const prefix = config.keyword ? `${config.keyword}\n` : "";
+	const payload: Record<string, unknown> = {
+		timestamp: String(timestampSeconds),
+		msg_type: "interactive",
+		card: {
+			config: { wide_screen_mode: true },
+			header: {
+				template: "blue",
+				title: { tag: "plain_text", content: title },
+			},
+			elements: [{ tag: "markdown", content: `${prefix}${markdown}` }],
+		},
+	};
+	if (config.secret) payload.sign = feishuSignature(timestampSeconds, config.secret);
+	return JSON.stringify(payload);
+}
+
+/** The Feishu body, clipped until it fits the platform's byte limit. */
+export function fitFeishuPayload(
+	config: SentinelNotifyChannelConfig,
+	title: string,
+	markdown: string,
+	timestampSeconds = Math.floor(Date.now() / 1000),
+): string {
+	const fits = (body: string) => Buffer.byteLength(body, "utf-8") <= MAX_FEISHU_BODY_BYTES;
+	const full = buildFeishuPayload(config, title, markdown, timestampSeconds);
+	if (fits(full)) return full;
+	const note = `…（超出飞书单条上限，已截断，全文 ${markdown.length} 字）`;
+	// JSON escapes quotes and newlines, so measure the serialized card rather
+	// than estimating from the raw markdown. Binary search the character prefix.
+	let low = 0;
+	let high = markdown.length;
+	while (low < high) {
+		const middle = Math.ceil((low + high) / 2);
+		const candidate = buildFeishuPayload(config, title, `${markdown.slice(0, middle)}${note}`, timestampSeconds);
+		if (fits(candidate)) low = middle;
+		else high = middle - 1;
+	}
+	return buildFeishuPayload(config, title, `${markdown.slice(0, low)}${note}`, timestampSeconds);
+}
+
+interface FeishuReply {
+	StatusCode?: number;
+	StatusMessage?: string;
+	code?: number;
+	msg?: string;
+}
+
+async function attemptFeishu(
+	config: SentinelNotifyChannelConfig,
+	title: string,
+	markdown: string,
+): Promise<string | undefined> {
+	const timestamp = Math.floor(Date.now() / 1000);
+	let response: Response;
+	try {
+		response = await fetch(config.webhook, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: fitFeishuPayload(config, title, markdown, timestamp),
+			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+		});
+	} catch (error) {
+		if (error instanceof Error && error.name === "TimeoutError") {
+			return `请求超时（${SEND_TIMEOUT_MS / 1000}s）`;
+		}
+		const cause = error instanceof Error && error.cause instanceof Error ? `：${error.cause.message}` : "";
+		return `${error instanceof Error ? error.message : String(error)}${cause}`;
+	}
+	if (!response.ok) return `HTTP ${response.status}`;
+	let reply: FeishuReply;
+	try {
+		reply = (await response.json()) as FeishuReply;
+	} catch {
+		return "响应不是合法 JSON";
+	}
+	if (reply.StatusCode === 0 || reply.code === 0) return undefined;
+	const code = reply.code ?? reply.StatusCode;
+	const message = reply.msg ?? reply.StatusMessage ?? "";
+	const hint = code === 19021 ? "（通常是加签校验失败或缺少自定义关键词）" : "";
+	return `飞书返回 code ${code ?? "未知"}: ${message}${hint}`;
+}
+
+/**
+ * Post a Feishu card, retrying a transient failure. Never throws: the caller
+ * records the result and moves on.
+ */
+export async function sendFeishu(
+	config: SentinelNotifyChannelConfig,
+	title: string,
+	markdown: string,
+): Promise<SentinelNotifyStatus> {
+	const webhook = config.webhook.trim();
+	if (!webhook) return { at: Date.now(), ok: false, error: "未配置 webhook 地址" };
+	const urlError = webhookUrlError(webhook);
+	if (urlError) return { at: Date.now(), ok: false, error: urlError };
+	let lastError: string | undefined;
+	for (let attemptNumber = 1; attemptNumber <= MAX_ATTEMPTS; attemptNumber += 1) {
+		lastError = await attemptFeishu({ ...config, webhook }, title, markdown);
+		if (!lastError) return { at: Date.now(), ok: true };
+		if (attemptNumber < MAX_ATTEMPTS) await delay(RETRY_DELAY_MS);
+	}
+	return { at: Date.now(), ok: false, error: lastError };
+}
+
+/** Settings-screen "send a test message" action for Feishu. */
+export async function testFeishu(config: SentinelNotifyChannelConfig): Promise<SentinelTestResult> {
+	if (!config.webhook.trim()) return { ok: false, message: "请先填写 webhook 地址" };
+	const urlError = webhookUrlError(config.webhook.trim());
+	if (urlError) return { ok: false, message: urlError, detail: "飞书自定义机器人只接受 https。" };
+	const status = await sendFeishu(
+		config,
+		"全链哨兵 测试通知",
+		"### 全链哨兵 测试通知\n\n如果你在群里看到这条消息，通知配置可用。",
+	);
+	return status.ok
+		? { ok: true, message: "测试消息已发送，请查看飞书群" }
+		: { ok: false, message: "发送失败", detail: status.error };
+}
+
+/** Channels that are enabled and have a webhook, in a stable display order. */
+export function enabledNotifyChannels(config: SentinelNotifyConfig): SentinelNotifyChannel[] {
+	const channels: SentinelNotifyChannel[] = [];
+	if (config.enabled && config.webhook.trim()) channels.push("dingtalk");
+	if (config.feishu?.enabled && config.feishu.webhook.trim()) channels.push("feishu");
+	return channels;
+}
+
+export function hasEnabledNotifyChannel(config: SentinelNotifyConfig): boolean {
+	return enabledNotifyChannels(config).length > 0;
+}
+
+/**
+ * Send one notification to every enabled robot. A failure on one channel does
+ * not suppress the other; the aggregate result lists both outcomes.
+ */
+export async function sendNotifications(
+	config: SentinelNotifyConfig,
+	title: string,
+	markdown: string,
+): Promise<SentinelNotifyStatus> {
+	const channels = enabledNotifyChannels(config);
+	if (channels.length === 0) {
+		return { at: Date.now(), ok: false, error: "未启用通知渠道或未配置 webhook" };
+	}
+	const results = await Promise.all(
+		channels.map(async (channel) => ({
+			channel,
+			status:
+				channel === "dingtalk"
+					? await sendDingTalk(config, title, markdown)
+					: await sendFeishu(
+							config.feishu ?? { enabled: false, webhook: "", secret: "", keyword: "" },
+							title,
+							markdown,
+						),
+		})),
+	);
+	const outcomes: NonNullable<SentinelNotifyStatus["channels"]> = {};
+	const errors: string[] = [];
+	for (const { channel, status } of results) {
+		if (status.ok) {
+			outcomes[channel] = { ok: true };
+		} else {
+			const error = status.error ?? "发送失败";
+			outcomes[channel] = { ok: false, error };
+			errors.push(`${channel === "dingtalk" ? "钉钉" : "飞书"}：${error}`);
+		}
+	}
+	return {
+		at: Date.now(),
+		ok: errors.length === 0,
+		...(errors.length > 0 ? { error: errors.join("；") } : {}),
+		channels: outcomes,
+	};
 }
 
 /**

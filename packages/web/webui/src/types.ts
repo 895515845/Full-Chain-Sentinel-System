@@ -290,16 +290,24 @@ export interface SentinelTestResult {
 	detail?: string;
 }
 
-/** DingTalk notification configuration (mirrors notifications.json). */
-export interface SentinelNotifyConfig {
+/** The two chat robots a finished notification can go to. */
+export type SentinelNotifyChannel = "dingtalk" | "feishu";
+
+/** One robot's connection settings. */
+export interface SentinelNotifyChannelConfig {
 	enabled: boolean;
 	webhook: string;
 	secret: string;
 	keyword: string;
-	/** Which notifications to push once the master switch is on; all default on. */
+}
+
+/** Notification configuration (mirrors notifications.json). */
+export interface SentinelNotifyConfig extends SentinelNotifyChannelConfig {
+	/** Which notifications to push while either channel is enabled; all default on. */
 	kinds: { runs: boolean; vulns: boolean; goals: boolean; engines: boolean; pocs: boolean };
 	/** Characters of notification body to keep per section; 0 keeps all of it. */
 	summaryLimit: number;
+	feishu: SentinelNotifyChannelConfig;
 }
 
 /** Outcome of the most recent notification send. */
@@ -308,6 +316,7 @@ export interface SentinelNotifyStatus {
 	ok: boolean;
 	error?: string;
 	subject?: string;
+	channels?: Partial<Record<SentinelNotifyChannel, { ok: boolean; error?: string }>>;
 }
 
 export interface SentinelApprovalRequest {
@@ -1252,7 +1261,7 @@ export type SentinelClientMessage =
 	| { type: "save_permissions"; config: SentinelPermissionsConfig }
 	| { type: "get_notify_config" }
 	| { type: "save_notify_config"; config: SentinelNotifyConfig }
-	| { type: "test_notify"; config: SentinelNotifyConfig }
+	| { type: "test_notify"; config: SentinelNotifyConfig; channel?: SentinelNotifyChannel }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }

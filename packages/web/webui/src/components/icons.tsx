@@ -31,6 +31,7 @@ import {
 	Info,
 	KeyRound,
 	LayoutGrid,
+	Link,
 	LogOut,
 	type LucideProps,
 	MessageSquare,
@@ -41,11 +42,14 @@ import {
 	Plug,
 	Radar,
 	RefreshCw,
+	Save,
+	Send,
 	Settings,
 	Shield,
 	ShieldCheck,
 	SlidersHorizontal,
 	Smartphone,
+	Tag,
 	Target,
 	Trash,
 	X,
@@ -275,6 +279,31 @@ export function DownloadIcon(props: IconProps) {
 /** Confirm a finding. */
 export function CheckIcon(props: IconProps) {
 	return <Check size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Webhook URL field. */
+export function LinkIcon(props: IconProps) {
+	return <Link size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Robot signing secret field. */
+export function KeyIcon(props: IconProps) {
+	return <KeyRound size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Custom keyword field. */
+export function TagIcon(props: IconProps) {
+	return <Tag size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Send a test notification. */
+export function SendIcon(props: IconProps) {
+	return <Send size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** Save settings. */
+export function SaveIcon(props: IconProps) {
+	return <Save size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
 /** Sider menu: the gatekeeper audit log of AI 审批 judgments. */

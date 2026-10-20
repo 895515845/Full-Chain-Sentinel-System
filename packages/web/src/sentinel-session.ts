@@ -163,9 +163,11 @@ import {
 	buildGoalNotification,
 	buildRunNotification,
 	buildVulnNotification,
-	sendDingTalk,
+	hasEnabledNotifyChannel,
+	sendNotifications,
 	shouldNotifyRun,
 	testDingTalk,
+	testFeishu,
 } from "./notify.ts";
 import { readNotifyConfig, writeNotifyConfig } from "./notify-config.ts";
 import {
@@ -222,6 +224,7 @@ import type {
 	SentinelModelingState,
 	SentinelModelLibraryView,
 	SentinelModelRoleName,
+	SentinelNotifyChannel,
 	SentinelNotifyConfig,
 	SentinelNotifyStatus,
 	SentinelPluginArtifact,
@@ -1297,7 +1300,7 @@ export class SentinelRuntime {
 	 */
 	private notifyHighSeverity(vuln: SentinelVulnerability): void {
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim() || !config.kinds.vulns) return;
+		if (!hasEnabledNotifyChannel(config) || !config.kinds.vulns) return;
 		// One push per record. A high finding is pushed the moment it is
 		// submitted; the reviewer's calibration pushes again only when it raised
 		// a record the submission did not already push, instead of confirming
@@ -1305,7 +1308,7 @@ export class SentinelRuntime {
 		if (this.notifiedVulns.has(vuln.id)) return;
 		this.notifiedVulns.add(vuln.id);
 		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName, config.summaryLimit);
-		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+		void sendNotifications(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
 		});
@@ -2774,7 +2777,7 @@ export class SentinelRuntime {
 		const goal = managedGoal.goal;
 		if (goal.status === "active") return;
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim() || !config.kinds.goals) return;
+		if (!hasEnabledNotifyChannel(config) || !config.kinds.goals) return;
 		const lastRound = goal.rounds[goal.rounds.length - 1];
 		const report = buildGoalNotification(
 			{
@@ -2797,7 +2800,7 @@ export class SentinelRuntime {
 			},
 			config.summaryLimit,
 		);
-		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+		void sendNotifications(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
 		});
@@ -3096,7 +3099,7 @@ export class SentinelRuntime {
 		// per repetition would flood the channel long before anything finishes.
 		if (aborted && isStutterAbort(managed)) return;
 		const config = readNotifyConfig(this.agentDir);
-		if (!shouldNotifyRun(run.notify, config.enabled)) return;
+		if (!shouldNotifyRun(run.notify, hasEnabledNotifyChannel(config))) return;
 		// The kind filter narrows the automatic reports; a run the operator forced
 		// from the composer is an explicit ask and pushes regardless.
 		if (run.notify !== true && !config.kinds.runs) return;
@@ -3127,7 +3130,7 @@ export class SentinelRuntime {
 			},
 			config.summaryLimit,
 		);
-		void sendDingTalk(config, report.title, report.markdown).then((result) => {
+		void sendNotifications(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
 		});
@@ -3160,8 +3163,13 @@ export class SentinelRuntime {
 		writeNotifyConfig(this.agentDir, config);
 	}
 
-	async testNotify(config: SentinelNotifyConfig): Promise<SentinelTestResult> {
-		return await testDingTalk(config);
+	async testNotify(
+		config: SentinelNotifyConfig,
+		channel: SentinelNotifyChannel = "dingtalk",
+	): Promise<SentinelTestResult> {
+		return channel === "feishu"
+			? await testFeishu(config.feishu ?? { enabled: false, webhook: "", secret: "", keyword: "" })
+			: await testDingTalk(config);
 	}
 
 	/** Manually compact the viewed session's context into a summary. */
@@ -4091,7 +4099,7 @@ export class SentinelRuntime {
 	/** A failed sync pushes DingTalk once per attempt, gated by the pocs kind. */
 	private notifyPocSyncFailure(source: SentinelPocSource, record: SentinelPocSyncRecord): void {
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim() || !config.kinds.pocs) return;
+		if (!hasEnabledNotifyChannel(config) || !config.kinds.pocs) return;
 		const title = `POC 订阅同步失败：${source.name}`;
 		const markdown = [
 			`### ${title}`,
@@ -4103,7 +4111,7 @@ export class SentinelRuntime {
 			"",
 			"请在 设置 → POC 订阅 检查该源，或点「立即同步」重试。",
 		].join("\n");
-		void sendDingTalk(config, title, markdown).then((result) => {
+		void sendNotifications(config, title, markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
 		});

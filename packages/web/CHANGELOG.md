@@ -12,8 +12,13 @@
 - Removed the host-session fallback and the `SENTINEL_ALLOW_HOST_SESSIONS` escape hatch, the "back to default directory" picker entry, and `switch_project: null`. Bash, the file tools, and the file panel all require the project container
 - 产品改名：ZGAgent →「全链哨兵 Full Chain Sentinel System」，标识符统一为 `sentinel`。数据目录 `~/.zgagent` 首次启动自动迁移到 `~/.sentinel`（在 `config.ts` 里做，迁移失败会打印手动命令而不是静默当新装）；环境变量 `ZGAGENT_CODING_AGENT_DIR` / `ZGAGENT_CODING_AGENT_SESSION_DIR` / `ZG_PROJECTS_DIR` / `ZG_GATE_TOKEN` 等改为 `SENTINEL_*`；镜像改为 `sentinel:latest`、容器名前缀 `sentinel-`、命令改为 `sentinel-web`、包名改为 `@earendil-works/sentinel-web`；登录与网关 Cookie 改为 `sentinel-auth` / `sentinel-gate`；预设导出标识改为 `sentinel-presets`；DroidBridge APK 包名改为 `com.sentinel.droidbridge`（手机上需重新安装）。会话文件里的自定义条目类型（`zg-mode` / `zg-preset` / `zg-status` / `zg-goal` / `zg-loop-guard`）与 models.json 里的历史槽位 id（`zg-endpoint` / `zg-commander` / `zg-judge`）**故意保留原名**：它们是已有会话与模型配置里的键，跟着改会让那些文件读不出来
 
+### Changed
+
+- 设置 → 通知改为双卡工作台：钉钉和飞书并排，各自有启用开关、连接状态和测试按钮；推送内容与正文字数上限放在下方的共享卡片，窄屏自动单列。
+
 ### Added
 
+- 设置 → 通知新增飞书自定义机器人：钉钉和飞书各自有启用开关、webhook、签名密钥与自定义关键词，可以同时推送；两者共用运行报告、漏洞、持续目标、工程完成、POC 订阅失败的勾选项和正文字数上限。飞书用 interactive 卡片渲染 markdown，签名按飞书 body 内的 timestamp/sign 生成，正文超过 30000 字节时单独截断；设置页为每个渠道提供测试按钮和最近一次推送结果
 - 控制台在关于页、登录页、侧栏和首次授权页标注开源信息：关于页底部显示版本、GitHub 与 MIT，登录页 footer 显示版本与源码/许可证链接，侧栏 footer 增加 GitHub 图标入口，授权承诺页附源码说明。仓库与许可证地址集中在 `webui/src/branding.ts`，版本由构建时从 `packages/web/package.json` 注入
 - 监督模式（观察 / 介入）：会话开始前在输入框上方点「监督」并选择观察或介入（介入可选自动发送 / 确认后发送），未开启的会话不采集、不调用监督模型。每 20 次工具调用或出现重复、连续无新证据、连续报错时，独立的「监督模型」读取调用参数与结果摘要，输出阶段、意图、已测试、已排除、进度判断和下一步；主 Agent 的工具调用不受影响。实时状态、episode、最近调用和日志显示在可收起的悬浮窗里，收起后监督继续，必须显式「停止监督」；侧栏「工作台 → 监督」审计全部会话，配置在「设置 → 模型」。监督记录存 `<配置目录>/supervisor.db`，当前状态写入会话 JSONL，完整工具输出仍按 callId 从会话读取；删除项目连带删除审计。监督策略支持「稳健交付 / 漏洞验证 / 红队推进 / 低噪声」四种预设，可附 200 字内补充说明；策略按会话保存、运行中可切换并写入日志，只影响监督关注点和建议风格，不放宽安全规则。设置 → 模型 → 监督 支持基于预设新建、编辑、删除自定义策略，可设为新会话默认；自定义策略在开启时快照到会话，修改或删除不影响已开启的监督
 - 工程页的指挥官区域从单向指令改为对话：操作员的每条指令作为 `from: "operator"` 事件写入工程事件流，右侧蓝色气泡显示；底部输入框支持 Enter 发送、Shift+Enter 换行，指挥官的回复与工具调用仍按时间顺序留在同一栏，刷新或重开工程后对话还在。工程完成后仍可追问：服务端会另开一个无工具的复盘会话，只带总报告与看板，不会重新派发任务

@@ -1,10 +1,10 @@
 /**
  * Notification configuration stored in notifications.json.
  *
- * The DingTalk custom-robot webhook carries an access_token in its URL, so the
- * file is written 0600 like models.json. The webhook is editable in the console
- * the same way the endpoint API key is: plaintext in the settings form, and
- * never sent to the model.
+ * The DingTalk and Feishu custom-robot webhooks carry access tokens in their
+ * URLs, so the file is written 0600 like models.json. The webhooks are editable
+ * in the console the same way the endpoint API key is: plaintext in the settings
+ * form, and never sent to the model.
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,7 +25,12 @@ const DEFAULT_CONFIG: SentinelNotifyConfig = {
 	keyword: "",
 	kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 	summaryLimit: DEFAULT_SUMMARY_LIMIT,
+	feishu: { enabled: false, webhook: "", secret: "", keyword: "" },
 };
+
+function defaultConfig(): SentinelNotifyConfig {
+	return { ...DEFAULT_CONFIG, kinds: { ...DEFAULT_CONFIG.kinds }, feishu: { ...DEFAULT_CONFIG.feishu } };
+}
 
 /** Every kind on unless the file says otherwise, so an old config keeps pushing. */
 function coerceKinds(value: unknown): SentinelNotifyConfig["kinds"] {
@@ -54,12 +59,25 @@ function coerce(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
+function coerceChannel(value: unknown): SentinelNotifyConfig["feishu"] {
+	const channel = (value ?? {}) as Partial<SentinelNotifyConfig["feishu"]>;
+	return {
+		enabled: channel.enabled === true,
+		webhook: coerce(channel.webhook),
+		secret: coerce(channel.secret),
+		keyword: coerce(channel.keyword),
+	};
+}
+
 /** Read the persisted notification config; missing or broken files read as defaults. */
 export function readNotifyConfig(agentDir: string): SentinelNotifyConfig {
 	const path = notificationsJsonPath(agentDir);
-	if (!existsSync(path)) return { ...DEFAULT_CONFIG };
+	if (!existsSync(path)) return defaultConfig();
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as { dingtalk?: Partial<SentinelNotifyConfig> };
+		const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
+			dingtalk?: Partial<SentinelNotifyConfig>;
+			feishu?: Partial<SentinelNotifyConfig["feishu"]>;
+		};
 		const dingtalk = parsed.dingtalk ?? {};
 		return {
 			enabled: dingtalk.enabled === true,
@@ -68,15 +86,17 @@ export function readNotifyConfig(agentDir: string): SentinelNotifyConfig {
 			keyword: coerce(dingtalk.keyword),
 			kinds: coerceKinds(dingtalk.kinds),
 			summaryLimit: coerceSummaryLimit(dingtalk.summaryLimit),
+			feishu: coerceChannel(parsed.feishu),
 		};
 	} catch {
-		return { ...DEFAULT_CONFIG };
+		return defaultConfig();
 	}
 }
 
-/** Persist the notification config, replacing the DingTalk section. */
+/** Persist the notification config, replacing both channel sections. */
 export function writeNotifyConfig(agentDir: string, config: SentinelNotifyConfig): void {
 	const path = notificationsJsonPath(agentDir);
+	const feishu = coerceChannel(config.feishu);
 	const payload = {
 		dingtalk: {
 			enabled: config.enabled,
@@ -85,6 +105,12 @@ export function writeNotifyConfig(agentDir: string, config: SentinelNotifyConfig
 			keyword: config.keyword.trim(),
 			kinds: coerceKinds(config.kinds),
 			summaryLimit: coerceSummaryLimit(config.summaryLimit),
+		},
+		feishu: {
+			enabled: feishu.enabled,
+			webhook: feishu.webhook.trim(),
+			secret: feishu.secret.trim(),
+			keyword: feishu.keyword.trim(),
 		},
 	};
 	mkdirSync(dirname(path), { recursive: true });

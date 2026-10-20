@@ -277,18 +277,27 @@ export interface SentinelModelLibraryView {
 	};
 }
 
-/** DingTalk notification configuration persisted in notifications.json. */
-export interface SentinelNotifyConfig {
-	/** Master switch. A run may still force a notification from the composer. */
+/** The two chat robots a finished notification can go to. */
+export type SentinelNotifyChannel = "dingtalk" | "feishu";
+
+/** One robot's connection settings. */
+export interface SentinelNotifyChannelConfig {
 	enabled: boolean;
-	/** Custom-robot webhook URL, including its access_token. */
+	/** Custom-robot webhook URL, including its access token. */
 	webhook: string;
 	/** Optional signing secret ("加签"). Empty sends an unsigned request. */
 	secret: string;
 	/** Optional custom keyword, prepended to the body for keyword-secured robots. */
 	keyword: string;
+}
+
+/**
+ * Notification configuration persisted in notifications.json. DingTalk keeps the
+ * legacy top-level fields; Feishu is nested so an existing file still loads.
+ */
+export interface SentinelNotifyConfig extends SentinelNotifyChannelConfig {
 	/**
-	 * Which notifications to push once the master switch is on. All default to
+	 * Which notifications to push while either channel is enabled. All default to
 	 * on, which is what a config written before the checkboxes existed does; a
 	 * run forced from the composer still pushes with run reports off, because an
 	 * explicit ask beats a general filter.
@@ -297,10 +306,10 @@ export interface SentinelNotifyConfig {
 	/**
 	 * How many characters of notification body to keep, counted per section (a run's
 	 * closing summary, a goal's conclusion, a finding's raw packet). 0 keeps all of
-	 * it. DingTalk rejects a request body over 20000 bytes, which is enforced
-	 * separately, whatever this says.
+	 * it. Each platform's byte limit is enforced separately, whatever this says.
 	 */
 	summaryLimit: number;
+	feishu: SentinelNotifyChannelConfig;
 }
 
 /** Outcome of the most recent notification send, for the settings screen. */
@@ -308,10 +317,12 @@ export interface SentinelNotifyStatus {
 	/** Epoch milliseconds of the attempt, or null when nothing was sent yet. */
 	at: number | null;
 	ok: boolean;
-	/** Failure reason, or the DingTalk error code when the robot rejected it. */
+	/** Failure reason(s), or the platform error code when a robot rejected it. */
 	error?: string;
 	/** What the notification was for, e.g. the session title. */
 	subject?: string;
+	/** Per-channel outcome for the most recent multi-channel send. */
+	channels?: Partial<Record<SentinelNotifyChannel, { ok: boolean; error?: string }>>;
 }
 
 /**
@@ -1442,7 +1453,7 @@ export type SentinelClientMessage =
 	| { type: "save_permissions"; config: SentinelPermissionsConfig }
 	| { type: "get_notify_config" }
 	| { type: "save_notify_config"; config: SentinelNotifyConfig }
-	| { type: "test_notify"; config: SentinelNotifyConfig }
+	| { type: "test_notify"; config: SentinelNotifyConfig; channel?: SentinelNotifyChannel }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }

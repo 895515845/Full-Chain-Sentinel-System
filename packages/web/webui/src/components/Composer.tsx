@@ -647,7 +647,7 @@ export function Composer({
 						type="button"
 						className={`composer-tool ${notifyRun ? "on" : ""}`}
 						onClick={onToggleNotifyRun}
-						title={notifyRun ? "本次运行完成后发送钉钉通知（点击关闭）" : "本次运行完成后不通知（点击开启）"}
+						title={notifyRun ? "本次运行完成后发送通知（点击关闭）" : "本次运行完成后不通知（点击开启）"}
 					>
 						<BellIcon />
 						通知

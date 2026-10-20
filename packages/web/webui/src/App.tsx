@@ -222,8 +222,10 @@ export function App() {
 		keyword: "",
 		kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 		summaryLimit: 2000,
+		feishu: { enabled: false, webhook: "", secret: "", keyword: "" },
 	});
 	const [notifyStatus, setNotifyStatus] = useState<SentinelNotifyStatus>({ at: null, ok: true });
+	const notifyAvailable = notifyConfig.enabled || notifyConfig.feishu.enabled;
 	const [assetConfig, setAssetConfig] = useState<SentinelAssetConfigView | null>(null);
 	const [assetBusy, setAssetBusy] = useState(false);
 	const [webSearchConfig, setWebSearchConfig] = useState<SentinelWebSearchConfigView | null>(null);
@@ -2331,8 +2333,8 @@ export function App() {
 													: null
 												: "正在检查 Docker 环境…"
 									}
-									notifyRun={notifyRun ?? notifyConfig.enabled}
-									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyConfig.enabled))}
+									notifyRun={notifyRun ?? notifyAvailable}
+									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyAvailable))}
 									goalDisabledReason={goalDisabledReason}
 									onOpenGoal={() => setGoalOpen(true)}
 									modeling={snapshot?.modeling ?? null}
@@ -2386,7 +2388,7 @@ export function App() {
 											text,
 											streamingBehavior: behavior,
 											images,
-											notify: notifyRun ?? notifyConfig.enabled,
+											notify: notifyRun ?? notifyAvailable,
 											...(attachModelIds && attachModelIds.length > 0 ? { attachModelIds } : {}),
 										});
 									}}
@@ -2672,7 +2674,7 @@ export function App() {
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
 									设置
-									<span className="ws-panel__sub">钉钉通知</span>
+									<span className="ws-panel__sub">通知</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -2680,10 +2682,10 @@ export function App() {
 									config={notifyConfig}
 									status={notifyStatus}
 									onSave={(next) => send({ type: "save_notify_config", config: next })}
-									onTest={async (candidate) => {
+									onTest={async (candidate, channel) => {
 										const result = await new Promise<SentinelTestResult | null>((resolve) => {
 											notifyTestResolverRef.current = resolve;
-											connectionRef.current?.send({ type: "test_notify", config: candidate });
+											connectionRef.current?.send({ type: "test_notify", config: candidate, channel });
 											window.setTimeout(() => {
 												if (notifyTestResolverRef.current === resolve) {
 													notifyTestResolverRef.current = null;

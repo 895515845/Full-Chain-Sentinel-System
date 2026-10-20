@@ -12,13 +12,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
 import {
+	buildFeishuPayload,
 	buildRunNotification,
 	clipText,
+	feishuSignature,
+	fitFeishuPayload,
 	fitPayload,
 	sendDingTalk,
+	sendFeishu,
+	sendNotifications,
 	shouldNotifyRun,
 	signedWebhookUrl,
 	testDingTalk,
+	testFeishu,
 } from "../src/notify.ts";
 import {
 	DEFAULT_SUMMARY_LIMIT,
@@ -35,12 +41,20 @@ const CONFIG: SentinelNotifyConfig = {
 	keyword: "",
 	kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 	summaryLimit: 2000,
+	feishu: { enabled: false, webhook: "", secret: "", keyword: "" },
 };
 
 /** Requests the fake robot received, in order. */
 interface Received {
 	url: string;
-	body: { msgtype?: string; markdown?: { title?: string; text?: string } };
+	body: {
+		msgtype?: string;
+		markdown?: { title?: string; text?: string };
+		msg_type?: string;
+		timestamp?: string;
+		sign?: string;
+		card?: { elements?: { tag?: string; content?: string }[] };
+	};
 }
 
 let server: Server;
@@ -58,9 +72,13 @@ beforeAll(async () => {
 		request.on("end", () => {
 			const body = JSON.parse(raw) as Received["body"];
 			received.push({ url: request.url ?? "", body });
-			const text = body.markdown?.text ?? "";
+			const text = body.markdown?.text ?? body.card?.elements?.[0]?.content ?? "";
 			const reject = rejectWith && text.includes(rejectWith.match) ? rejectWith : null;
 			response.setHeader("content-type", "application/json");
+			if (body.card) {
+				response.end(JSON.stringify({ StatusCode: 0, StatusMessage: "success", code: 0, msg: "success" }));
+				return;
+			}
 			response.end(
 				JSON.stringify(reject ? { errcode: reject.errcode, errmsg: reject.errmsg } : { errcode: 0, errmsg: "ok" }),
 			);
@@ -233,6 +251,87 @@ test("the per-message choice overrides the global switch in both directions", ()
 	expect(shouldNotifyRun(true, false)).toBe(true);
 });
 
+test("a Feishu signature is the HMAC of timestamp-newline-secret with an empty message", () => {
+	const expected = createHmac("sha256", "1700000000\nFSEC").update("").digest("base64");
+	expect(feishuSignature(1700000000, "FSEC")).toBe(expected);
+});
+
+test("a Feishu card carries timestamp, sign, and the keyword before the body", () => {
+	const payload = JSON.parse(
+		buildFeishuPayload(
+			{
+				enabled: true,
+				webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/x",
+				secret: "FSEC",
+				keyword: "zgagent",
+			},
+			"全链哨兵 测试",
+			"### 正文",
+			1700000000,
+		),
+	) as {
+		timestamp: string;
+		sign: string;
+		msg_type: string;
+		card: { elements: { tag: string; content: string }[] };
+	};
+	expect(payload.timestamp).toBe("1700000000");
+	expect(payload.sign).toBe(feishuSignature(1700000000, "FSEC"));
+	expect(payload.msg_type).toBe("interactive");
+	expect(payload.card.elements[0]?.content).toBe("zgagent\n### 正文");
+});
+
+test("a Feishu card is clipped below the 30000-byte request limit", () => {
+	const body = fitFeishuPayload(
+		{ enabled: true, webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/x", secret: "FSEC", keyword: "zgagent" },
+		"长正文",
+		"x".repeat(40000),
+		1700000000,
+	);
+	expect(Buffer.byteLength(body, "utf-8")).toBeLessThanOrEqual(30000);
+	expect(body).toContain("超出飞书单条上限");
+});
+
+test("a Feishu send posts the card and treats code 0 as delivered", async () => {
+	const config = { enabled: true, webhook: baseUrl, secret: "FSEC", keyword: "zgagent" };
+	const status = await sendFeishu(config, "T", "### body");
+	expect(status.ok).toBe(true);
+	expect(received).toHaveLength(1);
+	expect(received[0]?.body.msg_type).toBe("interactive");
+	expect(received[0]?.body.card?.elements?.[0]?.content).toBe("zgagent\n### body");
+	expect(received[0]?.body.sign).toBe(feishuSignature(Number(received[0]?.body.timestamp), "FSEC"));
+});
+
+test("the settings-screen test refuses a non-https Feishu webhook", async () => {
+	const result = await testFeishu({
+		enabled: true,
+		webhook: "http://example.com/open-apis/bot/v2/hook/x",
+		secret: "",
+		keyword: "",
+	});
+	expect(result.ok).toBe(false);
+	expect(result.message).toContain("https");
+	expect(received).toHaveLength(0);
+});
+
+test("sendNotifications delivers to DingTalk and Feishu independently", async () => {
+	const status = await sendNotifications(
+		{
+			...CONFIG,
+			webhook: baseUrl,
+			keyword: "KW",
+			feishu: { enabled: true, webhook: baseUrl, secret: "FSEC", keyword: "zgagent" },
+		},
+		"both",
+		"### both",
+	);
+	expect(status).toMatchObject({
+		ok: true,
+		channels: { dingtalk: { ok: true }, feishu: { ok: true } },
+	});
+	expect(received).toHaveLength(2);
+});
+
 test("the notification config round-trips through notifications.json with 0600", () => {
 	const dir = mkdtempSync(join(tmpdir(), "sentinel-notify-"));
 	try {
@@ -243,6 +342,7 @@ test("the notification config round-trips through notifications.json with 0600",
 			keyword: "",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: DEFAULT_SUMMARY_LIMIT,
+			feishu: { enabled: false, webhook: "", secret: "", keyword: "" },
 		});
 		writeNotifyConfig(dir, {
 			enabled: true,
@@ -251,6 +351,12 @@ test("the notification config round-trips through notifications.json with 0600",
 			keyword: " KW ",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 5000,
+			feishu: {
+				enabled: true,
+				webhook: " https://open.feishu.cn/open-apis/bot/v2/hook/test ",
+				secret: " FSEC ",
+				keyword: " zgagent ",
+			},
 		});
 		expect(readNotifyConfig(dir)).toEqual({
 			enabled: true,
@@ -259,10 +365,17 @@ test("the notification config round-trips through notifications.json with 0600",
 			keyword: "KW",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: 5000,
+			feishu: {
+				enabled: true,
+				webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+				secret: "FSEC",
+				keyword: "zgagent",
+			},
 		});
 		chmodSync(notificationsJsonPath(dir), 0o600);
 		expect(statSync(notificationsJsonPath(dir)).mode & 0o777).toBe(0o600);
 		expect(readFileSync(notificationsJsonPath(dir), "utf-8")).toContain('"dingtalk"');
+		expect(readFileSync(notificationsJsonPath(dir), "utf-8")).toContain('"feishu"');
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -278,6 +391,7 @@ test("a stored limit is normalized: missing reads as the default, negative as 0"
 			keyword: "",
 			kinds: { runs: true, vulns: true, goals: true, engines: true, pocs: true },
 			summaryLimit: -5,
+			feishu: { enabled: false, webhook: "", secret: "", keyword: "" },
 		});
 		expect(readNotifyConfig(dir).summaryLimit).toBe(0);
 

@@ -36,7 +36,7 @@ import { resolveJudgeEndpoint } from "./gatekeeper.ts";
 import { clampRoundLimit } from "./goal.ts";
 import { modelsJsonPath, readCommanderModelConfig, SENTINEL_COMMANDER_PROVIDER_ID } from "./model-config.ts";
 import { resolveLibraryRole } from "./model-library.ts";
-import { sendDingTalk } from "./notify.ts";
+import { hasEnabledNotifyChannel, sendNotifications } from "./notify.ts";
 import { readNotifyConfig } from "./notify-config.ts";
 import { readPermissionsConfig } from "./permissions.ts";
 import { findPreset, listEnabledPresets, listPresets, presetBriefLines } from "./presets.ts";
@@ -1163,7 +1163,7 @@ export class EngineManager {
 
 	private notifyEngineDone(engine: SentinelEngine): void {
 		const config = readNotifyConfig(this.agentDir);
-		if (!config.enabled || !config.webhook.trim() || !config.kinds.engines) return;
+		if (!hasEnabledNotifyChannel(config) || !config.kinds.engines) return;
 		const done = engine.tasks.filter((task) => task.status === "done").length;
 		const failed = engine.tasks.filter((task) => ["failed", "blocked", "aborted"].includes(task.status)).length;
 		const markdown = [
@@ -1174,7 +1174,7 @@ export class EngineManager {
 			"",
 			engine.report?.slice(0, config.summaryLimit || 2000) ?? "",
 		].join("\n");
-		void sendDingTalk(config, `工程已完成：${engine.name}`, markdown);
+		void sendNotifications(config, `工程已完成：${engine.name}`, markdown);
 	}
 }
 
