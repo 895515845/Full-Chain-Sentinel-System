@@ -123,7 +123,12 @@ cd packages/coding-agent
 for platform in "${PLATFORMS[@]}"; do
 	echo "Building for $platform..."
 	bun_target="bun-$platform"
-	if [[ "$platform" == *-x64 ]]; then
+	# Baseline is a separate Bun build, so targeting it makes Bun download that
+	# build. On Windows the download is extracted under the workspace drive and
+	# renamed into the install cache on another drive, which Bun 1.3.14 fails
+	# with "Failed to extract executable". Target the runner's standard x64 build
+	# instead: Bun then reuses itself and downloads nothing.
+	if [[ "$platform" == *-x64 && "$platform" != windows-* ]]; then
 		bun_target="${bun_target}-baseline"
 	fi
 	mkdir -p "$OUTPUT_DIR/$platform"
