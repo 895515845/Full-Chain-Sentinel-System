@@ -12,7 +12,8 @@
  */
 import { type ReactNode, useEffect, useState } from "react";
 
-import { SentinelMark } from "./icons.tsx";
+import { PROJECT_LICENSE, PROJECT_LICENSE_URL, PROJECT_REPOSITORY } from "../branding.ts";
+import { ExternalLinkIcon, SentinelMark } from "./icons.tsx";
 
 interface ConsentClause {
 	title: string;
@@ -147,6 +148,16 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 										</ul>
 									</div>
 									<p className="consent-note">{text.footnote}</p>
+									{/* Presentation, not part of the hashed promise: adding this line must not
+									    invalidate an acceptance the operator already made. */}
+									<p className="consent-source">
+										本项目以 {PROJECT_LICENSE} 许可开源
+										<span className="consent-source__sep">·</span>
+										<a href={PROJECT_REPOSITORY} target="_blank" rel="noreferrer">
+											查看源码与许可证
+											<ExternalLinkIcon size={10} />
+										</a>
+									</p>
 								</>
 							) : (
 								<p className="consent-note">{error || "正在读取承诺条款…"}</p>

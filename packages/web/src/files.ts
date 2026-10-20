@@ -14,7 +14,7 @@
  */
 
 import { lstatSync, readdirSync, statSync } from "node:fs";
-import { join, posix } from "node:path";
+import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { execInContainer } from "./docker.ts";
 import type { SentinelFileEntry, SentinelFilePreview } from "./protocol.ts";
 
@@ -77,6 +77,40 @@ export function resolveWorkPath(input: string): string {
 		throw new Error("路径越界：只能访问容器 /work 目录内的文件");
 	}
 	return normalized;
+}
+
+/**
+ * Map a path an agent may have copied from a file tool to its container name.
+ *
+ * The coding file tools run with the host project directory as cwd, while bash
+ * runs in the same directory mounted at `/work`; an agent can therefore cite
+ * either name. Only `/work/...` and paths under `hostWorkDir` are accepted, so
+ * this never widens file access to the rest of the host. Returns undefined when
+ * the path is outside both.
+ */
+export function toContainerWorkPath(input: string, hostWorkDir: string): string | undefined {
+	const trimmed = (input ?? "").trim();
+	if (!trimmed || trimmed.includes("\0")) return undefined;
+	if (trimmed === WORK_ROOT || trimmed.startsWith(`${WORK_ROOT}/`)) {
+		try {
+			return resolveWorkPath(trimmed);
+		} catch {
+			return undefined;
+		}
+	}
+	if (!isAbsolute(trimmed)) {
+		try {
+			return resolveWorkPath(trimmed);
+		} catch {
+			return undefined;
+		}
+	}
+	const root = resolve(hostWorkDir);
+	const absolute = resolve(trimmed);
+	const rel = relative(root, absolute);
+	if (rel === "" || rel === ".") return WORK_ROOT;
+	if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+	return posix.join(WORK_ROOT, rel.split(sep).join("/"));
 }
 
 /** Map a container exit code to a readable failure. */

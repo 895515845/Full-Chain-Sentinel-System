@@ -592,15 +592,29 @@ export interface SentinelPocStats {
 	bySeverity: Record<SentinelPocSeverity, number>;
 }
 
-export interface SentinelPocImportFile {
-	name: string;
-	data: string;
-}
-
 export interface SentinelPocImportOutcome {
 	imported: number;
 	replaced: number;
 	skipped: { name: string; reason: string }[];
+}
+
+export interface SentinelPocImportProgress {
+	processed: number;
+	imported: number;
+	replaced: number;
+	skipped: number;
+	current: string;
+}
+
+export type SentinelPocImportJobStatus = "queued" | "running" | "done" | "error";
+
+export interface SentinelPocImportJobView {
+	id: string;
+	name: string;
+	status: SentinelPocImportJobStatus;
+	progress: SentinelPocImportProgress;
+	outcome?: SentinelPocImportOutcome;
+	error?: string;
 }
 
 // --- POC 订阅（远程 zip 源；只增不减） ---
@@ -1267,7 +1281,6 @@ export type SentinelClientMessage =
 	| { type: "review_pending_vulns" }
 	| { type: "list_pocs"; filters?: SentinelPocFilters; page?: number; pageSize?: number }
 	| { type: "get_poc"; id: string }
-	| { type: "import_pocs"; files: SentinelPocImportFile[] }
 	| { type: "delete_poc"; id: string }
 	| { type: "list_poc_sources" }
 	| { type: "save_poc_source"; source: SentinelPocSourceSave }
@@ -1503,7 +1516,6 @@ export type SentinelServerMessage =
 	| { type: "pocs"; items: SentinelPocSummary[]; stats: SentinelPocStats; total: number; page: number; pageSize: number }
 	| { type: "poc"; poc: SentinelPoc }
 	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
-	| { type: "pocs_imported"; outcome: SentinelPocImportOutcome }
 	| { type: "poc_sources"; sources: SentinelPocSource[] }
 	| { type: "poc_source_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "environment"; report: SentinelEnvReport; building: boolean }

@@ -761,13 +761,6 @@ export interface SentinelPocStats {
 	bySeverity: Record<SentinelPocSeverity, number>;
 }
 
-/** One file of an import batch, base64-encoded. */
-export interface SentinelPocImportFile {
-	/** File name as uploaded; .yaml/.yml are read as text, .zip is unpacked. */
-	name: string;
-	data: string;
-}
-
 // ---------------------------------------------------------------------------
 // POC 订阅（远程 zip 源）
 // ---------------------------------------------------------------------------
@@ -1479,7 +1472,6 @@ export type SentinelClientMessage =
 	| { type: "review_pending_vulns" }
 	| { type: "list_pocs"; filters?: SentinelPocFilters; page?: number; pageSize?: number }
 	| { type: "get_poc"; id: string }
-	| { type: "import_pocs"; files: SentinelPocImportFile[] }
 	| { type: "delete_poc"; id: string }
 	| { type: "list_poc_sources" }
 	/** Create or update a source; an empty `headerValue` keeps the stored one. */
@@ -1768,7 +1760,6 @@ export type SentinelServerMessage =
 	  }
 	| { type: "poc"; poc: SentinelPoc }
 	| { type: "poc_result"; action: string; id?: string; ok: boolean; error?: string }
-	| { type: "pocs_imported"; outcome: SentinelPocImportOutcome }
 	| { type: "poc_sources"; sources: SentinelPocSource[] }
 	| { type: "poc_source_result"; action: string; id?: string; ok: boolean; error?: string }
 	| { type: "environment"; report: SentinelEnvReport; building: boolean }

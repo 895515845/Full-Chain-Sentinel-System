@@ -26,6 +26,7 @@ import {
 	readFilePreview,
 	renamePath,
 	resolveWorkPath,
+	toContainerWorkPath,
 	writeFile,
 } from "../src/files.ts";
 
@@ -63,6 +64,24 @@ test("resolveWorkPath rejects anything that leaves the work directory", () => {
 	expect(() => resolveWorkPath("/workshop/notes.txt")).toThrow(/路径越界/);
 	expect(() => resolveWorkPath("/work/..")).toThrow(/路径越界/);
 	expect(() => resolveWorkPath("/work/a\0b")).toThrow(/非法字符/);
+});
+
+test("toContainerWorkPath maps host work paths and rejects paths outside it", () => {
+	const root = mkdtempSync(join(tmpdir(), "sentinel-work-"));
+	try {
+		expect(toContainerWorkPath("/work/build2.py", root)).toBe("/work/build2.py");
+		expect(toContainerWorkPath("build2.py", root)).toBe("/work/build2.py");
+		expect(toContainerWorkPath(join(root, "evidence", "build2.py"), root)).toBe("/work/evidence/build2.py");
+		expect(toContainerWorkPath(root, root)).toBe("/work");
+		// The host work directory is a boundary, not a prefix: a sibling or an
+		// arbitrary host path must never be mapped into /work.
+		expect(toContainerWorkPath(join(root, "..", "outside"), root)).toBeUndefined();
+		expect(toContainerWorkPath("/etc/passwd", root)).toBeUndefined();
+		expect(toContainerWorkPath("/workshop/notes.txt", root)).toBeUndefined();
+		expect(toContainerWorkPath("/work/../etc/passwd", root)).toBeUndefined();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test("guessMimeType maps images, text formats, and falls back to a blob", () => {

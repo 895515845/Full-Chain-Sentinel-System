@@ -14,7 +14,9 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { toContainerWorkPath } from "./files.ts";
 import type {
+	SentinelVulnEvidence,
 	SentinelVulnerability,
 	SentinelVulnFilters,
 	SentinelVulnSeverity,
@@ -67,6 +69,51 @@ export function normalizeVulnTitle(raw: string): string {
 function clip(text: string, limit = MAX_TOOL_OUTPUT): string {
 	if (text.length <= limit) return text;
 	return `${text.slice(0, limit)}\n…（输出已截断，共 ${text.length} 字符）`;
+}
+
+/**
+ * Map the host paths an agent may have copied from the file tools to the
+ * container name the hub and its preview use. A path outside both the project
+ * work directory and `/work` is left alone, so the hub still shows what was
+ * submitted instead of hiding it.
+ */
+export function evidencePathsToContainer(vuln: SentinelVulnerability, hostWorkDir: string): SentinelVulnerability {
+	if (vuln.evidence.length === 0) return vuln;
+	return {
+		...vuln,
+		evidence: vuln.evidence.map((item) => {
+			if (item.kind !== "file" || !item.path) return item;
+			const mapped = toContainerWorkPath(item.path, hostWorkDir);
+			return mapped ? { ...item, path: mapped } : item;
+		}),
+	};
+}
+
+/** Normalize and validate the file entries of a submission, before it is stored. */
+function normalizeEvidencePaths(
+	evidence: SentinelVulnEvidence[] | undefined,
+	hostWorkDir: string,
+): { evidence?: SentinelVulnEvidence[]; error?: string } {
+	if (!evidence?.length) return {};
+	const normalized: SentinelVulnEvidence[] = [];
+	for (const item of evidence) {
+		if (item.kind !== "file") {
+			normalized.push(item);
+			continue;
+		}
+		const raw = item.path?.trim();
+		if (!raw) {
+			return { error: "证据类型为 file 时必须提供 path（容器内 /work 下的文件路径）。" };
+		}
+		const mapped = toContainerWorkPath(raw, hostWorkDir);
+		if (!mapped) {
+			return {
+				error: `证据文件路径不在项目工作目录内：${raw}。请使用容器路径 /work/...，或项目工作目录下的宿主路径。`,
+			};
+		}
+		normalized.push({ ...item, path: mapped });
+	}
+	return { evidence: normalized };
 }
 
 function severityTag(severity: SentinelVulnSeverity, cvss: number): string {
@@ -140,6 +187,8 @@ export interface VulnerabilityToolOptions {
 	getSessionId: () => string | undefined;
 	/** Who is calling, e.g. "主代理" or "子代理 <runId>". */
 	getSource: () => string;
+	/** Host project work directory; evidence paths under it are stored as /work/... */
+	getWorkDir: () => string;
 	/** Called for critical/high findings so the runtime can push a notification. */
 	onHighSeverity?: (vuln: SentinelVulnerability) => void;
 	/** Called after a record is created, so connected consoles refresh the hub page. */
@@ -155,7 +204,10 @@ const evidenceSchema = Type.Object({
 	command: Type.Optional(Type.String({ description: "Command that produced the evidence (kind=command)" })),
 	output: Type.Optional(Type.String({ description: "Key output of that command (kind=command)" })),
 	path: Type.Optional(
-		Type.String({ description: "Absolute container path, e.g. /work/evidence/nmap.txt (kind=file)" }),
+		Type.String({
+			description:
+				"Absolute container path, e.g. /work/evidence/nmap.txt (kind=file). The host project directory is also accepted and stored as /work/...",
+		}),
 	),
 	note: Type.Optional(Type.String({ description: "What this piece of evidence shows" })),
 });
@@ -252,6 +304,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 			"Your severity and CVSS are a first estimate: the hub recalibrates a fresh finding from CVSS v3.1 metrics, so rate the flaw honestly for the evidence you have instead of reaching for the highest bucket",
 			"Check vuln_list before submitting so an already-recorded finding is updated in your notes instead of submitted twice",
 			"Keep the vuln_submit title to one line of at most 40 characters: the flaw plus what it affects. Plan numbers, rounds, corrected verdicts and fix advice go into description, never into the title",
+			"Cite evidence files as /work/... container paths. The file tools' host project directory is accepted and normalized, but any other host path is rejected",
 		],
 		parameters: submitSchema,
 		async execute(_toolCallId, params): Promise<AgentToolResult<SubmitDetails>> {
@@ -284,6 +337,14 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 					isError: true,
 				};
 			}
+			const normalizedEvidence = normalizeEvidencePaths(params.evidence, options.getWorkDir());
+			if (normalizedEvidence.error) {
+				return {
+					content: [{ type: "text", text: normalizedEvidence.error }],
+					details: { ok: false, error: "invalid-evidence-path" },
+					isError: true,
+				};
+			}
 			const vuln = options.store.create({
 				projectId: project.id,
 				projectName: project.name,
@@ -300,7 +361,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 				...(params.repro?.trim() ? { repro: params.repro } : {}),
 				...(params.remediation?.trim() ? { remediation: params.remediation } : {}),
 				...(params.references?.length ? { references: params.references } : {}),
-				...(params.evidence?.length ? { evidence: params.evidence } : {}),
+				...(normalizedEvidence.evidence?.length ? { evidence: normalizedEvidence.evidence } : {}),
 				...(params.platform ? { platform: params.platform } : {}),
 				...(params.appPackage?.trim() ? { appPackage: params.appPackage.trim() } : {}),
 				...(params.appVersion?.trim() ? { appVersion: params.appVersion.trim() } : {}),
@@ -384,7 +445,7 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 				};
 			}
 			return {
-				content: [{ type: "text", text: renderFull(vuln) }],
+				content: [{ type: "text", text: renderFull(evidencePathsToContainer(vuln, options.getWorkDir())) }],
 				details: { ok: true, id: vuln.id, label: vuln.label, status: vuln.status },
 			};
 		},

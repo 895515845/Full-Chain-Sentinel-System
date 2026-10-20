@@ -9,7 +9,14 @@
  */
 import { type FormEvent, useState } from "react";
 
-import { SentinelMark } from "./icons.tsx";
+import {
+	CONSOLE_VERSION,
+	PROJECT_LICENSE,
+	PROJECT_LICENSE_URL,
+	PROJECT_NAME,
+	PROJECT_REPOSITORY,
+} from "../branding.ts";
+import { GitHubIcon, SentinelMark } from "./icons.tsx";
 import { LoginBackdrop } from "./LoginBackdrop.tsx";
 
 export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: () => void }) {
@@ -110,7 +117,21 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 					<button type="submit" className="auth-submit" disabled={busy || !username.trim() || !password}>
 						{busy ? "请稍候…" : mode === "setup" ? "创建并登录" : "登录"}
 					</button>
-					<p className="auth-foot">全链哨兵 本地控制台 · 密码只以哈希存在本机</p>
+					<div className="auth-foot">
+						<span>
+							{PROJECT_NAME} · v{CONSOLE_VERSION}
+						</span>
+						<span className="auth-foot__links">
+							<a href={PROJECT_REPOSITORY} target="_blank" rel="noreferrer">
+								<GitHubIcon size={11} />
+								GitHub
+							</a>
+							<a href={PROJECT_LICENSE_URL} target="_blank" rel="noreferrer">
+								{PROJECT_LICENSE}
+							</a>
+						</span>
+						<span className="auth-foot__note">密码只以哈希存在本机</span>
+					</div>
 				</form>
 			</div>
 		</div>

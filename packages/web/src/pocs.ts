@@ -25,7 +25,7 @@ import type {
 	SentinelPocStats,
 	SentinelPocSummary,
 } from "./protocol.ts";
-import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
+import { openSqliteDatabase, type SqliteDatabase, type SqliteStatement } from "./sqlite.ts";
 
 /** Largest template accepted; real nuclei templates are a few kilobytes. */
 const MAX_TEMPLATE_BYTES = 512 * 1024;
@@ -42,6 +42,8 @@ export const LIST_CAP = 100;
  * unexpected error).
  */
 const IMPORT_COMMIT_CHUNK = 5_000;
+/** Entries between event-loop yields during an HTTP import. */
+const ASYNC_YIELD_EVERY = 100;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pocs (
@@ -208,8 +210,35 @@ function safeEntryName(name: string): string | null {
 export interface ImportFile {
 	/** File name as uploaded; .yaml/.yml are read as text, .zip is unpacked. */
 	name: string;
-	/** Raw file bytes; the console sends them base64-encoded over the WebSocket. */
+	/** Raw file bytes; an HTTP upload streams these to disk before the import starts. */
 	bytes: Buffer;
+}
+
+/** Live counters for one async import; the HTTP job exposes this to the page. */
+export interface PocImportProgress {
+	processed: number;
+	imported: number;
+	replaced: number;
+	skipped: number;
+	current: string;
+}
+
+export interface PocImportOptions {
+	/** Called every 100 entries and once at the end. */
+	onProgress?: (progress: PocImportProgress) => void;
+	/** Aborts the import at the next entry boundary. */
+	signal?: AbortSignal;
+}
+
+interface ImportSession {
+	skipped: { name: string; reason: string }[];
+	imported: number;
+	replaced: number;
+	seen: Set<string>;
+	upsert: SqliteStatement;
+	existing: SqliteStatement;
+	pending: number;
+	stamp: string;
 }
 
 export function pocsDbPath(agentDir: string): string {
@@ -218,6 +247,8 @@ export function pocsDbPath(agentDir: string): string {
 
 export class PocStore {
 	private readonly db: SqliteDatabase;
+	/** Serializes async imports: the store has one SQLite writer. */
+	private importTail: Promise<void> = Promise.resolve();
 
 	constructor(path: string) {
 		mkdirSync(dirname(path), { recursive: true });
@@ -230,70 +261,151 @@ export class PocStore {
 	}
 
 	/**
-	 * Import templates. Zip archives are unpacked entry by entry, and every yaml
-	 * is parsed and upserted by template id. One bad file never fails the batch;
-	 * it lands in `skipped` with a reason.
+	 * Import templates synchronously. Kept for tests and small callers that already
+	 * own the event loop; the console and subscription sync use `importAsync` so a
+	 * large archive does not monopolise the HTTP/WebSocket event loop.
 	 */
 	import(files: ImportFile[], now = new Date()): SentinelPocImportOutcome {
-		const skipped: { name: string; reason: string }[] = [];
-		let imported = 0;
-		let replaced = 0;
-		const seen = new Set<string>();
-		const stamp = now.toISOString();
-		const upsert = this.db.prepare(
-			"INSERT INTO pocs (id, name, severity, tags, refs, content, source_file, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
-				"ON CONFLICT(id) DO UPDATE SET name=excluded.name, severity=excluded.severity, tags=excluded.tags, refs=excluded.refs, content=excluded.content, source_file=excluded.source_file, imported_at=excluded.imported_at",
-		);
-		const existing = this.db.prepare("SELECT 1 AS ok FROM pocs WHERE id = ?");
-		let pending = 0;
-		this.db.exec("BEGIN");
+		const session = this.beginImport(now);
 		try {
-			for (const file of this.candidates(files, skipped)) {
-				if (pending >= IMPORT_COMMIT_CHUNK) {
-					this.db.exec("COMMIT");
-					this.db.exec("BEGIN");
-					pending = 0;
-				}
-				if (file.content.length > MAX_TEMPLATE_BYTES) {
-					skipped.push({ name: file.name, reason: "模板过大" });
-					continue;
-				}
-				if (isNucleiWorkflow(file.content)) {
-					skipped.push({ name: file.name, reason: "nuclei workflow，不是模板" });
-					continue;
-				}
-				const parsed = parseNucleiTemplate(file.content);
-				if (!parsed) {
-					skipped.push({ name: file.name, reason: "缺少有效的模板 id" });
-					continue;
-				}
-				if (seen.has(parsed.id)) continue; // same id twice in one batch: first wins
-				seen.add(parsed.id);
-				if (existing.get(parsed.id)) replaced++;
-				else imported++;
-				upsert.run(
-					parsed.id,
-					parsed.name,
-					parsed.severity,
-					parsed.tags.join(","),
-					parsed.references.join("\n"),
-					file.content,
-					file.name,
-					stamp,
-				);
-				pending++;
+			for (const file of this.candidates(files, session.skipped)) {
+				this.rotateChunk(session);
+				this.applyImport(session, file);
 			}
 			this.db.exec("COMMIT");
 		} catch (error) {
-			try {
-				this.db.exec("ROLLBACK");
-			} catch {
-				// A failed COMMIT may already have rolled the chunk back; the
-				// import error is what the caller needs to see.
-			}
+			this.rollback();
 			throw error;
 		}
-		return { imported, replaced, skipped };
+		return { imported: session.imported, replaced: session.replaced, skipped: session.skipped };
+	}
+
+	/**
+	 * Import one uploaded archive without blocking the event loop for its whole
+	 * duration. Zip entries are still inflated synchronously one at a time, but
+	 * the loop yields every `ASYNC_YIELD_EVERY` entries so health checks, progress
+	 * polls, and the WebSocket stay responsive.
+	 */
+	importAsync(
+		files: ImportFile[],
+		options: PocImportOptions = {},
+		now = new Date(),
+	): Promise<SentinelPocImportOutcome> {
+		const run = (): Promise<SentinelPocImportOutcome> => this.runImportAsync(files, options, now);
+		const result = this.importTail.then(run, run);
+		this.importTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	}
+
+	private async runImportAsync(
+		files: ImportFile[],
+		options: PocImportOptions,
+		now: Date,
+	): Promise<SentinelPocImportOutcome> {
+		const session = this.beginImport(now);
+		let processed = 0;
+		let current = "";
+		try {
+			for (const file of this.candidates(files, session.skipped)) {
+				if (options.signal?.aborted) throw new Error("导入已取消");
+				this.rotateChunk(session);
+				this.applyImport(session, file);
+				processed += 1;
+				current = file.name;
+				if (processed % ASYNC_YIELD_EVERY === 0) {
+					options.onProgress?.(this.progress(session, processed, current));
+					await new Promise<void>((resolve) => setImmediate(resolve));
+				}
+			}
+			this.db.exec("COMMIT");
+			options.onProgress?.(this.progress(session, processed, ""));
+		} catch (error) {
+			this.rollback();
+			throw error;
+		}
+		return { imported: session.imported, replaced: session.replaced, skipped: session.skipped };
+	}
+
+	private beginImport(now: Date): ImportSession {
+		const session: ImportSession = {
+			skipped: [],
+			imported: 0,
+			replaced: 0,
+			seen: new Set<string>(),
+			upsert: this.db.prepare(
+				"INSERT INTO pocs (id, name, severity, tags, refs, content, source_file, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+					"ON CONFLICT(id) DO UPDATE SET name=excluded.name, severity=excluded.severity, tags=excluded.tags, refs=excluded.refs, content=excluded.content, source_file=excluded.source_file, imported_at=excluded.imported_at",
+			),
+			existing: this.db.prepare("SELECT 1 AS ok FROM pocs WHERE id = ?"),
+			pending: 0,
+			stamp: now.toISOString(),
+		};
+		this.db.exec("BEGIN");
+		return session;
+	}
+
+	/**
+	 * Commit the previous chunk so a long import does not keep one giant journal.
+	 * A failure in COMMIT is caught by the caller, which rolls back the open chunk.
+	 */
+	private rotateChunk(session: ImportSession): void {
+		if (session.pending < IMPORT_COMMIT_CHUNK) return;
+		this.db.exec("COMMIT");
+		this.db.exec("BEGIN");
+		session.pending = 0;
+	}
+
+	private applyImport(session: ImportSession, file: { name: string; content: string }): void {
+		if (file.content.length > MAX_TEMPLATE_BYTES) {
+			session.skipped.push({ name: file.name, reason: "模板过大" });
+			return;
+		}
+		if (isNucleiWorkflow(file.content)) {
+			session.skipped.push({ name: file.name, reason: "nuclei workflow，不是模板" });
+			return;
+		}
+		const parsed = parseNucleiTemplate(file.content);
+		if (!parsed) {
+			session.skipped.push({ name: file.name, reason: "缺少有效的模板 id" });
+			return;
+		}
+		if (session.seen.has(parsed.id)) return; // same id twice in one batch: first wins
+		session.seen.add(parsed.id);
+		if (session.existing.get(parsed.id)) session.replaced += 1;
+		else session.imported += 1;
+		session.upsert.run(
+			parsed.id,
+			parsed.name,
+			parsed.severity,
+			parsed.tags.join(","),
+			parsed.references.join("\n"),
+			file.content,
+			file.name,
+			session.stamp,
+		);
+		session.pending += 1;
+	}
+
+	private progress(session: ImportSession, processed: number, current: string): PocImportProgress {
+		return {
+			processed,
+			imported: session.imported,
+			replaced: session.replaced,
+			skipped: session.skipped.length,
+			current,
+		};
+	}
+
+	private rollback(): void {
+		try {
+			this.db.exec("ROLLBACK");
+		} catch {
+			// A failed COMMIT may already have rolled the chunk back; the
+			// import error is what the caller needs to see.
+		}
 	}
 
 	/**

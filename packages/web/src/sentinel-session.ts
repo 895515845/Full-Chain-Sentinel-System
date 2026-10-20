@@ -75,7 +75,16 @@ import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { DroidStore, droidDbPath } from "./droid.ts";
 import type { DroidGateway } from "./droid-gateway.ts";
 import { createApkTools, createDroidTools, DROID_TOOL_NAMES, type DroidToolContext } from "./droid-tool.ts";
-import { deletePath, downloadFile, listFiles, makeDirectory, readFilePreview, renamePath, writeFile } from "./files.ts";
+import {
+	deletePath,
+	downloadFile,
+	listFiles,
+	makeDirectory,
+	readFilePreview,
+	renamePath,
+	toContainerWorkPath,
+	writeFile,
+} from "./files.ts";
 import { createFridaTools, FRIDA_TOOL_NAMES } from "./frida-tool.ts";
 import { buildJudgeInput, GATEKEEPER_SAMPLE_COMMAND, Gatekeeper, type ResolvedJudgeEndpoint } from "./gatekeeper.ts";
 import { readGatekeeperConfig, writeGatekeeperConfig } from "./gatekeeper-config.ts";
@@ -176,7 +185,7 @@ import { appendPluginAudit } from "./plugin-audit.ts";
 import * as pluginService from "./plugin-service.ts";
 import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
-import { LIST_CAP, PocStore, pocsDbPath } from "./pocs.ts";
+import { LIST_CAP, type PocImportOptions, PocStore, pocsDbPath } from "./pocs.ts";
 import { ensureBuiltinPresets, findPreset, readPresetText } from "./presets.ts";
 import type {
 	SentinelApiModel,
@@ -222,7 +231,6 @@ import type {
 	SentinelPluginView,
 	SentinelPoc,
 	SentinelPocFilters,
-	SentinelPocImportFile,
 	SentinelPocImportOutcome,
 	SentinelPocSource,
 	SentinelPocSourceSave,
@@ -273,7 +281,7 @@ import { SupervisorStore, supervisorDbPath } from "./supervisor-store.ts";
 import { createToolAuditExtension } from "./tool-audit.ts";
 import { createToolGateExtension, type ToolGateContext } from "./tool-gate.ts";
 import { branchTranscript, branchUserMessages, messageText, withSystemPrompt } from "./transcript.ts";
-import { createVulnerabilityTools } from "./vuln-tool.ts";
+import { createVulnerabilityTools, evidencePathsToContainer } from "./vuln-tool.ts";
 import { emptyVulnStats, VulnerabilityStore, vulnerabilityDbPath } from "./vulnerabilities.ts";
 import { buildVulnReport } from "./vulnerability-markdown.ts";
 import { probeTavilyKey, tavilyUsage, usageRemaining } from "./websearch.ts";
@@ -860,6 +868,7 @@ export class SentinelRuntime {
 				permissions,
 				getSessionId: () => manager.getSessionId(),
 				getSource: () => (task ? `工程任务「${task.taskTitle}」` : "主代理"),
+				workDir: manager.getCwd(),
 				// A finding counts towards the goal's hub statement whether the main
 				// agent or one of its sub-agents submitted it.
 				onSubmit: task ? task.onFinding : () => this.noteGoalFinding(managed),
@@ -938,6 +947,7 @@ export class SentinelRuntime {
 									permissions: subagentPermissions,
 									getSessionId: () => manager.getSessionId(),
 									getSource,
+									workDir: manager.getCwd(),
 									// A task session's goal is the worker's, not managed.goal:
 									// route it to the same counter the main agent uses.
 									onSubmit: task ? task.onFinding : () => this.noteGoalFinding(managed),
@@ -1248,6 +1258,8 @@ export class SentinelRuntime {
 		permissions: SentinelPermissionSet;
 		getSessionId: () => string | undefined;
 		getSource: () => string;
+		/** Host project work directory, mapped to /work inside the container. */
+		workDir: string;
 		/** A record was created, so a running goal can count it as its own finding. */
 		onSubmit: () => void;
 	}): ToolDefinition[] {
@@ -1257,6 +1269,7 @@ export class SentinelRuntime {
 			getProject: () => options.project,
 			getSessionId: options.getSessionId,
 			getSource: options.getSource,
+			getWorkDir: () => options.workDir,
 			onHighSeverity: (vuln) => this.notifyHighSeverity(vuln),
 			onChange: () => this.hooks.onVulnChange(),
 			onSubmit: (vuln) => {
@@ -3935,7 +3948,10 @@ export class SentinelRuntime {
 	}
 
 	async readFile(path: string): Promise<SentinelFilePreview> {
-		return await readFilePreview(this.requireContainer(), path);
+		// Evidence records written before submit-time normalization can still hold
+		// the host path; preview must resolve that to the same file's /work name.
+		const mapped = toContainerWorkPath(path, this.cwd) ?? path;
+		return await readFilePreview(this.requireContainer(), mapped);
 	}
 
 	async writeFile(path: string, text: string): Promise<{ path: string; size: number }> {
@@ -3999,7 +4015,10 @@ export class SentinelRuntime {
 
 	/** One finding, by id or by its human-readable label, inside the active project. */
 	getVuln(id: string): SentinelVulnerability | undefined {
-		return this.activeProjectId ? this.vulnerabilities.find(this.activeProjectId, id) : undefined;
+		const vuln = this.activeProjectId ? this.vulnerabilities.find(this.activeProjectId, id) : undefined;
+		// Older records may hold the host work-directory path the file tools use;
+		// the hub and its preview only understand the container name.
+		return vuln ? evidencePathsToContainer(vuln, this.cwd) : undefined;
 	}
 
 	/** Operator review: status, severity, CVSS, or a note. The agent cannot do this. */
@@ -4008,7 +4027,7 @@ export class SentinelRuntime {
 		if (!vuln) return undefined;
 		const updated = this.vulnerabilities.update(vuln.id, patch);
 		if (updated) this.hooks.onVulnChange();
-		return updated;
+		return updated ? evidencePathsToContainer(updated, this.cwd) : undefined;
 	}
 
 	deleteVuln(id: string): boolean {
@@ -4036,7 +4055,8 @@ export class SentinelRuntime {
 		const summaries = projectId ? this.vulnerabilities.list(projectId, filters) : [];
 		const vulns = summaries
 			.map((summary) => this.vulnerabilities.get(summary.id))
-			.filter((vuln): vuln is SentinelVulnerability => vuln !== undefined);
+			.filter((vuln): vuln is SentinelVulnerability => vuln !== undefined)
+			.map((vuln) => evidencePathsToContainer(vuln, this.cwd));
 		return buildVulnReport({
 			projectId: projectId ?? "",
 			projectName: this.activeProjectName ?? "未命名项目",
@@ -4111,13 +4131,15 @@ export class SentinelRuntime {
 	}
 
 	/**
-	 * Import templates from base64-encoded files. This is the one write path and
-	 * it belongs to the operator; there is no agent tool that can reach it.
+	 * Import operator-uploaded bytes. The HTTP layer streams the request to disk
+	 * first; this method yields between chunks so the console stays responsive
+	 * while a large archive is unpacked and written.
 	 */
-	importPocs(files: SentinelPocImportFile[]): SentinelPocImportOutcome {
-		const outcome = this.pocs.import(
-			files.map((file) => ({ name: file.name, bytes: Buffer.from(file.data, "base64") })),
-		);
+	async importPocBytes(
+		files: { name: string; bytes: Buffer }[],
+		options: PocImportOptions = {},
+	): Promise<SentinelPocImportOutcome> {
+		const outcome = await this.pocs.importAsync(files, options);
 		this.hooks.onPocChange();
 		return outcome;
 	}

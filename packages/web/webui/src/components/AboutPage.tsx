@@ -6,8 +6,16 @@
  * when something looks wrong.
  */
 
+import {
+	CONSOLE_VERSION,
+	PROJECT_LICENSE,
+	PROJECT_LICENSE_URL,
+	PROJECT_NAME,
+	PROJECT_REPOSITORY,
+} from "../branding.ts";
 import type { SentinelProjectInfo, SentinelResolvedModelView, SentinelStateSnapshot, SentinelStatsView } from "../types.ts";
 import { SENTINEL_MODE_LABELS } from "../types.ts";
+import { GitHubIcon, SentinelMark } from "./icons.tsx";
 
 export function AboutPage({
 	snapshot,
@@ -24,7 +32,7 @@ export function AboutPage({
 	connected: boolean;
 }) {
 	const rows: { label: string; value: string }[] = [
-		{ label: "控制台", value: "全链哨兵 Web 控制台" },
+		{ label: "控制台", value: `${PROJECT_NAME} Web 控制台` },
 		{ label: "连接状态", value: connected ? "已连接" : "已断开" },
 		{ label: "主模型", value: main ? `${main.entryName}（${main.modelId}）` : "未配置" },
 		{ label: "模型", value: snapshot?.model ? `${snapshot.model.provider} / ${snapshot.model.id}` : "未配置" },
@@ -59,6 +67,19 @@ export function AboutPage({
 					所有命令都在项目容器内以 root 执行，bash 命令在审批模式下逐条确认。工具输出与文件面板内容来自容器，
 					请仅在已授权的目标上使用。
 				</p>
+				<div className="about-brand">
+					<SentinelMark size={16} className="about-brand__mark" />
+					<span className="about-brand__name">{PROJECT_NAME}</span>
+					<span className="about-brand__version">v{CONSOLE_VERSION}</span>
+					<span className="about-brand__sep" />
+					<a href={PROJECT_REPOSITORY} target="_blank" rel="noreferrer">
+						<GitHubIcon size={12} />
+						GitHub
+					</a>
+					<a href={PROJECT_LICENSE_URL} target="_blank" rel="noreferrer">
+						{PROJECT_LICENSE}
+					</a>
+				</div>
 			</div>
 		</div>
 	);

@@ -30,6 +30,13 @@ export const MAX_ZIP_ENTRY_BYTES = 4 * 1024 * 1024;
  * archive is held whole in the process while it is read.
  */
 export const MAX_ZIP_TOTAL_BYTES = 512 * 1024 * 1024;
+/**
+ * Largest total uncompressed payload accepted across one archive. The compressed
+ * size cap alone does not bound a high-ratio archive: 18MB can expand into
+ * gigabytes across thousands of entries, and every inflated byte blocks the
+ * event loop until the entry is stored or skipped.
+ */
+export const MAX_ZIP_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
 
 /** One readable entry. */
 export interface ZipEntry {
@@ -108,6 +115,7 @@ function centralDirectory(buffer: Buffer, eocd: number): CentralDirectory {
 /** Walk the central directory, inflating each entry only when it is pulled. */
 function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skipped: ZipSkip[]): Generator<ZipEntry> {
 	let offset = directory.offset;
+	let totalUncompressed = 0;
 	for (let index = 0; index < directory.entryCount; index++) {
 		if (offset + 46 > buffer.length || buffer.readUInt32LE(offset) !== CENTRAL_SIGNATURE) {
 			skipped.push({ name: `#${index}`, reason: "zip 目录损坏" });
@@ -162,6 +170,11 @@ function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skip
 			if (!data) {
 				skipped.push({ name, reason: `不支持的压缩方式 ${method}` });
 				continue;
+			}
+			totalUncompressed += data.length;
+			if (totalUncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
+				skipped.push({ name, reason: "解压后总大小超过上限" });
+				return;
 			}
 			yield { name, data };
 		} catch {

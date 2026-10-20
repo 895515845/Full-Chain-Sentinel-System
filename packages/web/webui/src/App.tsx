@@ -25,7 +25,7 @@ import { Overlay } from "./components/Overlay.tsx";
 import { PermissionsPanel } from "./components/PermissionsPanel.tsx";
 import { PluginPanel } from "./components/PluginPanel.tsx";
 import { PluginUiOverlay, type PluginUiCallResult, type PluginUiContext } from "./components/PluginUiOverlay.tsx";
-import { PocPage, readFileBase64 } from "./components/PocPage.tsx";
+import { PocPage } from "./components/PocPage.tsx";
 import { PocSourcesPanel } from "./components/PocSourcesPanel.tsx";
 import { type PresetImportNotice, PresetPanel } from "./components/PresetPanel.tsx";
 import { ProjectGate } from "./components/ProjectGate.tsx";
@@ -81,7 +81,7 @@ import type {
 	SentinelPermissionsConfig,
 	SentinelPoc,
 	SentinelPocFilters,
-	SentinelPocImportFile,
+	SentinelPocImportProgress,
 	SentinelPocImportOutcome,
 	SentinelPocSource,
 	SentinelPocSourceSave,
@@ -121,6 +121,12 @@ import type {
 	SentinelVulnUpdate,
 } from "./types.ts";
 import { SENTINEL_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
+import {
+	mergePocImportOutcomes,
+	POC_UPLOAD_MAX_BYTES,
+	uploadPocFile,
+	waitForPocImport,
+} from "./poc-import.ts";
 import { ProjectAction } from "./project-actions.ts";
 import { SentinelConnection } from "./ws.ts";
 
@@ -368,6 +374,7 @@ export function App() {
 	const [pocPageSize, setPocPageSize] = useState(100);
 	const [pocDetail, setPocDetail] = useState<SentinelPoc | null>(null);
 	const [pocImporting, setPocImporting] = useState(false);
+	const [pocImportProgress, setPocImportProgress] = useState<SentinelPocImportProgress | null>(null);
 	const [lastPocImport, setLastPocImport] = useState<SentinelPocImportOutcome | null>(null);
 	const [pocSources, setPocSources] = useState<SentinelPocSource[]>([]);
 	const [pocSyncing, setPocSyncing] = useState<string | null>(null);
@@ -1070,10 +1077,6 @@ export function App() {
 					if (message.action === "同步" && message.ok && message.id) setPocSyncing(null);
 					if (message.action === "同步官方 POC") setPocOfficialSyncing(false);
 					break;
-				case "pocs_imported":
-					setPocImporting(false);
-					setLastPocImport(message.outcome);
-					break;
 				case "api_models":
 					setApiModels(message.items);
 					break;
@@ -1767,22 +1770,42 @@ export function App() {
 		[send],
 	);
 
-	/** Read the picked files as base64 and hand them to the server. */
+	/**
+	 * Upload one file per HTTP request, then poll its import job. A zip stays a
+	 * single streamed body instead of becoming a base64 WebSocket message, and
+	 * the server imports it asynchronously so the page can show live counters.
+	 */
 	const importPocs = useCallback(
 		async (files: File[]) => {
+			if (files.length === 0) return;
+			if (files.length > 2000) {
+				pushError("一次最多导入 2000 个文件，请打包成 zip 或分批上传");
+				return;
+			}
+			const totalBytes = files.reduce((total, file) => total + file.size, 0);
+			if (totalBytes > POC_UPLOAD_MAX_BYTES) {
+				pushError(`文件总大小超过 ${Math.round(POC_UPLOAD_MAX_BYTES / 1024 / 1024)}MB 上限`);
+				return;
+			}
 			setPocImporting(true);
+			setPocImportProgress(null);
 			setLastPocImport(null);
+			const outcomes: SentinelPocImportOutcome[] = [];
 			try {
-				const payload: SentinelPocImportFile[] = await Promise.all(
-					files.map(async (file) => ({ name: file.name, data: await readFileBase64(file) })),
-				);
-				send({ type: "import_pocs", files: payload });
+				for (const file of files) {
+					const id = await uploadPocFile(file);
+					outcomes.push(await waitForPocImport(id, setPocImportProgress));
+				}
+				setLastPocImport(mergePocImportOutcomes(outcomes));
 			} catch (error) {
+				if (outcomes.length > 0) setLastPocImport(mergePocImportOutcomes(outcomes));
+				pushError(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+			} finally {
 				setPocImporting(false);
-				pushError(`读取文件失败：${error instanceof Error ? error.message : String(error)}`);
+				setPocImportProgress(null);
 			}
 		},
-		[send, pushError],
+		[pushError],
 	);
 
 	/** The one-click official sync: the server creates the source if it is gone. */
@@ -2409,6 +2432,7 @@ export function App() {
 							filters={pocFilters}
 							detail={pocDetail}
 							importing={pocImporting}
+							importProgress={pocImportProgress}
 							outcome={lastPocImport}
 							onFiltersChange={loadPocs}
 							onPageChange={loadPocsPage}

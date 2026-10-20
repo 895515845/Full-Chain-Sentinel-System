@@ -320,6 +320,33 @@ function buildZip(files: { name: string; data: Buffer }[], options: { zip64?: bo
 	return Buffer.concat([...locals, directory, ...trailer, eocd]);
 }
 
+test("an archive with more than 10,000 entries imports asynchronously", async () => {
+	// Regression for the console stuck at "导入中": the archive is both large in
+	// entry count and large enough that a synchronous import would hold the event
+	// loop for the whole batch.
+	const ownDir = mkdtempSync(join(tmpdir(), "sentinel-pocs-zip-large-"));
+	const own = new PocStore(join(ownDir, "pocs.db"));
+	try {
+		const zip = buildZip(
+			Array.from({ length: 10_001 }, (_, index) => ({
+				name: `templates/bulk-${index}.yaml`,
+				data: Buffer.from(TEMPLATE(`bulk-${index}`), "utf8"),
+			})),
+		);
+		const progress: number[] = [];
+		const outcome = await own.importAsync([{ name: "bulk.zip", bytes: zip }], {
+			onProgress: (entry) => progress.push(entry.processed),
+		});
+		expect(outcome).toMatchObject({ imported: 10_001, replaced: 0, skipped: [] });
+		expect(own.stats().total).toBe(10_001);
+		expect(progress).toContain(100);
+		expect(progress.at(-1)).toBe(10_001);
+	} finally {
+		own.close();
+		rmSync(ownDir, { recursive: true, force: true });
+	}
+});
+
 test("zip entries are unpacked and imported", () => {
 	const zip = buildZip([
 		{ name: "templates/t-zip.yaml", data: Buffer.from(TEMPLATE("t-zip"), "utf8") },
@@ -438,6 +465,27 @@ test("getMany returns the requested templates in order, once each", () => {
 	expect(rows.map((row) => row.id)).toEqual(["t-low", "t1"]);
 	expect(rows[0]?.content).toContain("id: t-low");
 	expect(store.getMany([])).toEqual([]);
+});
+
+test("async import reports progress and yields between entries", async () => {
+	const ownDir = mkdtempSync(join(tmpdir(), "sentinel-pocs-async-"));
+	const own = new PocStore(join(ownDir, "pocs.db"));
+	try {
+		const files = Array.from({ length: 250 }, (_, index) => ({
+			name: `${index}.yaml`,
+			bytes: Buffer.from(TEMPLATE(`async-${index}`), "utf8"),
+		}));
+		const progress: number[] = [];
+		const outcome = await own.importAsync(files, {
+			onProgress: (entry) => progress.push(entry.processed),
+		});
+		expect(outcome).toMatchObject({ imported: 250, replaced: 0, skipped: [] });
+		expect(progress).toContain(100);
+		expect(progress.at(-1)).toBe(250);
+	} finally {
+		own.close();
+		rmSync(ownDir, { recursive: true, force: true });
+	}
 });
 
 test("an import larger than one commit chunk stays complete and countable", () => {

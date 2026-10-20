@@ -3,12 +3,13 @@
  *
  * Structure follows the reference console: a 54px brand row, the project
  * selector, a grouped menu whose children render as indented 34px rows, and a
- * 48px footer holding connection state and utility buttons. The sider owns
+ * 56px footer holding connection state and utility buttons. The sider owns
  * navigation only; every page lives in the content area.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { PROJECT_REPOSITORY } from "../branding.ts";
 import type { SessionInfoView, SentinelEngine, SentinelMode, SentinelPageId, SentinelSessionStatus } from "../types.ts";
 import { SENTINEL_MODE_LABELS } from "../types.ts";
 import {
@@ -23,6 +24,7 @@ import {
 	EnvironmentIcon,
 	ExpandIcon,
 	GateIcon,
+	GitHubIcon,
 	LockIcon,
 	LogoutIcon,
 	McpIcon,
@@ -600,23 +602,37 @@ export function AppSider({
 			</nav>
 
 			<div className="sider-footer">
-				<span className="sider-foot-status">
-					<span className={`dot ${connected ? "ok" : ""}`} />
-					{connected ? SENTINEL_MODE_LABELS[mode] : "已断开"}
-				</span>
-				{authUser ? (
-					<>
+				<div className="sider-foot-row">
+					<span className="sider-foot-status">
+						<span className={`dot ${connected ? "ok" : ""}`} />
+						{connected ? SENTINEL_MODE_LABELS[mode] : "已断开"}
+					</span>
+					{authUser ? (
 						<span className="sider-foot-user" title={`已登录：${authUser}`}>
 							{authUser}
 						</span>
+					) : null}
+				</div>
+				<div className="sider-foot-actions">
+					{authUser ? (
 						<button type="button" className="sider-foot-btn" title="退出登录" onClick={onLogout}>
 							<LogoutIcon />
 						</button>
-					</>
-				) : null}
-				<button type="button" className="sider-foot-btn" title="刷新当前页" onClick={onRefresh}>
-					<RefreshIcon />
-				</button>
+					) : null}
+					<a
+						className="sider-foot-btn"
+						href={PROJECT_REPOSITORY}
+						target="_blank"
+						rel="noreferrer"
+						title="源码仓库 · GitHub"
+						aria-label="打开 GitHub 源码仓库"
+					>
+						<GitHubIcon />
+					</a>
+					<button type="button" className="sider-foot-btn" title="刷新当前页" onClick={onRefresh}>
+						<RefreshIcon />
+					</button>
+				</div>
 			</div>
 			{hoverCard && cardSession ? (
 				<SessionHoverCard

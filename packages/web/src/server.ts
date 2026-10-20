@@ -88,6 +88,7 @@ import { gateCookieHeader, generateGateToken, hasValidGate, isGateEntry, sendGat
 import { getOfficialPlugin, listOfficialPlugins } from "./official-plugins.ts";
 import { readPluginPackage } from "./plugin-package.ts";
 import { effectivePluginHosts } from "./plugin-store.ts";
+import { POC_IMPORT_MAX_BYTES, PocImportManager } from "./poc-import.ts";
 import { SentinelRuntime } from "./sentinel-session.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { storeUpload } from "./upload.ts";
@@ -421,6 +422,9 @@ export async function startSentinelServer(
 			onSupervisorAdvice: (advice) => broadcast({ type: "supervisor_advice", advice }),
 		},
 	});
+	const pocImports = new PocImportManager((file, onProgress, signal) =>
+		runtime.importPocBytes([file], { onProgress, signal }),
+	);
 
 	/**
 	 * Docker environment state. The check runs once at startup and on demand; every
@@ -776,6 +780,48 @@ export async function startSentinelServer(
 		sendJson(response, { ok: true, name: stored.name, path: stored.path, size: stored.size });
 	}
 
+	/**
+	 * POC upload: the raw body is one file, streamed to a private temp file. The
+	 * response is only an acceptance receipt; the import itself is a queued job
+	 * polled through `/api/pocs/import/<id>`. This keeps an 18MB+ zip out of a
+	 * WebSocket frame and keeps the event loop free while it is parsed.
+	 */
+	async function handlePocImport(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		try {
+			const name = new URL(request.url ?? "/", "http://localhost").searchParams.get("name") ?? "poc.zip";
+			const declared = Number(request.headers["content-length"] ?? 0);
+			if (Number.isFinite(declared) && declared > POC_IMPORT_MAX_BYTES) {
+				request.resume();
+				sendJson(response, { error: `文件超过 ${Math.round(POC_IMPORT_MAX_BYTES / 1024 / 1024)}MB 上限` }, 413);
+				return;
+			}
+			const accepted = await pocImports.accept(name, request);
+			if (!accepted.ok) {
+				// The body may still be arriving when the queue rejects it; drain it so
+				// the client sees the JSON error instead of a connection reset.
+				request.resume();
+				sendJson(response, { error: accepted.error }, accepted.status);
+				return;
+			}
+			sendJson(response, { ok: true, id: accepted.id }, 202);
+		} catch (error) {
+			if (!response.headersSent && !response.destroyed) {
+				sendJson(response, { error: error instanceof Error ? error.message : String(error) }, 500);
+			} else {
+				response.destroy();
+			}
+		}
+	}
+
+	function handlePocImportStatus(response: ServerResponse, id: string): void {
+		const job = pocImports.get(id);
+		if (!job) {
+			sendJson(response, { error: "导入任务不存在或已过期" }, 404);
+			return;
+		}
+		sendJson(response, job);
+	}
+
 	// The device gateway owns the reverse WS the DroidBridge APK dials. The store
 	// is the runtime's (its tools read the registry); the hooks route lifecycle
 	// events into the console broadcasts and the server log.
@@ -859,6 +905,19 @@ export async function startSentinelServer(
 			}
 			if (path.startsWith("/plugin-icon/")) {
 				void servePluginIcon(runtime, request, response);
+				return;
+			}
+			if (path === "/api/pocs/import" && request.method === "POST") {
+				void handlePocImport(request, response);
+				return;
+			}
+			if (path.startsWith("/api/pocs/import/") && request.method === "GET") {
+				const id = path.slice("/api/pocs/import/".length);
+				if (!/^[0-9a-f-]{36}$/i.test(id)) {
+					sendJson(response, { error: "导入任务 id 非法" }, 400);
+					return;
+				}
+				handlePocImportStatus(response, id);
 				return;
 			}
 			if (path === "/api/health") {
@@ -1965,24 +2024,6 @@ export async function startSentinelServer(
 					sendTo(socket, { type: "poc", poc });
 					return;
 				}
-				case "import_pocs": {
-					if (message.files.length === 0) {
-						sendError(socket, "没有可导入的文件");
-						return;
-					}
-					if (message.files.length > 2000) {
-						sendError(socket, "一次最多导入 2000 个文件，请分批上传");
-						return;
-					}
-					try {
-						const outcome = runtime.importPocs(message.files);
-						sendTo(socket, { type: "pocs_imported", outcome });
-						broadcastPocs();
-					} catch (error) {
-						sendError(socket, `导入失败：${error instanceof Error ? error.message : String(error)}`);
-					}
-					return;
-				}
 				case "list_poc_sources": {
 					sendTo(socket, { type: "poc_sources", sources: runtime.listPocSources() });
 					return;
@@ -2655,6 +2696,7 @@ export async function startSentinelServer(
 				url: consoleUrl(),
 				environment,
 				close: () => {
+					pocImports.close();
 					engines?.dispose();
 					runtime.dispose();
 					for (const client of clients) client.terminate();

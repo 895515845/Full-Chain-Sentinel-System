@@ -301,7 +301,7 @@ export class PocSubscriptions {
 				}
 			}
 			if (!bytes) throw lastError instanceof Error ? lastError : new Error("下载失败");
-			outcome = this.store.import([{ name: "subscription.zip", bytes }]);
+			outcome = await this.store.importAsync([{ name: "subscription.zip", bytes }]);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
 		} finally {

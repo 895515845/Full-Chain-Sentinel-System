@@ -20,6 +20,7 @@ import type {
 	SentinelPoc,
 	SentinelPocFilters,
 	SentinelPocImportOutcome,
+	SentinelPocImportProgress,
 	SentinelPocSeverity,
 	SentinelPocSource,
 	SentinelPocStats,
@@ -69,6 +70,7 @@ export function PocPage({
 	filters,
 	detail,
 	importing,
+	importProgress,
 	outcome,
 	onFiltersChange,
 	onPageChange,
@@ -89,6 +91,8 @@ export function PocPage({
 	filters: SentinelPocFilters;
 	detail: SentinelPoc | null;
 	importing: boolean;
+	/** Live counters while the HTTP import job runs. */
+	importProgress: SentinelPocImportProgress | null;
 	/** Result of the last import batch, shown until the next one starts. */
 	outcome: SentinelPocImportOutcome | null;
 	onFiltersChange(filters: SentinelPocFilters): void;
@@ -304,6 +308,14 @@ export function PocPage({
 					</span>
 				</div>
 	
+				{importing && importProgress ? (
+					<div className="poc-import-progress">
+						已处理 {importProgress.processed} 条 · 新增 {importProgress.imported} · 覆盖 {importProgress.replaced} ·
+						跳过 {importProgress.skipped}
+						{importProgress.current ? ` · ${importProgress.current}` : ""}
+					</div>
+				) : null}
+
 				{outcome ? (
 					<div className="poc-import-note">
 						导入完成：新增 {outcome.imported} 条，覆盖 {outcome.replaced} 条
@@ -375,6 +387,7 @@ export function PocPage({
 	);
 }
 
+/** Read a picked file as base64; shared with the plugin-package picker. */
 export function readFileBase64(file: File): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const reader = new FileReader();

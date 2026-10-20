@@ -71,7 +71,7 @@
 	--sider-width: 210px;
 	--sider-collapsed-width: 48px;
 	--brand-height: 54px;
-	--sider-footer-height: 48px;
+	--sider-footer-height: 56px;
 	--gutter: 16px;
 	--radius: 6px;
 	--shadow-sm: 0 1px 2.5px #0000002e;
@@ -1060,12 +1060,26 @@ button.ghost.small.on {
 .sider-footer {
 	flex: none;
 	display: flex;
-	align-items: center;
-	justify-content: flex-end;
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
 	gap: 2px;
 	height: var(--sider-footer-height);
-	padding: 0 8px;
+	padding: 4px 8px;
 	border-top: 1px solid var(--nav-border);
+}
+
+.sider-foot-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.sider-foot-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 2px;
 }
 
 .sider.collapsed .sider-footer {
@@ -1074,13 +1088,22 @@ button.ghost.small.on {
 	padding: 6px 0;
 }
 
+.sider.collapsed .sider-foot-row {
+	display: none;
+}
+
+.sider.collapsed .sider-foot-actions {
+	flex-direction: column;
+	align-items: center;
+}
+
 .sider-foot-btn {
 	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 32px;
+	width: 28px;
+	height: 28px;
 	padding: 0;
 	border: none;
 	border-radius: var(--radius);
@@ -1096,7 +1119,7 @@ button.ghost.small.on {
 }
 
 .sider-foot-user {
-	max-width: 76px;
+	max-width: 120px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1113,7 +1136,6 @@ button.ghost.small.on {
 	align-items: center;
 	gap: 6px;
 	margin-right: auto;
-	padding-left: 8px;
 	font-size: 12px;
 	color: var(--nav-text-dim);
 	white-space: nowrap;
@@ -3975,6 +3997,55 @@ svg.lucide {
 	min-width: 0;
 	color: var(--text);
 	word-break: break-all;
+}
+
+/* 关于页脚：版本、源码与许可证。margin-top:auto 让它停在内容底部，
+   内容超出时自然跟在提示后面，不覆盖表格。 */
+.about-brand {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin-top: auto;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.about-brand__mark {
+	color: var(--accent);
+}
+
+.about-brand__name {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.about-brand__version {
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: var(--raised);
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.about-brand__sep {
+	width: 1px;
+	height: 12px;
+	background: var(--border-strong);
+}
+
+.about-brand a {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--accent);
+}
+
+.about-brand a:hover {
+	color: var(--accent-hover);
 }
 
 /* ============================================================
@@ -10974,9 +11045,37 @@ button.link {
 }
 
 .auth-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 4px 10px;
 	margin: 16px 0 0;
 	color: #5c6873;
 	font-size: 11.5px;
+}
+
+.auth-foot__links {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.auth-foot__links a {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	color: #7f96aa;
+}
+
+.auth-foot__links a:hover {
+	color: #b9d4ed;
+}
+
+.auth-foot__note {
+	flex-basis: 100%;
+	color: #4f5b66;
+	font-size: 10.5px;
 }
 
 @media (max-width: 900px) {
@@ -11040,6 +11139,7 @@ button.link {
 .poc-toolbar,
 .poc-official,
 .poc-import-note,
+.poc-import-progress,
 .poc-tablewrap,
 .poc-pager,
 .poc-foot {
@@ -11116,6 +11216,14 @@ button.link {
 	font-size: 12.5px;
 	color: var(--dim);
 	background: rgba(9, 96, 189, 0.04);
+}
+
+.poc-import-progress {
+	padding: 8px 0;
+	border-bottom: 1px solid var(--border);
+	font-size: 12.5px;
+	color: var(--accent);
+	font-variant-numeric: tabular-nums;
 }
 
 /* 台账表：随页体滚动，这里不再自建滚动容器 */
@@ -12398,6 +12506,33 @@ button.link {
 	margin: 12px 0 0;
 	color: #6b7684;
 	font-size: 12px;
+}
+
+/* 开源归属：展示层附加信息，不属于被哈希的承诺正文。 */
+.consent-source {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin: 7px 0 0;
+	color: #6b7684;
+	font-size: 11.5px;
+	line-height: 1.6;
+}
+
+.consent-source__sep {
+	color: #3f4d5b;
+}
+
+.consent-source a {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	color: #8dc4f5;
+}
+
+.consent-source a:hover {
+	color: #b9d4ed;
 }
 .consent-error {
 	margin-top: 12px;
