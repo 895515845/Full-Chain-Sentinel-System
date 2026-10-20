@@ -15,6 +15,9 @@ import type {
 	SentinelEngine,
 	SentinelEngineGateMode,
 	SentinelEngineLimits,
+	SentinelEngineSchedule,
+	SentinelEngineScheduleAction,
+	SentinelEngineScheduleInput,
 	SentinelEngineTask,
 	SentinelEngineTaskStatus,
 	SentinelModelConfig,
@@ -43,6 +46,7 @@ const TASK_STATUS_CLASS: Record<SentinelEngineTaskStatus, string> = {
 };
 
 const ENGINE_STATUS_LABELS: Record<SentinelEngine["status"], string> = {
+	scheduled: "已计划",
 	running: "运行中",
 	paused: "已暂停",
 	completed: "已完成",
@@ -50,6 +54,7 @@ const ENGINE_STATUS_LABELS: Record<SentinelEngine["status"], string> = {
 };
 
 const ENGINE_STATUS_CLASS: Record<SentinelEngine["status"], string> = {
+	scheduled: "tag-scheduled",
 	running: "tag-running",
 	paused: "tag-paused",
 	completed: "tag-done",
@@ -71,6 +76,165 @@ function formatUsage(total: number | null | undefined): string {
 
 function formatClock(at: number): string {
 	return new Date(at).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+const SCHEDULE_PHASE_LABELS: Record<SentinelEngineSchedule["phase"], string> = {
+	waiting_start: "等待开始",
+	running: "计划运行中",
+	paused: "计划暂停中",
+	finished: "计划已结束",
+};
+
+const SCHEDULE_FINISH_LABELS: Record<NonNullable<SentinelEngineSchedule["finishedReason"]>, string> = {
+	completed: "工程已完成，后续计划取消",
+	deadline: "到达最晚停止时间，工程未完成，已暂停",
+	manual: "操作员手动操作，后续计划已停用",
+	canceled: "计划已取消",
+	start_failed: "定时启动或恢复失败，计划已停用",
+	missed: "错过开始时间超过 10 分钟，计划未自动补跑",
+	restart: "服务重启，计划已停用，等待操作员继续",
+};
+
+const SCHEDULE_ACTION_LABELS: Record<SentinelEngineScheduleAction, string> = {
+	start: "启动",
+	pause: "暂停",
+	resume: "恢复",
+	deadline: "最晚停止",
+};
+
+function browserTimezone(): string {
+	return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function formatZonedDateTime(at: number, timezone: string): string {
+	try {
+		const parts = new Intl.DateTimeFormat("en-US", {
+			timeZone: timezone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+			hourCycle: "h23",
+		}).formatToParts(new Date(at));
+		const value = (type: Intl.DateTimeFormatPartTypes): string =>
+			parts.find((part) => part.type === type)?.value ?? "";
+		return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}`;
+	} catch {
+		return new Date(at).toLocaleString("zh-CN", { hour12: false });
+	}
+}
+
+function toLocalInputValue(at: number): string {
+	const date = new Date(at);
+	const pad = (value: number): string => String(value).padStart(2, "0");
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function parseLocalInput(value: string): number | null {
+	if (!value) return null;
+	const at = new Date(value).getTime();
+	return Number.isFinite(at) ? at : null;
+}
+
+interface ScheduleDraft {
+	startAt: string;
+	pauseEnabled: boolean;
+	pauseAt: string;
+	resumeAt: string;
+	deadlineEnabled: boolean;
+	deadlineAt: string;
+}
+
+function emptyScheduleDraft(now = Date.now()): ScheduleDraft {
+	const start = now + 30 * 60_000;
+	return {
+		startAt: toLocalInputValue(start),
+		pauseEnabled: false,
+		pauseAt: toLocalInputValue(start + 4 * 60 * 60_000),
+		resumeAt: toLocalInputValue(start + 8 * 60 * 60_000),
+		deadlineEnabled: false,
+		deadlineAt: toLocalInputValue(start + 10 * 60 * 60_000),
+	};
+}
+
+function draftFromSchedule(schedule: SentinelEngineSchedule): ScheduleDraft {
+	return {
+		startAt: toLocalInputValue(schedule.startAt),
+		pauseEnabled: schedule.pauseAt !== null,
+		pauseAt: schedule.pauseAt !== null ? toLocalInputValue(schedule.pauseAt) : "",
+		resumeAt: schedule.resumeAt !== null ? toLocalInputValue(schedule.resumeAt) : "",
+		deadlineEnabled: schedule.deadlineAt !== null,
+		deadlineAt: schedule.deadlineAt !== null ? toLocalInputValue(schedule.deadlineAt) : "",
+	};
+}
+
+function parseScheduleDraft(draft: ScheduleDraft): { schedule?: SentinelEngineScheduleInput; error?: string } {
+	const startAt = parseLocalInput(draft.startAt);
+	if (startAt === null) return { error: "请选择开始时间" };
+	if (startAt <= Date.now()) return { error: "开始时间必须晚于当前时间" };
+	const pauseAt = draft.pauseEnabled ? parseLocalInput(draft.pauseAt) : null;
+	const resumeAt = draft.pauseEnabled ? parseLocalInput(draft.resumeAt) : null;
+	if (draft.pauseEnabled && (pauseAt === null || resumeAt === null)) {
+		return { error: "请同时填写暂停时间和恢复时间" };
+	}
+	if (pauseAt !== null && pauseAt <= startAt) return { error: "暂停时间必须晚于开始时间" };
+	if (pauseAt !== null && resumeAt !== null && resumeAt <= pauseAt) {
+		return { error: "恢复时间必须晚于暂停时间" };
+	}
+	const deadlineAt = draft.deadlineEnabled ? parseLocalInput(draft.deadlineAt) : null;
+	if (draft.deadlineEnabled && deadlineAt === null) return { error: "请选择最晚停止时间" };
+	const lastStep = resumeAt ?? pauseAt ?? startAt;
+	if (deadlineAt !== null && deadlineAt <= lastStep) {
+		return { error: "最晚停止时间必须晚于最后一次计划动作" };
+	}
+	return {
+		schedule: {
+			timezone: browserTimezone(),
+			startAt,
+			pauseAt,
+			resumeAt,
+			deadlineAt,
+		},
+	};
+}
+
+function nextPlanStep(
+	schedule: SentinelEngineSchedule,
+): { action: SentinelEngineScheduleAction; at: number } | null {
+	if (schedule.phase === "finished") return null;
+	const candidates: Array<{ action: SentinelEngineScheduleAction; at: number }> = [];
+	if (schedule.phase === "waiting_start" && !schedule.applied.includes("start")) {
+		candidates.push({ action: "start", at: schedule.startAt });
+	}
+	if (schedule.phase === "running") {
+		if (schedule.pauseAt !== null && !schedule.applied.includes("pause")) {
+			candidates.push({ action: "pause", at: schedule.pauseAt });
+		}
+		if (schedule.deadlineAt !== null && !schedule.applied.includes("deadline")) {
+			candidates.push({ action: "deadline", at: schedule.deadlineAt });
+		}
+	}
+	if (schedule.phase === "paused") {
+		if (schedule.resumeAt !== null && !schedule.applied.includes("resume")) {
+			candidates.push({ action: "resume", at: schedule.resumeAt });
+		}
+		if (schedule.deadlineAt !== null && !schedule.applied.includes("deadline")) {
+			candidates.push({ action: "deadline", at: schedule.deadlineAt });
+		}
+	}
+	return candidates.sort((left, right) => left.at - right.at)[0] ?? null;
+}
+
+function formatRemaining(at: number, now: number): string {
+	const delta = at - now;
+	if (delta <= 0) return "即将执行";
+	const minutes = Math.ceil(delta / 60_000);
+	if (minutes < 60) return `${minutes} 分钟后`;
+	const hours = Math.floor(minutes / 60);
+	const rest = minutes % 60;
+	return rest > 0 ? `${hours} 小时 ${rest} 分钟后` : `${hours} 小时后`;
 }
 
 export interface EnginePageProps {
@@ -97,8 +261,13 @@ export function EnginePage(props: EnginePageProps) {
 	const [boardId, setBoardId] = useState<string | null>(null);
 	const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 	const [report, setReport] = useState<{ markdown: string; filename: string } | null>(null);
+	const [editingSchedule, setEditingSchedule] = useState(false);
 
 	const board = useMemo(() => props.engines.find((engine) => engine.id === boardId) ?? null, [props.engines, boardId]);
+	const scheduleActive = !!board?.schedule && board.schedule.phase !== "finished";
+	useEffect(() => {
+		if (board?.status !== "scheduled") setEditingSchedule(false);
+	}, [board?.status]);
 
 	const openBoard = (id: string) => {
 		setBoardId(id);
@@ -177,11 +346,13 @@ export function EnginePage(props: EnginePageProps) {
 						</span>
 						<span className="ws-panel__sub">
 							{board.projectName} · 创建于 {new Date(board.createdAt).toLocaleString("zh-CN", { hour12: false })}
-							{board.endedAt
-								? ` · 历时 ${formatDuration(board.endedAt - board.createdAt)}`
-								: board.status === "running"
-									? ` · 已运行 ${formatDuration(Date.now() - board.createdAt)}`
-									: ""}
+							{board.startedAt !== null
+								? board.endedAt
+									? ` · 历时 ${formatDuration(board.endedAt - board.startedAt)}`
+									: board.status === "running"
+										? ` · 已运行 ${formatDuration(Date.now() - board.startedAt)}`
+										: ""
+								: " · 尚未启动"}
 						</span>
 					</div>
 					<div className="ws-panel__actions">
@@ -196,8 +367,43 @@ export function EnginePage(props: EnginePageProps) {
 								查看总报告
 							</button>
 						) : null}
+						{board.status === "scheduled" ? (
+							<button type="button" onClick={() => setEditingSchedule(true)}>
+								修改计划
+							</button>
+						) : null}
+						{board.status === "scheduled" ? (
+							<button
+								type="button"
+								onClick={() => {
+									if (window.confirm("取消后计划不再执行，工程会标记为已终止。确定取消？")) {
+										send({ type: "engine_cancel_schedule", id: board.id });
+									}
+								}}
+							>
+								取消计划
+							</button>
+						) : null}
+						{scheduleActive && board.status !== "scheduled" ? (
+							<button
+								type="button"
+								onClick={() => {
+									if (window.confirm("停用后续定时计划？当前运行不会停止。")) {
+										send({ type: "engine_cancel_schedule", id: board.id });
+									}
+								}}
+							>
+								停用计划
+							</button>
+						) : null}
 						{board.status === "running" ? (
-							<button type="button" onClick={() => send({ type: "engine_pause", id: board.id })}>
+							<button
+								type="button"
+								onClick={() => {
+									if (scheduleActive && !window.confirm("手动暂停会停用后续定时计划，确定？")) return;
+									send({ type: "engine_pause", id: board.id });
+								}}
+							>
 								暂停
 							</button>
 						) : null}
@@ -205,13 +411,22 @@ export function EnginePage(props: EnginePageProps) {
 							<button
 								type="button"
 								className="primary"
-								onClick={() => send({ type: "engine_resume", id: board.id })}
+								onClick={() => {
+									if (scheduleActive && !window.confirm("手动继续会停用后续定时计划，确定？")) return;
+									send({ type: "engine_resume", id: board.id });
+								}}
 							>
 								继续
 							</button>
 						) : null}
 						{board.status === "running" || board.status === "paused" ? (
-							<button type="button" onClick={() => send({ type: "engine_abort", id: board.id })}>
+							<button
+								type="button"
+								onClick={() => {
+									if (scheduleActive && !window.confirm("终止会同时停用后续定时计划，确定？")) return;
+									send({ type: "engine_abort", id: board.id });
+								}}
+							>
 								终止
 							</button>
 						) : (
@@ -230,6 +445,7 @@ export function EnginePage(props: EnginePageProps) {
 					</div>
 				</div>
 				<div className="ws-panel__body">
+					{board.schedule ? <ScheduleStrip schedule={board.schedule} /> : null}
 					<EngineStats
 						engine={board}
 						judgeAvailable={props.judgeAvailable}
@@ -271,6 +487,16 @@ export function EnginePage(props: EnginePageProps) {
 						onOpenInChat={(taskId) => {
 							send({ type: "engine_open_task_session", taskId });
 							setOpenTaskId(null);
+						}}
+					/>
+				) : null}
+				{editingSchedule && board.schedule ? (
+					<ScheduleModal
+						schedule={board.schedule}
+						onClose={() => setEditingSchedule(false)}
+						onSave={(schedule) => {
+							send({ type: "engine_set_schedule", id: board.id, schedule });
+							setEditingSchedule(false);
 						}}
 					/>
 				) : null}
@@ -349,9 +575,12 @@ export function EnginePage(props: EnginePageProps) {
 								queued > 0 ? `${queued} 排队` : "",
 								failed > 0 ? `${failed} 失败` : "",
 							].filter(Boolean);
+							const startedAt = engine.startedAt ?? engine.createdAt;
 							const elapsed =
-								(engine.endedAt ?? (engine.status === "running" ? Date.now() : engine.createdAt)) -
-								engine.createdAt;
+								engine.startedAt === null
+									? null
+									: (engine.endedAt ?? (engine.status === "running" ? Date.now() : startedAt)) -
+										startedAt;
 							return (
 								<div
 									key={engine.id}
@@ -374,7 +603,7 @@ export function EnginePage(props: EnginePageProps) {
 									</span>
 									<span>{parts.join(" · ") || "—"}</span>
 									<span>{engine.tasks.reduce((sum, task) => sum + task.vulns, 0)} 条</span>
-									<span>{formatDuration(elapsed)}</span>
+									<span>{elapsed === null ? "—" : formatDuration(elapsed)}</span>
 									<span className="data-mono">
 										{new Date(engine.createdAt).toLocaleString("zh-CN", { hour12: false })}
 									</span>
@@ -567,7 +796,11 @@ function TaskBoard(props: { engine: SentinelEngine; onOpenTask(taskId: string): 
 			</div>
 			<div className="board-col__body">
 				{tasks.length === 0 ? (
-					<div className="ws-empty">还没有任务。指挥官启动后会在这里派发。</div>
+					<div className="ws-empty">
+						{props.engine.status === "scheduled"
+							? "计划等待开始。到点后先检查运行环境，再启动指挥官并派发任务。"
+							: "还没有任务。指挥官启动后会在这里派发。"}
+					</div>
 				) : (
 					<div className="data-table tasks-table">
 						<div className="data-row data-head">
@@ -877,6 +1110,201 @@ function TaskModal(props: {
 	);
 }
 
+function ScheduleStrip({ schedule }: { schedule: SentinelEngineSchedule }) {
+	const [now, setNow] = useState(Date.now());
+	useEffect(() => {
+		if (schedule.phase === "finished") return;
+		const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+		return () => window.clearInterval(timer);
+	}, [schedule.phase]);
+	const next = nextPlanStep(schedule);
+	const steps: Array<{ action: SentinelEngineScheduleAction; at: number }> = [
+		{ action: "start", at: schedule.startAt },
+	];
+	if (schedule.pauseAt !== null) steps.push({ action: "pause", at: schedule.pauseAt });
+	if (schedule.resumeAt !== null) steps.push({ action: "resume", at: schedule.resumeAt });
+	if (schedule.deadlineAt !== null) steps.push({ action: "deadline", at: schedule.deadlineAt });
+	const phaseClass =
+		schedule.phase === "running"
+			? "tag-running"
+			: schedule.phase === "paused"
+				? "tag-paused"
+				: schedule.phase === "finished"
+					? "tag-stopped"
+					: "tag-scheduled";
+	return (
+		<div className="schedule-strip">
+			<div className="schedule-strip__head">
+				<span className="schedule-strip__title">定时计划</span>
+				<span className={`tag ${phaseClass}`}>{SCHEDULE_PHASE_LABELS[schedule.phase]}</span>
+				<span className="schedule-strip__zone">{schedule.timezone}</span>
+				{next ? (
+					<span className="schedule-strip__next">
+						下次{SCHEDULE_ACTION_LABELS[next.action]} {formatZonedDateTime(next.at, schedule.timezone)}（{formatRemaining(next.at, now)}）
+					</span>
+				) : schedule.phase === "running" ? (
+					<span className="schedule-strip__next">无后续计划动作，运行至工程完成</span>
+				) : schedule.phase === "finished" ? (
+					<span className="schedule-strip__next">{SCHEDULE_FINISH_LABELS[schedule.finishedReason ?? "manual"]}</span>
+				) : null}
+			</div>
+			<div className="schedule-strip__timeline">
+				{steps.map((step) => {
+					const done = schedule.applied.includes(step.action);
+					const current = next?.action === step.action;
+					return (
+						<span
+							key={step.action}
+							className={`schedule-step${done ? " is-done" : ""}${current ? " is-next" : ""}`}
+						>
+							<span className="schedule-step__mark">{done ? "✓" : current ? "→" : "·"}</span>
+							<span className="schedule-step__label">{SCHEDULE_ACTION_LABELS[step.action]}</span>
+							<span className="schedule-step__time">{formatZonedDateTime(step.at, schedule.timezone)}</span>
+						</span>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+function ScheduleFields({
+	draft,
+	onChange,
+	timezone,
+}: {
+	draft: ScheduleDraft;
+	onChange: (next: ScheduleDraft) => void;
+	timezone: string;
+}) {
+	const set = <K extends keyof ScheduleDraft>(key: K, value: ScheduleDraft[K]): void =>
+		onChange({ ...draft, [key]: value });
+	const lastStep = draft.resumeAt || draft.pauseAt || draft.startAt;
+	return (
+		<div className="schedule-fields">
+			<div className="schedule-grid">
+				<div className="form-field">
+					<label>开始时间</label>
+					<input
+						type="datetime-local"
+						value={draft.startAt}
+						min={toLocalInputValue(Date.now())}
+						onChange={(event) => set("startAt", event.target.value)}
+					/>
+				</div>
+				<div className="form-field schedule-timezone">
+					<label>时区</label>
+					<span>{timezone}（浏览器时区）</span>
+				</div>
+			</div>
+			<label className="schedule-check">
+				<input
+					type="checkbox"
+					checked={draft.pauseEnabled}
+					onChange={(event) => set("pauseEnabled", event.target.checked)}
+				/>
+				<span>中途暂停，并在指定时间自动恢复</span>
+			</label>
+			{draft.pauseEnabled ? (
+				<div className="schedule-grid">
+					<div className="form-field">
+						<label>暂停时间</label>
+						<input
+							type="datetime-local"
+							value={draft.pauseAt}
+							min={draft.startAt}
+							onChange={(event) => set("pauseAt", event.target.value)}
+						/>
+					</div>
+					<div className="form-field">
+						<label>恢复时间</label>
+						<input
+							type="datetime-local"
+							value={draft.resumeAt}
+							min={draft.pauseAt || draft.startAt}
+							onChange={(event) => set("resumeAt", event.target.value)}
+						/>
+					</div>
+				</div>
+			) : null}
+			<label className="schedule-check">
+				<input
+					type="checkbox"
+					checked={draft.deadlineEnabled}
+					onChange={(event) => set("deadlineEnabled", event.target.checked)}
+				/>
+				<span>设置最晚停止时间；到点未完成则暂停，等待操作员决定</span>
+			</label>
+			{draft.deadlineEnabled ? (
+				<div className="form-field">
+					<label>最晚停止时间</label>
+					<input
+						type="datetime-local"
+						value={draft.deadlineAt}
+						min={lastStep}
+						onChange={(event) => set("deadlineAt", event.target.value)}
+					/>
+				</div>
+			) : null}
+			<p className="form-hint">
+				到点暂停会立即中断正在运行的 Agent，保留会话，恢复时自动续跑。服务重启会暂停工程并停用计划，需要操作员手动继续。
+			</p>
+		</div>
+	);
+}
+
+function ScheduleModal({
+	schedule,
+	onClose,
+	onSave,
+}: {
+	schedule: SentinelEngineSchedule;
+	onClose: () => void;
+	onSave: (schedule: SentinelEngineScheduleInput) => void;
+}) {
+	const [draft, setDraft] = useState(() => draftFromSchedule(schedule));
+	const [error, setError] = useState<string | null>(null);
+	return (
+		<div className="modal-backdrop" onClick={onClose}>
+			<div className="modal modal--wide" onClick={(event) => event.stopPropagation()}>
+				<div className="vuln-detail__head">
+					<div className="vuln-detail__title">修改定时计划</div>
+					<div className="ws-panel__actions">
+						<button type="button" onClick={onClose}>
+							取消
+						</button>
+						<button
+							type="button"
+							className="primary"
+							onClick={() => {
+								const parsed = parseScheduleDraft(draft);
+								if (!parsed.schedule) {
+									setError(parsed.error ?? "计划无效");
+									return;
+								}
+								onSave(parsed.schedule);
+							}}
+						>
+							保存计划
+						</button>
+					</div>
+				</div>
+				<div className="modal__body">
+					{error ? <p className="form-error">{error}</p> : null}
+					<ScheduleFields
+						draft={draft}
+						onChange={(next) => {
+							setDraft(next);
+							setError(null);
+						}}
+						timezone={browserTimezone()}
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function CreateEngineForm(props: {
 	doctrines: SentinelDoctrineView[];
 	presets: SentinelPresetView[];
@@ -892,6 +1320,7 @@ function CreateEngineForm(props: {
 		presetOptional: boolean;
 		limits: SentinelEngineLimits;
 		gateMode: SentinelEngineGateMode;
+		schedule?: SentinelEngineScheduleInput;
 	}): void;
 }) {
 	const [name, setName] = useState("");
@@ -907,6 +1336,9 @@ function CreateEngineForm(props: {
 	const [tokenLimit, setTokenLimit] = useState("");
 	const [timeLimitMin, setTimeLimitMin] = useState("");
 	const [gateMode, setGateMode] = useState<SentinelEngineGateMode>("auto");
+	const [startMode, setStartMode] = useState<"now" | "scheduled">("now");
+	const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>(() => emptyScheduleDraft());
+	const [formError, setFormError] = useState<string | null>(null);
 
 	const targetCount = targets.split("\n").filter((line) => line.trim()).length;
 
@@ -925,7 +1357,13 @@ function CreateEngineForm(props: {
 						type="button"
 						className="primary"
 						disabled={!name.trim() || targetCount === 0 || selected.length === 0}
-						onClick={() =>
+						onClick={() => {
+							const parsed = startMode === "scheduled" ? parseScheduleDraft(scheduleDraft) : {};
+							if (startMode === "scheduled" && !parsed.schedule) {
+								setFormError(parsed.error ?? "定时计划无效");
+								return;
+							}
+							setFormError(null);
 							props.onSubmit({
 								name: name.trim(),
 								targets,
@@ -940,14 +1378,16 @@ function CreateEngineForm(props: {
 									timeLimitMin: timeLimitMin.trim() ? Number.parseInt(timeLimitMin, 10) : null,
 								},
 								gateMode,
-							})
-						}
+								schedule: parsed.schedule,
+							});
+						}}
 					>
-						启动工程
+						{startMode === "scheduled" ? "保存计划" : "启动工程"}
 					</button>
 				</div>
 			</div>
 			<div className="ws-panel__body">
+				{formError ? <p className="form-error">{formError}</p> : null}
 				<div className="form-grid">
 					<div className="form-field">
 						<label>工程名称</label>
@@ -968,6 +1408,41 @@ function CreateEngineForm(props: {
 							placeholder={"10.0.0.1 这台是 Web 服务器\n10.0.0.2\nhttp://target.example.com 只测登录功能"}
 						/>
 					</div>
+					<div className="form-field">
+						<label>启动方式</label>
+						<div className="mode-switch schedule-mode">
+							<button
+								type="button"
+								className={startMode === "now" ? "on" : ""}
+								onClick={() => {
+									setStartMode("now");
+									setFormError(null);
+								}}
+							>
+								立即启动
+							</button>
+							<button
+								type="button"
+								className={startMode === "scheduled" ? "on" : ""}
+								onClick={() => {
+									setStartMode("scheduled");
+									setFormError(null);
+								}}
+							>
+								定时启动
+							</button>
+						</div>
+						<p className="form-hint">
+							定时工程只保存计划，不会提前启动指挥官；到点后先检查运行环境，再开始执行。
+						</p>
+					</div>
+					{startMode === "scheduled" ? (
+						<ScheduleFields
+							draft={scheduleDraft}
+							onChange={setScheduleDraft}
+							timezone={browserTimezone()}
+						/>
+					) : null}
 					<div className="form-field">
 						<label>
 							指挥思路 <span className="hint">可多选叠加，合并注入指挥官</span>

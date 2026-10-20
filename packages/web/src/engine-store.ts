@@ -16,6 +16,7 @@ import type {
 	SentinelEngineEvent,
 	SentinelEngineGateMode,
 	SentinelEngineLimits,
+	SentinelEngineSchedule,
 	SentinelEngineStatus,
 	SentinelEngineTarget,
 	SentinelEngineTask,
@@ -42,7 +43,9 @@ CREATE TABLE IF NOT EXISTS engines (
   preset_optional INTEGER NOT NULL DEFAULT 1,
   limits TEXT NOT NULL,
   gate_mode TEXT NOT NULL DEFAULT 'auto',
+  schedule TEXT,
   created_at INTEGER NOT NULL,
+  started_at INTEGER,
   ended_at INTEGER,
   report TEXT
 );
@@ -67,6 +70,7 @@ CREATE TABLE IF NOT EXISTS engine_tasks (
   error TEXT,
   usage TEXT,
   vulns INTEGER NOT NULL DEFAULT 0,
+  auto_resume INTEGER NOT NULL DEFAULT 0,
   seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS engine_events (
@@ -95,7 +99,9 @@ interface EngineRow {
 	preset_optional: number;
 	limits: string;
 	gate_mode: string;
+	schedule: string | null;
 	created_at: number;
+	started_at: number | null;
 	ended_at: number | null;
 	report: string | null;
 }
@@ -121,6 +127,7 @@ interface TaskRow {
 	error: string | null;
 	usage: string | null;
 	vulns: number;
+	auto_resume: number;
 }
 
 export function engineDbPath(agentDir: string): string {
@@ -138,6 +145,7 @@ export class EngineStore {
 		this.addGateModeColumn();
 		this.addPresetColumns();
 		this.addContinuationColumn();
+		this.addScheduleColumns();
 	}
 
 	/**
@@ -188,6 +196,28 @@ export class EngineStore {
 		}
 	}
 
+	/**
+	 * Schedule and started-at columns. Existing engines were all started immediately,
+	 * so their started_at falls back to created_at; a null started_at is meaningful
+	 * only for a new scheduled row.
+	 */
+	private addScheduleColumns(): void {
+		const engineColumns = this.db.prepare("PRAGMA table_info(engines)").all() as unknown as Array<{ name: string }>;
+		if (!engineColumns.some((column) => column.name === "schedule")) {
+			this.db.exec("ALTER TABLE engines ADD COLUMN schedule TEXT");
+		}
+		if (!engineColumns.some((column) => column.name === "started_at")) {
+			this.db.exec("ALTER TABLE engines ADD COLUMN started_at INTEGER");
+			this.db.exec("UPDATE engines SET started_at = created_at WHERE started_at IS NULL");
+		}
+		const taskColumns = this.db.prepare("PRAGMA table_info(engine_tasks)").all() as unknown as Array<{
+			name: string;
+		}>;
+		if (!taskColumns.some((column) => column.name === "auto_resume")) {
+			this.db.exec("ALTER TABLE engine_tasks ADD COLUMN auto_resume INTEGER NOT NULL DEFAULT 0");
+		}
+	}
+
 	createEngine(input: {
 		projectId: string;
 		projectName: string;
@@ -200,13 +230,17 @@ export class EngineStore {
 		presetOptional?: boolean;
 		limits: SentinelEngineLimits;
 		gateMode: SentinelEngineGateMode;
+		/** Scheduled engines are saved without a commander; defaults to running. */
+		status?: SentinelEngineStatus;
+		startedAt?: number | null;
+		schedule?: SentinelEngineSchedule | null;
 	}): SentinelEngine {
 		const engine: SentinelEngine = {
 			id: `engine-${randomUUID()}`,
 			projectId: input.projectId,
 			projectName: input.projectName,
 			name: input.name,
-			status: "running",
+			status: input.status ?? "running",
 			pauseNote: null,
 			targets: input.targets,
 			doctrines: input.doctrines,
@@ -215,14 +249,16 @@ export class EngineStore {
 			limits: input.limits,
 			gateMode: input.gateMode,
 			createdAt: Date.now(),
+			startedAt: input.startedAt ?? (input.status === "scheduled" ? null : Date.now()),
 			endedAt: null,
+			schedule: input.schedule ?? null,
 			report: null,
 			tasks: [],
 		};
 		this.db
 			.prepare(
-				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, preset_ids, preset_optional, limits, gate_mode, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO engines (id, project_id, project_name, name, status, targets, doctrines, preset_ids, preset_optional, limits, gate_mode, schedule, created_at, started_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				engine.id,
@@ -236,7 +272,9 @@ export class EngineStore {
 				engine.presetOptional ? 1 : 0,
 				JSON.stringify(engine.limits),
 				engine.gateMode,
+				engine.schedule ? JSON.stringify(engine.schedule) : null,
 				engine.createdAt,
+				engine.startedAt,
 			);
 		return engine;
 	}
@@ -262,6 +300,16 @@ export class EngineStore {
 		this.db
 			.prepare("UPDATE engines SET status = ?, pause_note = ?, ended_at = ? WHERE id = ?")
 			.run(status, pauseNote, endedAt, id);
+	}
+
+	setEngineStartedAt(id: string, startedAt: number | null): void {
+		this.db.prepare("UPDATE engines SET started_at = ? WHERE id = ?").run(startedAt, id);
+	}
+
+	setEngineSchedule(id: string, schedule: SentinelEngineSchedule | null): void {
+		this.db
+			.prepare("UPDATE engines SET schedule = ? WHERE id = ?")
+			.run(schedule ? JSON.stringify(schedule) : null, id);
 	}
 
 	setEngineReport(id: string, report: string): void {
@@ -355,11 +403,12 @@ export class EngineStore {
 			error: null,
 			usage: null,
 			vulns: 0,
+			autoResume: false,
 		};
 		this.db
 			.prepare(
-				`INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, preset_id, preset_name, session_id, seq)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+				`INSERT INTO engine_tasks (id, engine_id, title, objective, target, workspace, status, attempt, criteria, round_limit, preset_id, preset_name, session_id, auto_resume, seq)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
 			)
 			.run(
 				task.id,
@@ -374,6 +423,7 @@ export class EngineStore {
 				task.roundLimit,
 				task.presetId,
 				task.presetName,
+				task.autoResume ? 1 : 0,
 				seq,
 			);
 		return task;
@@ -391,7 +441,7 @@ export class EngineStore {
 		this.db
 			.prepare(
 				`UPDATE engine_tasks SET status = ?, criteria = ?, preset_id = ?, preset_name = ?, session_id = ?, started_at = ?, ended_at = ?, summary = ?,
-				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ?, pending_continue = ? WHERE id = ?`,
+				 error = ?, usage = ?, vulns = ?, title = ?, objective = ?, round_limit = ?, pending_continue = ?, auto_resume = ? WHERE id = ?`,
 			)
 			.run(
 				next.status,
@@ -409,6 +459,7 @@ export class EngineStore {
 				next.objective,
 				next.roundLimit,
 				next.pendingContinue ? JSON.stringify(next.pendingContinue) : null,
+				next.autoResume ? 1 : 0,
 				id,
 			);
 	}
@@ -452,6 +503,14 @@ export class EngineStore {
 		return Number(result.changes ?? 0);
 	}
 
+	/**
+	 * A restart is not a scheduled pause: safe policy leaves interrupted work for
+	 * the operator, so no task may auto-continue on the next manual resume.
+	 */
+	clearAutoResume(): void {
+		this.db.prepare("UPDATE engine_tasks SET auto_resume = 0").run();
+	}
+
 	close(): void {
 		this.db.close();
 	}
@@ -476,7 +535,9 @@ function engineFromRow(row: EngineRow, tasks: SentinelEngineTask[]): SentinelEng
 		// A row written before the column existed reads as `auto`, which is how it ran.
 		gateMode: row.gate_mode === "ai" ? "ai" : "auto",
 		createdAt: row.created_at,
+		startedAt: row.started_at,
 		endedAt: row.ended_at,
+		schedule: scheduleFromRow(row.schedule),
 		report: row.report,
 		tasks,
 	};
@@ -504,6 +565,41 @@ function taskFromRow(row: TaskRow): SentinelEngineTask {
 		error: row.error,
 		usage: row.usage ? (parseJson(row.usage, null) as unknown as SentinelGoalUsage | null) : null,
 		vulns: row.vulns,
+		autoResume: row.auto_resume === 1,
+	};
+}
+
+/** Corrupt schedule JSON must not leave a row looking scheduled with no plan. */
+function scheduleFromRow(raw: string | null): SentinelEngineSchedule | null {
+	if (!raw) return null;
+	const value = parseJson<Partial<SentinelEngineSchedule> | null>(raw, null);
+	if (!value || typeof value.startAt !== "number" || typeof value.timezone !== "string") return null;
+	const phase = value.phase;
+	if (phase !== "waiting_start" && phase !== "running" && phase !== "paused" && phase !== "finished") return null;
+	return {
+		timezone: value.timezone,
+		startAt: value.startAt,
+		pauseAt: typeof value.pauseAt === "number" ? value.pauseAt : null,
+		resumeAt: typeof value.resumeAt === "number" ? value.resumeAt : null,
+		deadlineAt: typeof value.deadlineAt === "number" ? value.deadlineAt : null,
+		phase,
+		applied: Array.isArray(value.applied)
+			? value.applied.filter(
+					(action): action is SentinelEngineSchedule["applied"][number] =>
+						action === "start" || action === "pause" || action === "resume" || action === "deadline",
+				)
+			: [],
+		finishedReason:
+			value.finishedReason === "completed" ||
+			value.finishedReason === "deadline" ||
+			value.finishedReason === "manual" ||
+			value.finishedReason === "canceled" ||
+			value.finishedReason === "start_failed" ||
+			value.finishedReason === "missed" ||
+			value.finishedReason === "restart"
+				? value.finishedReason
+				: null,
+		finishedAt: typeof value.finishedAt === "number" ? value.finishedAt : null,
 	};
 }
 

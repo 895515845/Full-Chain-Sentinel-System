@@ -31,6 +31,14 @@ import {
 import { type CommanderPort, createCommanderTools, formatTaskBoard, retryDecision } from "./commander-tools.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { listDoctrines, resolveDoctrines, type SentinelDoctrine } from "./doctrines.ts";
+import {
+	applyScheduleAction,
+	dueScheduleAction,
+	finishSchedule,
+	nextScheduleAt,
+	normalizeSchedule,
+	SCHEDULE_START_GRACE_MS,
+} from "./engine-schedule.ts";
 import { EngineStore } from "./engine-store.ts";
 import { resolveJudgeEndpoint } from "./gatekeeper.ts";
 import { clampRoundLimit } from "./goal.ts";
@@ -46,6 +54,8 @@ import type {
 	SentinelEngineCreateInput,
 	SentinelEngineEvent,
 	SentinelEngineGateMode,
+	SentinelEngineScheduleFinishReason,
+	SentinelEngineScheduleInput,
 	SentinelEngineTask,
 	SentinelGoalUsage,
 	SentinelPreset,
@@ -68,6 +78,10 @@ type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 const GLOBAL_TASK_CONCURRENCY = 8;
 /** Nudges before an idle commander with an empty board gives up as failed. */
 const MAX_COMMANDER_NUDGES = 3;
+/** Recheck the clock at least this often, so sleep/clock changes cannot pin a stale timer. */
+const SCHEDULE_TIMER_MAX_MS = 60_000;
+/** Bound one scheduler pass; each action can make the next action immediately due. */
+const SCHEDULE_MAX_ACTIONS = 100;
 
 /**
  * Commander execution guardrails. The commander gets bash and read so it can
@@ -104,6 +118,12 @@ export interface EngineHooks {
 	onCommanderEvent(engineId: string, event: SentinelEngineEvent): void;
 	/** One worker process step, live. */
 	onTaskEvent(taskId: string, event: SentinelEngineEvent): void;
+	/**
+	 * Last check before a scheduled start or resume. The server uses it to verify
+	 * the Docker environment; a failure pauses the engine instead of running a
+	 * commander whose workers cannot execute.
+	 */
+	beforeStart?(engine: SentinelEngine): Promise<{ ok: boolean; error?: string }>;
 }
 
 /**
@@ -147,6 +167,8 @@ export class EngineManager {
 	private modelRuntimePromise: Promise<ModelRuntime> | undefined;
 	/** models.json changed since the runtime was created: refresh before the next use. */
 	private modelRuntimeDirty = false;
+	private scheduleTimer: NodeJS.Timeout | undefined;
+	private schedulerBusy = false;
 	/**
 	 * Set by `dispose()`. A session broadcast that was already in flight resumes
 	 * after the store is closed, and reading it then throws out of a promise
@@ -160,16 +182,35 @@ export class EngineManager {
 		this.hooks = hooks;
 		this.acquireTaskSession = acquireTaskSession;
 		// A previous process left running tasks behind: nothing of them is live any
-		// more, so they come back paused and their engines wait for a resume.
+		// more, so they come back paused. Safe restart policy A is deliberate here:
+		// a plan that was already running is stopped, never auto-resumed; only a
+		// plan that has not started yet stays armed.
+		const previous = this.store.listEngines();
 		this.store.interruptRunning();
-		for (const engine of this.store.listEngines()) {
-			if (engine.status === "running") {
+		this.store.clearAutoResume();
+		for (const prior of previous) {
+			let engine = this.store.getEngine(prior.id) ?? prior;
+			if (prior.status === "running") {
+				if (engine.schedule && engine.schedule.phase !== "finished") {
+					engine = this.disableScheduleRow(engine, "restart");
+				}
 				this.store.setEngineStatus(engine.id, "paused", "服务重启，任务已暂停；点「继续」恢复", null);
-				this.live.set(engine.id, this.emptyLive(this.store.getEngine(engine.id) ?? engine));
-			} else {
-				this.live.set(engine.id, this.emptyLive(engine));
+				engine = this.store.getEngine(engine.id) ?? engine;
+			} else if (prior.status === "paused" && engine.schedule && engine.schedule.phase !== "finished") {
+				engine = this.disableScheduleRow(engine, "restart");
+				this.store.setEngineStatus(engine.id, "paused", "服务重启，定时计划已停用；点「继续」恢复", null);
+				engine = this.store.getEngine(engine.id) ?? engine;
+			} else if (prior.status === "completed" && engine.schedule && engine.schedule.phase !== "finished") {
+				engine = this.disableScheduleRow(engine, "completed");
+			} else if (prior.status === "stopped" && engine.schedule && engine.schedule.phase !== "finished") {
+				engine = this.disableScheduleRow(engine, "manual");
+			} else if (engine.status === "scheduled" && !engine.schedule) {
+				this.store.setEngineStatus(engine.id, "paused", "定时计划数据缺失，无法自动启动；点「继续」手动启动", null);
+				engine = this.store.getEngine(engine.id) ?? engine;
 			}
+			this.live.set(engine.id, this.emptyLive(engine));
 		}
+		this.armScheduler();
 	}
 
 	listEngines(projectId?: string): SentinelEngine[] {
@@ -248,6 +289,7 @@ export class EngineManager {
 				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
 			);
 		}
+		const schedule = input.schedule ? normalizeSchedule(input.schedule, Date.now()) : null;
 		const stored = this.store.createEngine({
 			projectId: project.id,
 			projectName: project.name,
@@ -258,6 +300,9 @@ export class EngineManager {
 			presetOptional: input.presetOptional,
 			limits,
 			gateMode,
+			status: schedule ? "scheduled" : "running",
+			startedAt: schedule ? null : Date.now(),
+			schedule,
 		});
 		const entry = this.emptyLive(stored);
 		this.live.set(stored.id, entry);
@@ -265,8 +310,12 @@ export class EngineManager {
 		// full model round-trip, and waiting for it left the new row invisible
 		// until the operator refreshed.
 		this.hooks.onChange(this.getEngine(stored.id) ?? stored);
-		await this.startCommander(entry, "initial");
-		this.hooks.onChange(this.getEngine(stored.id) ?? stored);
+		if (!schedule) {
+			await this.startCommander(entry, "initial");
+			this.hooks.onChange(this.getEngine(stored.id) ?? stored);
+		} else {
+			this.armScheduler();
+		}
 		return this.getEngine(stored.id) ?? stored;
 	}
 
@@ -275,10 +324,9 @@ export class EngineManager {
 		const entry = this.live.get(id);
 		if (!entry) throw new Error("工程不存在");
 		if (entry.engine.status !== "running") throw new Error("只有运行中的工程才能暂停");
-		await this.stopWorkers(entry, "paused", "工程已暂停");
-		this.store.setEngineStatus(id, "paused", "操作员暂停", null);
-		entry.engine = this.store.getEngine(id) ?? entry.engine;
-		this.hooks.onChange(entry.engine);
+		this.disableActiveSchedule(entry, "manual");
+		await this.pauseEngineInternal(entry, "操作员暂停", false);
+		this.armScheduler();
 	}
 
 	/** Resume a paused engine: reopen the commander with a board recap, revive paused tasks. */
@@ -286,31 +334,352 @@ export class EngineManager {
 		const entry = this.live.get(id);
 		if (!entry) throw new Error("工程不存在");
 		if (entry.engine.status !== "paused") throw new Error("只有已暂停的工程才能继续");
-		this.store.setEngineStatus(id, "running", null, null);
-		entry.engine = this.store.getEngine(id) ?? entry.engine;
-		// A continuation that was waiting for a slot when the process stopped is
-		// still an explicit commander decision; requeue it. Other interrupted tasks
-		// stay paused for the commander to inspect and continue deliberately.
-		for (const task of entry.engine.tasks) {
-			if (task.status === "paused" && task.pendingContinue) {
-				this.store.updateTask(task.id, { status: "queued", endedAt: null });
-			}
+		this.disableActiveSchedule(entry, "manual");
+		if (entry.engine.startedAt === null) {
+			await this.startPausedEngine(entry);
+			return;
 		}
-		entry.engine = this.store.getEngine(id) ?? entry.engine;
-		entry.nudges = 0;
-		await this.startCommander(entry, "resume");
-		this.tick();
-		this.hooks.onChange(this.getEngine(id) ?? entry.engine);
+		await this.resumeEngineInternal(entry, true);
+		this.armScheduler();
 	}
 
 	/** Stop for good: abort everything; the report stays whatever it was. */
 	async abortEngine(id: string): Promise<void> {
 		const entry = this.live.get(id);
 		if (!entry) throw new Error("工程不存在");
+		this.disableActiveSchedule(entry, "manual");
 		await this.stopWorkers(entry, "aborted", "工程已终止");
 		this.store.setEngineStatus(id, "stopped", "操作员终止", Date.now());
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
+		this.armScheduler();
+	}
+
+	/** Replace the plan of a not-yet-started engine. Started engines only cancel. */
+	setSchedule(id: string, input: SentinelEngineScheduleInput): void {
+		const entry = this.live.get(id);
+		if (!entry) throw new Error("工程不存在");
+		if (entry.engine.status !== "scheduled") {
+			throw new Error("只有尚未启动的计划工程才能修改计划；运行中的工程请先停用计划");
+		}
+		const schedule = normalizeSchedule(input, Date.now());
+		this.store.setEngineSchedule(id, schedule);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		this.armScheduler();
+		this.hooks.onChange(entry.engine);
+	}
+
+	/**
+	 * Cancel the plan. A scheduled engine becomes stopped; a running/paused engine
+	 * keeps running and only loses the future actions. This is intentionally
+	 * separate from pause/abort, which are operator lifecycle overrides.
+	 */
+	cancelSchedule(id: string): void {
+		const entry = this.live.get(id);
+		if (!entry) throw new Error("工程不存在");
+		if (!entry.engine.schedule || entry.engine.schedule.phase === "finished") {
+			throw new Error("该工程没有生效中的定时计划");
+		}
+		const now = Date.now();
+		this.disableActiveSchedule(entry, "canceled", now);
+		if (entry.engine.status === "scheduled") {
+			this.store.setEngineStatus(id, "stopped", "计划已取消", now);
+			entry.engine = this.store.getEngine(id) ?? entry.engine;
+		}
+		this.armScheduler();
+		this.hooks.onChange(entry.engine);
+	}
+
+	/** Persist a finished schedule without changing the engine lifecycle. */
+	private disableScheduleRow(engine: SentinelEngine, reason: SentinelEngineScheduleFinishReason): SentinelEngine {
+		if (!engine.schedule || engine.schedule.phase === "finished") return engine;
+		this.store.setEngineSchedule(engine.id, finishSchedule(engine.schedule, reason, Date.now()));
+		return this.store.getEngine(engine.id) ?? engine;
+	}
+
+	private disableActiveSchedule(entry: EngineLive, reason: SentinelEngineScheduleFinishReason, at = Date.now()): void {
+		const schedule = entry.engine.schedule;
+		if (!schedule || schedule.phase === "finished") return;
+		this.store.setEngineSchedule(entry.engine.id, finishSchedule(schedule, reason, at));
+		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+	}
+
+	/** Freeze dispatch and abort workers; schedule-aware callers mark tasks autoResume. */
+	private async pauseEngineInternal(entry: EngineLive, note: string, autoResume: boolean): Promise<void> {
+		const id = entry.engine.id;
+		// Mark paused before aborting: worker settlement then sees a paused engine and
+		// does not wake the commander for a task the pause is about to put back.
+		this.store.setEngineStatus(id, "paused", note, null);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		await this.stopWorkers(entry, "paused", note, autoResume);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+	}
+
+	/** Requeue the work a scheduled pause interrupted, before the commander resumes. */
+	private requeueAutoResumeTasks(entry: EngineLive): void {
+		const tasks = (this.store.getEngine(entry.engine.id)?.tasks ?? []).filter(
+			(task) => task.status === "paused" && task.autoResume,
+		);
+		for (const task of tasks) {
+			const result = this.continueTask(task.id, {
+				instruction: "定时计划恢复：此前任务因计划暂停被中断，请从中断处继续完成原目标，不要重复已完成的步骤。",
+				criteria: task.criteria,
+				roundLimit: 1,
+			});
+			if (result.error) {
+				this.pushCommanderEvent(entry, {
+					kind: "status",
+					status: "error",
+					note: `任务 ${task.id} 自动续跑失败：${result.error}`,
+				});
+				continue;
+			}
+			this.store.updateTask(task.id, { autoResume: false });
+		}
+		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+	}
+
+	/** Resume an engine that has already started, with optional schedule auto-continue. */
+	private async resumeEngineInternal(entry: EngineLive, autoResumeTasks: boolean): Promise<void> {
+		const id = entry.engine.id;
+		this.store.setEngineStatus(id, "running", null, null);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		entry.nudges = 0;
+		if (autoResumeTasks) this.requeueAutoResumeTasks(entry);
+		// A continuation that was waiting for a slot when the process stopped is
+		// still an explicit commander decision; requeue it.
+		for (const task of entry.engine.tasks) {
+			// A paused auto-resume task that failed above must stay paused for the
+			// operator; its old pending continuation is not a new decision.
+			if (task.status === "paused" && task.pendingContinue && !task.autoResume) {
+				this.store.updateTask(task.id, { status: "queued", endedAt: null });
+			}
+		}
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		await this.startCommander(entry, "resume");
+		this.tick();
+		this.hooks.onChange(this.getEngine(id) ?? entry.engine);
+	}
+
+	/** First start after a scheduled-start failure or a canceled start. */
+	private async startPausedEngine(entry: EngineLive): Promise<void> {
+		const id = entry.engine.id;
+		this.store.setEngineStatus(id, "running", null, null);
+		this.store.setEngineStartedAt(id, Date.now());
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		entry.nudges = 0;
+		this.hooks.onChange(entry.engine);
+		try {
+			await this.startCommander(entry, "initial");
+			this.tick();
+			this.hooks.onChange(this.getEngine(id) ?? entry.engine);
+		} catch (error) {
+			this.store.setEngineStartedAt(id, null);
+			this.store.setEngineStatus(id, "paused", `启动失败：${errorText(error)}`, null);
+			entry.engine = this.store.getEngine(id) ?? entry.engine;
+			this.hooks.onChange(entry.engine);
+			throw error;
+		}
+	}
+
+	private async failScheduledStart(entry: EngineLive, note: string): Promise<void> {
+		this.disableActiveSchedule(entry, "start_failed");
+		this.store.setEngineStatus(entry.engine.id, "paused", note, null);
+		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+		this.hooks.onChange(entry.engine);
+	}
+
+	/** Start an engine whose plan reached startAt. */
+	private async startScheduledEngine(entry: EngineLive): Promise<void> {
+		const id = entry.engine.id;
+		if (entry.engine.status !== "scheduled") return;
+		const check = await this.hooks.beforeStart?.(entry.engine);
+		// The environment check is async: an operator may have canceled the plan
+		// or edited its start time while Docker was being inspected.
+		if (entry.engine.status !== "scheduled") return;
+		const current = entry.engine.schedule;
+		if (!current || current.phase !== "waiting_start" || Date.now() < current.startAt) return;
+		if (check && !check.ok) {
+			await this.failScheduledStart(entry, `定时启动失败：${check.error ?? "环境检查未通过"}`);
+			return;
+		}
+		const at = Date.now();
+		const schedule = entry.engine.schedule;
+		if (schedule) {
+			this.store.setEngineSchedule(id, applyScheduleAction(schedule, "start", at));
+		}
+		this.store.setEngineStatus(id, "running", null, null);
+		this.store.setEngineStartedAt(id, at);
+		entry.engine = this.store.getEngine(id) ?? entry.engine;
+		entry.nudges = 0;
+		this.hooks.onChange(entry.engine);
+		try {
+			await this.startCommander(entry, "initial");
+			this.hooks.onChange(this.getEngine(id) ?? entry.engine);
+		} catch (error) {
+			this.store.setEngineStartedAt(id, null);
+			await this.failScheduledStart(entry, `定时启动失败：${errorText(error)}`);
+		}
+	}
+
+	/** Resume an engine paused by the plan, checking the environment first. */
+	private async resumeScheduledEngine(entry: EngineLive): Promise<void> {
+		const id = entry.engine.id;
+		if (entry.engine.status !== "paused") return;
+		const check = await this.hooks.beforeStart?.(entry.engine);
+		// Re-read after the async check: a manual pause/cancel may have taken over.
+		if (entry.engine.status !== "paused") return;
+		const current = entry.engine.schedule;
+		if (!current || current.phase !== "paused") return;
+		if (check && !check.ok) {
+			await this.failScheduledStart(entry, `定时恢复失败：${check.error ?? "环境检查未通过"}`);
+			return;
+		}
+		const schedule = entry.engine.schedule;
+		if (schedule) {
+			this.store.setEngineSchedule(id, applyScheduleAction(schedule, "resume", Date.now()));
+		}
+		try {
+			await this.resumeEngineInternal(entry, true);
+		} catch (error) {
+			await this.pauseEngineInternal(entry, `定时恢复失败：${errorText(error)}`, false);
+			this.disableActiveSchedule(entry, "start_failed");
+		}
+	}
+
+	/** Apply pauseAt (auto-resume later) or deadlineAt (final pause, operator decides). */
+	private async pauseForSchedule(entry: EngineLive, deadline: boolean): Promise<void> {
+		const now = Date.now();
+		const schedule = entry.engine.schedule;
+		if (!schedule) return;
+		if (entry.engine.status === "running") {
+			if (deadline) {
+				this.disableActiveSchedule(entry, "deadline", now);
+				await this.pauseEngineInternal(entry, "定时计划到点，工程未完成，已暂停；计划已停用", false);
+			} else {
+				this.store.setEngineSchedule(entry.engine.id, applyScheduleAction(schedule, "pause", now));
+				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+				await this.pauseEngineInternal(entry, "定时暂停，将在计划时间自动恢复", true);
+			}
+			return;
+		}
+		if (entry.engine.status === "paused") {
+			this.disableActiveSchedule(entry, deadline ? "deadline" : "manual", now);
+			if (deadline) {
+				this.store.setEngineStatus(entry.engine.id, "paused", "定时计划到点，工程未完成，已暂停；计划已停用", null);
+				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+			}
+			this.hooks.onChange(entry.engine);
+			return;
+		}
+		this.disableActiveSchedule(entry, entry.engine.status === "completed" ? "completed" : "manual", now);
+		this.hooks.onChange(entry.engine);
+	}
+
+	/** Process one due plan action; stale states finish the plan rather than run it. */
+	private async applyDueSchedule(entry: EngineLive, action: "start" | "pause" | "resume" | "deadline"): Promise<void> {
+		if (action === "start") {
+			if (entry.engine.status !== "scheduled") {
+				this.disableActiveSchedule(entry, entry.engine.status === "completed" ? "completed" : "manual");
+				this.hooks.onChange(entry.engine);
+				return;
+			}
+			const lateBy = Date.now() - (entry.engine.schedule?.startAt ?? Date.now());
+			if (lateBy > SCHEDULE_START_GRACE_MS) {
+				this.disableActiveSchedule(entry, "missed");
+				this.store.setEngineStatus(
+					entry.engine.id,
+					"paused",
+					"错过定时开始时间超过 10 分钟，计划已停用；点「继续」手动启动",
+					null,
+				);
+				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+				this.hooks.onChange(entry.engine);
+				return;
+			}
+			await this.startScheduledEngine(entry);
+			return;
+		}
+		if (action === "pause") {
+			await this.pauseForSchedule(entry, false);
+			return;
+		}
+		if (action === "resume") {
+			if (entry.engine.status === "paused") await this.resumeScheduledEngine(entry);
+			else {
+				this.disableActiveSchedule(entry, entry.engine.status === "completed" ? "completed" : "manual");
+				this.hooks.onChange(entry.engine);
+			}
+			return;
+		}
+		await this.pauseForSchedule(entry, true);
+	}
+
+	/** One timer for every engine; wakes at the earliest plan action. */
+	private armScheduler(): void {
+		if (this.scheduleTimer) {
+			clearTimeout(this.scheduleTimer);
+			this.scheduleTimer = undefined;
+		}
+		if (this.disposed) return;
+		let next: number | null = null;
+		for (const entry of this.live.values()) {
+			const schedule = entry.engine.schedule;
+			if (!schedule) continue;
+			const at = nextScheduleAt(schedule);
+			if (at !== null && (next === null || at < next)) next = at;
+		}
+		if (next === null) return;
+		const delay = Math.max(0, Math.min(next - Date.now(), SCHEDULE_TIMER_MAX_MS));
+		const timer = setTimeout(() => {
+			this.scheduleTimer = undefined;
+			void this.runScheduler();
+		}, delay);
+		// A pending timer must not keep the process alive after every socket closes.
+		timer.unref?.();
+		this.scheduleTimer = timer;
+	}
+
+	private async runScheduler(): Promise<void> {
+		if (this.schedulerBusy || this.disposed) return;
+		this.schedulerBusy = true;
+		try {
+			for (let i = 0; i < SCHEDULE_MAX_ACTIONS; i += 1) {
+				const now = Date.now();
+				let candidate: {
+					entry: EngineLive;
+					due: { action: "start" | "pause" | "resume" | "deadline"; at: number };
+				} | null = null;
+				for (const entry of this.live.values()) {
+					const schedule = entry.engine.schedule;
+					if (!schedule || schedule.phase === "finished") continue;
+					const due = dueScheduleAction(schedule, now);
+					if (!due) continue;
+					if (!candidate || due.at < candidate.due.at) candidate = { entry, due };
+				}
+				if (!candidate) break;
+				try {
+					await this.applyDueSchedule(candidate.entry, candidate.due.action);
+				} catch (error) {
+					const note = `定时动作失败：${errorText(error)}`;
+					this.pushCommanderEvent(candidate.entry, { kind: "status", status: "error", note });
+					this.disableActiveSchedule(candidate.entry, "start_failed");
+					const status = candidate.entry.engine.status;
+					if (status === "scheduled" || status === "running" || status === "paused") {
+						// An environment-hook rejection can happen before the engine is
+						// marked running; leaving it scheduled with a finished plan would
+						// strand it forever. A paused engine stays paused for the operator.
+						this.store.setEngineStatus(candidate.entry.engine.id, "paused", note, null);
+						candidate.entry.engine = this.store.getEngine(candidate.entry.engine.id) ?? candidate.entry.engine;
+					}
+					this.hooks.onChange(candidate.entry.engine);
+				}
+			}
+		} finally {
+			this.schedulerBusy = false;
+			this.armScheduler();
+		}
 	}
 
 	async deleteEngine(id: string): Promise<void> {
@@ -325,6 +694,7 @@ export class EngineManager {
 		entry.debrief?.dispose();
 		this.live.delete(id);
 		this.store.deleteEngine(id);
+		this.armScheduler();
 	}
 
 	/**
@@ -550,6 +920,10 @@ export class EngineManager {
 	}
 
 	dispose(): void {
+		if (this.scheduleTimer) {
+			clearTimeout(this.scheduleTimer);
+			this.scheduleTimer = undefined;
+		}
 		for (const entry of this.live.values()) {
 			for (const worker of entry.workers.values()) worker.dispose();
 			entry.commanderUnsubscribe();
@@ -630,6 +1004,9 @@ export class EngineManager {
 			},
 			board: () => this.store.getEngine(entry.engine.id)?.tasks ?? entry.engine.tasks,
 			finish: (report) => {
+				if (entry.engine.status !== "running") {
+					return { ok: false, error: "工程未在运行中，不能结束；请先继续工程" };
+				}
 				const board = this.store.getEngine(entry.engine.id)?.tasks ?? [];
 				const outstanding = board.filter((task) => task.status === "queued" || task.status === "running");
 				if (outstanding.length > 0) {
@@ -638,9 +1015,11 @@ export class EngineManager {
 						error: `还有 ${outstanding.length} 个任务未结束（排队或运行中），先等它们结束或用 abort_task 中止`,
 					};
 				}
+				this.disableActiveSchedule(entry, "completed");
 				this.store.setEngineReport(entry.engine.id, report);
 				this.store.setEngineStatus(entry.engine.id, "completed", null, Date.now());
 				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+				this.armScheduler();
 				entry.reportSettled = true;
 				this.hooks.onChange(entry.engine);
 				this.notifyEngineDone(entry.engine);
@@ -1060,12 +1439,23 @@ export class EngineManager {
 		this.tick();
 	}
 
-	private async stopWorkers(entry: EngineLive, status: "paused" | "aborted", note: string): Promise<void> {
+	private async stopWorkers(
+		entry: EngineLive,
+		status: "paused" | "aborted",
+		note: string,
+		autoResume = false,
+	): Promise<void> {
 		for (const [taskId, worker] of [...entry.workers]) {
 			await worker.abort(note);
 			entry.workers.delete(taskId);
 			worker.dispose();
-			this.store.updateTask(taskId, { status, endedAt: Date.now(), error: note, summary: note });
+			this.store.updateTask(taskId, {
+				status,
+				endedAt: Date.now(),
+				error: note,
+				summary: note,
+				autoResume: status === "paused" && autoResume,
+			});
 		}
 		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 	}
@@ -1170,7 +1560,7 @@ export class EngineManager {
 			`### 工程已完成：${engine.name}`,
 			`- 项目：${engine.projectName}`,
 			`- 任务：完成 ${done}，未成 ${failed}`,
-			`- 耗时：${Math.round(((engine.endedAt ?? Date.now()) - engine.createdAt) / 60000)} 分钟`,
+			`- 耗时：${Math.round(((engine.endedAt ?? Date.now()) - (engine.startedAt ?? engine.createdAt)) / 60000)} 分钟`,
 			"",
 			engine.report?.slice(0, config.summaryLimit || 2000) ?? "",
 		].join("\n");
@@ -1390,7 +1780,7 @@ function buildSnapshotReport(engine: SentinelEngine): { filename: string; markdo
 		`# 工程进度快照：${engine.name}`,
 		"",
 		`- 项目：${engine.projectName}`,
-		`- 状态：${engine.status === "running" ? "运行中" : engine.status === "paused" ? "已暂停" : engine.status === "completed" ? "已完成" : "已终止"}`,
+		`- 状态：${engine.status === "scheduled" ? "已计划" : engine.status === "running" ? "运行中" : engine.status === "paused" ? "已暂停" : engine.status === "completed" ? "已完成" : "已终止"}`,
 		`- 目标数：${engine.targets.length}`,
 		`- 任务数：${engine.tasks.length}`,
 		"",

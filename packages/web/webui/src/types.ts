@@ -1369,6 +1369,8 @@ export type SentinelClientMessage =
 	| { type: "engine_pause"; id: string }
 	| { type: "engine_resume"; id: string }
 	| { type: "engine_abort"; id: string }
+	| { type: "engine_set_schedule"; id: string; schedule: SentinelEngineScheduleInput }
+	| { type: "engine_cancel_schedule"; id: string }
 	| { type: "engine_delete"; id: string }
 	| { type: "engine_add_targets"; id: string; targets: string }
 	| { type: "engine_steer_commander"; id: string; text: string }
@@ -2032,7 +2034,7 @@ export type SessionEventView =
 // Engineering mode (mirrors packages/web/src/protocol.ts)
 // ---------------------------------------------------------------------------
 
-export type SentinelEngineStatus = "running" | "paused" | "completed" | "stopped";
+export type SentinelEngineStatus = "scheduled" | "running" | "paused" | "completed" | "stopped";
 
 /**
  * How an engine's workers get their commands approved. Engineering mode is
@@ -2045,6 +2047,40 @@ export type SentinelEngineTaskStatus = "queued" | "running" | "done" | "failed" 
 export interface SentinelEngineTarget {
 	target: string;
 	note?: string;
+}
+
+/** One step of a one-shot engineering schedule. */
+export type SentinelEngineScheduleAction = "start" | "pause" | "resume" | "deadline";
+
+export type SentinelEngineSchedulePhase = "waiting_start" | "running" | "paused" | "finished";
+
+export type SentinelEngineScheduleFinishReason =
+	| "completed"
+	| "deadline"
+	| "manual"
+	| "canceled"
+	| "start_failed"
+	| "missed"
+	| "restart";
+
+export interface SentinelEngineSchedule {
+	timezone: string;
+	startAt: number;
+	pauseAt: number | null;
+	resumeAt: number | null;
+	deadlineAt: number | null;
+	phase: SentinelEngineSchedulePhase;
+	applied: SentinelEngineScheduleAction[];
+	finishedReason: SentinelEngineScheduleFinishReason | null;
+	finishedAt: number | null;
+}
+
+export interface SentinelEngineScheduleInput {
+	timezone: string;
+	startAt: number;
+	pauseAt?: number | null;
+	resumeAt?: number | null;
+	deadlineAt?: number | null;
 }
 
 export interface SentinelEngineLimits {
@@ -2089,6 +2125,7 @@ export interface SentinelEngineTask {
 	error: string | null;
 	usage: SentinelGoalUsage | null;
 	vulns: number;
+	autoResume: boolean;
 }
 
 export interface SentinelEngine {
@@ -2117,7 +2154,9 @@ export interface SentinelEngine {
 	/** How this engine's worker commands are gated; see SentinelEngineGateMode. */
 	gateMode: SentinelEngineGateMode;
 	createdAt: number;
+	startedAt: number | null;
 	endedAt: number | null;
+	schedule: SentinelEngineSchedule | null;
 	report: string | null;
 	tasks: SentinelEngineTask[];
 }
@@ -2181,4 +2220,5 @@ export interface SentinelEngineCreateInput {
 	presetOptional?: boolean;
 	limits: SentinelEngineLimits;
 	gateMode?: SentinelEngineGateMode;
+	schedule?: SentinelEngineScheduleInput;
 }

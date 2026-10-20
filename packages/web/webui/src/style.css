@@ -6632,6 +6632,127 @@ button.link {
 	flex-wrap: wrap;
 }
 
+.schedule-strip {
+	flex: none;
+	margin-bottom: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--border-strong);
+	border-left: 3px solid var(--accent);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.schedule-strip__head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px 10px;
+	font-size: 12px;
+}
+
+.schedule-strip__title {
+	font-weight: 600;
+	color: var(--text-bright);
+}
+
+.schedule-strip__zone {
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.schedule-strip__next {
+	color: var(--dim);
+}
+
+.schedule-strip__timeline {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	margin-top: 8px;
+}
+
+.schedule-step {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 5px;
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.schedule-step__mark {
+	font-family: var(--mono);
+	color: var(--disabled);
+}
+
+.schedule-step__label {
+	color: var(--text);
+}
+
+.schedule-step__time {
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.schedule-step.is-done .schedule-step__mark,
+.schedule-step.is-done .schedule-step__label {
+	color: var(--ok);
+}
+
+.schedule-step.is-next .schedule-step__mark,
+.schedule-step.is-next .schedule-step__label {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.schedule-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--raised);
+}
+
+.schedule-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 12px;
+}
+
+.schedule-timezone > span {
+	font-size: 12px;
+	color: var(--dim);
+	padding: 7px 0;
+}
+
+.schedule-check {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.schedule-check input {
+	margin-top: 2px;
+	flex: none;
+}
+
+.schedule-mode button {
+	padding: 5px 12px;
+}
+
+.form-error {
+	margin: 0 0 10px;
+	padding: 7px 10px;
+	border: 1px solid var(--danger);
+	border-radius: var(--radius);
+	color: var(--danger);
+	font-size: 12px;
+}
+
 .steer-box {
 	display: flex;
 	gap: 8px;
@@ -7053,6 +7174,7 @@ button.link {
 .form-field input[type="text"],
 .form-field input[type="number"],
 .form-field input[type="password"],
+.form-field input[type="datetime-local"],
 .form-field textarea {
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius);
@@ -7173,6 +7295,11 @@ button.link {
 }
 
 /* Engine status badges: the console's tag palette applied to lifecycle states. */
+.tag-scheduled {
+	background: var(--accent-dim);
+	color: var(--accent);
+	border: 1px solid var(--accent);
+}
 .tag-running {
 	background: var(--accent-dim);
 	color: var(--accent);

@@ -60,6 +60,7 @@ function task(over: Partial<SentinelEngineTask>): SentinelEngineTask {
 		error: null,
 		usage: null,
 		vulns: 0,
+		autoResume: false,
 		...over,
 	};
 }
@@ -202,7 +203,9 @@ describe("buildCommanderBrief", () => {
 		limits: { concurrency: 1, roundLimit: 3, tokenLimit: null, timeLimitMin: null, maxRetries: 1 },
 		gateMode: "auto",
 		createdAt: 1,
+		startedAt: 1,
 		endedAt: null,
+		schedule: null,
 		report: null,
 		tasks: [],
 	});

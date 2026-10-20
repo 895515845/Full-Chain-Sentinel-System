@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { containerWorkPath } from "../src/docker.ts";
+import { normalizeSchedule } from "../src/engine-schedule.ts";
 import { EngineStore } from "../src/engine-store.ts";
 import type { SentinelEngineLimits } from "../src/protocol.ts";
 import { openSqliteDatabase } from "../src/sqlite.ts";
@@ -427,4 +428,47 @@ test("containerWorkPath maps host dirs under the work mount to /work", () => {
 	expect(containerWorkPath(`${workDir}/tasks/task-a1`, workDir)).toBe("/work/tasks/task-a1");
 	expect(containerWorkPath("/somewhere/else", workDir)).toBe("/work");
 	expect(containerWorkPath(undefined, workDir)).toBe("/work");
+});
+
+test("a scheduled engine and auto-resume flag round-trip", () => {
+	const startAt = Date.now() + 60_000;
+	const schedule = normalizeSchedule(
+		{ timezone: "Asia/Shanghai", startAt, pauseAt: startAt + 60_000, resumeAt: startAt + 120_000 },
+		Date.now(),
+	);
+	const engine = store.createEngine({
+		projectId: "p-schedule",
+		projectName: "计划项目",
+		name: "等待启动",
+		targets: [{ target: "10.0.0.9" }],
+		doctrines: ["standard"],
+		limits,
+		gateMode: "auto",
+		status: "scheduled",
+		startedAt: null,
+		schedule,
+	});
+	const task = store.createTask({
+		engineId: engine.id,
+		title: "待恢复任务",
+		objective: "o",
+		target: "10.0.0.9",
+		workspace: "w",
+		roundLimit: 3,
+		attempt: 1,
+	});
+	store.updateTask(task.id, { status: "paused", autoResume: true });
+
+	const loaded = store.getEngine(engine.id);
+	expect(loaded?.status).toBe("scheduled");
+	expect(loaded?.startedAt).toBeNull();
+	expect(loaded?.schedule?.phase).toBe("waiting_start");
+	expect(loaded?.schedule?.pauseAt).toBe(startAt + 60_000);
+	expect(loaded?.tasks[0]?.autoResume).toBe(true);
+
+	store.setEngineStartedAt(engine.id, startAt);
+	store.setEngineSchedule(engine.id, { ...schedule, phase: "running", applied: ["start"] });
+	const started = store.getEngine(engine.id);
+	expect(started?.startedAt).toBe(startAt);
+	expect(started?.schedule?.applied).toEqual(["start"]);
 });

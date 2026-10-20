@@ -36,6 +36,7 @@ function task(over: Partial<SentinelEngineTask>): SentinelEngineTask {
 		error: null,
 		usage: null,
 		vulns: 0,
+		autoResume: false,
 		...over,
 	};
 }

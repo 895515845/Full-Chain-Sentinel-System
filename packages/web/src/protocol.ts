@@ -931,7 +931,7 @@ export interface SentinelModelingState {
 // ---------------------------------------------------------------------------
 
 /** Lifecycle of one engineering run. */
-export type SentinelEngineStatus = "running" | "paused" | "completed" | "stopped";
+export type SentinelEngineStatus = "scheduled" | "running" | "paused" | "completed" | "stopped";
 
 /**
  * How an engine's workers get their commands approved. Engineering mode is
@@ -948,6 +948,48 @@ export type SentinelEngineTaskStatus = "queued" | "running" | "done" | "failed" 
 export interface SentinelEngineTarget {
 	target: string;
 	note?: string;
+}
+
+/**
+ * One step of a scheduled engineering run. The timeline is one-shot: the times
+ * are absolute epoch milliseconds, and `timezone` is carried only for display
+ * (the browser that created the plan, e.g. Asia/Shanghai).
+ */
+export type SentinelEngineScheduleAction = "start" | "pause" | "resume" | "deadline";
+
+export type SentinelEngineSchedulePhase = "waiting_start" | "running" | "paused" | "finished";
+
+export type SentinelEngineScheduleFinishReason =
+	| "completed"
+	| "deadline"
+	| "manual"
+	| "canceled"
+	| "start_failed"
+	| "missed"
+	| "restart";
+
+/** Persisted plan for one engine; null when the engine was started immediately. */
+export interface SentinelEngineSchedule {
+	/** IANA zone of the operator when the plan was made; display only. */
+	timezone: string;
+	startAt: number;
+	pauseAt: number | null;
+	resumeAt: number | null;
+	deadlineAt: number | null;
+	phase: SentinelEngineSchedulePhase;
+	/** Actions already applied, so a restarted scheduler never repeats them. */
+	applied: SentinelEngineScheduleAction[];
+	finishedReason: SentinelEngineScheduleFinishReason | null;
+	finishedAt: number | null;
+}
+
+/** Operator input for a schedule; the server fills phase/applied/finished fields. */
+export interface SentinelEngineScheduleInput {
+	timezone: string;
+	startAt: number;
+	pauseAt?: number | null;
+	resumeAt?: number | null;
+	deadlineAt?: number | null;
 }
 
 /** Per-engine knobs; per-task limits derive from these unless overridden. */
@@ -1017,6 +1059,12 @@ export interface SentinelEngineTask {
 	usage: SentinelGoalUsage | null;
 	/** Findings submitted to the hub while this task ran. */
 	vulns: number;
+	/**
+	 * The task was interrupted by a scheduled pause and should be continued on
+	 * the next scheduled resume. A service restart clears this: safe restart
+	 * policy leaves interruption recovery to the operator.
+	 */
+	autoResume: boolean;
 }
 
 /** An engineering run: a commander plus its targets, tasks, and report. */
@@ -1046,7 +1094,11 @@ export interface SentinelEngine {
 	/** How this engine's worker commands are gated; see SentinelEngineGateMode. */
 	gateMode: SentinelEngineGateMode;
 	createdAt: number;
+	/** When the commander first started; null while the plan is still waiting. */
+	startedAt: number | null;
 	endedAt: number | null;
+	/** One-shot schedule; null for engines created with "start now". */
+	schedule: SentinelEngineSchedule | null;
 	/** Final report markdown, once the commander declared the engine done. */
 	report: string | null;
 	tasks: SentinelEngineTask[];
@@ -1601,6 +1653,10 @@ export type SentinelClientMessage =
 	| { type: "engine_pause"; id: string }
 	| { type: "engine_resume"; id: string }
 	| { type: "engine_abort"; id: string }
+	/** Replace the plan of an engine that has not started yet. */
+	| { type: "engine_set_schedule"; id: string; schedule: SentinelEngineScheduleInput }
+	/** Stop the plan without stopping a run that is already in progress. */
+	| { type: "engine_cancel_schedule"; id: string }
 	| { type: "engine_delete"; id: string }
 	| { type: "engine_add_targets"; id: string; targets: string }
 	| { type: "engine_steer_commander"; id: string; text: string }
@@ -2243,4 +2299,6 @@ export interface SentinelEngineCreateInput {
 	limits: SentinelEngineLimits;
 	/** Defaults to `auto` when omitted, which is what engines predating it used. */
 	gateMode?: SentinelEngineGateMode;
+	/** When set, the engine is saved as scheduled instead of starting immediately. */
+	schedule?: SentinelEngineScheduleInput;
 }

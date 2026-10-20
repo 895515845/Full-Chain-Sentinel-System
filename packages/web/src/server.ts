@@ -450,6 +450,13 @@ export async function startSentinelServer(
 					},
 					onCommanderEvent: (engineId, event) => broadcast({ type: "engine_commander_event", engineId, event }),
 					onTaskEvent: (taskId, event) => broadcast({ type: "engine_task_event", taskId, event }),
+					beforeStart: async () => {
+						// A plan can fire hours after it was saved, so the cached startup
+						// report is too old to prove Docker is still healthy.
+						const report = await ensureEnvironment(true);
+						broadcastEnvironment();
+						return report.ok ? { ok: true } : { ok: false, error: blockedReason(report) };
+					},
 				},
 				// Task sessions are created by the runtime in the project's normal
 				// session directory, so they are first-class conversations.
@@ -2259,11 +2266,15 @@ export async function startSentinelServer(
 						sendError(socket, "请先创建或选择一个项目，工程属于项目");
 						return;
 					}
-					const report = await ensureEnvironment();
-					if (!report.ok) {
-						sendError(socket, blockedReason(report));
-						broadcastEnvironment();
-						return;
+					// A scheduled engine checks the environment when it actually starts, not
+					// at planning time: Docker being down now must not prevent making a plan.
+					if (!message.input.schedule) {
+						const report = await ensureEnvironment();
+						if (!report.ok) {
+							sendError(socket, blockedReason(report));
+							broadcastEnvironment();
+							return;
+						}
 					}
 					// Creation inserts the row before the commander's first turn; tell the
 					// server to return now and let the insert's engine_update reach the page.
@@ -2317,6 +2328,24 @@ export async function startSentinelServer(
 				}
 				case "engine_abort":
 					if (engines) await engines.abortEngine(message.id);
+					return;
+				case "engine_set_schedule":
+					if (!engines) return;
+					try {
+						engines.setSchedule(message.id, message.schedule);
+						broadcastEngines();
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				case "engine_cancel_schedule":
+					if (!engines) return;
+					try {
+						engines.cancelSchedule(message.id);
+						broadcastEngines();
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
 					return;
 				case "engine_delete":
 					if (engines) {
