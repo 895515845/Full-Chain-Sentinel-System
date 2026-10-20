@@ -35,6 +35,12 @@
 你需要提前安装好 Docker，怎么安装 Docker，在此就不赘述
 
 ```sh
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh --mirror Aliyun
+```
+
+
+```sh
 root@VM-0-11-ubuntu:~# tar -xzvf sentinel-web-linux-x64.tar.gz 
 sentinel-web/
 sentinel-web/sentinel-web
