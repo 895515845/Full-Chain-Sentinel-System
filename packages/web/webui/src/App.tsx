@@ -16,7 +16,7 @@ import { GateAuditPage } from "./components/GateAuditPage.tsx";
 import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { GoalBar } from "./components/GoalBar.tsx";
 import { GoalStartDialog } from "./components/GoalStartDialog.tsx";
-import { AgentEntry, MarkdownText, MessageView } from "./components/MessageView.tsx";
+import { AgentEntry, formatTime, MarkdownText, MessageView } from "./components/MessageView.tsx";
 import { AssetPanel } from "./components/AssetPanel.tsx";
 import { WebSearchPanel } from "./components/WebSearchPanel.tsx";
 import { McpPanel } from "./components/McpPanel.tsx";
@@ -136,6 +136,7 @@ interface LiveTool {
 	command: string;
 	status: "running" | "done" | "error";
 	output: string;
+	startedAt: number;
 	durationMs?: number;
 }
 
@@ -1141,6 +1142,9 @@ export function App() {
 			assistantStartedAtRef.current = null;
 			setRunThroughput(null);
 			setRunActive(true);
+			// A previous run can leave a live card behind if an event was missed;
+			// never let it leak into the next run.
+			setLiveTools([]);
 			return;
 		}
 		if (event.type === "message_start") {
@@ -1206,6 +1210,10 @@ export function App() {
 			return;
 		}
 		if (event.type === "tool_execution_start") {
+			// Nested calls (codemode scripts, for example) are summarized by their
+			// parent tool's result. They have no transcript message of their own, so
+			// rendering them here leaves cards that can never settle or fold.
+			if (event.parentToolCallId) return;
 			setLiveTools((prev) => [
 				...prev,
 				{
@@ -1214,11 +1222,13 @@ export function App() {
 					command: commandFromArgs(event.args),
 					status: "running",
 					output: "",
+					startedAt: Date.now(),
 				},
 			]);
 			return;
 		}
 		if (event.type === "tool_execution_update") {
+			if (event.parentToolCallId) return;
 			const partial = event.partialResult as { content?: unknown } | null;
 			const text = partial ? textFromContent(partial.content) : "";
 			if (text) {
@@ -1229,6 +1239,7 @@ export function App() {
 			return;
 		}
 		if (event.type === "tool_execution_end") {
+			if (event.parentToolCallId) return;
 			const text = event.result ? textFromContent(event.result.content) : "";
 			setLiveTools((prev) =>
 				prev.map((tool) =>
@@ -2261,6 +2272,7 @@ export function App() {
 																		key={tool.id}
 																		name={tool.name}
 																		status={tool.status}
+																		time={formatTime(tool.startedAt)}
 																		durationMs={tool.durationMs}
 																		command={tool.command}
 																		output={tool.output}

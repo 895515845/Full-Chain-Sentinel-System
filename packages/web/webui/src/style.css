@@ -5884,6 +5884,14 @@ svg.lucide {
 	}
 }
 
+.tool-row .tool-time {
+	flex: none;
+	width: 58px;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--dim);
+}
+
 .tool-row .tool-name {
 	flex: none;
 	font-family: var(--mono);
@@ -6613,7 +6621,7 @@ button.link {
    output (ws-console__body). */
 
 .engines-table .data-row {
-	grid-template-columns: minmax(170px, 1.6fr) 88px 90px minmax(150px, 1.1fr) 84px 100px 118px;
+	grid-template-columns: minmax(170px, 1.6fr) 88px minmax(150px, 1.1fr) 84px 100px 118px;
 	cursor: pointer;
 }
 
@@ -7794,7 +7802,7 @@ button.link {
 
 .engine-wizard-review {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 8px;
 	margin-top: 16px;
 	padding: 10px;

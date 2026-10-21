@@ -28,6 +28,7 @@ function durationLabel(durationMs: number | undefined): string {
 export function ToolCard({
 	name,
 	status,
+	time,
 	durationMs,
 	command,
 	output,
@@ -35,6 +36,8 @@ export function ToolCard({
 }: {
 	name: string;
 	status: "running" | "done" | "error";
+	/** Wall-clock time of the call, so a live card reads like a finished step. */
+	time?: string;
 	durationMs?: number;
 	command?: string;
 	output: string;
@@ -66,6 +69,7 @@ export function ToolCard({
 		return (
 			<div className={`tool-card ${status}`}>
 				<div className="tool-row" role="button" tabIndex={0} onClick={toggle} onKeyDown={onBarKey}>
+					{time ? <span className="tool-time">{time}</span> : null}
 					<span className="tool-name">{name}</span>
 					{preview ? (
 						<span className={`tool-summary ${status === "running" ? "live" : ""}`}>{preview}</span>

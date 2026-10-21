@@ -38,7 +38,7 @@ function messageImages(content: unknown): { data: string; mimeType: string }[] {
 	);
 }
 
-function formatTime(timestamp?: number): string {
+export function formatTime(timestamp?: number): string {
 	if (!timestamp) return "";
 	return new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false });
 }
@@ -357,6 +357,7 @@ export function MessageView({
 			<ToolCard
 				name={message.toolName}
 				status={message.isError ? "error" : "done"}
+				time={formatTime(message.timestamp)}
 				durationMs={message.durationMs}
 				command={toolCommand}
 				output={output}
@@ -382,6 +383,7 @@ export function MessageView({
 			<ToolCard
 				name="! bash"
 				status={message.exitCode === 0 ? "done" : "error"}
+				time={formatTime(message.timestamp)}
 				command={message.command}
 				output={message.output}
 				onFullscreen={onFullscreen}

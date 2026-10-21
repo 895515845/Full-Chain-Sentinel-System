@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import type { AgentMessageView } from "../types.ts";
 import { MessageView } from "./MessageView.tsx";
+import { ToolCard } from "./ToolCard.tsx";
 
 function custom(customType: string, content: string): AgentMessageView {
 	return { role: "custom", customType, content, timestamp: 1_700_000_000_000 };
@@ -97,4 +98,18 @@ test("a thinking row without a viewer expands in place instead of doing nothing"
 		createElement(MessageView, { message: thinkingOnly(LONG_THINKING), compact: true }),
 	);
 	expect(html).toContain("就地展开全部内容");
+});
+
+test("a live tool card keeps the call time at the front", () => {
+	const html = renderToStaticMarkup(
+		createElement(ToolCard, {
+			name: "droid_shell",
+			status: "running",
+			time: "20:31:50",
+			command: "id",
+			output: "",
+		}),
+	);
+	expect(html).toContain('class="tool-time"');
+	expect(html).toContain("20:31:50");
 });

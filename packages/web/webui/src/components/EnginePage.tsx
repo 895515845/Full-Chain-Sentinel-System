@@ -557,7 +557,6 @@ export function EnginePage(props: EnginePageProps) {
 						<div className="data-row data-head">
 							<span>{t("工程")}</span>
 							<span>{t("状态")}</span>
-							<span>{t("目标 / 任务")}</span>
 							<span>{t("进度")}</span>
 							<span>{t("中枢提交")}</span>
 							<span>{t("耗时")}</span>
@@ -596,9 +595,6 @@ export function EnginePage(props: EnginePageProps) {
 										<span className={`tag ${ENGINE_STATUS_CLASS[engine.status]}`}>
 											{ENGINE_STATUS_LABELS[engine.status]}
 										</span>
-									</span>
-									<span className="data-mono">
-										{engine.targets.length} / {engine.tasks.length}
 									</span>
 									<span>{parts.join(" · ") || "—"}</span>
 									<span>
@@ -1366,7 +1362,6 @@ function CreateEngineForm(props: {
 	const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>(() => emptyScheduleDraft());
 	const [formError, setFormError] = useState<string | null>(null);
 
-	const targetCount = targets.split("\n").filter((line) => line.trim()).length;
 	const enabledPresets = props.presets.filter((preset) => preset.enabled);
 	const stepMeta = [
 		{ step: 1 as const, title: t("目标"), hint: t("范围与名称") },
@@ -1382,7 +1377,7 @@ function CreateEngineForm(props: {
 	function validateStep(target: WizardStep): string | null {
 		if (target === 1) {
 			if (!name.trim()) return t("请填写工程名称");
-			if (targetCount === 0) return t("请至少填写一个目标");
+			if (targets.trim() === "") return t("请至少填写一个目标");
 			return null;
 		}
 		if (target === 2) {
@@ -1515,10 +1510,7 @@ function CreateEngineForm(props: {
 							<span className="engine-wizard-rail-kicker">DRAFT / 0{step}</span>
 							<b>{name.trim() || t("未命名工程")}</b>
 							<p>
-								{t("{targets} 个目标 · {doctrines} 条思路", {
-									targets: targetCount,
-									doctrines: selected.length,
-								})}
+								{t("{doctrines} 条思路", { doctrines: selected.length })}
 								<br />
 								{selectedPresetLabel}
 							</p>
@@ -1569,9 +1561,6 @@ function CreateEngineForm(props: {
 										)}
 									/>
 									<div className="engine-wizard-target-meta">
-										<span>
-											{t("已识别")} <b>{targetCount}</b> {t("条目标")}
-										</span>
 										<span>{t("支持 IP / 域名 / URL")}</span>
 									</div>
 								</div>
@@ -1588,7 +1577,7 @@ function CreateEngineForm(props: {
 								<button type="button" className="engine-wizard-done" onClick={() => goToStep(1)}>
 									<span className="engine-wizard-done-mark">✓</span>
 									<span>
-										{t("目标已就绪")} · <b>{targetCount}</b> {t("个目标")}
+										{t("目标已就绪")}
 									</span>
 									<span className="engine-wizard-done-edit">{t("修改")}</span>
 								</button>
@@ -1799,10 +1788,6 @@ function CreateEngineForm(props: {
 								</div>
 
 								<div className="engine-wizard-review">
-									<div>
-										<span>{t("目标")}</span>
-										<b>{t("{count} 个", { count: targetCount })}</b>
-									</div>
 									<div>
 										<span>{t("指挥")}</span>
 										<b>{t("{count} 条思路", { count: selected.length })}</b>

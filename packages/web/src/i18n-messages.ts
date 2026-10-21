@@ -446,7 +446,6 @@ export const EN_MESSAGES: Record<string, string> = {
 	"{state}：{criterion} —— {evidence}": "{state}: {criterion} — {evidence}",
 	"{status} · 新增 {imported} · 覆盖 {replaced} · 跳过 {skipped} · {duration}s":
 		"{status} · {imported} new · {replaced} overwritten · {skipped} skipped · {duration}s",
-	"{targets} 个目标 · {doctrines} 条思路": "{targets} targets · {doctrines} doctrines",
 	"{timezone}（浏览器时区）": "{timezone} (browser time zone)",
 	"{time} · 思考": "{time} · Thinking",
 	"{time} · 指挥官": "{time} · Commander",
@@ -2030,7 +2029,6 @@ export const EN_MESSAGES: Record<string, string> = {
 		"Servers whose conditions are not met are not connected, and the agent cannot see their tools.",
 	条思路: "doctrines",
 	条目不是对象: "An entry is not an object",
-	条目标: "targets",
 	"条目的 64 位长度或偏移未支持": "64-bit entry size or offset is not supported",
 	来源: "Source",
 	"来源：pi 内置目录": "Source: pi built-in catalog",
@@ -2320,7 +2318,6 @@ export const EN_MESSAGES: Record<string, string> = {
 	"目录已注入，api_model_read 可读全文": "Catalog injected; api_model_read can read the full text",
 	目录里没有的模型: "model not in the catalog",
 	目标: "Target",
-	"目标 / 任务": "Targets / tasks",
 	"目标 ID": "Goal ID",
 	"目标 host": "Target host",
 	目标不能为空: "The objective cannot be empty",

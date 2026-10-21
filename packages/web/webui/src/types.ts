@@ -2040,8 +2040,15 @@ export type SessionEventView =
 			toolCallId: string;
 			toolName: string;
 			args: Record<string, unknown>;
+			/** Set when a codemode script (or another tool) made this call. */
+			parentToolCallId?: string;
 	  }
-	| { type: "tool_execution_update"; toolCallId: string; partialResult: unknown }
+	| {
+			type: "tool_execution_update";
+			toolCallId: string;
+			partialResult: unknown;
+			parentToolCallId?: string;
+	  }
 	| {
 			type: "tool_execution_end";
 			toolCallId: string;
@@ -2049,6 +2056,7 @@ export type SessionEventView =
 			result: { content?: ContentBlockView[] } | null;
 			isError: boolean;
 			durationMs?: number;
+			parentToolCallId?: string;
 	  }
 	| { type: "agent_start" }
 	| { type: "agent_settled"; aborted: boolean }
