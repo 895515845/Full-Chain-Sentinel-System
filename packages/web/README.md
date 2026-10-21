@@ -1,6 +1,6 @@
 # Full Chain Sentinel Web
 
-全链哨兵 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服务，以及浏览器端中文控制台界面。
+全链哨兵 的 Web 控制台：内嵌 pi coding-agent SDK 的 HTTP + WebSocket 服务，以及浏览器端中英文控制台界面（默认中文）。
 
 ## 功能
 

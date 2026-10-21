@@ -1,6 +1,8 @@
 # 全链哨兵 Full Chain Sentinel System
 
-知攻善防实验室，基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带中文 Web 控制台与容器化作业环境。
+**简体中文** | [English](README.en.md)
+
+知攻善防实验室，基于 [pi](https://github.com/earendil-works/pi) agent harness 改造的**授权渗透测试 Agent**，带中英文 Web 控制台（默认中文）与容器化作业环境。
 
 ## 授权使用声明
 
@@ -16,13 +18,13 @@
 ## 功能
 
 - **方法论驱动的渗透流程**：侦察 → 枚举 → 漏洞映射 → 验证 → 利用 → 后渗透 → 报告，系统提示强调授权范围、证据留痕与最小侵入。
-- **中文 Web 控制台**（[packages/web](packages/web/README.md)）：流式对话与思考过程、工具执行卡片、会话树、文件与子代理弹窗、项目选择。
-- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门员模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。审批链覆盖 bash 与安卓 shell 命令（`droid_shell`）；frida、抓包、APK 分析与文件面板直接调用容器，不过审批门。
+- **中英文 Web 控制台**（[packages/web](packages/web/README.md)）：默认中文，可在侧栏、登录页与授权承诺页切换英文；服务端提示、错误和报告同步英文化。流式对话与思考过程、工具执行卡片、会话树、文件与子代理弹窗、项目选择。
+- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。审批链覆盖 bash 与安卓 shell 命令（`droid_shell`）；frida、抓包、APK 分析与文件面板直接调用容器，不过审批门。
 - **容器化作业环境**：每个项目一个 Kali 容器，内置侦察、枚举、Web 利用、口令与内网工具；容器网络模式在「设置 → 环境」切换（默认 host）。
 - **漏洞中枢**：`vuln_submit` 提交已验证漏洞，必填 CVSS 分数，原始数据包逐字保存，操作员复核留时间线，可按项目导出 Markdown 报告。
 - **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
 - **安卓设备插件**：root 测试机安装自研 DroidBridge APK 主动反连，提供 shell、文件上下行、截屏、logcat、tcpdump 抓包、frida 动态调试与 APK 静态分析。
-- **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门员判定。
+- **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门模型判定。
 - **Web 搜索插件**（设置 → Web 搜索）：接入 **Tavily**，Agent 用 `web_search`（公网搜索）与 `web_extract`（页面正文抓取）做目标情报收集（泄露文档、公开报告、技术文章）。支持多 Key 号池，控制台按各 Key 剩余额度自动轮换，额度耗尽自动切换；查询流水入 `websearch.db`，原始响应落项目 `evidence/search/`。只有「权限 → Web 搜索」开关打开且号池里有已验证的 Key 时才会挂载工具；密钥明文存本机 `websearch.json`（0600），不进容器、不进 bash 审计。
 - **自定义 MCP 插件**（设置 → MCP）：在控制台里增删改查 MCP 服务器（`http`、`sse` 或 `stdio`）并逐个测试连接，工具以 `mcp__<服务器>__<工具>` 挂给 Agent，仍受「权限 → MCP」总开关约束，且该开关下可逐个服务器放开或关掉。配置由哨兵自己拥有（`mcp-servers.json`，0600），**不读 pi 原生的 `mcp.json`**，所以列表里没有的服务器 Agent 看不到。**stdio 服务器在控制台宿主机上直接执行**（不在容器内、不过 bash 审批），必须逐条勾选风险确认才能保存。
 
@@ -30,7 +32,9 @@
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 
-# Releases 快速开始
+## 快速开始
+
+### Releases
 
 你需要提前安装好 Docker，怎么安装 Docker，在此就不赘述
 
@@ -80,7 +84,7 @@ Windows（需要 Docker Desktop，PowerShell 中运行）：
 建议开 host 模式，否则公网环境无法进行监听操作。
 
 
-## Dev 快速开始
+### 从源码运行
 
 要求 Node.js >= 22.19.0。
 
@@ -141,8 +145,6 @@ npm run start:web
 - `--local` 只是默认值；一旦给了 `--listen`，就按 `--listen` 的地址监听并据此推断模式。
 - 插件主机与主控制台可以同机，也可以分开；远端主机不能安装 `locality: local-only` 的插件。
 
-```
-
 ## 目录结构
 
 本仓库沿用上游 pi monorepo 的分包结构（包名仍是上游的 `@earendil-works/*`，改名单独进行）：
@@ -193,7 +195,7 @@ docker build -t sentinel:latest docker/
 
 - 审批链只覆盖 bash 与安卓 shell（`droid_shell`），子代理的 bash 走同一条链；**read/edit/write、文件面板、MCP 工具、codemode，以及 frida、抓包、APK 分析等直接调用容器的工具都不过门**。工程任务的 bash 另有一套正则黑名单、20 秒超时与 40 条预算，同样不走审批门。
 - `read/edit/write` 直接读写宿主机文件系统，项目目录只是相对路径的基准，绝对路径不受限制；MCP 的 stdio 服务器是宿主机子进程。
-- AI 审批（守门员）只判六类破坏性操作，判定失败、超时或无法解析一律放行（fail-open），**不是沙箱、也不做数据防泄漏**。
+- AI 审批（守门模型）只判六类破坏性操作，判定失败、超时或无法解析一律放行（fail-open），**不是沙箱、也不做数据防泄漏**。
 - 容器以 root 运行，没有资源上限，也没有 cap-drop / seccomp / read-only；同一项目的所有会话与并发任务共用一个容器。
 - 控制台会加载项目目录下的 `settings.json`、`.pi/extensions`、`AGENTS.md`，且没有项目信任确认步骤——不要把来源不可信的工作目录设为项目。MCP 服务器不在此列：它们只来自「设置 → MCP」，项目目录里的 `.pi/mcp.json` 与配置目录里的 `mcp.json` 都不读。
 - **自定义 MCP 的 stdio 服务器在控制台宿主机上直接执行**：不在容器内，也不经过 bash 审批与守门模型，因此必须逐条勾选风险确认才能保存。需要 OAuth 登录的 HTTP 服务器请在终端执行 `sentinel mcp login`。
@@ -269,7 +271,7 @@ docker build -t sentinel:latest docker/
 
 <img src="images/Pasted%20image%2020261017124518.png" width="295" alt="Pasted image 20261017124518.png" />
 
-## 工程模式 
+## 工程模式
 
 适用于批量测试环节，指挥官架构，适用于多任务指挥，这个还是测试阶段，自行玩一玩吧。
 
