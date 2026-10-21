@@ -15,6 +15,7 @@ import type {
 	SentinelSupervisorProgress,
 	SentinelSupervisorState,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyEntry,
 	SentinelSupervisorTested,
 	SentinelSupervisorTrigger,
 } from "./protocol.ts";
@@ -30,6 +31,7 @@ export const SUPERVISOR_STRATEGY_LABELS: Record<SentinelSupervisorStrategy, stri
 	validation: "漏洞验证",
 	offensive: "红队推进",
 	stealth: "低噪声",
+	guarded: "不测危险接口",
 };
 
 export const SUPERVISOR_STRATEGY_GUIDANCE: Record<SentinelSupervisorStrategy, string> = {
@@ -38,6 +40,8 @@ export const SUPERVISOR_STRATEGY_GUIDANCE: Record<SentinelSupervisorStrategy, st
 	offensive:
 		"优先推进攻击链：关注下一跳、权限提升、横向和可利用路径；仍必须遵守授权与安全规则，不得建议越界或破坏性动作。",
 	stealth: "优先低噪声：避免高频爆破、批量请求和明显扫描；建议被动信息、低速、小样本验证。",
+	guarded:
+		"优先避开危险接口：不允许测试或建议测试会修改系统正常运行、正常业务数据/配置的接口，也不允许测试任意用户密码重置或账号接管、文件删除/覆盖等不可逆或影响面大的接口；发现这类接口只记录风险并建议人工确认，改用只读或可回滚的验证；如果主 Agent 正在调用这类接口，立即要求停止。",
 };
 
 export const SUPERVISOR_SYSTEM_PROMPT = `你是授权渗透测试的监督观察员。你不执行任何工具，也不向操作员发指令；你只根据调用记录和结果摘要，判断这个 Agent 刚才在做什么、有没有进展、下一步该换什么策略。
@@ -155,6 +159,8 @@ export interface SupervisorInput {
 	strategyName: string;
 	/** Extra instructions from a saved custom strategy; empty for presets. */
 	strategyInstructions: string;
+	/** All selected strategies; when absent, the singular fields above are used. */
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 }
 
@@ -179,13 +185,34 @@ export function buildSupervisorInput(input: SupervisorInput): string {
 		`未决问题：${state.openQuestions.slice(-10).join("；") || "无"}`,
 		`上一版建议：${state.nextCandidates.slice(-5).join("；") || "无"}`,
 	];
-	return [
+	const selected: SentinelSupervisorStrategyEntry[] =
+		input.strategies && input.strategies.length > 0
+			? input.strategies
+			: [
+					{
+						strategy,
+						customStrategyId: null,
+						name: input.strategyName || SUPERVISOR_STRATEGY_LABELS[strategy],
+						instructions: input.strategyInstructions,
+					},
+				];
+	const strategyLines = [
 		"【监督策略】",
-		`策略：${input.strategyName || SUPERVISOR_STRATEGY_LABELS[strategy]}`,
-		`基础预设：${SUPERVISOR_STRATEGY_LABELS[strategy]}`,
-		`关注点：${SUPERVISOR_STRATEGY_GUIDANCE[strategy]}`,
-		...(input.strategyInstructions.trim() ? [`自定义说明：${input.strategyInstructions.trim().slice(0, 500)}`] : []),
+		`已选策略（${selected.length}）：${selected
+			.map((entry) => entry.name || SUPERVISOR_STRATEGY_LABELS[entry.strategy])
+			.join(" + ")}`,
+		...(selected.length > 1 ? ["多个策略同时生效；冲突时以安全规则和操作员补充说明为准。"] : []),
+		...selected.flatMap((entry, index) => [
+			`${index + 1}. ${entry.name || SUPERVISOR_STRATEGY_LABELS[entry.strategy]}（${
+				SUPERVISOR_STRATEGY_LABELS[entry.strategy]
+			}）`,
+			`   关注点：${SUPERVISOR_STRATEGY_GUIDANCE[entry.strategy]}`,
+			...(entry.instructions.trim() ? [`   自定义说明：${entry.instructions.trim().slice(0, 500)}`] : []),
+		]),
 		...(note ? [`操作员补充：${note}`] : []),
+	];
+	return [
+		...strategyLines,
 		"",
 		"【状态】",
 		...stateLines,

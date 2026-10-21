@@ -20,7 +20,6 @@ import type {
 	SentinelEngineScheduleInput,
 	SentinelEngineTask,
 	SentinelEngineTaskStatus,
-	SentinelModelConfig,
 	SentinelPresetView,
 	SentinelSubagentEvent,
 } from "../types.ts";
@@ -242,7 +241,6 @@ export interface EnginePageProps {
 	doctrines: SentinelDoctrineView[];
 	/** Enabled presets the commander may dispatch with, for the whitelist controls. */
 	presets: SentinelPresetView[];
-	commanderConfig: SentinelModelConfig | null;
 	onSend: (message: unknown) => void;
 	onError: (message: string) => void;
 	commanderEvents: Record<string, SentinelSubagentEvent[]>;
@@ -254,7 +252,7 @@ export interface EnginePageProps {
 	judgeAvailable: boolean;
 }
 
-type View = "list" | "board" | "create" | "doctrines" | "commander-config";
+type View = "list" | "board" | "create" | "doctrines";
 
 export function EnginePage(props: EnginePageProps) {
 	const [view, setView] = useState<View>("list");
@@ -315,18 +313,6 @@ export function EnginePage(props: EnginePageProps) {
 					onClose={() => setView("list")}
 					onSave={(input) => send({ type: "save_doctrine", input })}
 					onDelete={(id) => send({ type: "delete_doctrine", id })}
-				/>
-			</div>
-		);
-	}
-
-	if (view === "commander-config") {
-		return (
-			<div className="page-card">
-				<CommanderConfigPanel
-					config={props.commanderConfig}
-					onClose={() => setView("list")}
-					onSave={(config) => send({ type: "save_commander_config", config })}
 				/>
 			</div>
 		);
@@ -537,9 +523,6 @@ export function EnginePage(props: EnginePageProps) {
 				<div className="ws-panel__actions">
 					<button type="button" onClick={() => setView("doctrines")}>
 						指挥思路
-					</button>
-					<button type="button" onClick={() => setView("commander-config")}>
-						指挥官端点
 					</button>
 					<button type="button" className="primary" disabled={!props.hasProject} onClick={() => setView("create")}>
 						新建工程
@@ -1899,70 +1882,6 @@ function DoctrineManager(props: {
 						>
 							保存
 						</button>
-					</div>
-				</div>
-			</div>
-		</>
-	);
-}
-
-function CommanderConfigPanel(props: {
-	config: SentinelModelConfig | null;
-	onClose(): void;
-	onSave(config: SentinelModelConfig | null): void;
-}) {
-	const [baseUrl, setBaseUrl] = useState(props.config?.baseUrl ?? "");
-	const [apiKey, setApiKey] = useState(props.config?.apiKey ?? "");
-	const [modelId, setModelId] = useState(props.config?.modelId ?? "");
-	return (
-		<>
-			<div className="ws-panel__head">
-				<div className="ws-panel__title">
-					指挥官端点
-					<span className="ws-panel__sub">
-						{props.config ? "当前：已配置专用端点" : "当前：使用主 Agent 端点"}
-					</span>
-				</div>
-				<div className="ws-panel__actions">
-					<button type="button" onClick={props.onClose}>
-						返回
-					</button>
-					<button
-						type="button"
-						className="primary"
-						onClick={() =>
-							props.onSave(
-								baseUrl.trim() && modelId.trim()
-									? { baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), modelId: modelId.trim() }
-									: null,
-							)
-						}
-					>
-						保存
-					</button>
-				</div>
-			</div>
-			<div className="ws-panel__body">
-				<p className="form-hint">
-					指挥官可以使用单独的 OpenAI 兼容端点（例如便宜模型指挥、强模型干活）。清空并保存则回退到主 Agent 端点。
-				</p>
-				<div className="form-grid">
-					<div className="form-field">
-						<label>Base URL</label>
-						<input
-							type="text"
-							value={baseUrl}
-							onChange={(event) => setBaseUrl(event.target.value)}
-							placeholder="http://127.0.0.1:8000/v1"
-						/>
-					</div>
-					<div className="form-field">
-						<label>API Key（本地端点可留空）</label>
-						<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
-					</div>
-					<div className="form-field">
-						<label>模型 ID</label>
-						<input type="text" value={modelId} onChange={(event) => setModelId(event.target.value)} />
 					</div>
 				</div>
 			</div>

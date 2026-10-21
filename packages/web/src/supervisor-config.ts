@@ -13,6 +13,7 @@ import type {
 	SentinelSupervisorConfig,
 	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyRef,
 } from "./protocol.ts";
 
 export const SUPERVISOR_DEFAULTS: SentinelSupervisorConfig = {
@@ -26,6 +27,7 @@ export const SUPERVISOR_DEFAULTS: SentinelSupervisorConfig = {
 	timeoutMs: 180_000,
 	redactSecrets: true,
 	defaultStrategy: "steady",
+	defaultStrategies: [{ strategy: "steady", customStrategyId: null }],
 	customStrategies: [],
 	defaultCustomStrategyId: null,
 };
@@ -42,7 +44,13 @@ const MAX_CUSTOM_DESCRIPTION = 80;
 const MAX_CUSTOM_INSTRUCTIONS = 500;
 
 export function isSupervisorStrategy(value: unknown): value is SentinelSupervisorStrategy {
-	return value === "steady" || value === "validation" || value === "offensive" || value === "stealth";
+	return (
+		value === "steady" ||
+		value === "validation" ||
+		value === "offensive" ||
+		value === "stealth" ||
+		value === "guarded"
+	);
 }
 
 function customText(value: unknown, limit: number): string {
@@ -86,14 +94,58 @@ function clamp(value: unknown, fallback: number, min: number, max: number): numb
 	return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function normalizeDefaultStrategies(
+	raw: unknown,
+	customStrategies: SentinelSupervisorCustomStrategy[],
+	fallbackStrategy: SentinelSupervisorStrategy,
+	fallbackCustomId: string | null,
+): SentinelSupervisorStrategyRef[] {
+	const result: SentinelSupervisorStrategyRef[] = [];
+	const seen = new Set<string>();
+	if (Array.isArray(raw)) {
+		for (const entry of raw) {
+			if (!entry || typeof entry !== "object") continue;
+			const record = entry as Record<string, unknown>;
+			const customId = typeof record.customStrategyId === "string" ? record.customStrategyId : null;
+			const custom = customId ? customStrategies.find((candidate) => candidate.id === customId) : undefined;
+			// A deleted custom strategy must not linger in the defaults.
+			if (customId && !custom) continue;
+			const strategy = custom?.base ?? (isSupervisorStrategy(record.strategy) ? record.strategy : fallbackStrategy);
+			const key = custom ? `custom:${custom.id}` : `preset:${strategy}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			result.push({ strategy, customStrategyId: custom?.id ?? null });
+		}
+	}
+	if (result.length > 0) return result;
+	const custom = fallbackCustomId
+		? customStrategies.find((candidate) => candidate.id === fallbackCustomId)
+		: undefined;
+	return [
+		custom
+			? { strategy: custom.base, customStrategyId: custom.id }
+			: { strategy: fallbackStrategy, customStrategyId: null },
+	];
+}
+
 export function normalizeSupervisorConfig(raw: unknown): SentinelSupervisorConfig {
 	const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
 	const customStrategies = normalizeCustomStrategies(record.customStrategies);
-	const defaultCustomStrategyId =
-		typeof record.defaultCustomStrategyId === "string" &&
-		customStrategies.some((strategy) => strategy.id === record.defaultCustomStrategyId)
-			? record.defaultCustomStrategyId
-			: null;
+	const requestedDefaultCustomId =
+		typeof record.defaultCustomStrategyId === "string" ? record.defaultCustomStrategyId : null;
+	const defaultCustomStrategyId = customStrategies.some((strategy) => strategy.id === requestedDefaultCustomId)
+		? requestedDefaultCustomId
+		: null;
+	const fallbackStrategy = isSupervisorStrategy(record.defaultStrategy)
+		? record.defaultStrategy
+		: SUPERVISOR_DEFAULTS.defaultStrategy;
+	const defaultStrategies = normalizeDefaultStrategies(
+		record.defaultStrategies,
+		customStrategies,
+		fallbackStrategy,
+		defaultCustomStrategyId,
+	);
+	const primary = defaultStrategies[0] ?? { strategy: fallbackStrategy, customStrategyId: null };
 	return {
 		enabled: typeof record.enabled === "boolean" ? record.enabled : SUPERVISOR_DEFAULTS.enabled,
 		batchToolCalls: clamp(record.batchToolCalls, SUPERVISOR_DEFAULTS.batchToolCalls, MIN_BATCH, MAX_BATCH),
@@ -108,11 +160,10 @@ export function normalizeSupervisorConfig(raw: unknown): SentinelSupervisorConfi
 		timeoutMs: clamp(record.timeoutMs, SUPERVISOR_DEFAULTS.timeoutMs, MIN_TIMEOUT, MAX_TIMEOUT),
 		redactSecrets:
 			typeof record.redactSecrets === "boolean" ? record.redactSecrets : SUPERVISOR_DEFAULTS.redactSecrets,
-		defaultStrategy: isSupervisorStrategy(record.defaultStrategy)
-			? record.defaultStrategy
-			: SUPERVISOR_DEFAULTS.defaultStrategy,
+		defaultStrategy: primary.strategy,
+		defaultStrategies,
 		customStrategies,
-		defaultCustomStrategyId,
+		defaultCustomStrategyId: primary.customStrategyId,
 	};
 }
 

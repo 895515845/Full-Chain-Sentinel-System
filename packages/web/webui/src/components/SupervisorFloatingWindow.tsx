@@ -15,10 +15,10 @@ import type {
 	SentinelSupervisorEpisode,
 	SentinelSupervisorLog,
 	SentinelSupervisorMode,
-	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyRef,
 	SentinelSupervisorView,
 } from "../types.ts";
-import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyLabel } from "../supervisor-strategy.ts";
+import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyKey, supervisorStrategyLabel } from "../supervisor-strategy.ts";
 
 const PHASE_LABELS: Record<string, string> = {
 	recon: "侦察",
@@ -177,7 +177,7 @@ export function SupervisorFloatingWindow({
 	onStop,
 	onRunNow,
 	onSetMode,
-	onSetStrategy,
+	onSetStrategies,
 	customStrategies,
 	onOpenCall,
 	onSendAdvice,
@@ -190,11 +190,7 @@ export function SupervisorFloatingWindow({
 	onStop: () => void;
 	onRunNow: () => void;
 	onSetMode: (mode: SentinelSupervisorMode, delivery: "auto" | "confirm") => void;
-	onSetStrategy: (
-		strategy: SentinelSupervisorStrategy,
-		customStrategyId: string | null,
-		note?: string,
-	) => void;
+	onSetStrategies: (strategies: SentinelSupervisorStrategyRef[], note?: string) => void;
 	customStrategies: SentinelSupervisorCustomStrategy[];
 	onOpenCall: (callId: string) => void;
 	onSendAdvice: (id: string) => void;
@@ -205,6 +201,32 @@ export function SupervisorFloatingWindow({
 	const delivery = view.delivery;
 	const state = view.state;
 	const stopped = view.status === "stopped";
+	const activeStrategies = view.strategies?.length
+		? view.strategies
+		: [
+				{
+					strategy: view.strategy,
+					customStrategyId: view.strategyCustomId,
+					name: view.strategyName || supervisorStrategyLabel(view.strategy),
+					instructions: view.strategyInstructions,
+				},
+			];
+	const availableForAdd = activeStrategies.filter(
+		(entry) => !entry.customStrategyId || customStrategies.some((custom) => custom.id === entry.customStrategyId),
+	);
+	const toggleStrategy = (ref: SentinelSupervisorStrategyRef): void => {
+		const key = supervisorStrategyKey(ref);
+		const exists = activeStrategies.some((entry) => supervisorStrategyKey(entry) === key);
+		if (exists) {
+			if (activeStrategies.length <= 1) return;
+			onSetStrategies(
+				activeStrategies.filter((entry) => supervisorStrategyKey(entry) !== key),
+				view.strategyNote,
+			);
+			return;
+		}
+		onSetStrategies([...availableForAdd, ref], view.strategyNote);
+	};
 	const mergedLogs = mergeLogs(view.logs, logs);
 	const adviceLogs = mergedLogs.filter((log) => log.kind.startsWith("advice-")).slice(-4);
 	const tabButton = (value: Tab, label: string, count?: number) => (
@@ -227,8 +249,8 @@ export function SupervisorFloatingWindow({
 					<div className="svb-eyebrow">监督 · {view.sessionName}</div>
 					<div className="svb-sub">
 						{modeLabel(mode, delivery)} ·{" "}
-						{view.strategyName || supervisorStrategyLabel(view.strategy)} · 已分析 {view.episodeCount} 个
-						episode
+						{activeStrategies.map((entry) => entry.name || supervisorStrategyLabel(entry.strategy)).join(" + ")} ·
+						已分析 {view.episodeCount} 个 episode
 					</div>
 				</div>
 				<span className={`svb-status ${view.status}`}>{statusLabel(view)}</span>
@@ -263,47 +285,73 @@ export function SupervisorFloatingWindow({
 				</div>
 
 				<div className="svb-strategy">
-					<label>
+					<div className="svb-strategy__head">
 						<span>监督策略</span>
-						<select
-							value={
-								view.strategyCustomId ? `custom:${view.strategyCustomId}` : `preset:${view.strategy}`
-							}
-							disabled={stopped}
-							onChange={(event) => {
-								const [kind, id] = event.target.value.split(":");
-								if (kind === "custom") {
-									const custom = customStrategies.find((entry) => entry.id === id);
-									if (custom) onSetStrategy(custom.base, custom.id, view.strategyNote);
-									return;
-								}
-								onSetStrategy(id as SentinelSupervisorStrategy, null, view.strategyNote);
-							}}
-						>
-							<optgroup label="预设">
-								{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
-									<option value={`preset:${option.id}`} key={option.id}>
-										{option.label}
-									</option>
-								))}
-							</optgroup>
-							{customStrategies.length > 0 ? (
-								<optgroup label="自定义">
-									{customStrategies.map((custom) => (
-										<option value={`custom:${custom.id}`} key={custom.id}>
-											{custom.name}
-										</option>
-									))}
-								</optgroup>
-							) : null}
-							{view.strategyCustomId &&
-							!customStrategies.some((custom) => custom.id === view.strategyCustomId) ? (
-								<option value={`custom:${view.strategyCustomId}`}>
-									{view.strategyName}（已删除）
-								</option>
-							) : null}
-						</select>
-					</label>
+						<span>{activeStrategies.length} 个</span>
+					</div>
+					<div className="svb-strategy__list">
+						{SUPERVISOR_STRATEGY_OPTIONS.map((option) => {
+							const ref: SentinelSupervisorStrategyRef = {
+								strategy: option.id,
+								customStrategyId: null,
+							};
+							const selected = activeStrategies.some(
+								(entry) => supervisorStrategyKey(entry) === supervisorStrategyKey(ref),
+							);
+							return (
+								<button
+									type="button"
+									key={option.id}
+									className={selected ? "on" : ""}
+									aria-pressed={selected}
+									disabled={stopped}
+									onClick={() => toggleStrategy(ref)}
+								>
+									{option.label}
+								</button>
+							);
+						})}
+						{customStrategies.map((custom) => {
+							const ref: SentinelSupervisorStrategyRef = {
+								strategy: custom.base,
+								customStrategyId: custom.id,
+							};
+							const selected = activeStrategies.some(
+								(entry) => supervisorStrategyKey(entry) === supervisorStrategyKey(ref),
+							);
+							return (
+								<button
+									type="button"
+									key={custom.id}
+									className={selected ? "on" : ""}
+									aria-pressed={selected}
+									disabled={stopped}
+									onClick={() => toggleStrategy(ref)}
+								>
+									{custom.name}
+								</button>
+							);
+						})}
+						{activeStrategies
+							.filter(
+								(entry) =>
+									entry.customStrategyId &&
+									!customStrategies.some((custom) => custom.id === entry.customStrategyId),
+							)
+							.map((entry) => (
+								<button
+									type="button"
+									key={`deleted:${entry.customStrategyId}`}
+									className="on"
+									aria-pressed
+									disabled={stopped}
+									title="该自定义策略已删除；点击可移除"
+									onClick={() => toggleStrategy(entry)}
+								>
+									{entry.name}（已删除）
+								</button>
+							))}
+					</div>
 					{view.strategyNote ? (
 						<span className="svb-strategy-note" title={view.strategyNote}>
 							{view.strategyNote}

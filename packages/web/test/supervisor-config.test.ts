@@ -52,7 +52,30 @@ describe("normalizeSupervisorConfig", () => {
 	test("accepts only a known default strategy", () => {
 		expect(normalizeSupervisorConfig({}).defaultStrategy).toBe("steady");
 		expect(normalizeSupervisorConfig({ defaultStrategy: "offensive" }).defaultStrategy).toBe("offensive");
+		expect(normalizeSupervisorConfig({ defaultStrategy: "guarded" }).defaultStrategy).toBe("guarded");
 		expect(normalizeSupervisorConfig({ defaultStrategy: "unknown" }).defaultStrategy).toBe("steady");
+	});
+
+	test("keeps several default strategies and drops deleted custom entries", () => {
+		const config = normalizeSupervisorConfig({
+			defaultStrategies: [
+				{ strategy: "steady", customStrategyId: null },
+				{ strategy: "offensive", customStrategyId: null },
+				{ strategy: "validation", customStrategyId: "custom-missing" },
+				{ strategy: "steady", customStrategyId: null },
+			],
+			customStrategies: [
+				{
+					id: "custom-pay",
+					name: "支付网关专用",
+					base: "validation",
+					instructions: "优先验证 IDOR",
+				},
+			],
+		});
+		expect(config.defaultStrategies?.map((entry) => entry.strategy)).toEqual(["steady", "offensive"]);
+		expect(config.defaultStrategy).toBe("steady");
+		expect(config.defaultCustomStrategyId).toBeNull();
 	});
 
 	test("normalizes custom strategies and only defaults to an existing one", () => {

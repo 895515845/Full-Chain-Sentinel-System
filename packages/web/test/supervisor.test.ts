@@ -14,6 +14,7 @@ import type {
 	SentinelSupervisorCall,
 	SentinelSupervisorEpisode,
 	SentinelSupervisorLog,
+	SentinelSupervisorStrategyEntry,
 	SentinelSupervisorView,
 } from "../src/protocol.ts";
 import { Supervisor } from "../src/supervisor.ts";
@@ -171,6 +172,27 @@ test("a custom strategy is snapshotted on the conversation", () => {
 	expect(supervisor.view("s1")?.strategyName).toBe("支付网关专用");
 	expect(supervisor.view("s1")?.strategyInstructions).toContain("IDOR");
 	expect(store.getDetail("s1")?.session.strategyCustomId).toBe("custom-pay");
+});
+
+test("multiple strategies are snapshotted and survive a reload", () => {
+	const selected: SentinelSupervisorStrategyEntry[] = [
+		{ strategy: "steady", customStrategyId: null, name: "稳健交付", instructions: "" },
+		{ strategy: "validation", customStrategyId: "custom-pay", name: "支付网关专用", instructions: "优先 IDOR" },
+	];
+	supervisor.arm("s1", "observe", "confirm", "steady", "同时看稳定性和验证", null, selected);
+	const view = supervisor.view("s1");
+	expect(view?.strategies?.map((entry) => entry.name)).toEqual(["稳健交付", "支付网关专用"]);
+	expect(view?.strategyName).toBe("稳健交付");
+	expect(store.getDetail("s1")?.session.strategies).toHaveLength(2);
+
+	supervisor.detach("s1");
+	supervisor.attach({
+		sessionId: "s1",
+		manager: fakeManager(entries),
+		projectId: "p1",
+		projectName: "项目一",
+	});
+	expect(supervisor.view("s1")?.strategies?.map((entry) => entry.name)).toEqual(["稳健交付", "支付网关专用"]);
 });
 
 test("a batch of calls produces one episode and keeps the rolling state", async () => {

@@ -6,13 +6,20 @@ import type {
 
 export const FOLLOW_MAIN = "follow-main";
 
-export const ROLE_ORDER: SentinelModelRoleName[] = ["main", "judge", "reviewer", "supervisor"];
+export const ROLE_ORDER: SentinelModelRoleName[] = [
+	"main",
+	"judge",
+	"reviewer",
+	"supervisor",
+	"commander",
+];
 
 export const ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
 	supervisor: "监督模型",
+	commander: "指挥端点",
 };
 
 export const ROLE_HINTS: Record<SentinelModelRoleName, string> = {
@@ -20,6 +27,7 @@ export const ROLE_HINTS: Record<SentinelModelRoleName, string> = {
 	judge: "AI 审批逐条判定 bash 命令；改完立即生效",
 	reviewer: "提交漏洞后自动校准等级与 CVSS；改完立即生效",
 	supervisor: "观察模式每 20 次调用或异常时总结；介入模式只给建议，不阻断工具调用",
+	commander: "工程模式的指挥官；跟随主模型时共用主模型端点",
 };
 
 export const ROLE_SHORT: Record<SentinelModelRoleName, string> = {
@@ -27,6 +35,7 @@ export const ROLE_SHORT: Record<SentinelModelRoleName, string> = {
 	judge: "命令定级",
 	reviewer: "结论复核",
 	supervisor: "介入判断",
+	commander: "工程指挥",
 };
 
 export const MODEL_API_OPTIONS = [

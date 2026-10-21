@@ -11,8 +11,8 @@
  *
  * Three ids are leftovers from the fixed-slot layout. `zg-endpoint` and
  * `zg-judge` are read only by the one-time migration, which reuses them as entry
- * ids so a downgrade still finds its slots. `zg-commander` is still live:
- * engineering mode keeps its own endpoint, configured in the engine page.
+ * ids so a downgrade still finds its slots. `zg-commander` is read only by the
+ * migration, which offers it as the initial 指挥端点 role.
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

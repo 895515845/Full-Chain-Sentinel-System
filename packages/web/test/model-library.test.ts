@@ -69,6 +69,7 @@ describe("migration from the fixed slots", () => {
 		expect(library.roles.judge).toEqual({ kind: "model", id: "zg-judge" });
 		// The reviewer used to run on commander ?? main, so it keeps that endpoint.
 		expect(library.roles.reviewer).toEqual({ kind: "model", id: "zg-commander" });
+		expect(library.roles.commander).toEqual({ kind: "model", id: "zg-commander" });
 		expect(library.reviewerAuto).toBe(true);
 	});
 
@@ -82,11 +83,13 @@ describe("migration from the fixed slots", () => {
 		const withCommander = migrateModelLibrary(agentDir);
 		expect(withCommander.roles.judge).toEqual({ kind: "model", id: "zg-commander" });
 		expect(withCommander.roles.reviewer).toEqual({ kind: "model", id: "zg-commander" });
+		expect(withCommander.roles.commander).toEqual({ kind: "model", id: "zg-commander" });
 
 		removeProviderModelConfig(agentDir, "zg-commander");
 		const withoutCommander = migrateModelLibrary(agentDir);
 		expect(withoutCommander.roles.judge).toEqual({ kind: "follow-main" });
 		expect(withoutCommander.roles.reviewer).toEqual({ kind: "follow-main" });
+		expect(withoutCommander.roles.commander).toEqual({ kind: "follow-main" });
 		expect(withoutCommander.roles.main).toEqual({ kind: "model", id: "zg-endpoint" });
 	});
 
@@ -366,9 +369,15 @@ describe("role assignment", () => {
 		expect(libraryView(agentDir).roles.judge).toBe("zg-judge");
 	});
 
+	test("keeps an explicit 跟随主模型 for the commander across a write round-trip", () => {
+		setLibraryRole(agentDir, "commander", FOLLOW_MAIN);
+		writeModelLibrary(agentDir, readModelLibrary(agentDir));
+		expect(readModelLibrary(agentDir).roles.commander).toEqual({ kind: "follow-main" });
+	});
+
 	test("the view lists which roles hold each entry", () => {
 		const view = libraryView(agentDir);
-		expect(view.entries.find((entry) => entry.id === "zg-commander")?.roles).toEqual(["reviewer"]);
+		expect(view.entries.find((entry) => entry.id === "zg-commander")?.roles).toEqual(["reviewer", "commander"]);
 		expect(view.entries.find((entry) => entry.id === "zg-endpoint")?.roles).toEqual(["main"]);
 		expect(view.resolved.main?.modelId).toBe("main-model");
 	});

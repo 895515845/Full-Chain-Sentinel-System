@@ -36,7 +36,7 @@ import { testModelConfig } from "./endpoint-probe.ts";
 import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
-import { readCommanderModelConfig, readProviderModelConfig, writeCommanderModelConfig } from "./model-config.ts";
+import { readProviderModelConfig } from "./model-config.ts";
 import {
 	deletePreset,
 	exportFileName,
@@ -1028,7 +1028,6 @@ export async function startSentinelServer(
 		// Engineering mode: the board and doctrine list are pushed per connect.
 		broadcastEngines(socket);
 		if (agentDir) sendTo(socket, { type: "doctrines", doctrines: listDoctrines(agentDir) });
-		if (agentDir) sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
 		if (agentDir) sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
 		if (agentDir) sendTo(socket, { type: "model_library", library: runtime.getModelLibrary() });
 		if (agentDir) sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
@@ -2531,24 +2530,6 @@ export async function startSentinelServer(
 					});
 					return;
 				}
-				case "get_commander_config":
-					sendTo(socket, {
-						type: "commander_config",
-						config: agentDir ? readCommanderModelConfig(agentDir) : null,
-					});
-					return;
-				case "save_commander_config": {
-					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法保存指挥官配置");
-						return;
-					}
-					writeCommanderModelConfig(agentDir, message.config);
-					// New engines resolve the commander from models.json; the cached
-					// runtime must re-read it or the save only takes effect after a restart.
-					engines?.markModelsDirty();
-					sendTo(socket, { type: "commander_config", config: readCommanderModelConfig(agentDir) });
-					return;
-				}
 				case "get_gatekeeper_config":
 					sendTo(socket, { type: "gatekeeper_config", config: runtime.getGatekeeperConfig() });
 					return;
@@ -2586,6 +2567,7 @@ export async function startSentinelServer(
 						message.strategy,
 						message.note,
 						message.customStrategyId,
+						message.strategies,
 					);
 					broadcast({ type: "supervisor_state", supervisor: view });
 					return;
@@ -2601,7 +2583,12 @@ export async function startSentinelServer(
 					return;
 				}
 				case "supervisor_set_strategy": {
-					const view = runtime.setSupervisorStrategy(message.strategy, message.note, message.customStrategyId);
+					const view = runtime.setSupervisorStrategy(
+						message.strategy,
+						message.note,
+						message.customStrategyId,
+						message.strategies,
+					);
 					broadcast({ type: "supervisor_state", supervisor: view });
 					return;
 				}

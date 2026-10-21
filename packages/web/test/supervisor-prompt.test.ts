@@ -126,6 +126,72 @@ describe("buildSupervisorInput", () => {
 		expect(input).toContain("只验证越权，不做目录爆破");
 		expect(input).toContain("只验证已有漏洞");
 	});
+
+	test("the guarded strategy tells the supervisor to avoid dangerous endpoints", () => {
+		const input = buildSupervisorInput({
+			trigger: "manual",
+			sessionName: "测试会话",
+			projectName: null,
+			strategy: "guarded",
+			strategyName: "不测危险接口",
+			strategyInstructions: "",
+			strategyNote: "",
+			state: {
+				phase: "recon",
+				intent: "",
+				progress: "unknown",
+				tested: [],
+				deadEnds: [],
+				newEvidence: [],
+				openQuestions: [],
+				nextCandidates: [],
+				duplicateSignals: [],
+			},
+			calls: [],
+		});
+		expect(input).toContain("不测危险接口");
+		expect(input).toContain("不允许测试");
+		expect(input).toContain("任意用户密码重置");
+		expect(input).toContain("文件删除");
+	});
+
+	test("merges every selected strategy into the prompt", () => {
+		const input = buildSupervisorInput({
+			trigger: "manual",
+			sessionName: "测试会话",
+			projectName: null,
+			strategy: "steady",
+			strategyName: "稳健交付",
+			strategyInstructions: "",
+			strategies: [
+				{ strategy: "steady", customStrategyId: null, name: "稳健交付", instructions: "" },
+				{
+					strategy: "validation",
+					customStrategyId: "custom-pay",
+					name: "支付网关专用",
+					instructions: "优先验证 IDOR",
+				},
+			],
+			strategyNote: "只测授权范围",
+			state: {
+				phase: "recon",
+				intent: "",
+				progress: "unknown",
+				tested: [],
+				deadEnds: [],
+				newEvidence: [],
+				openQuestions: [],
+				nextCandidates: [],
+				duplicateSignals: [],
+			},
+			calls: [],
+		});
+		expect(input).toContain("已选策略（2）：稳健交付 + 支付网关专用");
+		expect(input).toContain("优先验证 IDOR");
+		expect(input).toContain("优先稳妥");
+		expect(input).toContain("优先验证");
+		expect(input).toContain("只测授权范围");
+	});
 });
 
 test("buildAdviceText labels the advice as non-operator text", () => {

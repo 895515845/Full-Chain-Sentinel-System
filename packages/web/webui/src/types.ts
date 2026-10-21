@@ -142,7 +142,7 @@ export interface SentinelModelConfig {
 }
 
 /** The jobs a model can be assigned to. */
-export type SentinelModelRoleName = "main" | "judge" | "reviewer" | "supervisor";
+export type SentinelModelRoleName = "main" | "judge" | "reviewer" | "supervisor" | "commander";
 
 /** One row of the model library. The key itself never leaves the server. */
 export interface SentinelModelEntryView {
@@ -216,6 +216,7 @@ export interface SentinelModelLibraryView {
 		judge: string;
 		reviewer: string;
 		supervisor: string;
+		commander: string;
 	};
 	reviewerAuto: boolean;
 	resolved: {
@@ -223,6 +224,7 @@ export interface SentinelModelLibraryView {
 		judge: SentinelResolvedModelView | null;
 		reviewer: SentinelResolvedModelView | null;
 		supervisor: SentinelResolvedModelView | null;
+		commander: SentinelResolvedModelView | null;
 	};
 }
 
@@ -787,7 +789,7 @@ export interface DroidToken {
 
 export type SentinelSupervisorMode = "observe" | "intervene";
 
-export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth";
+export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth" | "guarded";
 
 export interface SentinelSupervisorCustomStrategy {
 	id: string;
@@ -810,6 +812,18 @@ export type SentinelSupervisorTrigger =
 	| "settled";
 export type SentinelSupervisorAdviceStatus = "pending" | "sent" | "ignored";
 
+/** A strategy selected for one conversation: a preset base or a saved custom strategy. */
+export interface SentinelSupervisorStrategyRef {
+	strategy: SentinelSupervisorStrategy;
+	customStrategyId: string | null;
+}
+
+/** A resolved strategy snapshot carried with a live view or an audit row. */
+export interface SentinelSupervisorStrategyEntry extends SentinelSupervisorStrategyRef {
+	name: string;
+	instructions: string;
+}
+
 export interface SentinelSupervisorConfig {
 	enabled: boolean;
 	batchToolCalls: number;
@@ -819,6 +833,8 @@ export interface SentinelSupervisorConfig {
 	timeoutMs: number;
 	redactSecrets: boolean;
 	defaultStrategy: SentinelSupervisorStrategy;
+	/** Ordered default selection for a new conversation; can contain several strategies. */
+	defaultStrategies?: SentinelSupervisorStrategyRef[];
 	customStrategies: SentinelSupervisorCustomStrategy[];
 	defaultCustomStrategyId: string | null;
 }
@@ -926,6 +942,8 @@ export interface SentinelSupervisorView {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	/** Every selected strategy; older persisted sessions omit it. */
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
@@ -957,6 +975,8 @@ export interface SentinelSupervisorAuditItem {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	/** Every selected strategy; older persisted sessions omit it. */
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
@@ -1404,8 +1424,6 @@ export type SentinelClientMessage =
 	/** Export the selected presets, or all of them when `ids` is omitted. */
 	| { type: "export_presets"; ids?: string[] }
 	| { type: "import_presets"; content: string }
-	| { type: "get_commander_config" }
-	| { type: "save_commander_config"; config: SentinelModelConfig | null }
 	| { type: "get_gatekeeper_config" }
 	| { type: "save_gatekeeper_config"; config: SentinelGatekeeperConfig }
 	| { type: "test_judge" }
@@ -1416,6 +1434,7 @@ export type SentinelClientMessage =
 			mode: SentinelSupervisorMode;
 			delivery: SentinelSupervisorDelivery;
 			strategy: SentinelSupervisorStrategy;
+			strategies?: SentinelSupervisorStrategyRef[];
 			customStrategyId?: string | null;
 			note?: string;
 	  }
@@ -1429,6 +1448,7 @@ export type SentinelClientMessage =
 			type: "supervisor_set_strategy";
 			strategy: SentinelSupervisorStrategy;
 			customStrategyId?: string | null;
+			strategies?: SentinelSupervisorStrategyRef[];
 			note?: string;
 	  }
 	| { type: "supervisor_run_now" }
@@ -1567,7 +1587,6 @@ export type SentinelServerMessage =
 			skipped: Array<{ name: string; reason: string }>;
 			error?: string;
 	  }
-	| { type: "commander_config"; config: SentinelModelConfig | null }
 	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
 	| { type: "judge_test_result"; result: SentinelTestResult; raw?: string }
 	| { type: "gate_audit"; page: SentinelGatePage }

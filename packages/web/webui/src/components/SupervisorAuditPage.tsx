@@ -80,6 +80,27 @@ function timeLabel(at: number): string {
 	});
 }
 
+function strategyNames(item: SentinelSupervisorAuditItem): string {
+	const selected = item.strategies?.filter((entry) => entry.name || entry.strategy);
+	if (selected && selected.length > 0) {
+		return selected.map((entry) => entry.name || supervisorStrategyLabel(entry.strategy)).join(" + ");
+	}
+	return item.strategyName || supervisorStrategyLabel(item.strategy);
+}
+
+function strategyNotes(item: SentinelSupervisorAuditItem): Array<{ name: string; instructions: string }> {
+	const selected = item.strategies?.filter((entry) => entry.instructions.trim());
+	if (selected && selected.length > 0) {
+		return selected.map((entry) => ({
+			name: entry.name || supervisorStrategyLabel(entry.strategy),
+			instructions: entry.instructions,
+		}));
+	}
+	return item.strategyInstructions
+		? [{ name: item.strategyName || supervisorStrategyLabel(item.strategy), instructions: item.strategyInstructions }]
+		: [];
+}
+
 function phaseLabel(value: string): string {
 	return PHASE_LABELS[value] ?? value;
 }
@@ -535,8 +556,8 @@ export function SupervisorAuditPage({
 													</span>
 												</td>
 												<td>
-													<span className="sva-pill" title={item.strategyName || supervisorStrategyLabel(item.strategy)}>
-														{item.strategyName || supervisorStrategyLabel(item.strategy)}
+													<span className="sva-pill" title={strategyNames(item)}>
+														{strategyNames(item)}
 													</span>
 												</td>
 												<td className="sva-mono">
@@ -592,7 +613,7 @@ export function SupervisorAuditPage({
 							detail.session.mode === "observe"
 								? "观察"
 								: `介入 · ${detail.session.delivery === "auto" ? "自动" : "确认"}`
-						} · ${detail.session.strategyName || supervisorStrategyLabel(detail.session.strategy)}`}
+						} · ${strategyNames(detail.session)}`}
 						actions={
 							detail.session.sessionPath ? (
 								<button
@@ -626,12 +647,14 @@ export function SupervisorAuditPage({
 								模式 <b>{MODE_LABELS[detail.session.mode]}</b>
 							</span>
 							<span>
-								策略 <b>{detail.session.strategyName || supervisorStrategyLabel(detail.session.strategy)}</b>
+								策略 <b>{strategyNames(detail.session)}</b>
 							</span>
 						</div>
-						{detail.session.strategyInstructions ? (
-							<p className="sva-note">策略说明：{detail.session.strategyInstructions}</p>
-						) : null}
+						{strategyNotes(detail.session).map((note, index) => (
+							<p className="sva-note" key={`${note.name}-${index}`}>
+								策略说明 · {note.name}：{note.instructions}
+							</p>
+						))}
 						{detail.session.strategyNote ? <p className="sva-note">补充：{detail.session.strategyNote}</p> : null}
 						{detail.session.intent ? <p className="sva-intent">{detail.session.intent}</p> : null}
 						{detail.session.lastError ? (

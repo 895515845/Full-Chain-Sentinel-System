@@ -5249,6 +5249,12 @@ svg.lucide {
 	word-break: break-word;
 }
 
+/* The advice card is prose in a run, not a tool row: keep it off the rail and
+   align its left border with the assistant text column (30px rail + 14px gap). */
+.run-body > .supervisor-advice-row {
+	margin-left: 44px;
+}
+
 /* ---------- 方案 B：settled run 的单行手风琴步骤 ----------
    每步一行（时间 · 工具 · 参数摘要 · 耗时），输出点击展开，默认只给
    3 行预览 + 「还有 N 行」。一行高度固定，100 步的任务也只是 100 行。 */
@@ -9867,7 +9873,7 @@ button.link {
 
 .cockpit-roles {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(5, minmax(0, 1fr));
 	gap: 12px;
 }
 
@@ -11099,6 +11105,12 @@ button.link {
 }
 
 @media (max-width: 1180px) {
+	.cockpit-roles {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 800px) {
 	.cockpit-roles {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
@@ -18449,4 +18461,149 @@ button.link {
 		flex: none;
 		overflow: visible;
 	}
+}
+
+/* ---------- Multiple supervision strategies ---------- */
+.composer-supervisor-nav button {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.composer-supervisor-selected {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 2px 0 7px;
+}
+
+.composer-supervisor-selected span {
+	padding: 2px 6px;
+	border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+	border-radius: 999px;
+	background: var(--accent-soft);
+	color: var(--accent);
+	font-size: 10px;
+}
+
+.supervisor-settings__strategy-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	color: var(--text);
+	font-size: 12px;
+}
+
+.supervisor-settings__strategy-head span:last-child {
+	color: var(--faint);
+	font-size: 10.5px;
+}
+
+.supervisor-strategy-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 6px;
+	margin-top: 2px;
+}
+
+.supervisor-strategy-option {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	min-width: 0;
+	padding: 7px 8px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--card);
+	cursor: pointer;
+}
+
+.supervisor-strategy-option.on {
+	border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+	background: var(--accent-soft);
+}
+
+.supervisor-strategy-option input {
+	margin: 2px 0 0;
+	accent-color: var(--accent);
+}
+
+.supervisor-strategy-option span {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.supervisor-strategy-option b {
+	color: var(--text);
+	font-size: 11.5px;
+	font-weight: 600;
+}
+
+.supervisor-strategy-option small {
+	overflow: hidden;
+	color: var(--faint);
+	font-size: 10px;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+}
+
+.svb-strategy {
+	flex-wrap: wrap;
+}
+
+.svb-strategy__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	gap: 8px;
+	color: var(--faint);
+	font-size: 10px;
+}
+
+.svb-strategy__list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	width: 100%;
+	max-height: 112px;
+	overflow: auto;
+}
+
+.svb-strategy__list button {
+	height: 23px;
+	padding: 0 7px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--card);
+	color: var(--dim);
+	font-size: 10px;
+	cursor: pointer;
+}
+
+.svb-strategy__list button.on {
+	border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+	background: var(--accent-soft);
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.svb-strategy__list button:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+@media (max-width: 760px) {
+	.supervisor-strategy-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* 设置 → 模型 · 指挥端点角色标签 */
+.cockpit-role__label.is-commander {
+	color: #0f6f8f;
+	background: #0f6f8f12;
 }

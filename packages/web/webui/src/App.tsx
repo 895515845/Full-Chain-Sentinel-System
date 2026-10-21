@@ -71,7 +71,6 @@ import type {
 	SentinelGatekeeperConfig,
 	SentinelGateStats,
 	SentinelMode,
-	SentinelModelConfig,
 	SentinelModelLibraryView,
 	SentinelNotifyConfig,
 	SentinelNotifyStatus,
@@ -404,14 +403,13 @@ export function App() {
 	const [apiModelDetail, setApiModelDetail] = useState<SentinelApiModel | null>(null);
 	const [apiModelEvents, setApiModelEvents] = useState<SentinelApiModelEvent[]>([]);
 	const [vulnPreview, setVulnPreview] = useState<SentinelFilePreview | null>(null);
-	/** Engineering mode: engines, doctrines, commander endpoint, and mirrored event logs. */
+	/** Engineering mode: engines, doctrines, and mirrored event logs. */
 	const [engines, setEngines] = useState<SentinelEngine[]>([]);
 	const [doctrines, setDoctrines] = useState<SentinelDoctrineView[]>([]);
 	/** Preset agents: null until the first list arrives, which the settings page shows. */
 	const [presets, setPresets] = useState<SentinelPresetView[] | null>(null);
 	/** The last 导入 reply, kept until the next one replaces it. */
 	const [presetImport, setPresetImport] = useState<PresetImportNotice | null>(null);
-	const [commanderConfig, setCommanderConfig] = useState<SentinelModelConfig | null>(null);
 	const [commanderEvents, setCommanderEvents] = useState<Record<string, SentinelSubagentEvent[]>>({});
 	const [engineTaskEvents, setEngineTaskEvents] = useState<Record<string, SentinelSubagentEvent[]>>({});
 	/** Model screen: the library, the role assignments, and each role's effective endpoint. */
@@ -466,6 +464,7 @@ export function App() {
 		timeoutMs: 180000,
 		redactSecrets: true,
 		defaultStrategy: "steady",
+		defaultStrategies: [{ strategy: "steady", customStrategyId: null }],
 		customStrategies: [],
 		defaultCustomStrategyId: null,
 	});
@@ -948,9 +947,6 @@ export function App() {
 					if (message.imported.length > 0) send({ type: "list_presets" });
 					break;
 				}
-				case "commander_config":
-					setCommanderConfig(message.config);
-					break;
 				case "tree":
 					setTree(message.tree);
 					setLeafId(message.leafId);
@@ -2359,16 +2355,27 @@ export function App() {
 									supervisor={supervisor}
 									supervisorEnabled={supervisorConfig.enabled}
 									supervisorWindowOpen={supervisorWindowOpen}
-									supervisorDefaultStrategy={supervisorConfig.defaultStrategy}
-									supervisorDefaultCustomStrategyId={supervisorConfig.defaultCustomStrategyId}
+									supervisorDefaultStrategies={
+										supervisorConfig.defaultStrategies?.length
+											? supervisorConfig.defaultStrategies
+											: [
+													{
+														strategy: supervisorConfig.defaultStrategy,
+														customStrategyId: supervisorConfig.defaultCustomStrategyId,
+													},
+												]
+									}
 									supervisorCustomStrategies={supervisorConfig.customStrategies}
-									onArmSupervisor={(mode, delivery, strategy, customStrategyId, note) => {
+									onArmSupervisor={(mode, delivery, strategies, note) => {
+										const primary = strategies[0];
+										if (!primary) return;
 										send({
 											type: "supervisor_arm",
 											mode,
 											delivery,
-											strategy,
-											customStrategyId,
+											strategy: primary.strategy,
+											customStrategyId: primary.customStrategyId,
+											strategies,
 											note,
 										});
 										setSupervisorWindowOpen(true);
@@ -2487,7 +2494,6 @@ export function App() {
 							}
 							doctrines={doctrines}
 							presets={presets ?? []}
-							commanderConfig={commanderConfig}
 							onSend={(message) => send(message as SentinelClientMessage)}
 							onError={pushError}
 							commanderEvents={commanderEvents}
@@ -3231,9 +3237,17 @@ export function App() {
 					onStop={() => send({ type: "supervisor_stop" })}
 					onRunNow={() => send({ type: "supervisor_run_now" })}
 					onSetMode={(mode, delivery) => send({ type: "supervisor_set_mode", mode, delivery })}
-					onSetStrategy={(strategy, customStrategyId, note) =>
-						send({ type: "supervisor_set_strategy", strategy, customStrategyId, note })
-					}
+					onSetStrategies={(strategies, note) => {
+						const primary = strategies[0];
+						if (!primary) return;
+						send({
+							type: "supervisor_set_strategy",
+							strategy: primary.strategy,
+							customStrategyId: primary.customStrategyId,
+							strategies,
+							note,
+						});
+					}}
 					customStrategies={supervisorConfig.customStrategies}
 					onOpenCall={(callId) => send({ type: "supervisor_call_output", callId })}
 					onSendAdvice={(id) => send({ type: "supervisor_advice_action", id, action: "send" })}

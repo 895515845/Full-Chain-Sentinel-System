@@ -120,7 +120,7 @@ function render(current: SentinelSupervisorView): string {
 			onStop={() => {}}
 			onRunNow={() => {}}
 			onSetMode={() => {}}
-			onSetStrategy={() => {}}
+			onSetStrategies={() => {}}
 			customStrategies={[]}
 			onOpenCall={() => {}}
 			onSendAdvice={() => {}}
@@ -143,6 +143,25 @@ describe("SupervisorFloatingWindow", () => {
 		expect(html).toContain("停止监督");
 		expect(html).toContain("收起");
 		expect(html).toContain("完整输出");
+	});
+
+	test("shows every selected strategy and lets the operator add another", () => {
+		const html = render(
+			view({
+				strategies: [
+					{ strategy: "steady", customStrategyId: null, name: "稳健交付", instructions: "" },
+					{
+						strategy: "validation",
+						customStrategyId: "custom-pay",
+						name: "支付网关专用",
+						instructions: "优先 IDOR",
+					},
+				],
+			}),
+		);
+		expect(html).toContain("稳健交付 + 支付网关专用");
+		expect(html).toContain("2 个");
+		expect(html).toContain("支付网关专用");
 	});
 
 	test("a pending advice renders send and ignore actions", () => {

@@ -27,6 +27,7 @@ import type {
 	SentinelSupervisorState,
 	SentinelSupervisorStatus,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyEntry,
 	SentinelSupervisorTested,
 	SentinelSupervisorTrigger,
 	SentinelSupervisorUsage,
@@ -84,6 +85,7 @@ interface PersistedState {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	armedAt: number;
 	startedAt: number | null;
@@ -110,6 +112,7 @@ interface SupervisorSession {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	strategies: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	/** False for a session that was never armed; `view` stays null for those. */
@@ -235,6 +238,21 @@ function parsePersistedState(value: unknown): Partial<PersistedState> {
 	const deliveryValue = asString(record.delivery);
 	const strategyValue = asString(record.strategy);
 	const strategyCustomIdValue = asString(record.strategyCustomId);
+	const strategiesValue = Array.isArray(record.strategies)
+		? record.strategies
+				.map((entry) => asRecord(entry))
+				.filter((entry): entry is Record<string, unknown> => entry !== null)
+				.map((entry) => ({
+					strategy: asString(entry.strategy),
+					customStrategyId: asString(entry.customStrategyId) || null,
+					name: asString(entry.name).slice(0, 30),
+					instructions: asString(entry.instructions).slice(0, 500),
+				}))
+				.filter(
+					(entry): entry is SentinelSupervisorStrategyEntry =>
+						isSupervisorStrategy(entry.strategy) && entry.name.length > 0,
+				)
+		: [];
 	const statusValue = asString(record.status);
 	return {
 		status: (["waiting", "running", "stopped", "error"] as const).includes(statusValue as SentinelSupervisorStatus)
@@ -247,6 +265,7 @@ function parsePersistedState(value: unknown): Partial<PersistedState> {
 		strategyName: typeof record.strategyName === "string" ? record.strategyName.slice(0, 30) : undefined,
 		strategyInstructions:
 			typeof record.strategyInstructions === "string" ? record.strategyInstructions.slice(0, 500) : undefined,
+		strategies: strategiesValue.length > 0 ? strategiesValue : undefined,
 		strategyNote: typeof record.strategyNote === "string" ? clipStrategyNote(record.strategyNote) : undefined,
 		armedAt: asNumber(record.armedAt) || undefined,
 		startedAt: typeof record.startedAt === "number" ? record.startedAt : null,
@@ -430,6 +449,18 @@ export class Supervisor {
 		}
 		const persisted = this.latestState(input.manager);
 		const pendingAdvice = this.store.getPendingAdvice(input.sessionId);
+		const restoredStrategies: SentinelSupervisorStrategyEntry[] =
+			Array.isArray(persisted.strategies) && persisted.strategies.length > 0
+				? persisted.strategies
+				: [
+						{
+							strategy: persisted.strategy ?? "steady",
+							customStrategyId: persisted.strategyCustomId ?? null,
+							name: persisted.strategyName ?? SUPERVISOR_STRATEGY_LABELS[persisted.strategy ?? "steady"],
+							instructions: persisted.strategyInstructions ?? "",
+						},
+					];
+		const restoredPrimary = restoredStrategies[0] as SentinelSupervisorStrategyEntry;
 		const session: SupervisorSession = {
 			sessionId: input.sessionId,
 			manager: input.manager,
@@ -437,10 +468,11 @@ export class Supervisor {
 			projectName: input.projectName,
 			mode: persisted.mode ?? "observe",
 			delivery: persisted.delivery ?? "confirm",
-			strategy: persisted.strategy ?? "steady",
-			strategyCustomId: persisted.strategyCustomId ?? null,
-			strategyName: persisted.strategyName ?? SUPERVISOR_STRATEGY_LABELS[persisted.strategy ?? "steady"],
-			strategyInstructions: persisted.strategyInstructions ?? "",
+			strategy: restoredPrimary.strategy,
+			strategyCustomId: restoredPrimary.customStrategyId,
+			strategyName: restoredPrimary.name || SUPERVISOR_STRATEGY_LABELS[restoredPrimary.strategy],
+			strategyInstructions: restoredPrimary.instructions,
+			strategies: restoredStrategies,
 			strategyNote: persisted.strategyNote ?? "",
 			status: persisted.status ?? "stopped",
 			armed: Object.keys(persisted).length > 0,
@@ -493,6 +525,7 @@ export class Supervisor {
 		strategy: SentinelSupervisorStrategy = "steady",
 		note = "",
 		customStrategy: SentinelSupervisorCustomStrategy | null = null,
+		strategies: SentinelSupervisorStrategyEntry[] | null = null,
 	): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
 		if (session.armed && session.status === "stopped") {
@@ -501,10 +534,23 @@ export class Supervisor {
 		if (this.hasUserMessages(session)) throw new Error("监督只能在开始对话前开启");
 		session.mode = mode;
 		session.delivery = delivery;
-		session.strategy = customStrategy?.base ?? strategy;
-		session.strategyCustomId = customStrategy?.id ?? null;
-		session.strategyName = customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[session.strategy];
-		session.strategyInstructions = customStrategy?.instructions ?? "";
+		const selected: SentinelSupervisorStrategyEntry[] =
+			strategies && strategies.length > 0
+				? strategies
+				: [
+						{
+							strategy: customStrategy?.base ?? strategy,
+							customStrategyId: customStrategy?.id ?? null,
+							name: customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[customStrategy?.base ?? strategy],
+							instructions: customStrategy?.instructions ?? "",
+						},
+					];
+		const primary = selected[0] as SentinelSupervisorStrategyEntry;
+		session.strategies = selected;
+		session.strategy = primary.strategy;
+		session.strategyCustomId = primary.customStrategyId;
+		session.strategyName = primary.name || SUPERVISOR_STRATEGY_LABELS[primary.strategy];
+		session.strategyInstructions = primary.instructions;
 		session.strategyNote = clipStrategyNote(note);
 		session.status = "waiting";
 		session.armed = true;
@@ -595,17 +641,31 @@ export class Supervisor {
 		strategy: SentinelSupervisorStrategy,
 		note?: string,
 		customStrategy: SentinelSupervisorCustomStrategy | null = null,
+		strategies: SentinelSupervisorStrategyEntry[] | null = null,
 	): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
 		if (session.status === "stopped") throw new Error("本次会话的监督已停止");
-		session.strategy = customStrategy?.base ?? strategy;
-		session.strategyCustomId = customStrategy?.id ?? null;
-		session.strategyName = customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[session.strategy];
-		session.strategyInstructions = customStrategy?.instructions ?? "";
+		const selected: SentinelSupervisorStrategyEntry[] =
+			strategies && strategies.length > 0
+				? strategies
+				: [
+						{
+							strategy: customStrategy?.base ?? strategy,
+							customStrategyId: customStrategy?.id ?? null,
+							name: customStrategy?.name ?? SUPERVISOR_STRATEGY_LABELS[customStrategy?.base ?? strategy],
+							instructions: customStrategy?.instructions ?? "",
+						},
+					];
+		const primary = selected[0] as SentinelSupervisorStrategyEntry;
+		session.strategies = selected;
+		session.strategy = primary.strategy;
+		session.strategyCustomId = primary.customStrategyId;
+		session.strategyName = primary.name || SUPERVISOR_STRATEGY_LABELS[primary.strategy];
+		session.strategyInstructions = primary.instructions;
 		if (note !== undefined) session.strategyNote = clipStrategyNote(note);
 		this.persist(session);
 		this.upsert(session);
-		this.log(session, "strategy", `监督策略切换为：${session.strategyName}`);
+		this.log(session, "strategy", `监督策略切换为：${selected.map((entry) => entry.name).join(" + ")}`);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
 	}
@@ -681,6 +741,7 @@ export class Supervisor {
 			strategyCustomId: session.strategyCustomId,
 			strategyName: session.strategyName,
 			strategyInstructions: session.strategyInstructions,
+			strategies: session.strategies.map((entry) => ({ ...entry })),
 			strategyNote: session.strategyNote,
 			status: session.status,
 			armedAt: session.armedAt,
@@ -884,6 +945,7 @@ export class Supervisor {
 				strategy: session.strategy,
 				strategyName: session.strategyName,
 				strategyInstructions: session.strategyInstructions,
+				strategies: session.strategies,
 				strategyNote: session.strategyNote,
 			});
 			const reply = await this.call(resolved.config, input, controller.signal);
@@ -1063,6 +1125,7 @@ export class Supervisor {
 			strategyCustomId: session.strategyCustomId,
 			strategyName: session.strategyName,
 			strategyInstructions: session.strategyInstructions,
+			strategies: session.strategies,
 			strategyNote: session.strategyNote,
 			armedAt: session.armedAt,
 			startedAt: session.startedAt,
@@ -1098,6 +1161,7 @@ export class Supervisor {
 			strategyCustomId: session.strategyCustomId,
 			strategyName: session.strategyName,
 			strategyInstructions: session.strategyInstructions,
+			strategies: session.strategies.map((entry) => ({ ...entry })),
 			strategyNote: session.strategyNote,
 			status: session.status,
 			armedAt: session.armedAt,

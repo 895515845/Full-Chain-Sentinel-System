@@ -44,12 +44,19 @@ export const NEW_ENTRY_ID_PREFIX = "zg-model-";
 /** The value a role holds when it should use whatever `main` uses. */
 export const FOLLOW_MAIN = "follow-main";
 
-export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = ["main", "judge", "reviewer", "supervisor"];
+export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = [
+	"main",
+	"judge",
+	"reviewer",
+	"supervisor",
+	"commander",
+];
 export const SENTINEL_MODEL_ROLE_LABELS: Record<SentinelModelRoleName, string> = {
 	main: "主模型",
 	judge: "守门模型",
 	reviewer: "漏洞评审",
 	supervisor: "监督模型",
+	commander: "指挥端点",
 };
 
 export interface SentinelModelEntry {
@@ -69,6 +76,7 @@ export interface SentinelModelLibrary {
 		judge: SentinelRoleRef;
 		reviewer: SentinelRoleRef;
 		supervisor: SentinelRoleRef;
+		commander: SentinelRoleRef;
 	};
 	/** When off, submissions are not queued for the reviewer at all. */
 	reviewerAuto: boolean;
@@ -154,6 +162,14 @@ export function normalizeModelLibrary(value: unknown): SentinelModelLibrary {
 	const rawRoles = isRecord(source.roles) ? source.roles : {};
 	const rawMain = isRecord(rawRoles.main) ? rawRoles.main : null;
 	const mainId = rawMain?.kind === "model" ? nonEmptyString(rawMain.id) : null;
+	// Older library files have no commander role. Preserve a legacy zg-commander
+	// endpoint once, but do not override an explicit follow-main written later.
+	const commanderFallback: SentinelRoleRef = has(SENTINEL_COMMANDER_PROVIDER_ID)
+		? { kind: "model", id: SENTINEL_COMMANDER_PROVIDER_ID }
+		: { kind: "follow-main" };
+	const commander = isRecord(rawRoles.commander)
+		? roleRef(rawRoles.commander, { kind: "follow-main" })
+		: commanderFallback;
 	return {
 		version: typeof source.version === "number" ? source.version : MODEL_LIBRARY_VERSION,
 		entries,
@@ -162,6 +178,7 @@ export function normalizeModelLibrary(value: unknown): SentinelModelLibrary {
 			judge: roleRef(rawRoles.judge, { kind: "follow-main" }),
 			reviewer: roleRef(rawRoles.reviewer, { kind: "follow-main" }),
 			supervisor: roleRef(rawRoles.supervisor, { kind: "follow-main" }),
+			commander,
 		},
 		reviewerAuto: typeof source.reviewerAuto === "boolean" ? source.reviewerAuto : true,
 	};
@@ -231,6 +248,9 @@ export function migrateModelLibrary(agentDir: string): SentinelModelLibrary {
 			judge,
 			reviewer,
 			supervisor: { kind: "follow-main" },
+			commander: has(SENTINEL_COMMANDER_PROVIDER_ID)
+				? { kind: "model", id: SENTINEL_COMMANDER_PROVIDER_ID }
+				: { kind: "follow-main" },
 		},
 		reviewerAuto: true,
 	});
@@ -311,6 +331,7 @@ export function libraryView(agentDir: string): SentinelModelLibraryView {
 			judge: library.roles.judge.kind === "model" ? library.roles.judge.id : FOLLOW_MAIN,
 			reviewer: library.roles.reviewer.kind === "model" ? library.roles.reviewer.id : FOLLOW_MAIN,
 			supervisor: library.roles.supervisor.kind === "model" ? library.roles.supervisor.id : FOLLOW_MAIN,
+			commander: library.roles.commander.kind === "model" ? library.roles.commander.id : FOLLOW_MAIN,
 		},
 		reviewerAuto: library.reviewerAuto,
 		resolved: {
@@ -318,6 +339,7 @@ export function libraryView(agentDir: string): SentinelModelLibraryView {
 			judge: toResolvedModelView(resolveLibraryRole(agentDir, "judge")),
 			reviewer: toResolvedModelView(resolveLibraryRole(agentDir, "reviewer")),
 			supervisor: toResolvedModelView(resolveLibraryRole(agentDir, "supervisor")),
+			commander: toResolvedModelView(resolveLibraryRole(agentDir, "commander")),
 		},
 	};
 }

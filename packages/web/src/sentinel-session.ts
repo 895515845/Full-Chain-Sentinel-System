@@ -254,6 +254,8 @@ import type {
 	SentinelSupervisorMode,
 	SentinelSupervisorProgress,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyEntry,
+	SentinelSupervisorStrategyRef,
 	SentinelSupervisorView,
 	SentinelTestResult,
 	SentinelToolInfo,
@@ -279,7 +281,8 @@ import { createSubagentTool } from "./subagent.ts";
 import { SubagentStore, subagentDbPath } from "./subagent-store.ts";
 import { SubagentRegistry } from "./subagents.ts";
 import { SUPERVISOR_ADVICE_CUSTOM_TYPE, Supervisor, type SupervisorTestOutcome } from "./supervisor.ts";
-import { readSupervisorConfig, writeSupervisorConfig } from "./supervisor-config.ts";
+import { isSupervisorStrategy, readSupervisorConfig, writeSupervisorConfig } from "./supervisor-config.ts";
+import { SUPERVISOR_STRATEGY_LABELS } from "./supervisor-prompt.ts";
 import { SupervisorStore, supervisorDbPath } from "./supervisor-store.ts";
 import { createToolAuditExtension } from "./tool-audit.ts";
 import { createToolGateExtension, type ToolGateContext } from "./tool-gate.ts";
@@ -3297,11 +3300,42 @@ export class SentinelRuntime {
 	// Supervision
 	// -----------------------------------------------------------------------
 
-	private resolveCustomStrategy(id: string | null | undefined) {
-		if (!id) return null;
-		const custom = readSupervisorConfig(this.agentDir).customStrategies.find((entry) => entry.id === id);
-		if (!custom) throw new Error("自定义监督策略不存在或已被删除");
-		return custom;
+	private resolveSupervisorStrategies(
+		selections: SentinelSupervisorStrategyRef[] | undefined,
+		fallbackStrategy: SentinelSupervisorStrategy | undefined,
+		fallbackCustomId: string | null | undefined,
+	): SentinelSupervisorStrategyEntry[] {
+		const config = readSupervisorConfig(this.agentDir);
+		const requested: SentinelSupervisorStrategyRef[] =
+			selections && selections.length > 0
+				? selections
+				: fallbackCustomId
+					? [{ strategy: fallbackStrategy ?? config.defaultStrategy, customStrategyId: fallbackCustomId }]
+					: fallbackStrategy
+						? [{ strategy: fallbackStrategy, customStrategyId: null }]
+						: (config.defaultStrategies ?? [
+								{ strategy: config.defaultStrategy, customStrategyId: config.defaultCustomStrategyId },
+							]);
+		const result: SentinelSupervisorStrategyEntry[] = [];
+		const seen = new Set<string>();
+		for (const selection of requested) {
+			const customId = selection.customStrategyId;
+			const custom = customId ? config.customStrategies.find((entry) => entry.id === customId) : undefined;
+			if (customId && !custom) throw new Error("自定义监督策略不存在或已被删除");
+			const strategy =
+				custom?.base ?? (isSupervisorStrategy(selection.strategy) ? selection.strategy : config.defaultStrategy);
+			const key = custom ? `custom:${custom.id}` : `preset:${strategy}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			result.push({
+				strategy,
+				customStrategyId: custom?.id ?? null,
+				name: custom?.name ?? SUPERVISOR_STRATEGY_LABELS[strategy],
+				instructions: custom?.instructions ?? "",
+			});
+		}
+		if (result.length === 0) throw new Error("请至少选择一个监督策略");
+		return result;
 	}
 
 	/** Arm supervision for the viewed conversation; only before its first message. */
@@ -3311,21 +3345,16 @@ export class SentinelRuntime {
 		strategy?: SentinelSupervisorStrategy,
 		note?: string,
 		customStrategyId?: string | null,
+		strategies?: SentinelSupervisorStrategyRef[],
 	): SentinelSupervisorView {
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
 		if (active.taskSession) throw new Error("工程任务的会话不能单独开启监督");
 		const config = readSupervisorConfig(this.agentDir);
 		if (!config.enabled) throw new Error("监督功能已在 设置 → 模型 中关闭");
-		const custom = this.resolveCustomStrategy(customStrategyId);
-		return this.supervisor.arm(
-			active.key,
-			mode,
-			delivery,
-			custom?.base ?? strategy ?? config.defaultStrategy,
-			note ?? "",
-			custom,
-		);
+		const selected = this.resolveSupervisorStrategies(strategies, strategy, customStrategyId);
+		const primary = selected[0] as SentinelSupervisorStrategyEntry;
+		return this.supervisor.arm(active.key, mode, delivery, primary.strategy, note ?? "", null, selected);
 	}
 
 	stopSupervisor(): SentinelSupervisorView | null {
@@ -3344,11 +3373,13 @@ export class SentinelRuntime {
 		strategy: SentinelSupervisorStrategy,
 		note?: string,
 		customStrategyId?: string | null,
+		strategies?: SentinelSupervisorStrategyRef[],
 	): SentinelSupervisorView {
 		const active = this.active;
 		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		const custom = this.resolveCustomStrategy(customStrategyId);
-		return this.supervisor.setStrategy(active.key, custom?.base ?? strategy, note, custom);
+		const selected = this.resolveSupervisorStrategies(strategies, strategy, customStrategyId);
+		const primary = selected[0] as SentinelSupervisorStrategyEntry;
+		return this.supervisor.setStrategy(active.key, primary.strategy, note, null, selected);
 	}
 
 	runSupervisorNow(): void {

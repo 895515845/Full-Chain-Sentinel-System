@@ -30,14 +30,13 @@ socket.on("message", (data) => {
 		socket.send(JSON.stringify({ type: "list_vulns" }));
 	}
 	if (m.type === "doctrines") out.doctrines = m.doctrines;
-	if (m.type === "commander_config") {
-		out.commanderConfig = m.config;
+	if (m.type === "model_library") {
+		out.modelLibrary = m.library;
 		socket.send(JSON.stringify({ type: "list_doctrines" }));
 	}
 });
 socket.on("open", () => {
 	socket.send(JSON.stringify({ type: "list_engines" }));
-	socket.send(JSON.stringify({ type: "get_commander_config" }));
 });
 setTimeout(() => {
 	writeFileSync("/tmp/user-data.json", JSON.stringify(out));

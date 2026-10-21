@@ -181,7 +181,7 @@ export interface SentinelModelConfig {
 }
 
 /** The jobs a model can be assigned to. */
-export type SentinelModelRoleName = "main" | "judge" | "reviewer" | "supervisor";
+export type SentinelModelRoleName = "main" | "judge" | "reviewer" | "supervisor" | "commander";
 
 /**
  * One row of the model library as the settings screen sees it. The key itself is
@@ -267,6 +267,7 @@ export interface SentinelModelLibraryView {
 		judge: string;
 		reviewer: string;
 		supervisor: string;
+		commander: string;
 	};
 	reviewerAuto: boolean;
 	resolved: {
@@ -274,6 +275,7 @@ export interface SentinelModelLibraryView {
 		judge: SentinelResolvedModelView | null;
 		reviewer: SentinelResolvedModelView | null;
 		supervisor: SentinelResolvedModelView | null;
+		commander: SentinelResolvedModelView | null;
 	};
 }
 
@@ -1118,7 +1120,7 @@ export type SentinelEngineEvent = SentinelSubagentEvent;
 export type SentinelSupervisorMode = "observe" | "intervene";
 
 /** How the supervisor weights its attention; never relaxes safety rules. */
-export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth";
+export type SentinelSupervisorStrategy = "steady" | "validation" | "offensive" | "stealth" | "guarded";
 
 /** One operator-defined strategy: a named overlay on top of a base preset. */
 export interface SentinelSupervisorCustomStrategy {
@@ -1144,6 +1146,18 @@ export type SentinelSupervisorTrigger = "batch" | "duplicate" | "no-progress" | 
 
 export type SentinelSupervisorAdviceStatus = "pending" | "sent" | "ignored";
 
+/** A strategy selected for one conversation: a preset base or a saved custom strategy. */
+export interface SentinelSupervisorStrategyRef {
+	strategy: SentinelSupervisorStrategy;
+	customStrategyId: string | null;
+}
+
+/** A resolved strategy snapshot carried with a live view or an audit row. */
+export interface SentinelSupervisorStrategyEntry extends SentinelSupervisorStrategyRef {
+	name: string;
+	instructions: string;
+}
+
 /** Global settings shown under 设置 → 模型. */
 export interface SentinelSupervisorConfig {
 	/** Master switch; the per-conversation arm remains the actual gate. */
@@ -1156,6 +1170,8 @@ export interface SentinelSupervisorConfig {
 	redactSecrets: boolean;
 	/** Default for a new conversation; the operator can override it before arming. */
 	defaultStrategy: SentinelSupervisorStrategy;
+	/** Ordered default selection for a new conversation; can contain several strategies. */
+	defaultStrategies?: SentinelSupervisorStrategyRef[];
 	/** Global operator-defined strategies, available in every project. */
 	customStrategies: SentinelSupervisorCustomStrategy[];
 	/** When set, a new conversation defaults to this custom strategy. */
@@ -1267,6 +1283,8 @@ export interface SentinelSupervisorView {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	/** Every selected strategy; older persisted sessions omit it. */
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
@@ -1300,6 +1318,8 @@ export interface SentinelSupervisorAuditItem {
 	strategyCustomId: string | null;
 	strategyName: string;
 	strategyInstructions: string;
+	/** Every selected strategy; older persisted sessions omit it. */
+	strategies?: SentinelSupervisorStrategyEntry[];
 	strategyNote: string;
 	status: SentinelSupervisorStatus;
 	armedAt: number;
@@ -1692,8 +1712,6 @@ export type SentinelClientMessage =
 	| { type: "export_presets"; ids?: string[] }
 	/** Import an export file's text; existing presets are never overwritten. */
 	| { type: "import_presets"; content: string }
-	| { type: "get_commander_config" }
-	| { type: "save_commander_config"; config: SentinelModelConfig | null }
 	| { type: "get_gatekeeper_config" }
 	| { type: "save_gatekeeper_config"; config: SentinelGatekeeperConfig }
 	/** Probes whatever the 守门模型 role resolves to with one fixed sample command. */
@@ -1706,6 +1724,8 @@ export type SentinelClientMessage =
 			mode: SentinelSupervisorMode;
 			delivery: SentinelSupervisorDelivery;
 			strategy: SentinelSupervisorStrategy;
+			/** Multiple selections; takes precedence over the legacy singular fields. */
+			strategies?: SentinelSupervisorStrategyRef[];
 			/** Set when the operator picked a saved custom strategy. */
 			customStrategyId?: string | null;
 			/** Optional operator note, capped at 200 characters. */
@@ -1723,6 +1743,7 @@ export type SentinelClientMessage =
 			type: "supervisor_set_strategy";
 			strategy: SentinelSupervisorStrategy;
 			customStrategyId?: string | null;
+			strategies?: SentinelSupervisorStrategyRef[];
 			note?: string;
 	  }
 	| { type: "supervisor_run_now" }
@@ -1869,7 +1890,6 @@ export type SentinelServerMessage =
 			skipped: Array<{ name: string; reason: string }>;
 			error?: string;
 	  }
-	| { type: "commander_config"; config: SentinelModelConfig | null }
 	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
 	/** One sample judgment, so the operator can see the prompt and endpoint work. */
 	| {

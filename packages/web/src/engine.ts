@@ -42,7 +42,7 @@ import {
 import { EngineStore } from "./engine-store.ts";
 import { resolveJudgeEndpoint } from "./gatekeeper.ts";
 import { clampRoundLimit } from "./goal.ts";
-import { modelsJsonPath, readCommanderModelConfig, SENTINEL_COMMANDER_PROVIDER_ID } from "./model-config.ts";
+import { modelsJsonPath } from "./model-config.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { hasEnabledNotifyChannel, sendNotifications } from "./notify.ts";
 import { readNotifyConfig } from "./notify-config.ts";
@@ -1504,11 +1504,11 @@ export class EngineManager {
 	}
 
 	/**
-	 * Called after models.json is rewritten (a library save, or the commander
-	 * endpoint in the engine page). The next commander start re-reads the file.
+	 * Called after models.json is rewritten (a library save). The next commander
+	 * start re-reads the file.
 	 *
 	 * Without this the manager keeps the provider table it loaded when the first
-	 * engine started: a newly added commander endpoint never resolves, and an
+	 * engine started: a newly added model never resolves, and an
 	 * edited base URL or key keeps being ignored until the process restarts.
 	 */
 	markModelsDirty(): void {
@@ -1541,14 +1541,12 @@ export class EngineManager {
 	}
 
 	private async resolveCommanderModel(): Promise<Model<any> | undefined> {
-		// The commander keeps its own slot (configured in the engine page); when it
-		// is unset the engine runs on whatever 主模型 points at.
-		const own = readCommanderModelConfig(this.agentDir);
-		const main = resolveLibraryRole(this.agentDir, "main");
-		const config = own ?? main?.config;
-		if (!config) return undefined;
+		// The commander is a normal model role: it either points at a library entry
+		// or follows 主模型. The next commander call re-resolves the role.
+		const commander = resolveLibraryRole(this.agentDir, "commander");
+		if (!commander) return undefined;
 		const runtime = await this.ensureModelRuntime();
-		return runtime.getModel(own ? SENTINEL_COMMANDER_PROVIDER_ID : (main?.entryId ?? ""), config.modelId);
+		return runtime.getModel(commander.entryId, commander.config.modelId);
 	}
 
 	private notifyEngineDone(engine: SentinelEngine): void {

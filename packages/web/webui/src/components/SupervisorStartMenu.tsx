@@ -10,7 +10,7 @@ import { SUPERVISOR_STRATEGY_OPTIONS } from "../supervisor-strategy.ts";
 import type {
 	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorMode,
-	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyRef,
 } from "../types.ts";
 import type { PresetMenuAnchor } from "./PresetMenu.tsx";
 
@@ -25,26 +25,22 @@ const MODES: Array<{ value: SupervisorLaunchMode; label: string; description: st
 export function SupervisorStartMenu({
 	anchor,
 	mode,
-	strategy,
-	customStrategyId,
+	strategies,
 	customStrategies,
 	note,
 	onModeChange,
-	onStrategyChange,
-	onCustomStrategyChange,
+	onToggleStrategy,
 	onNoteChange,
 	onStart,
 	onClose,
 }: {
 	anchor: PresetMenuAnchor;
 	mode: SupervisorLaunchMode;
-	strategy: SentinelSupervisorStrategy;
-	customStrategyId: string | null;
+	strategies: SentinelSupervisorStrategyRef[];
 	customStrategies: SentinelSupervisorCustomStrategy[];
 	note: string;
 	onModeChange: (mode: SupervisorLaunchMode) => void;
-	onStrategyChange: (strategy: SentinelSupervisorStrategy) => void;
-	onCustomStrategyChange: (id: string, strategy: SentinelSupervisorStrategy) => void;
+	onToggleStrategy: (ref: SentinelSupervisorStrategyRef) => void;
 	onNoteChange: (note: string) => void;
 	onStart: () => void;
 	onClose: () => void;
@@ -70,10 +66,30 @@ export function SupervisorStartMenu({
 		};
 	}, []);
 
-	const selectedCustom = customStrategies.find((entry) => entry.id === customStrategyId);
-	const selectedOption = SUPERVISOR_STRATEGY_OPTIONS.find((entry) => entry.id === strategy);
-	const title = selectedCustom?.name ?? selectedOption?.label ?? "监督策略";
-	const description = selectedCustom?.description ?? selectedOption?.hint ?? "";
+	const isSelected = (ref: SentinelSupervisorStrategyRef): boolean =>
+		strategies.some((entry) =>
+			ref.customStrategyId
+				? entry.customStrategyId === ref.customStrategyId
+				: !entry.customStrategyId && entry.strategy === ref.strategy,
+		);
+	const selected = strategies.map((ref) => {
+		const custom = ref.customStrategyId
+			? customStrategies.find((entry) => entry.id === ref.customStrategyId)
+			: undefined;
+		const option = SUPERVISOR_STRATEGY_OPTIONS.find((entry) => entry.id === ref.strategy);
+		return {
+			key: ref.customStrategyId ? `custom:${ref.customStrategyId}` : `preset:${ref.strategy}`,
+			name: custom?.name ?? option?.label ?? "监督策略",
+			description: custom?.description ?? option?.hint ?? "",
+			instructions: custom?.instructions ?? "",
+		};
+	});
+	const title =
+		selected.length > 1 ? `${selected.length} 个监督策略` : (selected[0]?.name ?? "监督策略");
+	const description =
+		selected.length > 1
+			? "多个策略会合并到同一份监督判断中；冲突时以安全规则和补充说明为准。"
+			: (selected[0]?.description ?? "");
 	const selectedMode = MODES.find((entry) => entry.value === mode) ?? MODES[0];
 
 	return createPortal(
@@ -106,34 +122,56 @@ export function SupervisorStartMenu({
 			<div className="composer-supervisor-mode-hint">{selectedMode?.description}</div>
 			<div className="composer-supervisor-panel">
 				<div className="composer-supervisor-nav">
-					{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
-						<button
-							type="button"
-							key={option.id}
-							className={!customStrategyId && strategy === option.id ? "on" : ""}
-							onClick={() => onStrategyChange(option.id)}
-						>
-							{option.label}
-						</button>
-					))}
+					{SUPERVISOR_STRATEGY_OPTIONS.map((option) => {
+						const ref: SentinelSupervisorStrategyRef = {
+							strategy: option.id,
+							customStrategyId: null,
+						};
+						return (
+							<button
+								type="button"
+								key={option.id}
+								className={isSelected(ref) ? "on" : ""}
+								aria-pressed={isSelected(ref)}
+								onClick={() => onToggleStrategy(ref)}
+							>
+								{option.label}
+							</button>
+						);
+					})}
 					{customStrategies.length > 0 ? (
 						<div className="composer-supervisor-nav-label">自定义</div>
 					) : null}
-					{customStrategies.map((custom) => (
-						<button
-							type="button"
-							key={custom.id}
-							className={customStrategyId === custom.id ? "on" : ""}
-							onClick={() => onCustomStrategyChange(custom.id, custom.base)}
-						>
-							{custom.name}
-						</button>
-					))}
+					{customStrategies.map((custom) => {
+						const ref: SentinelSupervisorStrategyRef = {
+							strategy: custom.base,
+							customStrategyId: custom.id,
+						};
+						return (
+							<button
+								type="button"
+								key={custom.id}
+								className={isSelected(ref) ? "on" : ""}
+								aria-pressed={isSelected(ref)}
+								onClick={() => onToggleStrategy(ref)}
+							>
+								{custom.name}
+							</button>
+						);
+					})}
 				</div>
 				<div className="composer-supervisor-detail">
 					<h3>{title}</h3>
 					<p>{description}</p>
-					{selectedCustom?.instructions ? <p>{selectedCustom.instructions}</p> : null}
+					{selected.length > 1 ? (
+						<div className="composer-supervisor-selected">
+							{selected.map((entry) => (
+								<span key={entry.key} title={entry.instructions || entry.description}>
+									{entry.name}
+								</span>
+							))}
+						</div>
+					) : null}
 					<label className="composer-supervisor-note">
 						补充说明 · 可选
 						<textarea
@@ -146,9 +184,9 @@ export function SupervisorStartMenu({
 				</div>
 			</div>
 			<div className="composer-supervisor-foot">
-				<span>策略不会放宽安全规则</span>
-				<button type="button" className="primary small" onClick={onStart}>
-					开始监督
+				<span>可多选，至少保留一个；策略不会放宽安全规则</span>
+				<button type="button" className="primary small" onClick={onStart} disabled={strategies.length === 0}>
+					{strategies.length === 0 ? "至少选择一个策略" : "开始监督"}
 				</button>
 			</div>
 		</div>,

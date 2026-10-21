@@ -22,6 +22,7 @@ import type {
 	SentinelSupervisorProgress,
 	SentinelSupervisorStatus,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyEntry,
 } from "./protocol.ts";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS supervisor_sessions (
   strategy_custom_id TEXT,
   strategy_name TEXT NOT NULL DEFAULT '',
   strategy_instructions TEXT NOT NULL DEFAULT '',
+  strategies TEXT NOT NULL DEFAULT '[]',
   strategy_note TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   armed_at INTEGER NOT NULL,
@@ -115,6 +117,7 @@ interface SessionRow {
 	strategy_custom_id: string | null;
 	strategy_name: string;
 	strategy_instructions: string;
+	strategies: string;
 	strategy_note: string;
 	status: string;
 	armed_at: number;
@@ -159,7 +162,41 @@ function num(value: unknown): number {
 }
 
 function assertStrategy(value: string): SentinelSupervisorStrategy {
-	return value === "validation" || value === "offensive" || value === "stealth" ? value : "steady";
+	return value === "validation" || value === "offensive" || value === "stealth" || value === "guarded"
+		? value
+		: "steady";
+}
+
+function strategyEntries(raw: string): SentinelSupervisorStrategyEntry[] | undefined {
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+		const result: SentinelSupervisorStrategyEntry[] = [];
+		for (const entry of parsed) {
+			if (!entry || typeof entry !== "object") continue;
+			const record = entry as Record<string, unknown>;
+			if (typeof record.strategy !== "string" || !isKnownStrategy(record.strategy)) continue;
+			result.push({
+				strategy: record.strategy,
+				customStrategyId: typeof record.customStrategyId === "string" ? record.customStrategyId : null,
+				name: typeof record.name === "string" ? record.name : "",
+				instructions: typeof record.instructions === "string" ? record.instructions : "",
+			});
+		}
+		return result.length > 0 ? result : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function isKnownStrategy(value: string): value is SentinelSupervisorStrategy {
+	return (
+		value === "steady" ||
+		value === "validation" ||
+		value === "offensive" ||
+		value === "stealth" ||
+		value === "guarded"
+	);
 }
 
 function auditItem(row: SessionRow): SentinelSupervisorAuditItem {
@@ -175,6 +212,7 @@ function auditItem(row: SessionRow): SentinelSupervisorAuditItem {
 		strategyCustomId: row.strategy_custom_id,
 		strategyName: row.strategy_name,
 		strategyInstructions: row.strategy_instructions ?? "",
+		strategies: strategyEntries(row.strategies ?? "[]"),
 		strategyNote: row.strategy_note ?? "",
 		status: (["waiting", "running", "stopped", "error"] as const).includes(row.status as SentinelSupervisorStatus)
 			? (row.status as SentinelSupervisorStatus)
@@ -256,6 +294,7 @@ export class SupervisorStore {
 		ensureColumn(this.db, "supervisor_sessions", "strategy_custom_id", "TEXT");
 		ensureColumn(this.db, "supervisor_sessions", "strategy_name", "TEXT NOT NULL DEFAULT ''");
 		ensureColumn(this.db, "supervisor_sessions", "strategy_instructions", "TEXT NOT NULL DEFAULT ''");
+		ensureColumn(this.db, "supervisor_sessions", "strategies", "TEXT NOT NULL DEFAULT '[]'");
 		ensureColumn(this.db, "supervisor_sessions", "strategy_note", "TEXT NOT NULL DEFAULT ''");
 	}
 
@@ -264,10 +303,10 @@ export class SupervisorStore {
 			.prepare(
 				`INSERT INTO supervisor_sessions (
 					session_id, session_path, session_name, project_id, project_name, mode, delivery, strategy,
-					strategy_custom_id, strategy_name, strategy_instructions, strategy_note, status, armed_at,
+					strategy_custom_id, strategy_name, strategy_instructions, strategies, strategy_note, status, armed_at,
 					started_at, ended_at, phase, intent, progress, episode_count, call_count, advice_count,
 					tokens_input, tokens_output, tokens_total, last_error, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(session_id) DO UPDATE SET
 					session_path=excluded.session_path,
 					session_name=excluded.session_name,
@@ -279,6 +318,7 @@ export class SupervisorStore {
 					strategy_custom_id=excluded.strategy_custom_id,
 					strategy_name=excluded.strategy_name,
 					strategy_instructions=excluded.strategy_instructions,
+					strategies=excluded.strategies,
 					strategy_note=excluded.strategy_note,
 					status=excluded.status,
 					armed_at=excluded.armed_at,
@@ -308,6 +348,7 @@ export class SupervisorStore {
 				item.strategyCustomId,
 				item.strategyName,
 				item.strategyInstructions,
+				JSON.stringify(item.strategies ?? []),
 				item.strategyNote,
 				item.status,
 				item.armedAt,

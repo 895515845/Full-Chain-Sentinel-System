@@ -4,9 +4,10 @@ import type {
 	SentinelSupervisorConfig,
 	SentinelSupervisorCustomStrategy,
 	SentinelSupervisorStrategy,
+	SentinelSupervisorStrategyRef,
 	SentinelTestResult,
 } from "../types.ts";
-import { SUPERVISOR_STRATEGY_OPTIONS } from "../supervisor-strategy.ts";
+import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyKey } from "../supervisor-strategy.ts";
 import { ModelRolePicker } from "./ModelRolePicker.tsx";
 import { capabilityChips, hostOf } from "./model-ui.tsx";
 
@@ -53,24 +54,33 @@ export function SupervisorSettingsPanel({
 	};
 
 	const customStrategies = supervisorDraft.customStrategies;
-	const defaultCustomStrategy = customStrategies.find(
-		(entry) => entry.id === supervisorDraft.defaultCustomStrategyId,
-	);
-	const defaultStrategyValue = defaultCustomStrategy
-		? `custom:${defaultCustomStrategy.id}`
-		: `preset:${supervisorDraft.defaultStrategy}`;
-
-	const changeDefaultStrategy = (value: string): void => {
-		if (value.startsWith("custom:")) {
-			const custom = customStrategies.find((entry) => entry.id === value.slice(7));
-			if (!custom) return;
-			updateSupervisor({ defaultCustomStrategyId: custom.id, defaultStrategy: custom.base });
+	const defaultStrategies: SentinelSupervisorStrategyRef[] =
+		supervisorDraft.defaultStrategies && supervisorDraft.defaultStrategies.length > 0
+			? supervisorDraft.defaultStrategies
+			: [
+					{
+						strategy: supervisorDraft.defaultStrategy,
+						customStrategyId: supervisorDraft.defaultCustomStrategyId,
+					},
+				];
+	const setDefaultStrategies = (next: SentinelSupervisorStrategyRef[]): void => {
+		const primary = next[0];
+		if (!primary) return;
+		updateSupervisor({
+			defaultStrategies: next,
+			defaultStrategy: primary.strategy,
+			defaultCustomStrategyId: primary.customStrategyId,
+		});
+	};
+	const toggleDefaultStrategy = (ref: SentinelSupervisorStrategyRef): void => {
+		const key = supervisorStrategyKey(ref);
+		const exists = defaultStrategies.some((entry) => supervisorStrategyKey(entry) === key);
+		if (exists) {
+			if (defaultStrategies.length <= 1) return;
+			setDefaultStrategies(defaultStrategies.filter((entry) => supervisorStrategyKey(entry) !== key));
 			return;
 		}
-		updateSupervisor({
-			defaultCustomStrategyId: null,
-			defaultStrategy: value.slice(7) as SentinelSupervisorStrategy,
-		});
+		setDefaultStrategies([...defaultStrategies, ref]);
 	};
 
 	const commitCustomStrategy = (): void => {
@@ -92,19 +102,27 @@ export function SupervisorSettingsPanel({
 		const list = customStrategies.some((entry) => entry.id === id)
 			? customStrategies.map((entry) => (entry.id === id ? next : entry))
 			: [...customStrategies, next];
+		const nextDefaults = defaultStrategies.map((entry) =>
+			entry.customStrategyId === id ? { strategy: next.base, customStrategyId: id } : entry,
+		);
 		updateSupervisor({
 			customStrategies: list,
-			...(supervisorDraft.defaultCustomStrategyId === id ? { defaultStrategy: next.base } : {}),
+			defaultStrategies: nextDefaults,
+			defaultStrategy: nextDefaults[0]?.strategy ?? next.base,
+			defaultCustomStrategyId: nextDefaults[0]?.customStrategyId ?? null,
 		});
 		setCustomStrategyDraft(null);
 	};
 
 	const removeCustomStrategy = (id: string): void => {
+		const nextDefaults = defaultStrategies.filter((entry) => entry.customStrategyId !== id);
+		const safeDefaults =
+			nextDefaults.length > 0 ? nextDefaults : [{ strategy: "steady" as const, customStrategyId: null }];
 		updateSupervisor({
 			customStrategies: customStrategies.filter((entry) => entry.id !== id),
-			...(supervisorDraft.defaultCustomStrategyId === id
-				? { defaultCustomStrategyId: null, defaultStrategy: "steady" as const }
-				: {}),
+			defaultStrategies: safeDefaults,
+			defaultStrategy: safeDefaults[0]?.strategy ?? "steady",
+			defaultCustomStrategyId: safeDefaults[0]?.customStrategyId ?? null,
 		});
 		if (customStrategyDraft?.id === id) setCustomStrategyDraft(null);
 	};
@@ -150,7 +168,7 @@ export function SupervisorSettingsPanel({
 				<span className="cockpit-sec__meta">全局阈值与新会话的默认值</span>
 			</div>
 			<p className="settings-hint">
-				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里配置全局阈值、批大小、新会话的默认策略和自定义策略；模式、策略和补充说明在对话里选。
+				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里配置全局阈值、批大小、新会话的默认策略（可多选）和自定义策略；模式、策略和补充说明在对话里选。
 			</p>
 			<div className="supervisor-settings">
 				<label className="cockpit-check">
@@ -161,28 +179,67 @@ export function SupervisorSettingsPanel({
 					/>
 					<span>允许在对话中开启监督</span>
 				</label>
-				<label className="supervisor-settings__strategy">
-					默认监督策略
-					<select value={defaultStrategyValue} onChange={(event) => changeDefaultStrategy(event.target.value)}>
-						<optgroup label="预设">
-							{SUPERVISOR_STRATEGY_OPTIONS.map((option) => (
-								<option value={`preset:${option.id}`} key={option.id}>
-									{option.label} · {option.hint}
-								</option>
-							))}
-						</optgroup>
-						{customStrategies.length > 0 ? (
-							<optgroup label="自定义">
-								{customStrategies.map((custom) => (
-									<option value={`custom:${custom.id}`} key={custom.id}>
-										{custom.name} · {custom.description}
-									</option>
-								))}
-							</optgroup>
-						) : null}
-					</select>
-					<span className="hint">开启监督时仍可单独选择；这里只决定新会话的默认值。</span>
-				</label>
+				<div className="supervisor-settings__strategy">
+					<div className="supervisor-settings__strategy-head">
+						<span>默认监督策略</span>
+						<span>可多选 · {defaultStrategies.length} 个</span>
+					</div>
+					<div className="supervisor-strategy-grid">
+						{SUPERVISOR_STRATEGY_OPTIONS.map((option) => {
+							const ref: SentinelSupervisorStrategyRef = {
+								strategy: option.id,
+								customStrategyId: null,
+							};
+							const selected = defaultStrategies.some(
+								(entry) => supervisorStrategyKey(entry) === supervisorStrategyKey(ref),
+							);
+							return (
+								<label
+									className={`supervisor-strategy-option ${selected ? "on" : ""}`}
+									key={option.id}
+								>
+									<input
+										type="checkbox"
+										checked={selected}
+										onChange={() => toggleDefaultStrategy(ref)}
+									/>
+									<span>
+										<b>{option.label}</b>
+										<small>{option.hint}</small>
+									</span>
+								</label>
+							);
+						})}
+						{customStrategies.map((custom) => {
+							const ref: SentinelSupervisorStrategyRef = {
+								strategy: custom.base,
+								customStrategyId: custom.id,
+							};
+							const selected = defaultStrategies.some(
+								(entry) => supervisorStrategyKey(entry) === supervisorStrategyKey(ref),
+							);
+							return (
+								<label
+									className={`supervisor-strategy-option ${selected ? "on" : ""}`}
+									key={custom.id}
+								>
+									<input
+										type="checkbox"
+										checked={selected}
+										onChange={() => toggleDefaultStrategy(ref)}
+									/>
+									<span>
+										<b>{custom.name}</b>
+										<small>{custom.description}</small>
+									</span>
+								</label>
+							);
+						})}
+					</div>
+					<span className="hint">
+						可同时选择多个策略，开启监督时会合并生效；至少保留一个。这里只决定新会话的默认值，对话里仍可调整。
+					</span>
+				</div>
 				<div className="supervisor-custom">
 					<div className="supervisor-custom__head">
 						<div>
@@ -200,7 +257,7 @@ export function SupervisorSettingsPanel({
 						</button>
 					</div>
 					{customStrategies.length === 0 && !customStrategyDraft ? (
-						<p className="supervisor-custom__empty">还没有自定义策略。可以基于四种预设，追加自己的关注点。</p>
+						<p className="supervisor-custom__empty">还没有自定义策略。可以基于五种预设，追加自己的关注点。</p>
 					) : null}
 					{customStrategies.map((custom) => (
 						<div className="supervisor-custom__row" key={custom.id}>

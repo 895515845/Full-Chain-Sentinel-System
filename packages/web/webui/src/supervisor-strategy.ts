@@ -1,6 +1,6 @@
-/** Operator-facing names and short descriptions for the four supervision strategies. */
+/** Operator-facing names and short descriptions for the supervision strategies. */
 
-import type { SentinelSupervisorStrategy } from "./types.ts";
+import type { SentinelSupervisorStrategy, SentinelSupervisorStrategyRef } from "./types.ts";
 
 export interface SupervisorStrategyOption {
 	id: SentinelSupervisorStrategy;
@@ -29,6 +29,11 @@ export const SUPERVISOR_STRATEGY_OPTIONS: SupervisorStrategyOption[] = [
 		label: "低噪声",
 		hint: "避免高频爆破、批量请求和明显扫描，优先被动信息与小样本验证。",
 	},
+	{
+		id: "guarded",
+		label: "不测危险接口",
+		hint: "不碰会改配置/业务数据、任意用户密码重置、文件删除这类危险接口，只记录风险。",
+	},
 ];
 
 export const SUPERVISOR_STRATEGY_LABELS: Record<SentinelSupervisorStrategy, string> = {
@@ -36,8 +41,14 @@ export const SUPERVISOR_STRATEGY_LABELS: Record<SentinelSupervisorStrategy, stri
 	validation: "漏洞验证",
 	offensive: "红队推进",
 	stealth: "低噪声",
+	guarded: "不测危险接口",
 };
 
 export function supervisorStrategyLabel(strategy: SentinelSupervisorStrategy): string {
 	return SUPERVISOR_STRATEGY_LABELS[strategy];
+}
+
+/** Stable key for one preset/custom selection, used by multi-select UIs. */
+export function supervisorStrategyKey(ref: SentinelSupervisorStrategyRef): string {
+	return ref.customStrategyId ? `custom:${ref.customStrategyId}` : `preset:${ref.strategy}`;
 }
