@@ -44,6 +44,8 @@ export type AssetFetch = (input: string, init?: RequestInit) => Promise<Response
 export interface AssetPlatformMeta {
 	id: SentinelAssetPlatform;
 	label: string;
+	/** Official origin; endpoints below are appended when no custom base URL is set. */
+	baseUrl: string;
 	searchUrl: string;
 	/** Endpoint that reports the account and its remaining quota. */
 	accountUrl: string;
@@ -59,6 +61,7 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 	fofa: {
 		id: "fofa",
 		label: "FOFA",
+		baseUrl: "https://fofa.info",
 		searchUrl: "https://fofa.info/api/v1/search/all",
 		accountUrl: "https://fofa.info/api/v1/info/my",
 		// A getter, so a language switch reaches the syntax text without a reload.
@@ -70,6 +73,7 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 	quake: {
 		id: "quake",
 		label: "360 Quake",
+		baseUrl: "https://quake.360.net",
 		searchUrl: "https://quake.360.net/api/v3/search/quake_service",
 		accountUrl: "https://quake.360.net/api/v3/user/info",
 		get syntax() {
@@ -80,6 +84,7 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 	hunter: {
 		id: "hunter",
 		label: "奇安信 Hunter",
+		baseUrl: "https://hunter.qianxin.com",
 		searchUrl: "https://hunter.qianxin.com/openApi/search",
 		accountUrl: "https://hunter.qianxin.com/openApi/userInfo",
 		get syntax() {
@@ -92,6 +97,21 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 		},
 	},
 };
+
+/**
+ * Put a platform's canonical API path under a custom base URL. A base URL is a
+ * prefix (for example a reverse proxy), not a full endpoint: the path below is
+ * always appended, so `https://proxy.example/fofa` becomes
+ * `https://proxy.example/fofa/api/v1/search/all`.
+ */
+export function assetEndpoint(officialUrl: string, baseUrl?: string): string {
+	if (!baseUrl) return officialUrl;
+	const base = new URL(baseUrl);
+	base.pathname = `${base.pathname.replace(/\/+$/, "")}${new URL(officialUrl).pathname}`;
+	base.search = "";
+	base.hash = "";
+	return base.toString();
+}
 
 /** FOFA wants standard base64 in `qbase64`. */
 export function encodeFofaQuery(query: string): string {
@@ -166,6 +186,8 @@ export interface AssetSearchOptions {
 	fetchImpl?: AssetFetch;
 	/** Endpoint override, for tests. */
 	searchUrl?: string;
+	/** Operator-configured origin or reverse-proxy prefix; empty means the official URL. */
+	baseUrl?: string;
 	signal?: AbortSignal;
 }
 
@@ -174,6 +196,8 @@ export interface AssetProbeOptions {
 	key: string;
 	fetchImpl?: AssetFetch;
 	accountUrl?: string;
+	/** Operator-configured origin or reverse-proxy prefix; empty means the official URL. */
+	baseUrl?: string;
 	signal?: AbortSignal;
 }
 
@@ -430,7 +454,7 @@ function parseFofa(
 
 async function searchFofa(options: AssetSearchOptions, page: number, size: number): Promise<AssetSearchResult> {
 	const meta = ASSET_PLATFORM_META.fofa;
-	const url = new URL(options.searchUrl ?? meta.searchUrl);
+	const url = new URL(options.searchUrl ?? assetEndpoint(meta.searchUrl, options.baseUrl));
 	url.searchParams.set("key", options.key);
 	url.searchParams.set("qbase64", encodeFofaQuery(options.query));
 	url.searchParams.set("size", String(size));
@@ -535,7 +559,7 @@ function parseQuake(
 
 async function searchQuake(options: AssetSearchOptions, page: number, size: number): Promise<AssetSearchResult> {
 	const meta = ASSET_PLATFORM_META.quake;
-	const url = options.searchUrl ?? meta.searchUrl;
+	const url = options.searchUrl ?? assetEndpoint(meta.searchUrl, options.baseUrl);
 	const started = Date.now();
 	const { status, body } = await request(
 		"quake",
@@ -640,7 +664,7 @@ function parseHunter(
 
 async function searchHunter(options: AssetSearchOptions, page: number, size: number): Promise<AssetSearchResult> {
 	const meta = ASSET_PLATFORM_META.hunter;
-	const url = new URL(options.searchUrl ?? meta.searchUrl);
+	const url = new URL(options.searchUrl ?? assetEndpoint(meta.searchUrl, options.baseUrl));
 	url.searchParams.set("api-key", options.key);
 	url.searchParams.set("search", encodeHunterQuery(options.query));
 	url.searchParams.set("page", String(page));
@@ -702,7 +726,7 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const signal = options.signal;
 	if (options.platform === "fofa") {
-		const url = new URL(options.accountUrl ?? meta.accountUrl);
+		const url = new URL(options.accountUrl ?? assetEndpoint(meta.accountUrl, options.baseUrl));
 		url.searchParams.set("key", options.key);
 		const { status, body } = await request("fofa", fetchImpl, url.toString(), { method: "GET" }, signal);
 		const data = parseJson("fofa", body, status) as {
@@ -726,7 +750,7 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 		return { ok: true, message: t("FOFA 连接正常（{quota}）", { quota }), quota };
 	}
 	if (options.platform === "quake") {
-		const url = options.accountUrl ?? meta.accountUrl;
+		const url = options.accountUrl ?? assetEndpoint(meta.accountUrl, options.baseUrl);
 		const { status, body } = await request(
 			"quake",
 			fetchImpl,
@@ -755,7 +779,7 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 		});
 		return { ok: true, message: t("360 Quake 连接正常（{quota}）", { quota }), quota };
 	}
-	const url = new URL(options.accountUrl ?? meta.accountUrl);
+	const url = new URL(options.accountUrl ?? assetEndpoint(meta.accountUrl, options.baseUrl));
 	url.searchParams.set("api-key", options.key);
 	const { status, body } = await request("hunter", fetchImpl, url.toString(), { method: "GET" }, signal);
 	const data = parseJson("hunter", body, status) as {

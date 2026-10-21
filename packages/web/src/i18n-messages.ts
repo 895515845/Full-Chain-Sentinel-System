@@ -1013,8 +1013,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"取消后计划不再执行，工程会标记为已终止。确定取消？":
 		"After canceling, the schedule will not run and the engagement is marked as stopped. Cancel anyway?",
 	取消计划: "Cancel schedule",
-	"只写入本机 assets.json（0600），前端不回显；查询由控制台直接发出，不进容器、不进 bash 审计，原始响应写入项目 evidence/asset/。":
-		"Written only to the local assets.json (0600) and never echoed to the browser. The console sends queries directly, outside the container and bash audit, and raw responses go to the project's evidence/asset/.",
+	"只写入本机 assets.json（0600），前端不回显；查询由控制台直接发出，不进容器、不进 bash 审计，原始响应写入项目 evidence/asset/。配置自定义 BaseURL 后，密钥与查询内容会发送到该地址。":
+		"Written only to the local assets.json (0600) and never echoed to the browser. The console sends queries directly, outside the container and bash audit, and raw responses go to the project's evidence/asset/. With a custom base URL, the key and query content are sent to that address.",
 	只发送一条测试卡片: "Sends only one test card",
 	"只支持 .yaml / .yml / .zip": "Only .yaml / .yml / .zip are supported",
 	"只支持 .zip：插件包必须包含 Dockerfile 和构建上下文":
@@ -1193,8 +1193,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"守门设置（AI 审批）": "Gatekeeper settings (AI Approval)",
 	安全: "Security",
 	安卓: "Android",
-	"安卓工具已挂载（droid_* / apk_*）。点击摘除，回到无痕迹状态":
-		"Android tools mounted (droid_* / apk_*). Click to unmount and return to a clean state",
+	"当前对话已挂载安卓工具（droid_* / apk_*）。点击摘除；其他对话不受影响":
+		"Android tools are mounted in this conversation (droid_* / apk_*). Click to unmount; other conversations are unaffected.",
 	安卓设备: "Android device",
 	"安排时间，然后交给指挥官": "Schedule the run, then hand it to the commander",
 	安装: "Install",
@@ -1625,8 +1625,8 @@ export const EN_MESSAGES: Record<string, string> = {
 		"Persistent targets are only available in auto-execute or AI approval mode: switch modes first",
 	持续目标已启动: "Persistent goal started",
 	持续目标结束: "Persistent goal finished",
-	"挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线":
-		"Mount Android tools (droid_* / apk_*): configure the reverse connection and token on the Android devices page first, with a device online",
+	"为当前对话挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线":
+		"Mount Android tools in this conversation (droid_* / apk_*): first configure the reverse connection and a token on the Android devices page, and keep one device online.",
 	挂载状态: "Mount status",
 	"指令未能注入（任务刚好结束）": "The instruction was not injected (the task just finished)",
 	指挥: "Command",
@@ -2548,8 +2548,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	设备不在线: "Device is offline",
 	设备不存在: "The device does not exist",
 	设备不存在或名称为空: "The device does not exist or the name is empty",
-	"设备出现在上方即接入成功；到对话页打开「安卓」开关，Agent 即可操控设备。":
-		"Once the device appears above it is connected; turn on the Android switch on the conversation page and the agent can control the device.",
+	"设备出现在上方即接入成功；到对话页为当前对话打开「安卓」开关，Agent 即可操控设备。":
+		"A device listed above is connected. Open the Android toggle for that conversation on the chat page and the agent can control it.",
 	"设备响应超时（{seconds}s）": "Device timed out after {seconds}s",
 	"设备无响应：已 {seconds}s 未收到心跳（DroidBridge 进程可能被系统或模拟器冻结：socket 还在，但 app 不再执行任何代码）。请在设备上唤醒或重开 DroidBridge，等心跳恢复后重试":
 		"Device unresponsive: no heartbeat for {seconds}s (the DroidBridge process may be frozen by the system or the emulator: the socket is still open, but the app no longer executes any code). Wake the device or restart DroidBridge, then retry once heartbeats resume",
@@ -2676,6 +2676,13 @@ export const EN_MESSAGES: Record<string, string> = {
 	调用: "Call",
 	"调用 / Episode": "Calls / Episodes",
 	调用记录: "call records",
+	"BaseURL 必须是完整的 http(s) 地址，且不能带查询参数、锚点或登录信息":
+		"The base URL must be a complete http(s) URL without query parameters, fragments, or credentials",
+	"请求 BaseURL（保存后生效）": "Request base URL (takes effect after saving)",
+	"留空即使用官方地址；也可填反向代理前缀（如 https://proxy.example/fofa），控制台会拼接各平台的 API 路径。保存后会重新验证，验证失败则工具不挂载。":
+		"Leave it empty for the official URL. You can also enter a reverse-proxy prefix (for example https://proxy.example/fofa); the console appends each platform's API path. Saving re-validates the platform, and a failed validation unmounts its tool.",
+	"自定义 BaseURL（留空使用官方地址）": "Custom base URL (empty uses the official URL)",
+	"{label} 的自定义 BaseURL": "{label} custom base URL",
 	资产测绘: "Asset discovery",
 	资产测绘配置: "Asset mapping settings",
 	"超出任务时间上限（{minutes} 分钟）": "Exceeded task time limit ({minutes} minutes)",

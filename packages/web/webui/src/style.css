@@ -11728,6 +11728,12 @@ button.link {
 	opacity: 0.5;
 }
 
+.asset-key {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
 .asset-key input {
 	width: 100%;
 	height: 30px;
@@ -11743,6 +11749,12 @@ button.link {
 .asset-key input:focus {
 	outline: none;
 	border-color: var(--accent);
+}
+
+.asset-key input.asset-key__base {
+	height: 26px;
+	color: var(--dim);
+	font-size: 11px;
 }
 
 .asset-cell {

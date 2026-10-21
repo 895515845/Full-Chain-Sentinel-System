@@ -1061,7 +1061,7 @@ export interface SentinelStateSnapshot {
 	compacting: boolean;
 	/** When that compaction started, for the elapsed time; null when idle. */
 	compactionStartedAt: number | null;
-	/** The Droid plugin's toolset switch (device page persists it; the chat toggles it). */
+	/** Whether the viewed conversation mounts the Android toolset (per session). */
 	droidEnabled: boolean;
 	/** Supervision of the viewed conversation; null when it was never armed. */
 	supervisor: SentinelSupervisorView | null;
@@ -1328,7 +1328,7 @@ export type SentinelClientMessage =
 	| { type: "get_asset_config" }
 	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
 	| { type: "set_asset_query_limit"; limit: number }
-	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string; baseUrl?: string }
 	| { type: "get_websearch_config" }
 	| { type: "save_websearch_key"; key: SentinelWebSearchKeyInput }
 	| { type: "delete_websearch_key"; id: string }
@@ -1673,6 +1673,8 @@ export interface SentinelAssetPlatformView {
 	enabled: boolean;
 	/** A key is stored. The key itself is never sent to the browser. */
 	hasKey: boolean;
+	/** Custom origin or reverse-proxy prefix; empty means the official platform URL. */
+	baseUrl: string;
 	/** The key was probed and the platform answered; only then is the tool mounted. */
 	verified: boolean;
 	status: SentinelAssetStatus;
@@ -1692,6 +1694,8 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+	/** undefined keeps the stored URL, "" restores the official URL. */
+	baseUrl?: string;
 }
 
 /** One Tavily pool key as the settings screen shows it; the key never leaves the host. */

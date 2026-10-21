@@ -481,8 +481,8 @@ export function Composer({
 							<span className="modeling-trigger__count">{modelingAttached.length}</span>
 						) : null}
 					</button>
-					{/* Android tools: an explicit opt-in. Off is the clean state — no
-					    device tools in the prompt, nothing in context. */}
+					{/* Android tools: an explicit opt-in for THIS conversation. Off is
+					    the clean state — no device tools in the prompt, nothing in context. */}
 					<button
 						type="button"
 						className={`composer-tool modeling-trigger ${droidEnabled ? "on" : ""}`}
@@ -492,8 +492,8 @@ export function Composer({
 							!hasProject
 								? t("请先创建或选择一个项目")
 								: droidEnabled
-									? t("安卓工具已挂载（droid_* / apk_*）。点击摘除，回到无痕迹状态")
-									: t("挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线")
+									? t("当前对话已挂载安卓工具（droid_* / apk_*）。点击摘除；其他对话不受影响")
+									: t("为当前对话挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线")
 						}
 					>
 						<DroidIcon />

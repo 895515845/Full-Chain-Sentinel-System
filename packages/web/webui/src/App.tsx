@@ -2873,10 +2873,10 @@ export function App() {
 											send({ type: "set_asset_query_limit", limit });
 											window.setTimeout(() => setAssetBusy(false), 40000);
 										}}
-										onTest={async (platform: SentinelAssetPlatform, key?: string) => {
+										onTest={async (platform: SentinelAssetPlatform, key?: string, baseUrl?: string) => {
 											const result = await new Promise<SentinelTestResult | null>((resolve) => {
 												assetTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_asset_platform", platform, key });
+												connectionRef.current?.send({ type: "test_asset_platform", platform, key, baseUrl });
 												window.setTimeout(() => {
 													if (assetTestResolverRef.current === resolve) {
 														assetTestResolverRef.current = null;

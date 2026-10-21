@@ -42,7 +42,7 @@ describe("normalizeAssetConfig", () => {
 	test("a missing or unreadable file reads as nothing configured", () => {
 		const agentDir = freshAgentDir();
 		const config = readAssetConfig(agentDir);
-		expect(config.platforms.fofa).toEqual({ enabled: false, key: "", status: { at: null, ok: true } });
+		expect(config.platforms.fofa).toEqual({ enabled: false, key: "", baseUrl: "", status: { at: null, ok: true } });
 		expect(usablePlatforms(agentDir)).toEqual([]);
 	});
 
@@ -65,7 +65,7 @@ describe("normalizeAssetConfig", () => {
 		const config = normalizeAssetConfig({
 			platforms: { fofa: { enabled: true, key: " k " }, shodan: { enabled: true, key: "x" } },
 		});
-		expect(config.platforms.fofa).toEqual({ enabled: true, key: "k", status: { at: null, ok: true } });
+		expect(config.platforms.fofa).toEqual({ enabled: true, key: "k", baseUrl: "", status: { at: null, ok: true } });
 		expect(config.platforms.quake.enabled).toBe(false);
 		expect(Object.keys(config.platforms).sort()).toEqual(["fofa", "hunter", "quake"]);
 	});
@@ -97,6 +97,39 @@ describe("saveAssetPlatform", () => {
 		saveAssetPlatform(agentDir, { id: "quake", enabled: true, key: "k" });
 		const view = saveAssetPlatform(agentDir, { id: "quake", enabled: true, key: "" });
 		expect(view.platforms.find((platform) => platform.id === "quake")?.hasKey).toBe(false);
+	});
+
+	test("a custom base URL is normalized and can be reset to the official one", () => {
+		const agentDir = freshAgentDir();
+		const view = saveAssetPlatform(agentDir, {
+			id: "fofa",
+			enabled: true,
+			key: "k",
+			baseUrl: "  https://proxy.example/fofa/  ",
+		});
+		expect(view.platforms.find((platform) => platform.id === "fofa")?.baseUrl).toBe("https://proxy.example/fofa");
+		expect(readAssetConfig(agentDir).platforms.fofa.baseUrl).toBe("https://proxy.example/fofa");
+		// null/undefined keeps it; an empty string is the explicit official URL.
+		expect(saveAssetPlatform(agentDir, { id: "fofa", enabled: true, key: null }).platforms[0].baseUrl).toBe(
+			"https://proxy.example/fofa",
+		);
+		expect(
+			saveAssetPlatform(agentDir, { id: "fofa", enabled: true, key: null, baseUrl: "" }).platforms[0].baseUrl,
+		).toBe("");
+	});
+
+	test("an invalid base URL is refused instead of silently using the official one", () => {
+		const agentDir = freshAgentDir();
+		expect(() =>
+			saveAssetPlatform(agentDir, { id: "quake", enabled: true, key: "k", baseUrl: "proxy.example/quake" }),
+		).toThrow("BaseURL");
+		expect(readAssetConfig(agentDir).platforms.quake.baseUrl).toBe("");
+	});
+
+	test("a legacy file without base URLs reads as official", () => {
+		const agentDir = freshAgentDir();
+		writeFileSync(assetsJsonPath(agentDir), JSON.stringify({ platforms: { fofa: { enabled: true, key: "k" } } }));
+		expect(readAssetConfig(agentDir).platforms.fofa.baseUrl).toBe("");
 	});
 
 	test("the view never carries the key itself", () => {

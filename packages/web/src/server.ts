@@ -1473,7 +1473,7 @@ export async function startSentinelServer(
 					return;
 				}
 				case "test_asset_platform": {
-					const result = await runtime.testAssetPlatform(message.platform, message.key);
+					const result = await runtime.testAssetPlatform(message.platform, message.key, message.baseUrl);
 					// A probe can flip a platform's usability, so the config follows the
 					// result: the screen's "已挂载" state must match what the runtime did.
 					broadcast({ type: "asset_config", config: runtime.getAssetConfig() });

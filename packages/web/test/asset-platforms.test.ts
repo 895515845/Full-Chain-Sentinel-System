@@ -11,6 +11,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { afterAll, beforeAll, expect, test } from "vitest";
 import {
 	AssetPlatformError,
+	assetEndpoint,
 	clampPage,
 	encodeFofaQuery,
 	encodeHunterQuery,
@@ -104,6 +105,19 @@ test("encodeFofaQuery uses standard base64 and encodeHunterQuery uses unpadded b
 	expect(Buffer.from(hunter, "base64url").toString("utf8")).toBe(query);
 	// The two encodings really are different: this is the bug a shared helper caused.
 	expect(encodeFofaQuery(query)).not.toBe(hunter);
+});
+
+test("assetEndpoint appends the platform path under a custom base prefix", () => {
+	expect(assetEndpoint("https://fofa.info/api/v1/search/all", "https://proxy.example/fofa/")).toBe(
+		"https://proxy.example/fofa/api/v1/search/all",
+	);
+	expect(assetEndpoint("https://quake.360.net/api/v3/user/info", "https://proxy.example")).toBe(
+		"https://proxy.example/api/v3/user/info",
+	);
+	// No custom value means the official endpoint, unchanged.
+	expect(assetEndpoint("https://hunter.qianxin.com/openApi/search", "")).toBe(
+		"https://hunter.qianxin.com/openApi/search",
+	);
 });
 
 test("clampPage keeps a page at 1 or more and a size within the ceiling", () => {
@@ -234,6 +248,68 @@ test("FOFA sends the query as standard base64 and maps the positional fields", a
 	});
 	expect(result.records[1]).toMatchObject({ url: "", port: 80 });
 	expect(result.quota).toBe("本次消耗 0 F 点");
+});
+
+test("a custom base URL prefixes the platform's API path", async () => {
+	reset({
+		"/proxy/fofa/api/v1/search/all": [
+			{
+				body: json({
+					error: false,
+					size: 1,
+					page: 1,
+					results: [
+						[
+							"a.example.com",
+							"1.1.1.1",
+							"443",
+							"example.com",
+							"",
+							"a",
+							"https",
+							"",
+							"",
+							"",
+							"CN",
+							"北京",
+							"北京",
+						],
+					],
+					consumed_fpoint: 0,
+				}),
+			},
+		],
+	});
+	await searchAssets({
+		platform: "fofa",
+		key: "k",
+		query: 'ip="1.1.1.1"',
+		baseUrl: `${base}/proxy/fofa`,
+	});
+	expect(seen[0].url).toContain("/proxy/fofa/api/v1/search/all");
+});
+
+test("the custom base URL applies to all three search clients", async () => {
+	reset({
+		"/proxy/fofa/api/v1/search/all": [{ body: json({ error: false, size: 0, results: [] }) }],
+		"/proxy/quake/api/v3/search/quake_service": [
+			{ body: json({ code: 0, data: [], meta: { pagination: { total: 0 } } }) },
+		],
+		"/proxy/hunter/openApi/search": [{ body: json({ code: 200, data: { total: 0, arr: [] } }) }],
+	});
+	for (const platform of ["fofa", "quake", "hunter"] as const) {
+		await searchAssets({
+			platform,
+			key: "k",
+			query: "x",
+			baseUrl: `${base}/proxy/${platform}`,
+		});
+	}
+	expect(seen.map((request) => new URL(`http://x${request.url}`).pathname)).toEqual([
+		"/proxy/fofa/api/v1/search/all",
+		"/proxy/quake/api/v3/search/quake_service",
+		"/proxy/hunter/openApi/search",
+	]);
 });
 
 test("FOFA turns error:true into the platform's own message", async () => {
@@ -469,6 +545,21 @@ test("probe reads each platform's own quota fields", async () => {
 	expect(quake.message).toContain("本月剩余额度 39366 点");
 	const hunter = await probeAssetPlatform({ platform: "hunter", key: "k", accountUrl: `${base}/hunter-account` });
 	expect(hunter.message).toContain("免费点 499 / 每日 500");
+});
+
+test("a probe sends the account request under the custom base URL", async () => {
+	reset({
+		"/proxy/hunter/openApi/userInfo": [
+			{ body: json({ code: 200, data: { rest_free_point: 499, day_free_point: 500 } }) },
+		],
+	});
+	const result = await probeAssetPlatform({
+		platform: "hunter",
+		key: "k",
+		baseUrl: `${base}/proxy/hunter`,
+	});
+	expect(result.ok).toBe(true);
+	expect(seen[0].url).toContain("/proxy/hunter/openApi/userInfo");
 });
 
 test("probe reports a banned Quake account and a rejected key as failures", async () => {

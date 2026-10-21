@@ -34,6 +34,13 @@ const SYNTAX_NOTES: Partial<Record<SentinelAssetPlatform, string>> = {
 	hunter: t("Hunter 的 page_size 只接受 1 / 10 / 20 / 50 / 100，其它值由控制台向上取整。"),
 };
 
+/** Official origin, shown as the placeholder when no custom base URL is saved. */
+const OFFICIAL_BASE_URLS: Record<SentinelAssetPlatform, string> = {
+	fofa: "https://fofa.info",
+	quake: "https://quake.360.net",
+	hunter: "https://hunter.qianxin.com",
+};
+
 /** Where to apply for a key. */
 const KEY_PAGES: Record<SentinelAssetPlatform, string> = {
 	fofa: "https://fofa.info/userInfo/",
@@ -103,9 +110,17 @@ export function platformSaveInput(
 	id: SentinelAssetPlatform,
 	enabled: boolean,
 	draft: string | undefined,
+	baseUrlDraft?: string,
 ): SentinelAssetPlatformInput {
 	const key = draft?.trim();
-	return { id, enabled, key: key ? key : null };
+	const baseUrl = baseUrlDraft?.trim();
+	return {
+		id,
+		enabled,
+		key: key ? key : null,
+		// undefined keeps the stored URL; "" explicitly restores the official one.
+		...(baseUrl !== undefined ? { baseUrl } : {}),
+	};
 }
 
 /**
@@ -134,9 +149,12 @@ export function AssetPanel({
 	busy: boolean;
 	onSave: (input: SentinelAssetPlatformInput) => void;
 	onSaveLimit: (limit: number) => void;
-	onTest: (platform: SentinelAssetPlatform, key?: string) => Promise<SentinelTestResult | null>;
+	onTest: (platform: SentinelAssetPlatform, key?: string, baseUrl?: string) => Promise<SentinelTestResult | null>;
 }) {
 	const [drafts, setDrafts] = useState<Record<string, string>>({});
+	const [baseDrafts, setBaseDrafts] = useState<Record<string, string>>(() =>
+		Object.fromEntries(config.platforms.map((platform) => [platform.id, platform.baseUrl])),
+	);
 	const [limits, setLimits] = useState(String(config.sessionQueryLimit));
 	const [testing, setTesting] = useState<string | null>(null);
 	const [results, setResults] = useState<Record<string, SentinelTestResult | null>>({});
@@ -150,6 +168,10 @@ export function AssetPanel({
 		setDrafts((prev) => ({ ...prev, [id]: value }));
 	};
 
+	const setBaseDraft = (id: SentinelAssetPlatform, value: string): void => {
+		setBaseDrafts((prev) => ({ ...prev, [id]: value }));
+	};
+
 	const toggle = (id: SentinelAssetPlatform): void => {
 		setOpen((prev) => ({ ...prev, [id]: !prev[id] }));
 	};
@@ -159,7 +181,8 @@ export function AssetPanel({
 		setResults((prev) => ({ ...prev, [platform.id]: null }));
 		try {
 			const key = drafts[platform.id]?.trim();
-			const result = await onTest(platform.id, key ? key : undefined);
+			const baseUrl = (baseDrafts[platform.id] ?? platform.baseUrl).trim();
+			const result = await onTest(platform.id, key ? key : undefined, baseUrl);
 			setResults((prev) => ({ ...prev, [platform.id]: result }));
 		} finally {
 			setTesting(null);
@@ -202,7 +225,7 @@ export function AssetPanel({
 				<div className="asset-row asset-row--head">
 					<div>{t("平台")}</div>
 					<div>{t("状态")}</div>
-					<div>API Key</div>
+					<div>{t("API Key / BaseURL")}</div>
 					<div>{t("额度")}</div>
 					<div>{t("最近调用")}</div>
 					<div className="asset-ops">{t("操作")}</div>
@@ -213,6 +236,7 @@ export function AssetPanel({
 					const tone = STATE_TONES[state];
 					const result = results[platform.id];
 					const draft = drafts[platform.id] ?? "";
+					const baseDraft = baseDrafts[platform.id] ?? platform.baseUrl;
 					const isOpen = open[platform.id] === true;
 					const note = SYNTAX_NOTES[platform.id];
 					return (
@@ -244,9 +268,16 @@ export function AssetPanel({
 											checked={platform.enabled}
 											disabled={busy}
 											aria-label={t("启用 {label}", { label: platform.label })}
-											onChange={(event) =>
-												onSave(platformSaveInput(platform.id, event.target.checked, drafts[platform.id]))
-											}
+											onChange={(event) => {
+												onSave(
+													platformSaveInput(
+														platform.id,
+														event.target.checked,
+														drafts[platform.id],
+														baseDrafts[platform.id] ?? platform.baseUrl,
+													),
+												);
+											}}
 										/>
 										<span />
 									</label>
@@ -261,6 +292,17 @@ export function AssetPanel({
 										spellCheck={false}
 										autoComplete="off"
 										aria-label={t("{label} 的 API Key", { label: platform.label })}
+									/>
+									<input
+										className="asset-key__base"
+										value={baseDraft}
+										onChange={(event) => setBaseDraft(platform.id, event.target.value)}
+										placeholder={`BaseURL · ${OFFICIAL_BASE_URLS[platform.id]}`}
+										title={t("自定义 BaseURL（留空使用官方地址）")}
+										type="url"
+										spellCheck={false}
+										autoComplete="off"
+										aria-label={t("{label} 的自定义 BaseURL", { label: platform.label })}
 									/>
 								</div>
 
@@ -285,7 +327,16 @@ export function AssetPanel({
 										type="button"
 										className="primary"
 										disabled={busy}
-										onClick={() => onSave(platformSaveInput(platform.id, platform.enabled, drafts[platform.id]))}
+										onClick={() =>
+											onSave(
+												platformSaveInput(
+													platform.id,
+													platform.enabled,
+													drafts[platform.id],
+													baseDrafts[platform.id] ?? platform.baseUrl,
+												),
+											)
+										}
 									>
 										{t("保存")}
 									</button>
@@ -296,7 +347,12 @@ export function AssetPanel({
 										onClick={() => {
 											setDraft(platform.id, "");
 											// The empty string is the explicit "delete the stored key".
-											onSave({ id: platform.id, enabled: platform.enabled, key: "" });
+											onSave({
+												id: platform.id,
+												enabled: platform.enabled,
+												key: "",
+												baseUrl: baseDrafts[platform.id] ?? platform.baseUrl,
+											});
 										}}
 									>
 										{t("清除")}
@@ -318,6 +374,13 @@ export function AssetPanel({
 											<div className="asset-error">{platform.status.error}</div>
 										</>
 									) : null}
+									<div className="asset-detail__title">{t("请求 BaseURL（保存后生效）")}</div>
+									<div className="asset-syntax">{baseDraft || OFFICIAL_BASE_URLS[platform.id]}</div>
+									<div className="asset-note">
+										{t(
+											"留空即使用官方地址；也可填反向代理前缀（如 https://proxy.example/fofa），控制台会拼接各平台的 API 路径。保存后会重新验证，验证失败则工具不挂载。",
+										)}
+									</div>
 									<div className="asset-detail__title">{t("查询语法（给 Agent 用）")}</div>
 									<div className="asset-syntax">{SYNTAX_EXAMPLES[platform.id]}</div>
 									{note ? <div className="asset-note">{note}</div> : null}
@@ -339,7 +402,7 @@ export function AssetPanel({
 									<div className="asset-detail__title">{t("密钥存放")}</div>
 									<div className="asset-note">
 										{t(
-											"只写入本机 assets.json（0600），前端不回显；查询由控制台直接发出，不进容器、不进 bash 审计，原始响应写入项目 evidence/asset/。",
+											"只写入本机 assets.json（0600），前端不回显；查询由控制台直接发出，不进容器、不进 bash 审计，原始响应写入项目 evidence/asset/。配置自定义 BaseURL 后，密钥与查询内容会发送到该地址。",
 										)}
 									</div>
 								</div>

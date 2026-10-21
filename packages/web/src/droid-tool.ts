@@ -4,7 +4,7 @@
  * Every tool goes through the reverse gateway; none of them talks to a device
  * directly. They are registered on every console session with
  * `defaultActive: false` and mounted only while the operator enabled the Droid
- * switch on the device page — an Android toolset in a Web-pentest session is
+ * switch for that conversation — an Android toolset in a Web-pentest session is
  * prompt noise, exactly the problem the modeling run tools solved.
  *
  * `droid_shell` is the dangerous one: on a rooted device it is a root shell. It
@@ -40,7 +40,7 @@ export const DROID_TOOL_NAMES: readonly string[] = [
 /** What the runtime provides; everything device-specific stays behind it. */
 export interface DroidToolContext {
 	gateway: () => DroidGateway | undefined;
-	/** The device page's switch; false means the tools are not even mounted. */
+	/** This conversation's switch; false means the tools are not even mounted. */
 	enabled: () => boolean;
 	/** The active project's container, for the apk_* tools' jadx/apktool runs. */
 	container: () => string;

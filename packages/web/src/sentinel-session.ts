@@ -268,6 +268,7 @@ import type {
 	SentinelWebSearchConfigView,
 	SentinelWebSearchKeyInput,
 } from "./protocol.ts";
+import { readSessionDroid, SESSION_DROID_CUSTOM_TYPE } from "./session-droid.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
 import { readSessionPreset, SESSION_PRESET_CUSTOM_TYPE } from "./session-preset.ts";
 import {
@@ -390,6 +391,13 @@ interface ManagedSession {
 	 * creation, so a reopened conversation keeps the mode it was left in.
 	 */
 	modeOverride: SentinelMode | null;
+	/**
+	 * Whether this conversation mounts the Android toolset. Per session, not per
+	 * console: one chat driving a phone must not put droid_* / apk_* into every
+	 * other chat's prompt. Read from the branch at creation and written back by
+	 * the composer switch, so a reopened conversation keeps its own choice.
+	 */
+	droidOn: boolean;
 	/**
 	 * The preset agent this session was created with, read from the branch. null
 	 * means the plain default agent. The body is not cached: it is read from disk
@@ -514,8 +522,6 @@ export class SentinelRuntime {
 	private readonly webUsageCache = new Map<string, { at: number; remaining: number; limit: number | null }>();
 	/** Injected once the server has built the WS device gateway (see server.ts). */
 	private droidGateway: DroidGateway | undefined;
-	/** The device page's switch: off means the droid/apk tools are not mounted at all. */
-	private droidOn: boolean;
 	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
@@ -564,7 +570,6 @@ export class SentinelRuntime {
 		this.captures = new CaptureStore(capturesDbPath(this.agentDir));
 		this.assets = new AssetStore(assetsDbPath(this.agentDir));
 		this.webSearchLog = new WebSearchStore(websearchDbPath(this.agentDir));
-		this.droidOn = this.droids.getMeta("enabled") === "1";
 		this.subscriptions = new PocSubscriptions(this.agentDir, this.pocs, {
 			onChange: () => this.hooks.onPocSourceChange(),
 			onPocChange: () => this.hooks.onPocChange(),
@@ -766,6 +771,7 @@ export class SentinelRuntime {
 			unsubscribe: () => {},
 			// A reopened conversation keeps the mode it was left in.
 			modeOverride: readSessionMode(manager.getBranch()),
+			droidOn: task ? false : readSessionDroid(manager.getBranch()),
 			presetId,
 			presetMissing: presetId !== null && presetText === null,
 			// Modeling is a console feature: an engineering task's worker never gets
@@ -898,11 +904,11 @@ export class SentinelRuntime {
 			// conversation.
 			...(task ? [] : createApiModelTools(this.createModelingPort(managed))),
 			...(task ? [] : createApiModelAttachTools(this.createModelingAttachPort(managed))),
-			// The Android toolset is opt-in from the device page; off means unmounted,
+			// The Android toolset is opt-in per conversation; off means unmounted,
 			// which keeps an Android toolset out of a Web-pentest session's prompt.
-			...(task ? [] : createDroidTools(this.createDroidToolContext())),
-			...(task ? [] : createApkTools(this.createDroidToolContext())),
-			...(task ? [] : createFridaTools(this.createDroidToolContext())),
+			...(task ? [] : createDroidTools(this.createDroidToolContext(managed))),
+			...(task ? [] : createApkTools(this.createDroidToolContext(managed))),
+			...(task ? [] : createFridaTools(this.createDroidToolContext(managed))),
 			...(task
 				? []
 				: createCaptureTools({
@@ -2063,9 +2069,13 @@ export class SentinelRuntime {
 	 * so the sessions are rebuilt — unless one is running, in which case the
 	 * change lands on the next rebuild instead of interrupting work.
 	 */
-	async testAssetPlatform(platform: SentinelAssetPlatform, key?: string): Promise<SentinelTestResult> {
+	async testAssetPlatform(
+		platform: SentinelAssetPlatform,
+		key?: string,
+		baseUrl?: string,
+	): Promise<SentinelTestResult> {
 		const before = usablePlatforms(this.agentDir).join(",");
-		const result = await this.probeAssetPlatform(platform, key);
+		const result = await this.probeAssetPlatform(platform, key, baseUrl);
 		if (usablePlatforms(this.agentDir).join(",") !== before) {
 			const running = [...this.sessions.values()].some((managed) => managed.session.isStreaming);
 			if (!running) await this.rebuildSessions();
@@ -2078,17 +2088,28 @@ export class SentinelRuntime {
 	 * as a failure: an unreachable platform is exactly what the settings screen
 	 * has to show.
 	 */
-	private async probeAssetPlatform(platform: SentinelAssetPlatform, key?: string): Promise<SentinelTestResult> {
-		const stored = readAssetConfig(this.agentDir).platforms[platform].key;
-		const effective = key?.trim() ? key.trim() : stored;
+	private async probeAssetPlatform(
+		platform: SentinelAssetPlatform,
+		key?: string,
+		baseUrl?: string,
+	): Promise<SentinelTestResult> {
+		const entry = readAssetConfig(this.agentDir).platforms[platform];
+		const effective = key?.trim() ? key.trim() : entry.key;
 		if (!effective) {
 			return {
 				ok: false,
 				message: t("尚未填写 {platform} 的 API Key", { platform: ASSET_PLATFORM_LABELS[platform] }),
 			};
 		}
+		// undefined means "use what is stored"; "" is the explicit official URL,
+		// so a test can check a base URL before the operator saves it.
+		const effectiveBaseUrl = baseUrl === undefined ? entry.baseUrl : baseUrl;
 		try {
-			const result = await probeAssetPlatform({ platform, key: effective });
+			const result = await probeAssetPlatform({
+				platform,
+				key: effective,
+				...(effectiveBaseUrl ? { baseUrl: effectiveBaseUrl } : {}),
+			});
 			recordAssetStatus(this.agentDir, platform, {
 				at: Date.now(),
 				ok: result.ok,
@@ -2416,7 +2437,10 @@ export class SentinelRuntime {
 	private createAssetToolContext(managed: ManagedSession, source: () => string): AssetToolContext {
 		const budget = (): number => readAssetConfig(this.agentDir).sessionQueryLimit;
 		return {
-			search: (options) => searchAssets(options),
+			search: (options) => {
+				const baseUrl = readAssetConfig(this.agentDir).platforms[options.platform].baseUrl;
+				return searchAssets(baseUrl ? { ...options, baseUrl } : options);
+			},
 			keyOf: (platform) => readAssetConfig(this.agentDir).platforms[platform].key,
 			remaining: () => {
 				const limit = budget();
@@ -2520,7 +2544,7 @@ export class SentinelRuntime {
 		return this.droids;
 	}
 
-	/** Everything the device page shows: the switch, devices, and tokens. */
+	/** Everything the device page shows: the active conversation's switch, devices, and tokens. */
 	droidState(): {
 		enabled: boolean;
 		devices: ReturnType<DroidStore["listDevices"]>;
@@ -2532,7 +2556,7 @@ export class SentinelRuntime {
 			const liveness = this.droidGateway?.livenessOf(device.id);
 			return { ...device, stale: liveness?.stale ?? false, idleMs: liveness?.idleMs ?? 0 };
 		});
-		return { enabled: this.droidOn, devices, tokens: this.droids.listTokens() };
+		return { enabled: this.active?.droidOn ?? false, devices, tokens: this.droids.listTokens() };
 	}
 
 	/** The persisted reverse-listener config; null until the operator enabled it. */
@@ -2556,12 +2580,23 @@ export class SentinelRuntime {
 		this.hooks.onDroidChange();
 	}
 
-	/** Flip the toolset switch; every console session remounts its tool set. */
+	/**
+	 * Flip the Android toolset switch for the conversation on screen only.
+	 *
+	 * The switch is written as a session entry rather than a DroidStore meta row:
+	 * a global row is what made one chat's choice mount the tools in every other
+	 * chat. Background sessions keep their own state; switching back to one
+	 * restores whatever its branch last recorded.
+	 */
 	async setDroidEnabled(enabled: boolean): Promise<void> {
-		this.droidOn = enabled;
-		this.droids.setMeta("enabled", enabled ? "1" : "0");
-		for (const managed of this.sessions.values()) this.applyDroidTools(managed);
+		const active = this.active;
+		if (!active || active.taskSession) return;
+		if (active.droidOn === enabled) return;
+		active.droidOn = enabled;
+		active.manager.appendCustomEntry(SESSION_DROID_CUSTOM_TYPE, { enabled, at: Date.now() });
+		this.applyDroidTools(active);
 		this.hooks.onStateChange();
+		this.hooks.onDroidChange();
 	}
 
 	async droidCreateToken(label: string): Promise<void> {
@@ -2589,10 +2624,10 @@ export class SentinelRuntime {
 		this.hooks.onDroidChange();
 	}
 
-	private createDroidToolContext(): DroidToolContext {
+	private createDroidToolContext(managed: ManagedSession): DroidToolContext {
 		return {
 			gateway: () => this.droidGateway,
-			enabled: () => this.droidOn,
+			enabled: () => managed.droidOn,
 			container: () => this.requireContainer(),
 			workDir: () => this.cwd,
 			guard: (deviceName, command) => this.guardDroidCommand(deviceName, command),
@@ -2667,7 +2702,7 @@ export class SentinelRuntime {
 		if (managed.taskSession) return;
 		const active = managed.session.getActiveToolNames();
 		const droidNames = [...DROID_TOOL_NAMES, ...FRIDA_TOOL_NAMES, ...CAPTURE_TOOL_NAMES];
-		const wanted = this.droidOn
+		const wanted = managed.droidOn
 			? [...active, ...droidNames.filter((name) => !active.includes(name))]
 			: active.filter((name) => !droidNames.includes(name));
 		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
@@ -4003,7 +4038,7 @@ export class SentinelRuntime {
 			preset: this.presetView(active),
 			modeling: this.modelingView(active),
 			modelingAttached: this.modelingAttachedView(active),
-			droidEnabled: this.droidOn,
+			droidEnabled: active?.droidOn ?? false,
 			supervisor: this.activeKey ? this.supervisor.view(this.activeKey) : null,
 			supervisorConfig: readSupervisorConfig(this.agentDir),
 			gatekeeper,

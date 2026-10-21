@@ -30,6 +30,8 @@ import type {
 export interface SentinelAssetPlatformConfig {
 	enabled: boolean;
 	key: string;
+	/** Custom origin or reverse-proxy prefix; empty means the official platform URL. */
+	baseUrl: string;
 	/** Outcome of the last probe or query, so the console can show what happened. */
 	status: SentinelAssetStatus;
 }
@@ -59,7 +61,7 @@ function emptyStatus(): SentinelAssetStatus {
 }
 
 function emptyPlatform(): SentinelAssetPlatformConfig {
-	return { enabled: false, key: "", status: emptyStatus() };
+	return { enabled: false, key: "", baseUrl: "", status: emptyStatus() };
 }
 
 export function emptyAssetConfig(): SentinelAssetConfig {
@@ -77,6 +79,43 @@ export function emptyAssetConfig(): SentinelAssetConfig {
 /** A stored key is whatever the operator typed, minus surrounding whitespace. */
 function asKey(value: unknown): string {
 	return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Normalize a custom platform base URL to `origin` plus an optional path prefix.
+ * The path below the prefix is appended by the platform client, so a stored
+ * trailing slash is noise and a query or fragment cannot be part of a base.
+ *
+ * Invalid values read as empty, which means the official URL: a hand-edited
+ * assets.json must not make a platform silently unusable.
+ */
+export function normalizeAssetBaseUrl(value: unknown): string {
+	if (typeof value !== "string") return "";
+	const text = value.trim();
+	if (!text) return "";
+	try {
+		const url = new URL(text);
+		if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+		if (url.username || url.password || url.search || url.hash) return "";
+		return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+	} catch {
+		return "";
+	}
+}
+
+/**
+ * Validate a base URL the operator explicitly saved. Unlike the lenient reader,
+ * a typo is an error here: quietly falling back to the official URL would send
+ * the operator's queries somewhere they did not choose.
+ */
+function asBaseUrlInput(value: unknown): string {
+	const text = typeof value === "string" ? value.trim() : "";
+	if (!text) return "";
+	const normalized = normalizeAssetBaseUrl(text);
+	if (!normalized) {
+		throw new Error(t("BaseURL 必须是完整的 http(s) 地址，且不能带查询参数、锚点或登录信息"));
+	}
+	return normalized;
 }
 
 function asLimit(value: unknown): number {
@@ -108,6 +147,7 @@ function asPlatform(value: unknown): SentinelAssetPlatformConfig {
 	return {
 		enabled: raw.enabled === true,
 		key: asKey(raw.key),
+		baseUrl: normalizeAssetBaseUrl(raw.baseUrl),
 		status: asStatus(raw.status),
 	};
 }
@@ -206,6 +246,7 @@ export function assetConfigView(agentDir: string): SentinelAssetConfigView {
 			label: ASSET_PLATFORM_LABELS[platform],
 			enabled: entry.enabled,
 			hasKey: entry.key.length > 0,
+			baseUrl: entry.baseUrl,
 			verified: entry.status.ok && entry.status.at !== null,
 			status: entry.status,
 		};
@@ -227,7 +268,8 @@ export function saveAssetPlatform(agentDir: string, input: SentinelAssetPlatform
 	if (!config) throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: assetsJsonPath(agentDir) }));
 	const entry = config.platforms[input.id];
 	const key = input.key === null ? entry.key : asKey(input.key);
-	config.platforms[input.id] = { enabled: input.enabled, key, status: entry.status };
+	const baseUrl = input.baseUrl === undefined ? entry.baseUrl : asBaseUrlInput(input.baseUrl);
+	config.platforms[input.id] = { enabled: input.enabled, key, baseUrl, status: entry.status };
 	writeAssetConfig(agentDir, config);
 	return assetConfigView(agentDir);
 }

@@ -5,7 +5,7 @@
  * by the operator) and the connection tokens. Right column owns the devices and
  * the onboarding steps. The Agent toolset switch deliberately does NOT live
  * here — it sits in the conversation, where the tools are actually used, and
- * stays off (no prompt, no tools) until explicitly enabled there.
+ * stays off (no prompt, no tools) until explicitly enabled in that conversation.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -295,7 +295,7 @@ export function DroidPage({
 									<div className="mono">{reverseAddress.url}</div>
 								</li>
 								<li>{t("点「启动反连」，Magisk 弹窗点允许。")}</li>
-								<li>{t("设备出现在上方即接入成功；到对话页打开「安卓」开关，Agent 即可操控设备。")}</li>
+								<li>{t("设备出现在上方即接入成功；到对话页为当前对话打开「安卓」开关，Agent 即可操控设备。")}</li>
 							</ol>
 						</div>
 					</div>

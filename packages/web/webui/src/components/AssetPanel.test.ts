@@ -17,6 +17,7 @@ function view(overrides: Partial<SentinelAssetPlatformView> = {}): SentinelAsset
 		label: "FOFA",
 		enabled: false,
 		hasKey: false,
+		baseUrl: "",
 		verified: false,
 		status: { at: null, ok: true },
 		...overrides,
@@ -71,4 +72,20 @@ test("an untouched key box keeps the stored key", () => {
 
 test("a typed key replaces the stored one, trimmed", () => {
 	expect(platformSaveInput("quake", false, "  abc  ")).toEqual({ id: "quake", enabled: false, key: "abc" });
+});
+
+test("an empty base URL restores the official address, while an untouched one keeps the stored value", () => {
+	expect(platformSaveInput("fofa", true, undefined, "  https://proxy.example/fofa/  ")).toEqual({
+		id: "fofa",
+		enabled: true,
+		key: null,
+		baseUrl: "https://proxy.example/fofa/",
+	});
+	expect(platformSaveInput("fofa", true, undefined, "")).toEqual({
+		id: "fofa",
+		enabled: true,
+		key: null,
+		baseUrl: "",
+	});
+	expect(platformSaveInput("fofa", true, undefined)).toEqual({ id: "fofa", enabled: true, key: null });
 });

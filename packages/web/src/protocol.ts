@@ -1423,7 +1423,7 @@ export interface SentinelStateSnapshot {
 	compacting: boolean;
 	/** When the current compaction started, for the elapsed time; null when idle. */
 	compactionStartedAt: number | null;
-	/** The Droid plugin's toolset switch (device page persists it; the chat toggles it). */
+	/** Whether the viewed conversation mounts the Android toolset (per session). */
 	droidEnabled: boolean;
 	/** Supervision of the viewed conversation; null when it was never armed. */
 	supervisor: SentinelSupervisorView | null;
@@ -1575,10 +1575,10 @@ export type SentinelClientMessage =
 	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
 	| { type: "set_asset_query_limit"; limit: number }
 	/**
-	 * Probe one platform without saving anything. `key` overrides the stored one
-	 * so a key can be verified before it is written.
+	 * Probe one platform without saving anything. `key` and `baseUrl` override
+	 * the stored values so they can be verified before they are written.
 	 */
-	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string }
+	| { type: "test_asset_platform"; platform: SentinelAssetPlatform; key?: string; baseUrl?: string }
 	| { type: "get_websearch_config" }
 	/** Add or update one pool key; the key material is write-only. */
 	| { type: "save_websearch_key"; key: SentinelWebSearchKeyInput }
@@ -1921,6 +1921,7 @@ export type SentinelServerMessage =
 	| { type: "api_model_export"; filename: string; format: "json" | "yaml"; text: string }
 	| {
 			type: "droid_state";
+			/** The viewed conversation's switch; device and token lists are global. */
 			enabled: boolean;
 			devices: DroidDevice[];
 			tokens: DroidToken[];
@@ -2010,6 +2011,8 @@ export interface SentinelAssetPlatformView {
 	enabled: boolean;
 	/** A key is stored. Only this fact is sent to the browser, never the key. */
 	hasKey: boolean;
+	/** Custom origin or reverse-proxy prefix; empty means the official platform URL. */
+	baseUrl: string;
 	/**
 	 * The key was probed and the platform answered. A platform is only handed to
 	 * the agent when this is true, so an unusable key never becomes a tool that
@@ -2038,6 +2041,8 @@ export interface SentinelAssetPlatformInput {
 	enabled: boolean;
 	/** null keeps the stored key, "" clears it, anything else replaces it. */
 	key: string | null;
+	/** undefined keeps the stored URL, "" restores the official URL. */
+	baseUrl?: string;
 }
 
 /**
