@@ -25,6 +25,7 @@
 
 import { readGatekeeperConfig } from "./gatekeeper-config.ts";
 import type { GateDecisionInput, GatekeeperStore } from "./gatekeeper-store.ts";
+import { t } from "./i18n.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import type { SentinelGateDecision, SentinelModelConfig } from "./protocol.ts";
 
@@ -210,18 +211,18 @@ export function parseGateVerdict(text: string): GateVerdict {
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.find((line) => line.length > 0);
-	if (!firstLine) throw new Error("守门员返回了空回复");
+	if (!firstLine) throw new Error(t("守门员返回了空回复"));
 	const cleaned = firstLine.replace(/^[`*#>\-\s]+/, "").replace(/[`*]+$/, "");
 	const block = new RegExp(`^(?:BLOCK(?:ED)?|拦截|阻止)${VERDICT_BOUNDARY}`, "i").exec(cleaned);
 	if (block) {
 		const reason = cleanReason(cleaned.slice(block[0].length));
 		return {
 			decision: "block",
-			reason: reason || "守门员判定该命令会破坏目标可用性、数据完整性或系统配置",
+			reason: reason || t("守门员判定该命令会破坏目标可用性、数据完整性或系统配置"),
 		};
 	}
 	if (new RegExp(`^(?:ALLOW|放行|允许)${VERDICT_BOUNDARY}`, "i").test(cleaned)) return { decision: "allow" };
-	throw new Error(`无法解析守门员回复：${firstLine.slice(0, 120)}`);
+	throw new Error(t("无法解析守门员回复：{reply}", { reply: firstLine.slice(0, 120) }));
 }
 
 /** Resolve the judge endpoint through the 守门模型 role (which may follow 主模型). */
@@ -253,7 +254,7 @@ async function callJudge(config: SentinelModelConfig, input: string, signal: Abo
 	});
 	if (!response.ok) {
 		const body = await response.text().catch(() => "");
-		throw new Error(`端点返回 ${response.status}${body ? `：${body.slice(0, 200)}` : ""}`);
+		throw new Error(`${t("端点返回 {status}", { status: response.status })}${body ? `：${body.slice(0, 200)}` : ""}`);
 	}
 	const data = (await response.json()) as {
 		choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
@@ -261,7 +262,7 @@ async function callJudge(config: SentinelModelConfig, input: string, signal: Abo
 	};
 	const content = data.choices?.[0]?.message?.content;
 	const raw = Array.isArray(content) ? content.map((part) => part.text ?? "").join("") : (content ?? "");
-	if (!raw.trim()) throw new Error("端点返回了空回复");
+	if (!raw.trim()) throw new Error(t("端点返回了空回复"));
 	const usage = data.usage;
 	return {
 		verdict: parseGateVerdict(raw),
@@ -307,20 +308,18 @@ export interface GatekeeperHooks {
 
 /** The text the bash tool rejects with when the gatekeeper blocks a command. */
 export function blockMessage(reason: string): string {
-	return [
-		`命令未执行：守门员拦截（${reason}）。`,
-		"请改用不破坏目标可用性、业务数据完整性或系统配置的方式；",
-		"如确需执行，请向操作员说明，由操作员在审批模式或自动模式下运行。",
-	].join("");
+	return t(
+		"命令未执行：守门员拦截（{reason}）。请改用不破坏目标可用性、业务数据完整性或系统配置的方式；如确需执行，请向操作员说明，由操作员在审批模式或自动模式下运行。",
+		{ reason },
+	);
 }
 
 /** The text an MCP tool call rejects with; "命令未执行" would be wrong there. */
 export function blockedToolMessage(tool: string, reason: string): string {
-	return [
-		`工具调用未执行：守门员拦截 ${tool}（${reason}）。`,
-		"请改用不破坏目标可用性、业务数据完整性或系统配置的方式；",
-		"如确需执行，请向操作员说明，由操作员在审批模式或自动模式下运行。",
-	].join("");
+	return t(
+		"工具调用未执行：守门员拦截 {tool}（{reason}）。请改用不破坏目标可用性、业务数据完整性或系统配置的方式；如确需执行，请向操作员说明，由操作员在审批模式或自动模式下运行。",
+		{ tool, reason },
+	);
 }
 
 /**
@@ -410,7 +409,7 @@ export class Gatekeeper {
 		if (!config) {
 			return this.finishFailure(
 				base,
-				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）",
+				t("未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）"),
 				at,
 			);
 		}
@@ -467,7 +466,7 @@ export class Gatekeeper {
 			// nothing is recorded and the command is not run either.
 			if (input.signal?.aborted && !timedOut) return { kind: "aborted" };
 			const text = timedOut
-				? `守门判定超时（${settings.timeoutMs}ms）`
+				? t("守门判定超时（{ms}ms）", { ms: settings.timeoutMs })
 				: error instanceof Error
 					? error.message
 					: String(error);

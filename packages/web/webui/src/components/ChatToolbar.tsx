@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 
+import { t } from "../i18n.ts";
 import type { SentinelMode, SentinelSessionPresetView, SentinelSessionStatus, SentinelThinkingLevel } from "../types.ts";
 import { SENTINEL_MODE_LABELS, SENTINEL_MODES } from "../types.ts";
 import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
@@ -19,20 +20,20 @@ import { SessionStatusControl } from "./SessionStatusControl.tsx";
 function compactionElapsed(startedAt: number | null, now: number): string {
 	if (startedAt === null) return "";
 	const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
-	if (seconds < 60) return `${seconds} 秒`;
+	if (seconds < 60) return t("{seconds} 秒", { seconds });
 	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
-	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+	if (minutes < 60) return t("{minutes} 分 {seconds} 秒", { minutes, seconds: seconds % 60 });
+	return t("{hours} 时 {minutes} 分", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 const THINKING_LABELS: Record<SentinelThinkingLevel, string> = {
-	off: "关闭",
-	minimal: "最低",
-	low: "低",
-	medium: "中",
-	high: "高",
-	xhigh: "极高",
-	max: "最大",
+	off: t("关闭"),
+	minimal: t("最低"),
+	low: t("低"),
+	medium: t("中"),
+	high: t("高"),
+	xhigh: t("极高"),
+	max: t("最大"),
 };
 
 export function ChatToolbar({
@@ -110,11 +111,11 @@ export function ChatToolbar({
 		<div className="chat-toolbar">
 			<div
 				className="mode-switch"
-				title={
+				title={t(
 					"审批模式：每条命令执行前等人放行；" +
-					"AI 审批：每条命令先交给守门模型判定，拦截时把理由回给 Agent；" +
-					"自动执行：不做任何拦截。切换只影响本会话"
-				}
+						"AI 审批：每条命令先交给守门模型判定，拦截时把理由回给 Agent；" +
+						"自动执行：不做任何拦截。切换只影响本会话",
+				)}
 			>
 				{SENTINEL_MODES.map((item) => (
 					<button key={item} type="button" className={mode === item ? "on" : ""} onClick={() => onSetMode(item)}>
@@ -125,22 +126,26 @@ export function ChatToolbar({
 			{sessionOverride === null ? (
 				<span
 					className="mode-scope"
-					title={`本会话跟随全局默认（${SENTINEL_MODE_LABELS[globalMode]}）。点任一模式可为本会话单独设定`}
+					title={t("本会话跟随全局默认（{mode}）。点任一模式可为本会话单独设定", {
+						mode: SENTINEL_MODE_LABELS[globalMode],
+					})}
 				>
-					跟随全局
+					{t("跟随全局")}
 				</span>
 			) : (
 				<button
 					type="button"
 					className="ghost small"
 					onClick={() => onSetMode(null)}
-					title={`清除本会话的单独设定，重新跟随全局默认（${SENTINEL_MODE_LABELS[globalMode]}）`}
+					title={t("清除本会话的单独设定，重新跟随全局默认（{mode}）", {
+						mode: SENTINEL_MODE_LABELS[globalMode],
+					})}
 				>
-					跟随全局
+					{t("跟随全局")}
 				</button>
 			)}
-			<label className="thinking-picker" title="模型的推理强度（仅对本次会话生效）">
-				思考
+			<label className="thinking-picker" title={t("模型的推理强度（仅对本次会话生效）")}>
+				{t("思考")}
 				<select
 					value={thinkingLevel}
 					disabled={thinkingDisabled}
@@ -158,12 +163,17 @@ export function ChatToolbar({
 					className={`toolbar-preset ${preset.missing ? "toolbar-preset--missing" : ""}`}
 					title={
 						preset.missing
-							? `预设「${preset.name}」已被删除或正文缺失，本会话现按默认 Agent 运行；可在输入框上方的「预设 Agent」里换一个，或换回默认 Agent`
-							: `预设 Agent：${preset.name}（在输入框上方的「预设 Agent」里可随时更换，只影响之后的回合）`
+							? t(
+									"预设「{name}」已被删除或正文缺失，本会话现按默认 Agent 运行；可在输入框上方的「预设 Agent」里换一个，或换回默认 Agent",
+									{ name: preset.name },
+								)
+							: t("预设 Agent：{name}（在输入框上方的「预设 Agent」里可随时更换，只影响之后的回合）", {
+									name: preset.name,
+								})
 					}
 				>
-					预设：{preset.name}
-					{preset.missing ? " · 已失效，按默认 Agent 运行" : ""}
+					{t("预设：{name}", { name: preset.name })}
+					{preset.missing ? t(" · 已失效，按默认 Agent 运行") : ""}
 				</span>
 			) : null}
 			<span className="ws-toolbar__sep" />
@@ -171,25 +181,25 @@ export function ChatToolbar({
 				type="button"
 				className={`toolbar-btn ${branchOpen ? "on" : ""}`}
 				onClick={onToggleBranch}
-				title={branchOpen ? "收起分支视图" : "查看会话分支树，可从任意历史消息处分叉"}
+				title={branchOpen ? t("收起分支视图") : t("查看会话分支树，可从任意历史消息处分叉")}
 			>
 				<BranchIcon />
-				分支
+				{t("分支")}
 			</button>
 			{compacting ? (
 				<>
-					<span className="toolbar-busy" title="压缩期间不能发送新消息">
+					<span className="toolbar-busy" title={t("压缩期间不能发送新消息")}>
 						<CompactIcon />
-						压缩中 {compactionElapsed(compactionStartedAt, now)}
+						{t("压缩中")} {compactionElapsed(compactionStartedAt, now)}
 					</span>
 					<button
 						type="button"
 						className="toolbar-btn danger"
 						onClick={onAbortCompaction}
-						title="放弃这次压缩，立刻恢复发送（会话内容不会丢失，压缩只有拿到摘要才会改写上下文）"
+						title={t("放弃这次压缩，立刻恢复发送（会话内容不会丢失，压缩只有拿到摘要才会改写上下文）")}
 					>
 						<CloseIcon />
-						中止压缩
+						{t("中止压缩")}
 					</button>
 				</>
 			) : (
@@ -200,12 +210,12 @@ export function ChatToolbar({
 					disabled={streaming}
 					title={
 						streaming
-							? "Agent 正在运行，先中止再压缩"
-							: "把当前上下文压缩成摘要，保留结论、丢弃过程（也可直接输入 /compact）"
+							? t("Agent 正在运行，先中止再压缩")
+							: t("把当前上下文压缩成摘要，保留结论、丢弃过程（也可直接输入 /compact）")
 					}
 				>
 					<CompactIcon />
-					压缩上下文
+					{t("压缩上下文")}
 				</button>
 			)}
 			<span className="ws-toolbar__sep" />
@@ -213,28 +223,30 @@ export function ChatToolbar({
 				type="button"
 				className={`toolbar-btn ${filesOpen ? "on" : ""}`}
 				onClick={onToggleFiles}
-				title="浏览容器工作目录 /work（可编辑、上传、下载）"
+				title={t("浏览容器工作目录 /work（可编辑、上传、下载）")}
 			>
 				<FilesIcon />
-				文件
+				{t("文件")}
 			</button>
 			<button
 				type="button"
 				className={`toolbar-btn ${subagentsOpen ? "on" : ""}`}
 				onClick={onToggleSubagents}
-				title="查看当前会话的子代理运行，可中止或追加指令"
+				title={t("查看当前会话的子代理运行，可中止或追加指令")}
 			>
 				<SubagentIcon />
-				子代理
+				{t("子代理")}
 				{subagentRunning > 0 ? <span className="toolbar-count">{subagentRunning}</span> : null}
 			</button>
 			<span className="toolbar-status">
 				<SessionStatusControl variant="toolbar" status={sessionStatus} onPick={onSetSessionStatus} />
 			</span>
-			{pendingApprovals > 0 ? <span className="toolbar-alert">待审批 {pendingApprovals}</span> : null}
+			{pendingApprovals > 0 ? (
+				<span className="toolbar-alert">{t("待审批 {count}", { count: pendingApprovals })}</span>
+			) : null}
 			{mode === "review" && allowedPrefixes.length > 0 ? (
 				<div className="prefix-inline">
-					<span className="prefix-inline-label">白名单</span>
+					<span className="prefix-inline-label">{t("白名单")}</span>
 					{allowedPrefixes.map((prefix) => (
 						<span key={prefix} className="prefix-chip">
 							{prefix}
@@ -246,13 +258,13 @@ export function ChatToolbar({
 					<button
 						type="button"
 						className="ghost small"
-						title="把上一条命令的前缀加入白名单"
+						title={t("把上一条命令的前缀加入白名单")}
 						onClick={() => {
-							const next = window.prompt("要自动放行的命令前缀（复合命令永不自动放行）：");
+							const next = window.prompt(t("要自动放行的命令前缀（复合命令永不自动放行）："));
 							if (next?.trim()) onAllowPrefix(next.trim());
 						}}
 					>
-						＋ 添加
+						{t("＋ 添加")}
 					</button>
 				</div>
 			) : null}

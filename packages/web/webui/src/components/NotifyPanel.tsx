@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { getLanguage, t } from "../i18n.ts";
 import type {
 	SentinelNotifyChannel,
 	SentinelNotifyChannelConfig,
@@ -21,19 +22,19 @@ import {
 } from "./icons.tsx";
 
 function formatWhen(at: number | null): string {
-	if (at === null) return "尚未发送过通知";
-	return new Date(at).toLocaleString("zh-CN", { hour12: false });
+	if (at === null) return t("尚未发送过通知");
+	return new Date(at).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false });
 }
 
 type NotifyKind = keyof SentinelNotifyConfig["kinds"];
 
 /** The notification kinds, in the order the checkboxes list them. */
 const KINDS = [
-	["runs", "运行报告", "每次运行结束（含失败/中止）的汇总报告"],
-	["vulns", "高危漏洞", "提交或被审查抬级为 high/critical 的漏洞"],
-	["goals", "持续目标结束", "目标完成、阻塞、暂停或轮数用完"],
-	["engines", "工程完成", "工程总报告提交时"],
-	["pocs", "POC 订阅失败", "订阅源同步失败时（成功不推送）"],
+	["runs", t("运行报告"), t("每次运行结束（含失败/中止）的汇总报告")],
+	["vulns", t("高危漏洞"), t("提交或被审查抬级为 high/critical 的漏洞")],
+	["goals", t("持续目标结束"), t("目标完成、阻塞、暂停或轮数用完")],
+	["engines", t("工程完成"), t("工程总报告提交时")],
+	["pocs", t("POC 订阅失败"), t("订阅源同步失败时（成功不推送）")],
 ] as const;
 
 /** Every kind at the same value, for the 全选 / 全部不选 buttons. */
@@ -59,7 +60,7 @@ function kindIcon(kind: NotifyKind) {
 
 /** The brand initial in a channel card's top-left square. */
 function channelMark(channel: SentinelNotifyChannel): string {
-	return channel === "dingtalk" ? "钉" : "飞";
+	return channel === "dingtalk" ? t("钉") : t("飞");
 }
 
 /**
@@ -105,11 +106,14 @@ function ChannelCard({
 					<h4>{title}</h4>
 					<p>{subtitle}</p>
 				</div>
-				<label className="notify-switch" title={`${config.enabled ? "关闭" : "启用"}${title}通知`}>
+				<label
+					className="notify-switch"
+					title={config.enabled ? t("关闭{title}通知", { title }) : t("启用{title}通知", { title })}
+				>
 					<input
 						type="checkbox"
 						checked={config.enabled}
-						aria-label={`${config.enabled ? "关闭" : "启用"}${title}通知`}
+						aria-label={config.enabled ? t("关闭{title}通知", { title }) : t("启用{title}通知", { title })}
 						onChange={(event) => onChange({ enabled: event.target.checked })}
 					/>
 					<span aria-hidden="true" />
@@ -119,22 +123,22 @@ function ChannelCard({
 			<div className="notify-card__meta">
 				<span className={`notify-state ${config.enabled ? "on" : "off"}`}>
 					<i aria-hidden="true" />
-					{config.enabled ? "已启用" : "已关闭"}
+					{config.enabled ? t("已启用") : t("已关闭")}
 				</span>
 				<span className="notify-meta-sep" aria-hidden="true" />
 				<span>
 					{!config.enabled
-						? "开启后才会自动推送"
+						? t("开启后才会自动推送")
 						: config.webhook.trim()
-							? "允许自动推送和测试"
-							: "已启用，但 webhook 为空"}
+							? t("允许自动推送和测试")
+							: t("已启用，但 webhook 为空")}
 				</span>
 			</div>
 
 			<div className="notify-card__body">
 				<label className="notify-field">
 					<span>
-						Webhook 地址 <em>必填</em>
+						{t("Webhook 地址")} <em>{t("必填")}</em>
 					</span>
 					<span className="notify-input">
 						<LinkIcon size={13} />
@@ -149,20 +153,20 @@ function ChannelCard({
 
 				<div className="notify-field-row">
 					<label className="notify-field">
-						<span>签名密钥 <em>加签</em></span>
+						<span>{t("签名密钥")} <em>{t("加签")}</em></span>
 						<span className="notify-input">
 							<KeyIcon size={13} />
 							<input
 								value={config.secret}
 								onChange={(event) => onChange({ secret: event.target.value })}
-								placeholder={channel === "feishu" ? "飞书加签密钥" : "SEC…"}
+								placeholder={channel === "feishu" ? t("飞书加签密钥") : "SEC…"}
 								type="password"
 								spellCheck={false}
 							/>
 						</span>
 					</label>
 					<label className="notify-field">
-						<span>关键词 <em>自定义</em></span>
+						<span>{t("关键词")} <em>{t("自定义")}</em></span>
 						<span className="notify-input">
 							<TagIcon size={13} />
 							<input
@@ -185,10 +189,10 @@ function ChannelCard({
 						onClick={onTest}
 					>
 						<SendIcon size={13} />
-						{testing ? "发送中…" : "发送测试消息"}
+						{testing ? t("发送中…") : t("发送测试消息")}
 					</button>
 					<span className="notify-foot-hint">
-						{config.webhook.trim() ? "只发送一条测试卡片" : "先填写 webhook"}
+						{config.webhook.trim() ? t("只发送一条测试卡片") : t("先填写 webhook")}
 					</span>
 				</div>
 				{result ? (
@@ -274,19 +278,20 @@ export function NotifyPanel({
 			<header className="notify-toolbar">
 				<div className="notify-toolbar__copy">
 					<div className="notify-toolbar__title">
-						<h3>通知渠道</h3>
-						<span className="notify-count">{enabledChannels} / 2 已启用</span>
+						<h3>{t("通知渠道")}</h3>
+						<span className="notify-count">
+							{t("{enabled} / {total} 已启用", { enabled: enabledChannels, total: 2 })}
+						</span>
 					</div>
 					<p>
-						任务结束后把结果推送到团队群。钉钉和飞书可同时启用；在群「设置 → 群机器人」
-						添加自定义机器人并填入 webhook。加签和关键词按机器人的安全设置选填。
+						{t("任务结束后把结果推送到团队群。钉钉和飞书可同时启用；在群「设置 → 群机器人」添加自定义机器人并填入 webhook。加签和关键词按机器人的安全设置选填。")}
 					</p>
 				</div>
 				<div className="notify-toolbar__actions">
-					<span className="notify-save-hint">保存后立即生效</span>
+					<span className="notify-save-hint">{t("保存后立即生效")}</span>
 					<button type="button" className="primary" onClick={() => onSave(draft)}>
 						<SaveIcon size={13} />
-						保存设置
+						{t("保存设置")}
 					</button>
 				</div>
 			</header>
@@ -294,8 +299,8 @@ export function NotifyPanel({
 			<div className="notify-channel-grid">
 				<ChannelCard
 					channel="dingtalk"
-					title="钉钉"
-					subtitle="自定义机器人 · Markdown"
+					title={t("钉钉")}
+					subtitle={t("自定义机器人 · Markdown")}
 					config={dingtalk}
 					placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
 					keywordPlaceholder="Full Chain Sentinel"
@@ -308,8 +313,8 @@ export function NotifyPanel({
 
 				<ChannelCard
 					channel="feishu"
-					title="飞书"
-					subtitle="自定义机器人 · interactive 卡片"
+					title={t("飞书")}
+					subtitle={t("自定义机器人 · interactive 卡片")}
 					config={feishu}
 					placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"
 					keywordPlaceholder="zgagent"
@@ -324,11 +329,11 @@ export function NotifyPanel({
 			<section className="notify-rules">
 				<header className="notify-rules__head">
 					<div>
-						<h4>推送内容</h4>
+						<h4>{t("推送内容")}</h4>
 						<p>
-							勾选的事件会同时发送到所有已启用渠道。
+							{t("勾选的事件会同时发送到所有已启用渠道。")}
 							<span className="notify-rules__count">
-								已选 {selectedKinds} / {KINDS.length}
+								{t("已选 {selected} / {total}", { selected: selectedKinds, total: KINDS.length })}
 							</span>
 						</p>
 					</div>
@@ -338,14 +343,14 @@ export function NotifyPanel({
 							className="ghost small"
 							onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(true) }))}
 						>
-							全选
+							{t("全选")}
 						</button>
 						<button
 							type="button"
 							className="ghost small"
 							onClick={() => setKinds((prev) => ({ ...prev, ...selectAll(false) }))}
 						>
-							全部不选
+							{t("全部不选")}
 						</button>
 					</div>
 				</header>
@@ -372,22 +377,21 @@ export function NotifyPanel({
 
 					<div className="notify-limit">
 						<div className="notify-limit__head">
-							<span>通知正文字数上限</span>
-							<em>0 = 不截断</em>
+							<span>{t("通知正文字数上限")}</span>
+							<em>{t("0 = 不截断")}</em>
 						</div>
 						<input
 							value={summaryLimit}
 							inputMode="numeric"
-							aria-label="通知正文字数上限"
+							aria-label={t("通知正文字数上限")}
 							onChange={(event) => setSummaryLimit(event.target.value.replace(/[^\d]/g, ""))}
 							placeholder="2000"
 							spellCheck={false}
 						/>
 						<p>
-							作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的
-							「原始数据包」。超过钉钉 20,000 字节或飞书 30,000 字节时仍会硬截断并注明。
+							{t("作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」。超过钉钉 20,000 字节或飞书 30,000 字节时仍会硬截断并注明。")}
 						</p>
-						<p className="notify-limit__note">输入框旁单条强制发送不受「运行报告」勾选影响。</p>
+						<p className="notify-limit__note">{t("输入框旁单条强制发送不受「运行报告」勾选影响。")}</p>
 					</div>
 				</div>
 			</section>
@@ -395,11 +399,20 @@ export function NotifyPanel({
 			<div className={`notify-last ${lastTone}`}>
 				<span className="notify-last__dot" aria-hidden="true" />
 				<div className="notify-last__copy">
-					<b>{status.at === null ? "最近一次通知" : `最近一次通知：${formatWhen(status.at)}`}</b>
-					<span>
+					<b>
 						{status.at === null
-							? "启用渠道并保存后，下一轮任务结束时会在这里显示投递结果。"
-							: `${status.ok ? "发送成功" : "发送失败"}${status.subject ? ` · ${status.subject}` : ""}`}
+							? t("最近一次通知")
+							: t("最近一次通知：{time}", { time: formatWhen(status.at) })}
+					</b>
+					<span>
+						{status.at === null ? (
+							t("启用渠道并保存后，下一轮任务结束时会在这里显示投递结果。")
+						) : (
+							<>
+								{status.ok ? t("发送成功") : t("发送失败")}
+								{status.subject ? t(" · {subject}", { subject: status.subject }) : ""}
+							</>
+						)}
 					</span>
 					{status.error ? <span className="notify-last__error">{status.error}</span> : null}
 				</div>
@@ -411,8 +424,8 @@ export function NotifyPanel({
 								className={`notify-pill ${entry.ok ? "ok" : "bad"}`}
 								title={entry.error ?? undefined}
 							>
-								{entry.channel === "dingtalk" ? "钉钉" : "飞书"}
-								{entry.ok ? " 成功" : " 失败"}
+								{entry.channel === "dingtalk" ? t("钉钉") : t("飞书")}
+								{entry.ok ? t(" 成功") : t(" 失败")}
 							</span>
 						))}
 					</div>

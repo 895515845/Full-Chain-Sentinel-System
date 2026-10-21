@@ -16,6 +16,7 @@
 import type { FileHandle } from "node:fs/promises";
 import { mkdir, open, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { t } from "./i18n.ts";
 
 /** Directory under the project work dir that chat attachments land in. */
 export const UPLOAD_DIR_NAME = "uploads";
@@ -69,7 +70,7 @@ export async function storeUpload(
 	try {
 		await mkdir(dir, { recursive: true });
 	} catch {
-		return { ok: false, status: 500, error: "无法创建上传目录" };
+		return { ok: false, status: 500, error: t("无法创建上传目录") };
 	}
 	const name = safeFileName(rawName);
 	let handle: FileHandle | undefined;
@@ -80,11 +81,11 @@ export async function storeUpload(
 			handle = await open(target, "wx");
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-				return { ok: false, status: 500, error: "无法写入上传目录" };
+				return { ok: false, status: 500, error: t("无法写入上传目录") };
 			}
 		}
 	}
-	if (!handle) return { ok: false, status: 409, error: "同名文件过多，请改名后重试" };
+	if (!handle) return { ok: false, status: 409, error: t("同名文件过多，请改名后重试") };
 
 	let size = 0;
 	try {
@@ -97,7 +98,7 @@ export async function storeUpload(
 				return {
 					ok: false,
 					status: 413,
-					error: `文件超过 ${Math.round(maxBytes / 1024 / 1024)}MB 上限`,
+					error: t("文件超过 {max}MB 上限", { max: Math.round(maxBytes / 1024 / 1024) }),
 				};
 			}
 			let written = 0;
@@ -110,7 +111,7 @@ export async function storeUpload(
 	} catch {
 		await handle.close().catch(() => {});
 		await unlink(target).catch(() => {});
-		return { ok: false, status: 400, error: "上传中断，未完成的文件已清理" };
+		return { ok: false, status: 400, error: t("上传中断，未完成的文件已清理") };
 	}
 	return { ok: true, name: basename(target), path: target, size };
 }

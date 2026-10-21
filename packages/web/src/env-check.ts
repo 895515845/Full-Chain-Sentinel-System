@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CONTAINER_NETWORK, readContainerNetwork } from "./container-network.ts";
 import { runDocker, SENTINEL_IMAGE } from "./docker.ts";
+import { t } from "./i18n.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { listProjects } from "./projects.ts";
 import type { SentinelEnvItem, SentinelEnvReport } from "./protocol.ts";
@@ -101,14 +102,14 @@ function checkWritable(dir: string): { ok: boolean; error?: string } {
 }
 
 function formatBytes(bytes: number): string {
-	if (!Number.isFinite(bytes) || bytes <= 0) return "未知";
+	if (!Number.isFinite(bytes) || bytes <= 0) return t("未知");
 	const gb = bytes / 1024 / 1024 / 1024;
 	return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
 
 function formatTimestamp(value: string): string {
 	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? "时间未知" : new Date(parsed).toLocaleString("zh-CN");
+	return Number.isNaN(parsed) ? t("时间未知") : new Date(parsed).toLocaleString("zh-CN");
 }
 
 async function freeDiskBytes(path: string): Promise<number | undefined> {
@@ -138,13 +139,13 @@ async function checkDockerRuntime(): Promise<RuntimeProbe> {
 			item: failed(
 				"docker-cli",
 				GROUP_RUNTIME,
-				"docker 命令",
-				missing ? "未找到 docker 命令" : cli.stderr.trim() || `退出码 ${cli.code}`,
-				"安装 Docker Engine 或 Docker Desktop，并确认 docker 在 PATH 中",
+				t("docker 命令"),
+				missing ? t("未找到 docker 命令") : cli.stderr.trim() || t("退出码 {code}", { code: cli.code }),
+				t("安装 Docker Engine 或 Docker Desktop，并确认 docker 在 PATH 中"),
 			),
 		};
 	}
-	const version = cli.stdout.trim() || "版本未知";
+	const version = cli.stdout.trim() || t("版本未知");
 
 	const info = await runDocker(["info", "--format", "{{.ServerVersion}}|{{.OSType}}|{{.Architecture}}"], {
 		timeoutMs: 30000,
@@ -152,10 +153,16 @@ async function checkDockerRuntime(): Promise<RuntimeProbe> {
 	if (info.code !== 0) {
 		const stderr = info.stderr.trim();
 		const hint = /permission denied|dial unix|connect/i.test(stderr)
-			? "Docker 守护进程不可达：启动 Docker Desktop / dockerd，或把当前用户加入 docker 组"
-			: "Docker 守护进程未响应，先启动 Docker 再复检";
+			? t("Docker 守护进程不可达：启动 Docker Desktop / dockerd，或把当前用户加入 docker 组")
+			: t("Docker 守护进程未响应，先启动 Docker 再复检");
 		return {
-			item: failed("docker-daemon", GROUP_RUNTIME, "Docker 守护进程", stderr || `退出码 ${info.code}`, hint),
+			item: failed(
+				"docker-daemon",
+				GROUP_RUNTIME,
+				t("Docker 守护进程"),
+				stderr || t("退出码 {code}", { code: info.code }),
+				hint,
+			),
 		};
 	}
 	const [serverVersion, osType, arch] = info.stdout.trim().split("|");
@@ -164,8 +171,11 @@ async function checkDockerRuntime(): Promise<RuntimeProbe> {
 		item: passed(
 			"docker-daemon",
 			GROUP_RUNTIME,
-			"Docker 守护进程",
-			`${version} · 服务端 ${serverVersion || "版本未知"}${hostPlatform ? ` · ${hostPlatform}` : ""}`,
+			t("Docker 守护进程"),
+			`${t("{version} · 服务端 {server}", {
+				version,
+				server: serverVersion || t("版本未知"),
+			})}${hostPlatform ? ` · ${hostPlatform}` : ""}`,
 			true,
 		),
 		hostPlatform,
@@ -182,9 +192,9 @@ async function checkImage(hostPlatform: string | undefined): Promise<SentinelEnv
 			failed(
 				"image-present",
 				GROUP_IMAGE,
-				`工具镜像 ${SENTINEL_IMAGE}`,
-				"本地不存在该镜像",
-				"点下方「构建镜像」（需要网络下载 Kali 软件包）；也可在能联网的机器上 docker build 后导入镜像",
+				t("工具镜像 {image}", { image: SENTINEL_IMAGE }),
+				t("本地不存在该镜像"),
+				t("点下方「构建镜像」（需要网络下载 Kali 软件包）；也可在能联网的机器上 docker build 后导入镜像"),
 			),
 		];
 	}
@@ -193,25 +203,36 @@ async function checkImage(hostPlatform: string | undefined): Promise<SentinelEnv
 		passed(
 			"image-present",
 			GROUP_IMAGE,
-			`工具镜像 ${SENTINEL_IMAGE}`,
-			`${platform || "平台未知"} · ${formatBytes(Number(size))} · 构建于 ${formatTimestamp(created ?? "")}`,
+			t("工具镜像 {image}", { image: SENTINEL_IMAGE }),
+			t("{platform} · {size} · 构建于 {created}", {
+				platform: platform || t("平台未知"),
+				size: formatBytes(Number(size)),
+				created: formatTimestamp(created ?? ""),
+			}),
 			true,
 		),
 	];
 	if (!platform || !hostPlatform) {
-		items.push(skipped("image-platform", GROUP_IMAGE, "镜像与宿主架构", "无法读取镜像或宿主的平台信息"));
+		items.push(skipped("image-platform", GROUP_IMAGE, t("镜像与宿主架构"), t("无法读取镜像或宿主的平台信息")));
 		return items;
 	}
 	if (platform.trim().toLowerCase() === hostPlatform.toLowerCase()) {
-		items.push(passed("image-platform", GROUP_IMAGE, "镜像与宿主架构", `与宿主一致（${hostPlatform}）`));
+		items.push(
+			passed(
+				"image-platform",
+				GROUP_IMAGE,
+				t("镜像与宿主架构"),
+				t("与宿主一致（{platform}）", { platform: hostPlatform }),
+			),
+		);
 	} else {
 		items.push(
 			warned(
 				"image-platform",
 				GROUP_IMAGE,
-				"镜像与宿主架构",
-				`镜像 ${platform}，宿主 ${hostPlatform}`,
-				"架构不一致的容器只能靠模拟运行，速度慢且部分工具不可用；建议在目标机器上重新构建镜像",
+				t("镜像与宿主架构"),
+				t("镜像 {image}，宿主 {host}", { image: platform, host: hostPlatform }),
+				t("架构不一致的容器只能靠模拟运行，速度慢且部分工具不可用；建议在目标机器上重新构建镜像"),
 			),
 		);
 	}
@@ -240,28 +261,28 @@ async function checkContainerRun(): Promise<SentinelEnvItem> {
 		return failed(
 			"container-run",
 			GROUP_CONTAINER,
-			"启动一次性容器",
-			result.stderr.trim().slice(-400) || `退出码 ${result.code}`,
-			"检查 Docker 资源（内存、磁盘）与镜像完整性；必要时删除镜像后重新构建",
+			t("启动一次性容器"),
+			result.stderr.trim().slice(-400) || t("退出码 {code}", { code: result.code }),
+			t("检查 Docker 资源（内存、磁盘）与镜像完整性；必要时删除镜像后重新构建"),
 		);
 	}
 	const echoed = result.stdout.includes("sentinel-env-ok");
 	return passed(
 		"container-run",
 		GROUP_CONTAINER,
-		"启动一次性容器",
-		echoed ? "容器可启动，镜像内 shell 可用" : "容器可启动",
+		t("启动一次性容器"),
+		echoed ? t("容器可启动，镜像内 shell 可用") : t("容器可启动"),
 		true,
 	);
 }
 
 async function checkProjectContainers(agentDir: string | undefined): Promise<SentinelEnvItem> {
 	if (!agentDir) {
-		return skipped("project-containers", GROUP_CONTAINER, "项目容器", "未配置配置目录");
+		return skipped("project-containers", GROUP_CONTAINER, t("项目容器"), t("未配置配置目录"));
 	}
 	const { projects } = listProjects(agentDir);
 	if (projects.length === 0) {
-		return passed("project-containers", GROUP_CONTAINER, "项目容器", "尚未创建项目");
+		return passed("project-containers", GROUP_CONTAINER, t("项目容器"), t("尚未创建项目"));
 	}
 	// The network mode only reaches a container when it is created, so report what
 	// the running containers actually use: without this, changing the setting and
@@ -276,10 +297,10 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 		);
 		const [status = "", mode = ""] = inspect.stdout.trim().split(/\s+/);
 		if (inspect.code !== 0 || !status) {
-			stale.push(`${project.name}（已丢失）`);
+			stale.push(t("{name}（已丢失）", { name: project.name }));
 			continue;
 		}
-		if (status !== "running") stale.push(`${project.name}（${status}）`);
+		if (status !== "running") stale.push(t("{name}（{status}）", { name: project.name, status }));
 		// `default` is how Docker reports a container that took the default bridge.
 		const actual = mode === "host" ? "host" : mode === "bridge" || mode === "default" ? "bridge" : "";
 		if (actual && actual !== wanted) wrongNetwork.push(project.name);
@@ -290,21 +311,34 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 		const parts: string[] = [];
 		const hints: string[] = [];
 		if (stale.length > 0) {
-			parts.push(`${stale.length}/${projects.length} 个未运行：${stale.join("、")}`);
-			hints.push("在「项目」页重新创建或启动这些项目");
+			parts.push(
+				t("{stale}/{total} 个未运行：{names}", {
+					stale: stale.length,
+					total: projects.length,
+					names: stale.join(t("、")),
+				}),
+			);
+			hints.push(t("在「项目」页重新创建或启动这些项目"));
 		}
 		if (wrongNetwork.length > 0) {
 			const other = wanted === "host" ? "bridge" : "host";
-			parts.push(`${wrongNetwork.length}/${projects.length} 个容器仍在 ${other} 网络（设置是 ${wanted}）`);
-			hints.push("在「项目」页点「重建容器」切换网络，容器内 /work 之外的文件会丢、工作目录不受影响");
+			parts.push(
+				t("{wrong}/{total} 个容器仍在 {network} 网络（设置是 {wanted}）", {
+					wrong: wrongNetwork.length,
+					total: projects.length,
+					network: other,
+					wanted,
+				}),
+			);
+			hints.push(t("在「项目」页点「重建容器」切换网络，容器内 /work 之外的文件会丢、工作目录不受影响"));
 		}
-		return warned("project-containers", GROUP_CONTAINER, "项目容器", parts.join("；"), hints.join("；"));
+		return warned("project-containers", GROUP_CONTAINER, t("项目容器"), parts.join(t("；")), hints.join(t("；")));
 	}
 	return passed(
 		"project-containers",
 		GROUP_CONTAINER,
-		"项目容器",
-		`全部运行中（${projects.length} 个，网络 ${wanted}）`,
+		t("项目容器"),
+		t("全部运行中（{count} 个，网络 {network}）", { count: projects.length, network: wanted }),
 	);
 }
 
@@ -316,11 +350,11 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
  */
 async function checkProjectMounts(agentDir: string | undefined): Promise<SentinelEnvItem> {
 	if (!agentDir) {
-		return skipped("project-mounts", GROUP_CONTAINER, "工作目录挂载", "未配置配置目录");
+		return skipped("project-mounts", GROUP_CONTAINER, t("工作目录挂载"), t("未配置配置目录"));
 	}
 	const { projects } = listProjects(agentDir);
 	if (projects.length === 0) {
-		return passed("project-mounts", GROUP_CONTAINER, "工作目录挂载", "尚未创建项目");
+		return passed("project-mounts", GROUP_CONTAINER, t("工作目录挂载"), t("尚未创建项目"));
 	}
 	const legacy: string[] = [];
 	let inspected = 0;
@@ -339,22 +373,22 @@ async function checkProjectMounts(agentDir: string | undefined): Promise<Sentine
 		if (!mounts.includes(`${project.workDir}->${project.workDir}`)) legacy.push(project.name);
 	}
 	if (inspected === 0) {
-		return skipped("project-mounts", GROUP_CONTAINER, "工作目录挂载", "无法读取挂载信息");
+		return skipped("project-mounts", GROUP_CONTAINER, t("工作目录挂载"), t("无法读取挂载信息"));
 	}
 	if (legacy.length === 0) {
 		return passed(
 			"project-mounts",
 			GROUP_CONTAINER,
-			"工作目录挂载",
-			`项目目录同时挂在宿主路径（${inspected} 个容器）`,
+			t("工作目录挂载"),
+			t("项目目录同时挂在宿主路径（{count} 个容器）", { count: inspected }),
 		);
 	}
 	return warned(
 		"project-mounts",
 		GROUP_CONTAINER,
-		"工作目录挂载",
-		`${legacy.length} 个容器缺少同路径挂载：${legacy.join("、")}`,
-		"在「项目」页重建这些容器；重建前先用 docker cp 把容器内该路径下的文件复制出来，容器一删就没了",
+		t("工作目录挂载"),
+		t("{count} 个容器缺少同路径挂载：{names}", { count: legacy.length, names: legacy.join(t("、")) }),
+		t("在「项目」页重建这些容器；重建前先用 docker cp 把容器内该路径下的文件复制出来，容器一删就没了"),
 	);
 }
 
@@ -364,7 +398,7 @@ async function checkProjectMounts(agentDir: string | undefined): Promise<Sentine
  */
 function checkBuildSources(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
-		return skipped("build-sources", GROUP_IMAGE, "构建源", "未配置配置目录");
+		return skipped("build-sources", GROUP_IMAGE, t("构建源"), t("未配置配置目录"));
 	}
 	const sources = effectiveSources(readSources(agentDir));
 	const custom =
@@ -374,16 +408,18 @@ function checkBuildSources(agentDir: string | undefined): SentinelEnvItem {
 		return passed(
 			"build-sources",
 			GROUP_IMAGE,
-			"构建源",
-			`全部使用官方源（基础镜像 ${DEFAULT_BASE_IMAGE}）· 可在「设置 → 环境」切换国内镜像源`,
+			t("构建源"),
+			t("全部使用官方源（基础镜像 {image}）· 可在「设置 → 环境」切换国内镜像源", {
+				image: DEFAULT_BASE_IMAGE,
+			}),
 		);
 	}
-	const parts = [`基础镜像 ${sources.baseImage}`];
-	parts.push(sources.aptMirror ? `apt ${sources.aptMirror}` : "apt 官方源");
-	parts.push(sources.pipIndex ? `pip ${sources.pipIndex}` : "pip 官方源");
-	parts.push(sources.npmRegistry ? `npm ${sources.npmRegistry}` : "npm 官方源");
-	parts.push(sources.goProxy ? `go ${sources.goProxy}` : "go 官方代理");
-	return passed("build-sources", GROUP_IMAGE, "构建源", parts.join(" · "));
+	const parts = [t("基础镜像 {image}", { image: sources.baseImage })];
+	parts.push(sources.aptMirror ? `apt ${sources.aptMirror}` : t("apt 官方源"));
+	parts.push(sources.pipIndex ? `pip ${sources.pipIndex}` : t("pip 官方源"));
+	parts.push(sources.npmRegistry ? `npm ${sources.npmRegistry}` : t("npm 官方源"));
+	parts.push(sources.goProxy ? `go ${sources.goProxy}` : t("go 官方代理"));
+	return passed("build-sources", GROUP_IMAGE, t("构建源"), parts.join(" · "));
 }
 
 function checkProjectsDir(): SentinelEnvItem {
@@ -393,52 +429,52 @@ function checkProjectsDir(): SentinelEnvItem {
 		return failed(
 			"projects-dir",
 			GROUP_HOST,
-			"项目目录可写",
-			`${root}：${result.error ?? "不可写"}`,
-			"修正目录权限，或用 SENTINEL_PROJECTS_DIR 指向一个可写目录",
+			t("项目目录可写"),
+			t("{path}：{error}", { path: root, error: result.error ?? t("不可写") }),
+			t("修正目录权限，或用 SENTINEL_PROJECTS_DIR 指向一个可写目录"),
 		);
 	}
-	return passed("projects-dir", GROUP_HOST, "项目目录可写", root, true);
+	return passed("projects-dir", GROUP_HOST, t("项目目录可写"), root, true);
 }
 
 function checkAgentDir(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
-		return skipped("agent-dir", GROUP_HOST, "配置目录可写", "未配置配置目录");
+		return skipped("agent-dir", GROUP_HOST, t("配置目录可写"), t("未配置配置目录"));
 	}
 	const result = checkWritable(agentDir);
 	if (!result.ok) {
 		return failed(
 			"agent-dir",
 			GROUP_HOST,
-			"配置目录可写",
-			`${agentDir}：${result.error ?? "不可写"}`,
-			"修正目录权限，或用 SENTINEL_CODING_AGENT_DIR 指向一个可写目录",
+			t("配置目录可写"),
+			t("{path}：{error}", { path: agentDir, error: result.error ?? t("不可写") }),
+			t("修正目录权限，或用 SENTINEL_CODING_AGENT_DIR 指向一个可写目录"),
 		);
 	}
-	return passed("agent-dir", GROUP_HOST, "配置目录可写", agentDir, true);
+	return passed("agent-dir", GROUP_HOST, t("配置目录可写"), agentDir, true);
 }
 
 async function checkDisk(): Promise<SentinelEnvItem> {
 	const root = projectsRoot();
 	const free = await freeDiskBytes(existsSync(root) ? root : homedir());
 	if (free === undefined) {
-		return skipped("disk-space", GROUP_HOST, "可用磁盘空间", "无法读取磁盘空间");
+		return skipped("disk-space", GROUP_HOST, t("可用磁盘空间"), t("无法读取磁盘空间"));
 	}
 	if (free < MIN_FREE_BYTES) {
 		return warned(
 			"disk-space",
 			GROUP_HOST,
-			"可用磁盘空间",
-			`剩余 ${formatBytes(free)}`,
-			"工具镜像约 1.5 GB，容器还要额外空间；建议清理磁盘后重试",
+			t("可用磁盘空间"),
+			t("剩余 {size}", { size: formatBytes(free) }),
+			t("工具镜像约 1.5 GB，容器还要额外空间；建议清理磁盘后重试"),
 		);
 	}
-	return passed("disk-space", GROUP_HOST, "可用磁盘空间", `剩余 ${formatBytes(free)}`);
+	return passed("disk-space", GROUP_HOST, t("可用磁盘空间"), t("剩余 {size}", { size: formatBytes(free) }));
 }
 
 function checkModelConfig(agentDir: string | undefined): SentinelEnvItem {
 	if (!agentDir) {
-		return skipped("model-config", GROUP_HOST, "模型端点", "未配置配置目录");
+		return skipped("model-config", GROUP_HOST, t("模型端点"), t("未配置配置目录"));
 	}
 	try {
 		const config = resolveLibraryRole(agentDir, "main")?.config ?? null;
@@ -446,19 +482,19 @@ function checkModelConfig(agentDir: string | undefined): SentinelEnvItem {
 			return warned(
 				"model-config",
 				GROUP_HOST,
-				"模型端点",
-				"尚未配置模型端点",
-				"在「设置 → 模型」中填写 API 地址、模型 ID 与密钥",
+				t("模型端点"),
+				t("尚未配置模型端点"),
+				t("在「设置 → 模型」中填写 API 地址、模型 ID 与密钥"),
 			);
 		}
-		return passed("model-config", GROUP_HOST, "模型端点", `${config.modelId} @ ${config.baseUrl}`);
+		return passed("model-config", GROUP_HOST, t("模型端点"), `${config.modelId} @ ${config.baseUrl}`);
 	} catch (error) {
 		return warned(
 			"model-config",
 			GROUP_HOST,
-			"模型端点",
+			t("模型端点"),
 			error instanceof Error ? error.message : String(error),
-			"在「设置 → 模型」中检查配置",
+			t("在「设置 → 模型」中检查配置"),
 		);
 	}
 }
@@ -477,12 +513,18 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 	const imageItems = dockerReady
 		? await checkImage(runtime.hostPlatform)
 		: [
-				skipped("image-present", GROUP_IMAGE, `工具镜像 ${SENTINEL_IMAGE}`, "Docker 不可用", true),
-				skipped("image-platform", GROUP_IMAGE, "镜像与宿主架构", "Docker 不可用"),
+				skipped(
+					"image-present",
+					GROUP_IMAGE,
+					t("工具镜像 {image}", { image: SENTINEL_IMAGE }),
+					t("Docker 不可用"),
+					true,
+				),
+				skipped("image-platform", GROUP_IMAGE, t("镜像与宿主架构"), t("Docker 不可用")),
 			];
 	items.push(
 		...imageItems,
-		skipped("build-network", GROUP_IMAGE, "构建镜像需要网络", "构建镜像时验证（apt 需要访问配置的软件源）"),
+		skipped("build-network", GROUP_IMAGE, t("构建镜像需要网络"), t("构建镜像时验证（apt 需要访问配置的软件源）")),
 		checkBuildSources(options.agentDir),
 	);
 
@@ -493,8 +535,8 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 			: skipped(
 					"container-run",
 					GROUP_CONTAINER,
-					"启动一次性容器",
-					dockerReady ? "工具镜像不可用" : "Docker 不可用",
+					t("启动一次性容器"),
+					dockerReady ? t("工具镜像不可用") : t("Docker 不可用"),
 					true,
 				),
 		await checkProjectContainers(options.agentDir),

@@ -6,6 +6,7 @@
  * saving it, and turns failures into actionable Chinese diagnostics.
  */
 
+import { t } from "./i18n.ts";
 import { DEFAULT_MODEL_API } from "./model-config.ts";
 import type { SentinelModelConfig, SentinelTestResult } from "./protocol.ts";
 
@@ -37,7 +38,7 @@ function buildProbe(config: SentinelModelConfig): ProbeRequest {
 					max_tokens: PROBE_MAX_TOKENS,
 					messages: [{ role: "user", content: "ping" }],
 				}),
-				pathHint: "Anthropic 兼容端点的 Base URL 通常是根地址，请求路径固定为 /v1/messages。",
+				pathHint: t("Anthropic 兼容端点的 Base URL 通常是根地址，请求路径固定为 /v1/messages。"),
 			};
 		case "google-generative-ai":
 			return {
@@ -50,7 +51,7 @@ function buildProbe(config: SentinelModelConfig): ProbeRequest {
 					contents: [{ role: "user", parts: [{ text: "ping" }] }],
 					generationConfig: { maxOutputTokens: PROBE_MAX_TOKENS },
 				}),
-				pathHint: "Google 兼容端点的 Base URL 通常以 /v1beta 结尾，模型 ID 会拼进路径。",
+				pathHint: t("Google 兼容端点的 Base URL 通常以 /v1beta 结尾，模型 ID 会拼进路径。"),
 			};
 		case "openai-responses":
 			return {
@@ -65,7 +66,7 @@ function buildProbe(config: SentinelModelConfig): ProbeRequest {
 					max_output_tokens: PROBE_MAX_TOKENS,
 					stream: false,
 				}),
-				pathHint: "OpenAI 兼容端点通常需要 Base URL 以 /v1 结尾，该协议请求 /responses。",
+				pathHint: t("OpenAI 兼容端点通常需要 Base URL 以 /v1 结尾，该协议请求 /responses。"),
 			};
 		default:
 			return {
@@ -80,14 +81,14 @@ function buildProbe(config: SentinelModelConfig): ProbeRequest {
 					max_tokens: 1,
 					stream: false,
 				}),
-				pathHint: "OpenAI 兼容端点通常需要 Base URL 以 /v1 结尾。",
+				pathHint: t("OpenAI 兼容端点通常需要 Base URL 以 /v1 结尾。"),
 			};
 	}
 }
 
 export async function testModelConfig(config: SentinelModelConfig): Promise<SentinelTestResult> {
 	if (!config.baseUrl.trim() || !config.modelId.trim()) {
-		return { ok: false, message: "Base URL 和模型 ID 不能为空" };
+		return { ok: false, message: t("Base URL 和模型 ID 不能为空") };
 	}
 	const probe = buildProbe(config);
 	let response: Response;
@@ -103,21 +104,24 @@ export async function testModelConfig(config: SentinelModelConfig): Promise<Sent
 		if (error instanceof Error && error.name === "TimeoutError") {
 			return {
 				ok: false,
-				message: `连接超时（${PROBE_TIMEOUT_MS / 1000}s）：${probe.url}`,
-				detail: `端点无响应。确认服务已启动、地址端口正确。${probe.pathHint}`,
+				message: t("连接超时（{seconds}s）：{url}", { seconds: PROBE_TIMEOUT_MS / 1000, url: probe.url }),
+				detail: t("端点无响应。确认服务已启动、地址端口正确。{hint}", { hint: probe.pathHint }),
 			};
 		}
 		return {
 			ok: false,
-			message: `无法连接到 ${probe.url}`,
-			detail: `${cause || (error instanceof Error ? error.message : String(error))}\n常见原因：地址拼写错误、服务未启动。${probe.pathHint}`,
+			message: t("无法连接到 {url}", { url: probe.url }),
+			detail: t("{detail}\n常见原因：地址拼写错误、服务未启动。{hint}", {
+				detail: cause || (error instanceof Error ? error.message : String(error)),
+				hint: probe.pathHint,
+			}),
 		};
 	}
 
 	if (response.ok) {
 		return {
 			ok: true,
-			message: `连接成功：端点可用，模型 ${config.modelId} 可调用。`,
+			message: t("连接成功：端点可用，模型 {model} 可调用。", { model: config.modelId }),
 		};
 	}
 
@@ -128,26 +132,26 @@ export async function testModelConfig(config: SentinelModelConfig): Promise<Sent
 		case 403:
 			return {
 				ok: false,
-				message: `认证失败（HTTP ${response.status}）：API Key 无效或未填写。`,
-				detail: "本地无鉴权端点请留空 API Key；中转服务请检查令牌。",
+				message: t("认证失败（HTTP {status}）：API Key 无效或未填写。", { status: response.status }),
+				detail: t("本地无鉴权端点请留空 API Key；中转服务请检查令牌。"),
 			};
 		case 404:
 			return {
 				ok: false,
-				message: `路径不存在（404）：${probe.url}`,
+				message: t("路径不存在（404）：{url}", { url: probe.url }),
 				detail: probe.pathHint,
 			};
 		default: {
 			if (bodyText.includes("model") && (bodyText.includes("not found") || bodyText.includes("does not exist"))) {
 				return {
 					ok: false,
-					message: `端点可达，但模型 ${config.modelId} 不存在。`,
-					detail: "请核对模型 ID（注意大小写和版本后缀）。",
+					message: t("端点可达，但模型 {model} 不存在。", { model: config.modelId }),
+					detail: t("请核对模型 ID（注意大小写和版本后缀）。"),
 				};
 			}
 			return {
 				ok: false,
-				message: `端点返回错误（HTTP ${response.status}）`,
+				message: t("端点返回错误（HTTP {status}）", { status: response.status }),
 				detail,
 			};
 		}

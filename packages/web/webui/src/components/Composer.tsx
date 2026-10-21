@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n.ts";
 import { formatSize, formatTokens } from "../transcript.ts";
 import type {
 	SentinelApiModelSummary,
@@ -42,7 +43,7 @@ async function readImage(file: File): Promise<SentinelImageAttachment | null> {
 }
 
 /** The idle hint when no preset agent brings its own. */
-const DEFAULT_HINT = "输入目标与任务，Enter 发送，Shift+Enter 换行，可粘贴截图或拖入文件";
+const DEFAULT_HINT = t("输入目标与任务，Enter 发送，Shift+Enter 换行，可粘贴截图或拖入文件");
 
 function initialSupervisorStrategies(defaults: SentinelSupervisorStrategyRef[]): SentinelSupervisorStrategyRef[] {
 	return defaults.length > 0 ? defaults.map((entry) => ({ ...entry })) : [{ strategy: "steady", customStrategyId: null }];
@@ -237,7 +238,11 @@ export function Composer({
 		// message is refused instead of sent with a dead path in it.
 		const stale = staleUploads(ready, projectId);
 		if (stale.length > 0) {
-			setSendNotice(`这些文件属于另一个项目，请移除后重新上传：${stale.map((file) => file.name).join("、")}`);
+			setSendNotice(
+				t("这些文件属于另一个项目，请移除后重新上传：{names}", {
+					names: stale.map((file) => file.name).join("、"),
+				}),
+			);
 			return;
 		}
 		// One-shot: the checked records ride this message only, then the picker's
@@ -298,7 +303,7 @@ export function Composer({
 					);
 				})
 				.catch((error: unknown) => {
-					const message = error instanceof Error ? error.message : "上传失败";
+					const message = error instanceof Error ? error.message : t("上传失败");
 					setAttachments((prev) => prev.map((item) => (item.id === entry.id ? { ...item, error: message } : item)));
 				});
 		}
@@ -350,28 +355,28 @@ export function Composer({
 								title={
 									supervisor
 										? supervisor.status === "stopped"
-											? "监督已停止；点击查看本次监督记录"
-											: "打开监督悬浮窗；收起窗口不会停止监督"
+											? t("监督已停止；点击查看本次监督记录")
+											: t("打开监督悬浮窗；收起窗口不会停止监督")
 										: !freshConversation
-											? "监督只能在开始对话前开启"
-											: "开启监督：观察，或介入并选择自动发送 / 确认后发送"
+											? t("监督只能在开始对话前开启")
+											: t("开启监督：观察，或介入并选择自动发送 / 确认后发送")
 								}
 							>
 								<SupervisorIcon />
 								{supervisor
 									? supervisor.status === "stopped"
-										? "监督已停止"
-										: "监督中"
-									: "监督"}
+										? t("监督已停止")
+										: t("监督中")
+									: t("监督")}
 							</button>
 							{supervisor && !supervisorWindowOpen ? (
 								<button
 									type="button"
 									className="composer-tool supervisor-show"
 									onClick={onShowSupervisorWindow}
-									title="重新显示监督悬浮窗；监督仍在继续"
+									title={t("重新显示监督悬浮窗；监督仍在继续")}
 								>
-									显示悬浮窗
+									{t("显示悬浮窗")}
 								</button>
 							) : null}
 							{supervisorMenu ? (
@@ -419,14 +424,17 @@ export function Composer({
 						disabled={!hasProject || blocked || streaming}
 						title={
 							streaming
-								? "会话正在运行，先中止再换预设"
+								? t("会话正在运行，先中止再换预设")
 								: preset
-									? `当前预设：${preset.name}${preset.missing ? "（已失效，正按默认 Agent 运行）" : ""}；点击更换，只影响之后的回合`
-									: "给这个会话挂一个预设 Agent：换掉身份与背景，不影响可用工具和权限"
+									? t("当前预设：{name}{status}；点击更换，只影响之后的回合", {
+											name: preset.name,
+											status: preset.missing ? t("（已失效，正按默认 Agent 运行）") : "",
+										})
+									: t("给这个会话挂一个预设 Agent：换掉身份与背景，不影响可用工具和权限")
 						}
 					>
 						<SubagentIcon />
-						预设 Agent
+						{t("预设 Agent")}
 						{preset ? <span className="preset-trigger__name">{preset.name}</span> : null}
 					</button>
 					<button
@@ -434,10 +442,10 @@ export function Composer({
 						className="composer-tool goal-trigger"
 						onClick={onOpenGoal}
 						disabled={goalDisabledReason !== null}
-						title={goalDisabledReason ?? "启动持续目标：一轮结束后自动继续，直到达成目标或达到轮数上限"}
+						title={goalDisabledReason ?? t("启动持续目标：一轮结束后自动继续，直到达成目标或达到轮数上限")}
 					>
 						<TargetIcon />
-						持续目标
+						{t("持续目标")}
 					</button>
 					{/* Business modeling: one entry, two actions. 开始建模 runs the two-tool
 					    cycle here (or ends the run in force); 关联建模数据 rides existing
@@ -452,16 +460,21 @@ export function Composer({
 						disabled={!hasProject || blocked}
 						title={
 							!hasProject
-								? "请先创建或选择一个项目"
+								? t("请先创建或选择一个项目")
 								: blocked
-									? (blockedReason ?? "环境未就绪")
+									? (blockedReason ?? t("环境未就绪"))
 									: modeling
-										? `正在业务建模：${modeling.title}；已提交 ${modeling.pathCount} 路径 / ${modeling.operationCount} 操作 / ${modeling.entityCount} 实体`
-										: "业务建模：开始一次建模，或把已有建模数据关联给这条对话"
+										? t("正在业务建模：{title}；已提交 {paths} 路径 / {operations} 操作 / {entities} 实体", {
+												title: modeling.title,
+												paths: modeling.pathCount,
+												operations: modeling.operationCount,
+												entities: modeling.entityCount,
+											})
+										: t("业务建模：开始一次建模，或把已有建模数据关联给这条对话")
 						}
 					>
 						<ApiModelIcon />
-						业务建模
+						{t("业务建模")}
 						{modeling ? (
 							<span className="modeling-trigger__count">{modeling.pathCount}</span>
 						) : modelingAttached.length > 0 ? (
@@ -477,14 +490,14 @@ export function Composer({
 						onClick={() => onToggleDroid(!droidEnabled)}
 						title={
 							!hasProject
-								? "请先创建或选择一个项目"
+								? t("请先创建或选择一个项目")
 								: droidEnabled
-									? "安卓工具已挂载（droid_* / apk_*）。点击摘除，回到无痕迹状态"
-									: "挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线"
+									? t("安卓工具已挂载（droid_* / apk_*）。点击摘除，回到无痕迹状态")
+									: t("挂载安卓工具（droid_* / apk_*）：需要先在「安卓设备」页配置反连与 token，并有一台设备在线")
 						}
 					>
 						<DroidIcon />
-						安卓
+						{t("安卓")}
 						{droidEnabled ? <span className="modeling-trigger__count on">✓</span> : null}
 					</button>
 					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
@@ -528,18 +541,23 @@ export function Composer({
 					<div className="attachment-strip">
 						{images.map((image, index) => (
 							<div key={index} className="attachment">
-								<img src={`data:${image.mimeType};base64,${image.data}`} alt={`附件 ${index + 1}`} />
+								<img
+									src={`data:${image.mimeType};base64,${image.data}`}
+									alt={t("附件 {index}", { index: index + 1 })}
+								/>
 								<button
 									type="button"
 									className="attachment-remove"
-									title="移除该图片"
+									title={t("移除该图片")}
 									onClick={() => setImages((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
 								>
 									×
 								</button>
 							</div>
 						))}
-						<span className="attachment-count">{images.length} 张图片待发送</span>
+						<span className="attachment-count">
+							{t("{count} 张图片待发送", { count: images.length })}
+						</span>
 					</div>
 				) : null}
 				{attachments.length > 0 ? (
@@ -555,7 +573,7 @@ export function Composer({
 									{item.error ??
 										(item.uploaded
 											? formatSize(item.uploaded.size)
-											: `上传中 ${Math.round(item.ratio * 100)}%`)}
+											: t("上传中 {percent}%", { percent: Math.round(item.ratio * 100) }))}
 								</span>
 								<span className="attachment-file__bar">
 									<span style={{ width: `${Math.round((item.uploaded ? 1 : item.ratio) * 100)}%` }} />
@@ -563,7 +581,11 @@ export function Composer({
 								<button
 									type="button"
 									className="attachment-remove"
-									title={item.uploaded ? "从待发送列表移除（文件仍在 uploads/ 里）" : "移除"}
+									title={
+										item.uploaded
+											? t("从待发送列表移除（文件仍在 uploads/ 里）")
+											: t("移除")
+									}
 									onClick={() => setAttachments((prev) => prev.filter((entry) => entry.id !== item.id))}
 								>
 									×
@@ -571,7 +593,7 @@ export function Composer({
 							</div>
 						))}
 						<span className="attachment-count">
-							{uploading ? "上传中…" : `${readyCount} 个文件待发送`}
+							{uploading ? t("上传中…") : t("{count} 个文件待发送", { count: readyCount })}
 						</span>
 					</div>
 				) : null}
@@ -583,9 +605,9 @@ export function Composer({
 							? blockedReason
 							: hasProject
 								? streaming
-									? "Agent 正在运行… 输入内容可插话或排队"
+									? t("Agent 正在运行… 输入内容可插话或排队")
 									: composerHint(preset)
-								: "请先在「项目」页创建或选择一个项目"
+								: t("请先在「项目」页创建或选择一个项目")
 					}
 					disabled={!hasProject || blocked}
 					onChange={(event) => {
@@ -615,29 +637,33 @@ export function Composer({
 						className="composer-tool"
 						onClick={() => imageInputRef.current?.click()}
 						disabled={!hasProject || blocked}
-						title="附加图片（也可直接粘贴截图）"
+						title={t("附加图片（也可直接粘贴截图）")}
 					>
 						<ImageIcon />
-						图片
+						{t("图片")}
 					</button>
 					<button
 						type="button"
 						className="composer-tool"
 						onClick={() => fileInputRef.current?.click()}
 						disabled={!hasProject || blocked}
-						title="附加文件（任意类型；上传到项目工作目录，随消息把路径交给 Agent；也可直接拖入或粘贴）"
+						title={t("附加文件（任意类型；上传到项目工作目录，随消息把路径交给 Agent；也可直接拖入或粘贴）")}
 					>
 						<FilesIcon />
-						附件
+						{t("附件")}
 					</button>
 					<button
 						type="button"
 						className={`composer-tool ${notifyRun ? "on" : ""}`}
 						onClick={onToggleNotifyRun}
-						title={notifyRun ? "本次运行完成后发送通知（点击关闭）" : "本次运行完成后不通知（点击开启）"}
+						title={
+							notifyRun
+								? t("本次运行完成后发送通知（点击关闭）")
+								: t("本次运行完成后不通知（点击开启）")
+						}
 					>
 						<BellIcon />
-						通知
+						{t("通知")}
 					</button>
 					<input
 						ref={imageInputRef}
@@ -672,7 +698,7 @@ export function Composer({
 									checked={behavior === "steer"}
 									onChange={() => setBehavior("steer")}
 								/>
-								插话
+								{t("插话")}
 							</label>
 							<label className="behavior">
 								<input
@@ -681,13 +707,13 @@ export function Composer({
 									checked={behavior === "followUp"}
 									onChange={() => setBehavior("followUp")}
 								/>
-								排队
+								{t("排队")}
 							</label>
 							<button type="button" className="primary" onClick={() => submit()} disabled={!canSend}>
-								发送
+								{t("发送")}
 							</button>
 							<button type="button" className="danger" onClick={onAbort}>
-								中止
+								{t("中止")}
 							</button>
 						</>
 					) : (
@@ -697,29 +723,30 @@ export function Composer({
 							onClick={() => submit()}
 							disabled={!canSend || !hasProject || blocked}
 						>
-							发送 ⏎
+							{t("发送 ⏎")}
 						</button>
 					)}
 				</div>
 			</div>
 			<div className="status-line status-line--centered">
-				<span title="按本轮每个 assistant 消息的 output tokens 与该消息耗时计算，不含工具执行时间">
-					{blocked ? "已锁定" : streaming ? "运行中…" : "空闲"}
+				<span title={t("按本轮每个 assistant 消息的 output tokens 与该消息耗时计算，不含工具执行时间")}>
+					{blocked ? t("已锁定") : streaming ? t("运行中…") : t("空闲")}
 					{stats
-						? ` · Token 输入 ${formatTokens(stats.tokens.input)} / 输出 ${formatTokens(stats.tokens.output)}${
-								stats.cost > 0 ? ` · 花费 $${stats.cost.toFixed(4)}` : ""
-							}`
+						? `${t(" · Token 输入 {input} / 输出 {output}", {
+								input: formatTokens(stats.tokens.input),
+								output: formatTokens(stats.tokens.output),
+							})}${stats.cost > 0 ? t(" · 花费 {cost}", { cost: `$${stats.cost.toFixed(4)}` }) : ""}`
 						: ""}
 					{" · "}
 					{throughput
-						? `本轮均速 ${formatThroughput(throughput.tokPerSec)} tok/s${
+						? `${t("本轮均速 {rate} tok/s", { rate: formatThroughput(throughput.tokPerSec) })}${
 								streaming
-									? "（生成中）"
+									? t("（生成中）")
 									: ` · ${formatTokens(throughput.outputTokens)} tokens / ${(throughput.durationMs / 1000).toFixed(1)}s`
 							}`
 						: streaming
-							? "本轮生成中…"
-							: "本轮 tok/s —"}
+							? t("本轮生成中…")
+							: t("本轮 tok/s —")}
 				</span>
 			</div>
 		</div>

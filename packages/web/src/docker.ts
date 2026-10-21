@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { embeddedDockerfile } from "./assets.ts";
 import { containerNetworkFlags } from "./container-network.ts";
+import { t } from "./i18n.ts";
 import type { SentinelContainerNetwork, SentinelSources } from "./protocol.ts";
 import { buildArgs } from "./sources.ts";
 
@@ -79,7 +80,7 @@ async function imageContext(): Promise<{ dir: string; cleanup: () => Promise<voi
 	const checkout = join(repoRoot(), "docker");
 	if (existsSync(join(checkout, "Dockerfile"))) return { dir: checkout, cleanup: async () => {} };
 	const dockerfile = embeddedDockerfile();
-	if (!dockerfile) throw new Error("二进制内没有内置 Dockerfile，无法构建工具镜像");
+	if (!dockerfile) throw new Error(t("二进制内没有内置 Dockerfile，无法构建工具镜像"));
 	const dir = await mkdtemp(join(tmpdir(), "sentinel-image-"));
 	await writeFile(join(dir, "Dockerfile"), dockerfile, "utf8");
 	return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };

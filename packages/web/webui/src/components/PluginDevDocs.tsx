@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { t } from "../i18n.ts";
 import { PLUGIN_DEV_GUIDE } from "../plugin-dev-guide.ts";
 
 /**
@@ -38,10 +39,10 @@ export function PluginDevDocs() {
 		<div className="plugin-dev-docs">
 			<div className="plugin-dev-bar">
 				<span className="hint">
-					整段复制给 AI，它会拿到契约、约束、可运行骨架和验收清单；写完后回到「已安装」上传 zip 安装。
+					{t("整段复制给 AI，它会拿到契约、约束、可运行骨架和验收清单；写完后回到「已安装」上传 zip 安装。")}
 				</span>
 				<button type="button" className="primary" onClick={copy}>
-					{copied ? "已复制" : "复制全文"}
+					{copied ? t("已复制") : t("复制全文")}
 				</button>
 			</div>
 			<div className="plugin-dev-md">

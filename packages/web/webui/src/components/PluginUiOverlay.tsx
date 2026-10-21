@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SentinelPluginView } from "../types.ts";
+import { t } from "../i18n.ts";
 
 /** Everything the iframe may know at handshake time. Keep it non-secret. */
 export interface PluginUiContext {
@@ -71,7 +72,7 @@ export function PluginUiOverlay({
 		const timer = window.setTimeout(() => {
 			if (readyRef.current) return;
 			setStatus("error");
-			setError("界面在 12 秒内没有连上控制台。常见原因：入口页没有引入 sdk.js、脚本报错，或入口文件路径不对。");
+			setError(t("界面在 12 秒内没有连上控制台。常见原因：入口页没有引入 sdk.js、脚本报错，或入口文件路径不对。"));
 		}, 12000);
 		return () => window.clearTimeout(timer);
 	}, [attempt, src]);
@@ -167,19 +168,19 @@ export function PluginUiOverlay({
 					</div>
 					<div className="plugin-ui-sub">
 						{plugin.manifest.id} · {plugin.hostName}
-						{plugin.hostLocal ? "（本机）" : ""} · 第三方插件界面，不要在这里输入控制台密码
+						{plugin.hostLocal ? t("（本机）") : ""} · {t("第三方插件界面，不要在这里输入控制台密码")}
 					</div>
 				</div>
 				<div className="plugin-ui-head__right">
 					<span className={`plugin-ui-state-dot ${status}`}>
-						{status === "ready" ? "已连接" : status === "error" ? "未连接" : "连接中"}
+						{status === "ready" ? t("已连接") : status === "error" ? t("未连接") : t("连接中")}
 					</span>
-					<button type="button" className="plugin-ui-reload" onClick={retry} title="重新加载界面">
-						重载
+					<button type="button" className="plugin-ui-reload" onClick={retry} title={t("重新加载界面")}>
+						{t("重载")}
 					</button>
 					{variant === "overlay" ? (
 						<button type="button" className="plugin-ui-close" onClick={onClose}>
-							关闭
+							{t("关闭")}
 						</button>
 					) : null}
 				</div>
@@ -189,7 +190,7 @@ export function PluginUiOverlay({
 					key={attempt}
 					ref={frame}
 					className={`plugin-ui-frame${status === "ready" ? "" : " is-hidden"}`}
-					title={`${plugin.manifest.name} 界面`}
+					title={t("{name} 界面", { name: plugin.manifest.name })}
 					sandbox="allow-scripts"
 					referrerPolicy="no-referrer"
 					src={src}
@@ -197,22 +198,22 @@ export function PluginUiOverlay({
 				{status === "loading" ? (
 					<div className="plugin-ui-state">
 						<span className="plugin-ui-spinner" aria-hidden="true" />
-						<h3>正在加载插件界面</h3>
-						<p className="muted">首次打开会向插件主机取静态资源。</p>
+						<h3>{t("正在加载插件界面")}</h3>
+						<p className="muted">{t("首次打开会向插件主机取静态资源。")}</p>
 					</div>
 				) : null}
 				{status === "error" ? (
 					<div className="plugin-ui-state">
 						<span className="plugin-ui-state-mark">!</span>
-						<h3>插件界面没有响应</h3>
+						<h3>{t("插件界面没有响应")}</h3>
 						<p>{error}</p>
 						<p className="muted mono">{ui?.entry ?? "/ui/index.html"}</p>
 						<div className="plugin-ui-state-actions">
 							<button type="button" className="primary" onClick={retry}>
-								重试
+								{t("重试")}
 							</button>
 							<button type="button" onClick={onClose}>
-								关闭
+								{t("关闭")}
 							</button>
 						</div>
 					</div>

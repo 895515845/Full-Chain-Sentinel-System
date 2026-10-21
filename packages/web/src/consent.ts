@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { UiLanguage } from "./i18n-messages.ts";
 
 export interface ConsentClause {
 	/** Short heading of the clause, shown in bold. */
@@ -51,13 +52,13 @@ export interface ConsentText {
  * this is for a change the text alone would not express (for example dropping a
  * clause and renumbering the rest).
  */
-export const CONSENT_VERSION = 1;
+export const CONSENT_VERSION = 2;
 
 /**
  * Emphasis is marked with `**`, the way the statement is written by hand. The UI
  * turns the pairs into `<strong>`; nothing here is ever injected as HTML.
  */
-export const CONSENT_TEXT: ConsentText = {
+export const CONSENT_TEXT_ZH: ConsentText = {
 	title: "授权与风险承诺",
 	subtitle: "首次使用前必须阅读并勾选承诺，否则无法进入平台",
 	intro: "全链哨兵把**真实的攻击能力**交给 AI Agent：资产扫描、漏洞利用、横向移动、后渗透与凭据获取。这套能力只有在**你持有目标所有者书面授权**的前提下才可以使用。进入平台前，请读完下面的条款并作出承诺。",
@@ -101,11 +102,63 @@ export const CONSENT_TEXT: ConsentText = {
 	footnote: "接受后在本机记录承诺，之后不再重复提示。本提示不构成法律意见，具体以最新法律文本与你的授权文件为准。",
 };
 
+export const CONSENT_TEXT_EN: ConsentText = {
+	title: "Authorization and Risk Acknowledgment",
+	subtitle: "Read this statement and accept it before using the console for the first time",
+	intro: "Full Chain Sentinel gives an AI agent **real attack capability**: asset scanning, exploitation, lateral movement, post-exploitation and credential access. Use it only when **you hold written authorization from the target owner**. Before entering the console, read the terms below and make the following commitment.",
+	clauses: [
+		{
+			title: "Use only for penetration testing with written authorization",
+			body: "You must hold written authorization from the owner of the target system: a penetration-testing contract, an authorization letter, a statement of work, or the published rules of a bug-bounty program. The scope stated in that authorization (domains, IP addresses, network ranges, app package names), its time window, permitted techniques and prohibitions define your boundary. Expired authorization, a changed target, or one hop outside scope requires new authorization.",
+		},
+		{
+			title: "Unauthorized penetration testing is illegal",
+			body: "Scanning, probing, intruding into, disrupting, or taking data from another person's system without authorization may violate Article 27 of the Cybersecurity Law of the People's Republic of China and may constitute an offence under Articles 285 (illegal intrusion into computer information systems), 286 (damage to computer information systems) and 287-2 (assisting criminal activity on information networks) of the Criminal Law of the People's Republic of China, as well as obligations under the Data Security Law and the Personal Information Protection Law. Such conduct may lead to **criminal liability**, not merely civil damages or administrative penalties.",
+		},
+		{
+			title: "The platform does not verify your authorization",
+			body: "The platform cannot verify the authorization document you hold, nor determine whether a target you enter falls within its scope. Every target you enter is treated as authorized by you. Responsibility for the authenticity, scope and validity of the authorization rests entirely with the user.",
+		},
+		{
+			title: "You are responsible for out-of-scope and third-party impact",
+			body: "Automated attacks may reach shared infrastructure outside the authorized scope: CDNs, cloud providers, upstream suppliers, and other services on the same network. Traffic from scanning and brute force may also be recorded and traced by third-party security devices. That impact is attributable to you as well.",
+		},
+		{
+			title: "Handling of data, credentials and evidence",
+			body: "Data, credentials, personal information and business secrets obtained during testing must be handled in accordance with the authorization and applicable law: limited purpose, limited retention, no distribution and no sale. This platform stores sessions, vulnerability records and packet-capture evidence in a local database; custody and destruction are the user's responsibility.",
+		},
+		{
+			title: "Consequences of prohibited use",
+			body: "If you use this platform without authorization, the authors accept no liability and will cooperate with investigations and provide audit records when legally required. You may stop using the platform at any time and delete the local data.",
+		},
+	],
+	illegal:
+		"**Unauthorized penetration testing is illegal and may constitute a criminal offence.** Scanning, probing, intruding into, or disrupting another person's system may violate Article 27 of the Cybersecurity Law of the People's Republic of China and Articles 285, 286 and 287-2 of the Criminal Law of the People's Republic of China.",
+	aiTitle: "AI risk notice: an agent's attack path cannot be fully controlled",
+	ai: [
+		"This platform is driven by a large language model: the model **autonomously** decides what to do next (which port to test, which POC to use, whether to move laterally). Its actions follow from your target and prompt, but the outcome is not fully predictable.",
+		"Any impact or loss caused to **business systems, data, third parties or the user** by using this platform is borne by the user; the authors accept no liability. Operate in an isolated environment or with a rollback plan.",
+		"Possible consequences include: damaging a production environment or corrupting data; triggering business alerts, risk controls or account lockouts; producing real attack traffic recorded by third-party security devices; affecting shared infrastructure; and consuming substantial bandwidth or compute in a short time.",
+		"The platform provides safeguards such as command gating, approval mode, command editing, target allowlists and audit logs, but these **do not guarantee that every action is blocked** and do not replace your judgment about the authorized scope.",
+	],
+	promise: "I promise to use this platform only for authorized, lawful penetration testing",
+	ack: "I have read and understood all the terms above, especially the legal consequences of unauthorized penetration testing and the fact that an AI agent's autonomous actions cannot be fully controlled and that I am responsible for their impact on business systems.",
+	footnote:
+		"After acceptance, the commitment is recorded locally and you will not be prompted again. This notice is not legal advice; the latest legal texts and your authorization document govern.",
+};
+
+/** Backwards-compatible alias for the original Chinese statement. */
+export const CONSENT_TEXT: ConsentText = CONSENT_TEXT_ZH;
+
+export function consentTextFor(language: UiLanguage): ConsentText {
+	return language === "en" ? CONSENT_TEXT_EN : CONSENT_TEXT_ZH;
+}
+
 /**
  * The statement as plain text, in reading order. This is what gets hashed, so it
  * has to cover everything the operator is shown and agrees to.
  */
-export function consentText(text: ConsentText = CONSENT_TEXT): string {
+export function consentText(text: ConsentText = CONSENT_TEXT_ZH): string {
 	const lines: string[] = [text.title, text.subtitle, "", text.intro, ""];
 	for (const [index, clause] of text.clauses.entries()) {
 		lines.push(`${index + 1}. ${clause.title}`, clause.body, "");
@@ -117,7 +170,10 @@ export function consentText(text: ConsentText = CONSENT_TEXT): string {
 
 /** Short digest of the current statement; a stored record with a different one is stale. */
 export function consentTextHash(): string {
-	return createHash("sha256").update(`v${CONSENT_VERSION}\n${consentText()}`).digest("hex").slice(0, 16);
+	// Both translations are hashed: accepting either language covers the same
+	// commitment, while editing either wording invalidates old acceptances.
+	const canonical = `${consentText(CONSENT_TEXT_ZH)}\n---en---\n${consentText(CONSENT_TEXT_EN)}`;
+	return createHash("sha256").update(`v${CONSENT_VERSION}\n${canonical}`).digest("hex").slice(0, 16);
 }
 
 export interface ConsentRecord {
@@ -191,5 +247,10 @@ export function consentStatus(agentDir: string | undefined, username: string | n
  * everything else under `/api` and the WebSocket waits for the promise.
  */
 export function isConsentExemptPath(pathname: string): boolean {
-	return pathname === "/api/consent" || pathname === "/api/consent/accept" || pathname === "/api/auth/session";
+	return (
+		pathname === "/api/ui-language" ||
+		pathname === "/api/consent" ||
+		pathname === "/api/consent/accept" ||
+		pathname === "/api/auth/session"
+	);
 }

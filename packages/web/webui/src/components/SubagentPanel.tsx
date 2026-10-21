@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getLanguage, t } from "../i18n.ts";
 import {
 	buildTurns,
 	durationOf,
@@ -17,7 +18,7 @@ import { MarkdownText } from "./MessageView.tsx";
 function formatClock(iso: string): string {
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return "";
-	return date.toLocaleTimeString("zh-CN", { hour12: false });
+	return date.toLocaleTimeString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false });
 }
 
 function scalar(value: unknown): string | undefined {
@@ -70,29 +71,29 @@ function ToolDetail({
 				</div>
 			) : null}
 			<div className="sa-output-head">
-				<span>输出</span>
+				<span>{t("输出")}</span>
 				<span className="sa-output-actions">
 					{command ? (
 						<button type="button" className="ghost small" onClick={() => void copy("command", command)}>
-							{copied === "command" ? "已复制" : "复制命令"}
+							{copied === "command" ? t("已复制") : t("复制命令")}
 						</button>
 					) : null}
 					{step.output ? (
 						<button type="button" className="ghost small" onClick={() => void copy("output", step.output)}>
-							{copied === "output" ? "已复制" : "复制输出"}
+							{copied === "output" ? t("已复制") : t("复制输出")}
 						</button>
 					) : null}
 					{step.output && onFullscreen ? (
 						<button type="button" className="ghost small" onClick={() => onFullscreen(step.name, step.output)}>
-							全屏
+							{t("全屏")}
 						</button>
 					) : null}
 				</span>
 			</div>
 			<pre className={`sa-output ${step.output ? "" : "is-empty"}`}>
-				{step.output || (step.running ? "等待输出…" : "（无输出）")}
+				{step.output || (step.running ? t("等待输出…") : t("（无输出）"))}
 			</pre>
-			{step.truncated ? <div className="subagent-truncated">（输出过长，已截断）</div> : null}
+			{step.truncated ? <div className="subagent-truncated">{t("（输出过长，已截断）")}</div> : null}
 		</div>
 	);
 }
@@ -127,7 +128,7 @@ function ToolRow({
 					<span className={`sa-tool-summary ${step.running ? "live" : ""}`}>{step.summary}</span>
 				) : null}
 				<span className={`sa-tool-meta ${status}`}>
-					{status === "running" ? "运行中" : status === "error" ? "失败" : "✓"}
+					{status === "running" ? t("运行中") : status === "error" ? t("失败") : "✓"}
 					{duration ? <span className="sa-tool-duration">{duration}</span> : null}
 				</span>
 			</div>
@@ -150,7 +151,7 @@ function TextRow({ step, expanded, onToggle }: { step: TextStep; expanded: boole
 			>
 				{expanded ? <MarkdownText text={step.text} /> : <div className="sa-text-clamp">{plainText(step.text)}</div>}
 			</div>
-			{step.truncated ? <div className="subagent-truncated">（内容过长，已截断）</div> : null}
+			{step.truncated ? <div className="subagent-truncated">{t("（内容过长，已截断）")}</div> : null}
 		</div>
 	);
 }
@@ -178,15 +179,15 @@ function RunList({
 			{total > 10 ? (
 				<div className="subagent-list-pager">
 					<button type="button" disabled={page === 0} onClick={() => onPage(page - 1)}>
-						上一页
+						{t("上一页")}
 					</button>
 					<span>
 						{page + 1} / {pageCount}
 					</span>
 					<button type="button" disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>
-						下一页
+						{t("下一页")}
 					</button>
-					<span className="muted">共 {total}</span>
+					<span className="muted">{t("共 {total}", { total })}</span>
 				</div>
 			) : null}
 			{runs.map((run) => {
@@ -206,12 +207,13 @@ function RunList({
 							{run.task}
 						</span>
 						<span className="subagent-item-meta">
-							{run.turns} 轮{duration ? ` · ${duration}` : ""}
+							{t("{turns} 轮", { turns: run.turns })}
+							{duration ? ` · ${duration}` : ""}
 						</span>
 					</button>
 				);
 			})}
-			{runs.length === 0 ? <div className="subagent-empty">加载中…</div> : null}
+			{runs.length === 0 ? <div className="subagent-empty">{t("加载中…")}</div> : null}
 		</aside>
 	);
 }
@@ -291,27 +293,30 @@ function RunDetail({
 				<div className="subagent-detail-meta">
 					<span className={`subagent-badge ${run.status}`}>{STATUS_LABELS[run.status]}</span>
 					<span>
-						{run.turns} 轮{duration ? ` · ${duration}` : ""} · {formatClock(run.startedAt)}
+						{t("{turns} 轮", { turns: run.turns })}
+						{duration ? ` · ${duration}` : ""} · {formatClock(run.startedAt)}
 					</span>
 				</div>
 			</div>
 			<div className="subagent-tabs">
 				<button type="button" className={tab === "process" ? "on" : ""} onClick={() => setTab("process")}>
-					过程
+					{t("过程")}
 					<span className="subagent-tab-count">{toolCount}</span>
 					{/* Visible from the result tab too: a failed step is why the operator
 					    opens the process in the first place. */}
-					{failureCount > 0 ? <span className="subagent-tab-fail">{failureCount} 个失败</span> : null}
+					{failureCount > 0 ? (
+						<span className="subagent-tab-fail">{t("{count} 个失败", { count: failureCount })}</span>
+					) : null}
 				</button>
 				<button type="button" className={tab === "result" ? "on" : ""} onClick={() => setTab("result")}>
-					结果
+					{t("结果")}
 				</button>
 				{tab === "process" ? (
 					<span className="subagent-tools">
 						<input
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="搜索命令、输出…"
+							placeholder={t("搜索命令、输出…")}
 							spellCheck={false}
 						/>
 						<button
@@ -319,7 +324,7 @@ function RunDetail({
 							className={`ghost small ${failuresOnly ? "on" : ""}`}
 							onClick={() => setFailuresOnly((prev) => !prev)}
 						>
-							只看失败
+							{t("只看失败")}
 						</button>
 						{firstFailure ? (
 							<button
@@ -337,16 +342,16 @@ function RunDetail({
 									);
 								}}
 							>
-								跳到第一个失败
+								{t("跳到第一个失败")}
 							</button>
 						) : null}
 						<button
 							type="button"
 							className={`ghost small ${follow ? "on" : ""}`}
-							title="跟随最新步骤"
+							title={t("跟随最新步骤")}
 							onClick={() => setFollow((prev) => !prev)}
 						>
-							跟随
+							{t("跟随")}
 						</button>
 					</span>
 				) : null}
@@ -366,24 +371,29 @@ function RunDetail({
 							<MarkdownText text={run.result} />
 						) : (
 							<div className="subagent-empty">
-								{run.status === "running" ? "运行中，还没有产出结果" : "（没有结果）"}
+								{run.status === "running" ? t("运行中，还没有产出结果") : t("（没有结果）")}
 							</div>
 						)}
 					</div>
 				) : events.length === 0 ? (
-					<div className="subagent-empty">暂无过程记录</div>
+					<div className="subagent-empty">{t("暂无过程记录")}</div>
 				) : shownTurns.length === 0 ? (
-					<div className="subagent-empty">没有匹配的步骤</div>
+					<div className="subagent-empty">{t("没有匹配的步骤")}</div>
 				) : (
 					<div className="subagent-process">
 						{shownTurns.map((turn) => (
 							<div key={turn.index} className="sa-turn">
 								<div className="sa-turn-head">
-									<span className="sa-turn-label">第 {turn.index} 轮</span>
-									<span className="sa-turn-meta">
-										{turn.tools} 个工具{turn.durationMs > 0 ? ` · ${formatMs(turn.durationMs)}` : ""}
+									<span className="sa-turn-label">
+										{t("第 {round} 轮", { round: turn.index })}
 									</span>
-									{turn.failures > 0 ? <span className="sa-turn-fail">{turn.failures} 个失败</span> : null}
+									<span className="sa-turn-meta">
+										{t("{count} 个工具", { count: turn.tools })}
+										{turn.durationMs > 0 ? ` · ${formatMs(turn.durationMs)}` : ""}
+									</span>
+									{turn.failures > 0 ? (
+										<span className="sa-turn-fail">{t("{count} 个失败", { count: turn.failures })}</span>
+									) : null}
 								</div>
 								{turn.steps.map((step) => {
 									if (step.kind === "tool") {
@@ -418,7 +428,9 @@ function RunDetail({
 										return (
 											<div key={step.seq} className="sa-step sa-block">
 												<details className="thinking">
-													<summary>思考 · {step.text.length} 字</summary>
+													<summary>
+														{t("思考 · {count} 字", { count: step.text.length })}
+													</summary>
 													<pre>{step.text}</pre>
 												</details>
 											</div>
@@ -438,11 +450,11 @@ function RunDetail({
 			{run.status === "running" ? (
 				<div className="subagent-controls">
 					<button type="button" className="danger" onClick={() => onAbort(run.id)}>
-						中止该子代理
+						{t("中止该子代理")}
 					</button>
 					<input
 						value={steerText}
-						placeholder="给该子代理追加指令…"
+						placeholder={t("给该子代理追加指令…")}
 						onChange={(event) => setSteerText(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" && steerText.trim()) {
@@ -459,7 +471,7 @@ function RunDetail({
 							setSteerText("");
 						}}
 					>
-						追加
+						{t("追加")}
 					</button>
 				</div>
 			) : null}
@@ -547,7 +559,7 @@ export function SubagentPanel({
 		return (
 			<div className="subagent-panel empty">
 				<div className="subagent-empty">
-					当前会话还没有子代理。让主代理用 spawn_agent 派发独立任务后，这里会显示它的实时过程。
+					{t("当前会话还没有子代理。让主代理用 spawn_agent 派发独立任务后，这里会显示它的实时过程。")}
 				</div>
 			</div>
 		);

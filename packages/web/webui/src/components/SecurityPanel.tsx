@@ -6,6 +6,7 @@
  * lives in the sider footer; the server refuses tokens issued before it.
  */
 import { type FormEvent, useState } from "react";
+import { t } from "../i18n.ts";
 
 export function SecurityPanel({ username }: { username: string | null }) {
 	const [current, setCurrent] = useState("");
@@ -20,7 +21,7 @@ export function SecurityPanel({ username }: { username: string | null }) {
 		if (busy) return;
 		setSaved(false);
 		if (next !== confirm) {
-			setError("两次输入的新密码不一致");
+			setError(t("两次输入的新密码不一致"));
 			return;
 		}
 		setBusy(true);
@@ -33,7 +34,7 @@ export function SecurityPanel({ username }: { username: string | null }) {
 			});
 			const data = (await response.json().catch(() => ({}))) as { error?: unknown };
 			if (!response.ok) {
-				setError(typeof data.error === "string" ? data.error : "修改失败");
+				setError(typeof data.error === "string" ? data.error : t("修改失败"));
 				return;
 			}
 			setCurrent("");
@@ -47,14 +48,14 @@ export function SecurityPanel({ username }: { username: string | null }) {
 
 	return (
 		<div className="settings settings--wide">
-			<h3 className="settings-section">修改密码</h3>
+			<h3 className="settings-section">{t("修改密码")}</h3>
 			<p className="settings-hint">
-				当前登录：{username ?? "未知"}。退出登录在侧栏底部；修改后其他已登录的会话（包括别的浏览器）会全部退出。
+				{t("当前登录：{user}。退出登录在侧栏底部；修改后其他已登录的会话（包括别的浏览器）会全部退出。", { user: username ?? t("未知") })}
 			</p>
-			<p className="settings-hint">至少 8 个字符。修改后其他已登录的会话（包括别的浏览器）会全部退出。</p>
+			<p className="settings-hint">{t("至少 8 个字符。修改后其他已登录的会话（包括别的浏览器）会全部退出。")}</p>
 			<form className="security-form" onSubmit={submit}>
 				<label>
-					当前密码
+					{t("当前密码")}
 					<input
 						type="password"
 						value={current}
@@ -63,7 +64,7 @@ export function SecurityPanel({ username }: { username: string | null }) {
 					/>
 				</label>
 				<label>
-					新密码
+					{t("新密码")}
 					<input
 						type="password"
 						value={next}
@@ -72,7 +73,7 @@ export function SecurityPanel({ username }: { username: string | null }) {
 					/>
 				</label>
 				<label>
-					确认新密码
+					{t("确认新密码")}
 					<input
 						type="password"
 						value={confirm}
@@ -81,10 +82,10 @@ export function SecurityPanel({ username }: { username: string | null }) {
 					/>
 				</label>
 				{error ? <p className="page-error">{error}</p> : null}
-				{saved ? <p className="settings-hint ok-text">密码已修改。</p> : null}
+				{saved ? <p className="settings-hint ok-text">{t("密码已修改。")}</p> : null}
 				<div>
 					<button type="submit" disabled={busy || !current || !next}>
-						{busy ? "保存中…" : "修改密码"}
+						{busy ? t("保存中…") : t("修改密码")}
 					</button>
 				</div>
 			</form>

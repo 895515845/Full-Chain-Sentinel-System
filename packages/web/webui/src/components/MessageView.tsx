@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { t } from "../i18n.ts";
 import { formatTokens, textFromContent } from "../transcript.ts";
 import type { AgentMessageView, ContentBlockView } from "../types.ts";
 import { ToolCard } from "./ToolCard.tsx";
@@ -82,24 +83,24 @@ export function AgentEntry({
 /** Turn common provider/endpoint failures into an actionable Chinese hint. */
 function hintForError(message: string): string {
 	if (/502|upstream/i.test(message)) {
-		return "端点网关连不上上游模型服务：检查中转渠道是否被禁用、上游服务是否存活。可用「设置 → 模型 → 测试连接」验证。";
+		return t("端点网关连不上上游模型服务：检查中转渠道是否被禁用、上游服务是否存活。可用「设置 → 模型 → 测试连接」验证。");
 	}
 	if (/401|403|unauthorized|api key|authentication/i.test(message)) {
-		return "认证失败：检查 API Key 是否有效，或在「设置 → 模型」中重新填写。";
+		return t("认证失败：检查 API Key 是否有效，或在「设置 → 模型」中重新填写。");
 	}
 	if (/404|not found/i.test(message)) {
-		return "路径或模型不存在：确认 Base URL 以 /v1 结尾、模型 ID 拼写正确。";
+		return t("路径或模型不存在：确认 Base URL 以 /v1 结尾、模型 ID 拼写正确。");
 	}
 	if (/429|rate limit|quota/i.test(message)) {
-		return "限流或额度不足：稍后重试，或检查端点的令牌额度。";
+		return t("限流或额度不足：稍后重试，或检查端点的令牌额度。");
 	}
 	if (/timeout|timed out|econnrefused|enotfound|fetch failed|network/i.test(message)) {
-		return "网络问题：确认端点地址可达、服务已启动。可用「设置 → 模型 → 测试连接」定位。";
+		return t("网络问题：确认端点地址可达、服务已启动。可用「设置 → 模型 → 测试连接」定位。");
 	}
 	if (/context|token limit|too long/i.test(message)) {
-		return "上下文超限：先压缩会话（输入 /compact 或点击「压缩上下文」）后重试。";
+		return t("上下文超限：先压缩会话（输入 /compact 或点击「压缩上下文」）后重试。");
 	}
-	return "运行失败：可重试；持续失败请用「设置 → 模型 → 测试连接」检查端点。";
+	return t("运行失败：可重试；持续失败请用「设置 → 模型 → 测试连接」检查端点。");
 }
 
 /**
@@ -116,10 +117,10 @@ function GoalMarker({ text, timestamp, elapsedMs }: { text: string; timestamp?: 
 		return (
 			<details className="goal-start">
 				<summary>
-					<span className="goal-start__title">持续目标已启动</span>
+					<span className="goal-start__title">{t("持续目标已启动")}</span>
 					<span className="goal-start__sub">
-						{objective ? `目标：${objective}` : "见合约"}
-						{limit ? ` · 轮数上限 ${limit}` : ""}
+						{objective ? t("目标：{objective}", { objective }) : t("见合约")}
+						{limit ? t(" · 轮数上限 {limit}", { limit }) : ""}
 					</span>
 				</summary>
 				<pre className="goal-start__body">{text}</pre>
@@ -133,9 +134,9 @@ function GoalMarker({ text, timestamp, elapsedMs }: { text: string; timestamp?: 
 		<details className="goal-iter-badge">
 			<summary>
 				<span className="chip">
-					<b>迭代 {iteration}</b>
+					<b>{t("迭代")} {iteration}</b>
 					<span className="t">
-						轮 {iteration}/{roundLimit}
+						{t("轮")} {iteration}/{roundLimit}
 						{elapsedMs !== undefined ? ` · ${formatDurationShort(elapsedMs)}` : ""}
 						{timestamp ? ` · ${formatTime(timestamp)}` : ""}
 					</span>
@@ -149,10 +150,10 @@ function GoalMarker({ text, timestamp, elapsedMs }: { text: string; timestamp?: 
 /** Compact mm:ss / h 小时 m 分 for badge metadata. */
 function formatDurationShort(ms: number): string {
 	const totalSeconds = Math.round(ms / 1000);
-	if (totalSeconds < 60) return `${totalSeconds} 秒`;
+	if (totalSeconds < 60) return t("{seconds} 秒", { seconds: totalSeconds });
 	const minutes = Math.floor(totalSeconds / 60);
-	if (minutes < 60) return `${minutes} 分 ${totalSeconds % 60} 秒`;
-	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+	if (minutes < 60) return t("{minutes} 分 {seconds} 秒", { minutes, seconds: totalSeconds % 60 });
+	return t("{hours} 时 {minutes} 分", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 /**
@@ -198,7 +199,7 @@ function StepRow({
 			<summary>
 				<span className="step-time">{time ? formatTime(time) : ""}</span>
 				<span className={`step-tool ${tool}`}>{tool}</span>
-				<span className="step-arg">{argument || "(无参数)"}</span>
+				<span className="step-arg">{argument || t("(无参数)")}</span>
 				{durationMs ? (
 					<span className="step-dur">{durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`}</span>
 				) : null}
@@ -209,13 +210,13 @@ function StepRow({
 					<button
 						type="button"
 						className="step-more"
-						title={onFullscreen ? "在查看器中打开全部内容" : "就地展开全部内容"}
+						title={onFullscreen ? t("在查看器中打开全部内容") : t("就地展开全部内容")}
 						onClick={(event) => {
 							event.preventDefault();
 							showAll();
 						}}
 					>
-						… 还有 {rest} 行，点击查看全部
+						{t("… 还有 {rest} 行，点击查看全部", { rest })}
 					</button>
 				) : null}
 			</div>
@@ -225,7 +226,7 @@ function StepRow({
 
 /** First line of a thinking block, as the row's argument summary. */
 function thinkingSummary(thinking: string): string {
-	const line = thinking.split("\n").find((candidate) => candidate.trim().length > 0) ?? "(空)";
+	const line = thinking.split("\n").find((candidate) => candidate.trim().length > 0) ?? t("(空)");
 	return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 
@@ -262,7 +263,7 @@ export function MessageView({
 							<img
 								key={index}
 								src={`data:${image.mimeType};base64,${image.data}`}
-								alt={`附件 ${index + 1}`}
+								alt={t("附件 {index}", { index: index + 1 })}
 								loading="lazy"
 							/>
 						))}
@@ -271,7 +272,7 @@ export function MessageView({
 				{text ? <div className="log-op-text">{text}</div> : null}
 				{forkEntryId && onFork ? (
 					<button type="button" className="ghost small fork-button" onClick={() => onFork(forkEntryId)}>
-						从此分叉
+						{t("从此分叉")}
 					</button>
 				) : null}
 			</OperatorEntry>
@@ -294,11 +295,11 @@ export function MessageView({
 			return (
 				<StepRow
 					time={message.timestamp}
-					tool="思考"
+					tool={t("思考")}
 					argument={thinkingSummary(thinkingText)}
 					output={thinkingText}
 					onFullscreen={onFullscreen}
-					viewerTitle="思考过程"
+					viewerTitle={t("思考过程")}
 				/>
 			);
 		}
@@ -308,15 +309,15 @@ export function MessageView({
 					compact && text ? (
 						<StepRow
 							time={message.timestamp}
-							tool="思考"
+							tool={t("思考")}
 							argument={thinkingSummary(thinkingText)}
 							output={thinkingText}
 							onFullscreen={onFullscreen}
-							viewerTitle="思考过程"
+							viewerTitle={t("思考过程")}
 						/>
 					) : (
 						<details className="thinking">
-							<summary>思考过程</summary>
+							<summary>{t("思考过程")}</summary>
 							<pre>{thinkingText}</pre>
 						</details>
 					)
@@ -326,7 +327,7 @@ export function MessageView({
 						<MarkdownText text={text} />
 					</div>
 				) : null}
-				{failed && !text ? <div className="failed">（本次运行失败或被中止）</div> : null}
+				{failed && !text ? <div className="failed">{t("（本次运行失败或被中止）")}</div> : null}
 				{message.errorMessage ? (
 					<div className="failed">
 						<div className="error-title">{message.errorMessage}</div>
@@ -395,8 +396,14 @@ export function MessageView({
 		return (
 			<details className="summary">
 				<summary>
-					会话摘要（{message.role === "compactionSummary" ? "压缩" : "分支"}）
-					{before > 0 ? <span className="summary-meta"> · 压缩前 {formatTokens(before)} tokens</span> : null}
+					{t("会话摘要（{kind}）", {
+						kind: message.role === "compactionSummary" ? t("压缩") : t("分支"),
+					})}
+					{before > 0 ? (
+						<span className="summary-meta">
+							{t(" · 压缩前 {tokens} tokens", { tokens: formatTokens(before) })}
+						</span>
+					) : null}
 				</summary>
 				<pre>{message.summary ?? ""}</pre>
 			</details>
@@ -422,7 +429,7 @@ export function MessageView({
 				<details className="summary loop-guard-row">
 					<summary>
 						<span className={stutter ? "loop-guard-stutter" : "loop-guard-repeat"}>
-							{stutter ? "输出重复已中止" : "重复工具调用提醒"}
+							{stutter ? t("输出重复已中止") : t("重复工具调用提醒")}
 						</span>
 						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
 					</summary>
@@ -437,7 +444,7 @@ export function MessageView({
 			return (
 				<div className="supervisor-advice-row">
 					<div className="supervisor-advice-row__head">
-						<span>监督建议已介入</span>
+						<span>{t("监督建议已介入")}</span>
 						{message.timestamp ? <span>{formatTime(message.timestamp)}</span> : null}
 					</div>
 					<pre>{text}</pre>
@@ -454,7 +461,7 @@ export function MessageView({
 				<details className="summary modeling-row">
 					<summary>
 						<span className={closing ? "modeling-row__close" : "modeling-row__open"}>
-							{closing ? "业务建模已结束" : "业务建模已启动"}
+							{closing ? t("业务建模已结束") : t("业务建模已启动")}
 						</span>
 						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
 					</summary>
@@ -473,7 +480,11 @@ export function MessageView({
 				<details className="summary modeling-row">
 					<summary>
 						<span className={removed ? "modeling-row__close" : "modeling-row__open"}>
-							{removed ? "已移除带入的建模数据" : `已带入业务建模${attached ? ` ${attached[1]} 份` : "数据"}`}
+							{removed
+								? t("已移除带入的建模数据")
+								: attached
+									? t("已带入业务建模 {count} 份", { count: attached[1] })
+									: t("已带入业务建模数据")}
 						</span>
 						{message.timestamp ? <span className="summary-meta"> · {formatTime(message.timestamp)}</span> : null}
 					</summary>

@@ -22,6 +22,7 @@
  */
 
 import { inflateRawSync } from "node:zlib";
+import { t } from "./i18n.ts";
 
 /** Largest single entry accepted; a nuclei template is kilobytes. */
 export const MAX_ZIP_ENTRY_BYTES = 4 * 1024 * 1024;
@@ -97,17 +98,17 @@ function centralDirectory(buffer: Buffer, eocd: number): CentralDirectory {
 	}
 	const locator = eocd - 20;
 	if (locator < 0 || buffer.readUInt32LE(locator) !== ZIP64_LOCATOR_SIGNATURE) {
-		throw new Error("zip 使用了 zip64，但缺少 zip64 目录定位记录，无法确定条目总数");
+		throw new Error(t("zip 使用了 zip64，但缺少 zip64 目录定位记录，无法确定条目总数"));
 	}
 	const record = Number(buffer.readBigUInt64LE(locator + 8));
 	if (record + 56 > buffer.length || buffer.readUInt32LE(record) !== ZIP64_EOCD_SIGNATURE) {
-		throw new Error("zip 的 zip64 目录记录损坏");
+		throw new Error(t("zip 的 zip64 目录记录损坏"));
 	}
 	const entryCount = Number(buffer.readBigUInt64LE(record + 32));
 	const size = Number(buffer.readBigUInt64LE(record + 40));
 	const offset = Number(buffer.readBigUInt64LE(record + 48));
 	if (!Number.isSafeInteger(entryCount) || entryCount < 0 || !Number.isSafeInteger(offset) || offset < 0) {
-		throw new Error("zip 的 zip64 目录字段超出可读范围");
+		throw new Error(t("zip 的 zip64 目录字段超出可读范围"));
 	}
 	return { entryCount, offset, size };
 }
@@ -118,7 +119,7 @@ function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skip
 	let totalUncompressed = 0;
 	for (let index = 0; index < directory.entryCount; index++) {
 		if (offset + 46 > buffer.length || buffer.readUInt32LE(offset) !== CENTRAL_SIGNATURE) {
-			skipped.push({ name: `#${index}`, reason: "zip 目录损坏" });
+			skipped.push({ name: `#${index}`, reason: t("zip 目录损坏") });
 			return;
 		}
 		const flags = buffer.readUInt16LE(offset + 8);
@@ -133,21 +134,21 @@ function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skip
 
 		if (name.endsWith("/")) continue; // directory entry
 		if (compressedSize === ZIP64_SENTINEL || localOffset === ZIP64_SENTINEL) {
-			skipped.push({ name, reason: "条目的 64 位长度或偏移未支持" });
+			skipped.push({ name, reason: t("条目的 64 位长度或偏移未支持") });
 			continue;
 		}
 		if ((flags & 0x1) !== 0) {
-			skipped.push({ name, reason: "加密的条目" });
+			skipped.push({ name, reason: t("加密的条目") });
 			continue;
 		}
 		if (compressedSize > MAX_ZIP_ENTRY_BYTES) {
-			skipped.push({ name, reason: "文件过大" });
+			skipped.push({ name, reason: t("文件过大") });
 			continue;
 		}
 		// The local header's own name/extra lengths decide where the data
 		// starts; the central directory's copies are not always equal.
 		if (localOffset + 30 > buffer.length || buffer.readUInt32LE(localOffset) !== LOCAL_SIGNATURE) {
-			skipped.push({ name, reason: "本地头损坏" });
+			skipped.push({ name, reason: t("本地头损坏") });
 			continue;
 		}
 		const localNameLength = buffer.readUInt16LE(localOffset + 26);
@@ -155,7 +156,7 @@ function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skip
 		const dataStart = localOffset + 30 + localNameLength + localExtraLength;
 		const raw = buffer.subarray(dataStart, dataStart + compressedSize);
 		if (raw.length < compressedSize) {
-			skipped.push({ name, reason: "数据不完整" });
+			skipped.push({ name, reason: t("数据不完整") });
 			continue;
 		}
 		try {
@@ -168,31 +169,31 @@ function* walkCentralDirectory(buffer: Buffer, directory: CentralDirectory, skip
 						? inflateRawSync(raw, { maxOutputLength: MAX_ZIP_ENTRY_BYTES })
 						: null;
 			if (!data) {
-				skipped.push({ name, reason: `不支持的压缩方式 ${method}` });
+				skipped.push({ name, reason: t("不支持的压缩方式 {method}", { method }) });
 				continue;
 			}
 			totalUncompressed += data.length;
 			if (totalUncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
-				skipped.push({ name, reason: "解压后总大小超过上限" });
+				skipped.push({ name, reason: t("解压后总大小超过上限") });
 				return;
 			}
 			yield { name, data };
 		} catch {
-			skipped.push({ name, reason: "解压失败或解压后过大" });
+			skipped.push({ name, reason: t("解压失败或解压后过大") });
 		}
 	}
 }
 
 /** Open an archive for entry-at-a-time reading. Throws if it is not readable. */
 export function openZip(buffer: Buffer): ZipStream {
-	if (buffer.length < 22) throw new Error("不是有效的 zip 文件（太小）");
+	if (buffer.length < 22) throw new Error(t("不是有效的 zip 文件（太小）"));
 	if (buffer.length > MAX_ZIP_TOTAL_BYTES) {
-		throw new Error(`zip 文件过大（上限 ${Math.round(MAX_ZIP_TOTAL_BYTES / 1024 / 1024)}MB）`);
+		throw new Error(t("zip 文件过大（上限 {size}MB）", { size: Math.round(MAX_ZIP_TOTAL_BYTES / 1024 / 1024) }));
 	}
 	const eocd = findEocd(buffer);
-	if (eocd < 0) throw new Error("找不到 zip 目录（可能不是 zip 文件）");
+	if (eocd < 0) throw new Error(t("找不到 zip 目录（可能不是 zip 文件）"));
 	const directory = centralDirectory(buffer, eocd);
-	if (directory.offset + directory.size > buffer.length) throw new Error("zip 目录越界");
+	if (directory.offset + directory.size > buffer.length) throw new Error(t("zip 目录越界"));
 	const skipped: ZipSkip[] = [];
 	return { entries: walkCentralDirectory(buffer, directory, skipped), skipped };
 }

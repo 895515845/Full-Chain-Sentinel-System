@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../i18n.ts";
 import { CaretDownIcon, CaretRightIcon } from "./icons.tsx";
 
 /** First non-empty line of a text block, truncated for the collapsed summary row. */
@@ -70,7 +71,7 @@ export function ToolCard({
 						<span className={`tool-summary ${status === "running" ? "live" : ""}`}>{preview}</span>
 					) : null}
 					<span className={`tool-meta ${status}`}>
-						{status === "running" ? "运行中" : status === "error" ? "失败" : "✓"}
+						{status === "running" ? t("运行中") : status === "error" ? t("失败") : "✓"}
 						{duration ? <span className="tool-duration">{duration}</span> : null}
 					</span>
 					<span className="tool-caret">
@@ -89,7 +90,7 @@ export function ToolCard({
 						<CaretDownIcon size={11} />
 						<span className="tool-name">{name}</span>
 						<span className={`tool-status ${status}`}>
-							{status === "running" ? "执行中…" : status === "error" ? "出错" : "完成"}
+							{status === "running" ? t("执行中…") : status === "error" ? t("出错") : t("完成")}
 							{duration ? ` ${duration}` : ""}
 						</span>
 					</span>
@@ -103,7 +104,7 @@ export function ToolCard({
 									void copy("command", command);
 								}}
 							>
-								{copied === "command" ? "已复制" : "复制命令"}
+								{copied === "command" ? t("已复制") : t("复制命令")}
 							</button>
 						) : null}
 						{output ? (
@@ -116,7 +117,7 @@ export function ToolCard({
 										void copy("output", output);
 									}}
 								>
-									{copied === "output" ? "已复制" : "复制输出"}
+									{copied === "output" ? t("已复制") : t("复制输出")}
 								</button>
 								{onFullscreen ? (
 									<button
@@ -127,7 +128,7 @@ export function ToolCard({
 											onFullscreen(command, output);
 										}}
 									>
-										全屏
+										{t("全屏")}
 									</button>
 								) : null}
 							</>
@@ -138,7 +139,7 @@ export function ToolCard({
 				{output ? (
 					<pre className="ws-console__body">{output}</pre>
 				) : (
-					<pre className="ws-console__body is-empty">{status === "running" ? "等待输出…" : "（无输出）"}</pre>
+					<pre className="ws-console__body is-empty">{status === "running" ? t("等待输出…") : t("（无输出）")}</pre>
 				)}
 			</div>
 		</div>
@@ -162,14 +163,14 @@ export function OutputViewer({ title, output, onClose }: { title: string; output
 					<input
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
-						placeholder="搜索输出（过滤匹配行）…"
+						placeholder={t("搜索输出（过滤匹配行）…")}
 						spellCheck={false}
 					/>
 					<span className="viewer-count">
-						{matched ? `${matched.length}/${lines.length} 行匹配` : `${lines.length} 行`}
+						{matched ? t("{matched}/{total} 行匹配", { matched: matched.length, total: lines.length }) : t("{count} 行", { count: lines.length })}
 					</span>
 					<button type="button" onClick={onClose}>
-						关闭
+						{t("关闭")}
 					</button>
 				</div>
 				<pre className="viewer-body">

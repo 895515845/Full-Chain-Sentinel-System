@@ -18,6 +18,7 @@
 
 import { join } from "node:path";
 import { runDocker } from "../docker.ts";
+import { t } from "../i18n.ts";
 import type { SentinelPluginManifest } from "../plugin-manifest.ts";
 import type { PluginRuntimeState, StoredPluginRecord } from "./store.ts";
 import type { DockerRunner } from "./types.ts";
@@ -107,7 +108,7 @@ export async function buildPluginImage(context: DockerContext, options: BuildIma
 	return {
 		ok: false,
 		output,
-		error: `镜像构建失败（退出码 ${result.code}）：\n${output.slice(-2000)}`,
+		error: t("镜像构建失败（退出码 {code}）：\n{output}", { code: result.code, output: output.slice(-2000) }),
 	};
 }
 
@@ -189,7 +190,7 @@ export async function createContainer(
 	await removeContainer(context, options.record.containerName);
 	const created = await runner(createArgs(options), { timeoutMs: TIMEOUT.create });
 	if (created.code !== 0) {
-		return `创建容器失败：${(created.stderr || created.stdout).trim().slice(-600)}`;
+		return t("创建容器失败：{error}", { error: (created.stderr || created.stdout).trim().slice(-600) });
 	}
 	return undefined;
 }
@@ -211,18 +212,24 @@ export async function containerHostPort(
 
 export async function startContainer(context: DockerContext, name: string): Promise<string | undefined> {
 	const result = await runnerOf(context)(["start", name], { timeoutMs: TIMEOUT.start });
-	return result.code === 0 ? undefined : `启动失败：${(result.stderr || result.stdout).trim().slice(-600)}`;
+	return result.code === 0
+		? undefined
+		: t("启动失败：{error}", { error: (result.stderr || result.stdout).trim().slice(-600) });
 }
 
 /** Rename after the new container passed health, so the canonical name always points at a working one. */
 export async function renameContainer(context: DockerContext, from: string, to: string): Promise<string | undefined> {
 	const result = await runnerOf(context)(["rename", from, to], { timeoutMs: TIMEOUT.inspect });
-	return result.code === 0 ? undefined : `重命名容器失败：${(result.stderr || result.stdout).trim().slice(-400)}`;
+	return result.code === 0
+		? undefined
+		: t("重命名容器失败：{error}", { error: (result.stderr || result.stdout).trim().slice(-400) });
 }
 
 export async function stopContainer(context: DockerContext, name: string): Promise<string | undefined> {
 	const result = await runnerOf(context)(["stop", name], { timeoutMs: TIMEOUT.stop });
-	return result.code === 0 ? undefined : `停止失败：${(result.stderr || result.stdout).trim().slice(-600)}`;
+	return result.code === 0
+		? undefined
+		: t("停止失败：{error}", { error: (result.stderr || result.stdout).trim().slice(-600) });
 }
 
 export interface ContainerState {
@@ -276,13 +283,13 @@ export async function probeHealth(
 	path: string,
 	timeoutMs: number,
 ): Promise<{ ok: boolean; error?: string }> {
-	if (port === null) return { ok: false, error: "没有可用的端口映射" };
+	if (port === null) return { ok: false, error: t("没有可用的端口映射") };
 	try {
 		const response = await fetch(`http://127.0.0.1:${port}${path}`, {
 			signal: AbortSignal.timeout(Math.max(timeoutMs, 500)),
 		});
 		if (response.ok) return { ok: true };
-		return { ok: false, error: `健康检查返回 HTTP ${response.status}` };
+		return { ok: false, error: t("健康检查返回 HTTP {status}", { status: response.status }) };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
@@ -296,15 +303,15 @@ export async function waitHealthy(
 ): Promise<{ ok: boolean; error?: string }> {
 	const { manifest } = record;
 	const deadline = Date.now() + manifest.mcp.startupTimeoutMs;
-	let last: { ok: boolean; error?: string } = { ok: false, error: "未开始检查" };
+	let last: { ok: boolean; error?: string } = { ok: false, error: t("未开始检查") };
 	while (Date.now() < deadline) {
 		const state = await inspectContainer(context, record.containerName);
 		if (state && !state.running && state.exitCode !== 0) {
-			return { ok: false, error: `容器已退出（退出码 ${state.exitCode}）` };
+			return { ok: false, error: t("容器已退出（退出码 {code}）", { code: state.exitCode }) };
 		}
 		last = await probeHealth(port, manifest.healthcheck.path, manifest.healthcheck.timeoutMs);
 		if (last.ok) return last;
 		await new Promise((resolve) => setTimeout(resolve, Math.max(500, manifest.healthcheck.intervalMs / 2)));
 	}
-	return { ok: false, error: `启动超时：${last.error ?? "健康检查未通过"}` };
+	return { ok: false, error: t("启动超时：{error}", { error: last.error ?? t("健康检查未通过") }) };
 }

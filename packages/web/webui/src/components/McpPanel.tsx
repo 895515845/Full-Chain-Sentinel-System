@@ -7,29 +7,31 @@ import type {
 	SentinelMcpTestResult,
 	SentinelMcpTransport,
 } from "../types.ts";
+import { getLanguage, t } from "../i18n.ts";
 
 /** Exposure labels and what each one does to the model's tool list. */
 const EXPOSURE_OPTIONS: { value: SentinelMcpExposure; label: string; hint: string }[] = [
 	{
 		value: "codemode",
-		label: "脚本调用（codemode）",
-		hint: "默认。工具不进模型的工具列表，由 codemode 脚本用 searchTools() 找到后调用。",
+		label: t("脚本调用（codemode）"),
+		hint: t("默认。工具不进模型的工具列表，由 codemode 脚本用 searchTools() 找到后调用。"),
 	},
 	{
 		value: "deferred",
-		label: "按需加载（tool_search）",
-		hint: "模型先用 tool_search 加载，再直接调用，不需要 codemode。",
+		label: t("按需加载（tool_search）"),
+		hint: t("模型先用 tool_search 加载，再直接调用，不需要 codemode。"),
 	},
-	{ value: "direct", label: "直接声明", hint: "像内置工具一样直接出现在模型的工具列表里，最省事也最占上下文。" },
-	{ value: "hidden", label: "隐藏", hint: "连接但不给任何调用入口。" },
+	{ value: "direct", label: t("直接声明"), hint: t("像内置工具一样直接出现在模型的工具列表里，最省事也最占上下文。") },
+	{ value: "hidden", label: t("隐藏"), hint: t("连接但不给任何调用入口。") },
 ];
 
 /**
  * Shown while the SSE transport is selected. The two url transports look alike
  * from here, so the difference worth naming is which one the server speaks.
  */
-const SSE_HINT =
-	"旧版 HTTP+SSE（MCP 2024-11-05）：哨兵先建立 SSE 长连接，由服务器在首个 endpoint 事件里给出消息地址，回复也从这条连接回来。若服务器提供 streamable HTTP（通常是把 /sse 换成 /mcp），优先用 HTTP。";
+const SSE_HINT = t(
+	"旧版 HTTP+SSE（MCP 2024-11-05）：哨兵先建立 SSE 长连接，由服务器在首个 endpoint 事件里给出消息地址，回复也从这条连接回来。若服务器提供 streamable HTTP（通常是把 /sse 换成 /mcp），优先用 HTTP。",
+);
 
 /**
  * Which of the three states a server is in. Single source for both the row's
@@ -39,9 +41,9 @@ const SSE_HINT =
 export type McpServerState = "mounted" | "disabled" | "unacknowledged";
 
 const STATE_LABELS: Record<McpServerState, string> = {
-	mounted: "已挂载",
-	disabled: "未启用",
-	unacknowledged: "未确认",
+	mounted: t("已挂载"),
+	disabled: t("未启用"),
+	unacknowledged: t("未确认"),
 };
 
 const STATE_TONES: Record<McpServerState, string> = {
@@ -67,11 +69,11 @@ export function mcpServerState(server: SentinelMcpServerView): McpServerState {
 export function mountReason(server: SentinelMcpServerView): string {
 	switch (mcpServerState(server)) {
 		case "mounted":
-			return "会话启动时会连接它，工具注册为 mcp__" + server.name.replace(/-/g, "_") + "__<工具名>";
+			return t("会话启动时会连接它，工具注册为 mcp__{name}__<工具名>", { name: server.name.replace(/-/g, "_") });
 		case "disabled":
-			return "已停用：不连接、不注册工具，Agent 看不到它";
+			return t("已停用：不连接、不注册工具，Agent 看不到它");
 		default:
-			return "未勾选宿主机执行确认：不连接、不注册工具";
+			return t("未勾选宿主机执行确认：不连接、不注册工具");
 	}
 }
 
@@ -205,7 +207,7 @@ export function draftToInput(draft: McpDraft): SentinelMcpServerInput {
 
 /** Compact timestamp for the table cell; the full value rides along in the title. */
 function formatWhen(at: number | null): string {
-	if (at === null) return "尚未测试";
+	if (at === null) return t("尚未测试");
 	const date = new Date(at);
 	const pad = (value: number): string => String(value).padStart(2, "0");
 	return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -281,44 +283,46 @@ export function McpPanel({
 	return (
 		<div className="mcp-page">
 			<div className="mcp-notice">
-				<b>stdio 服务器在宿主机上执行</b>
-				stdio 类型的 MCP 服务器由控制台进程直接 spawn（不在项目容器内，也不经过 bash 审批与守门模型），等于把宿主机命令执行权交给该服务器。只添加你信任的来源；需要容器内执行的工具请让 Agent 用 bash 在容器里跑。
+				<b>{t("stdio 服务器在宿主机上执行")}</b>
+				{t("stdio 类型的 MCP 服务器由控制台进程直接 spawn（不在项目容器内，也不经过 bash 审批与守门模型），等于把宿主机命令执行权交给该服务器。只添加你信任的来源；需要容器内执行的工具请让 Agent 用 bash 在容器里跑。")}
 			</div>
 
 			{config.permissionOn ? null : (
 				<div className="mcp-notice is-warn">
-					<b>权限未开启</b>
-					「设置 → 权限」里的 <code>MCP</code> 开关是关的，下面的服务器一个都不会挂载。
+					<b>{t("权限未开启")}</b>
+					{t("「设置 → 权限」里的")} <code>MCP</code>{" "}
+					{t("开关是关的，下面的服务器一个都不会挂载。")}
 					<button type="button" className="link" onClick={onOpenPermissions}>
-						去打开
+						{t("去打开")}
 					</button>
 				</div>
 			)}
 
 			<div className="mcp-toolbar">
 				<div className="mcp-toolbar__stats">
-					已挂载 <b>{config.mounted}</b> / {config.servers.length} 个服务器
-					<span className="hint"> · 只有「已启用 +（stdio 已确认）」的服务器会连接</span>
+					{t("已挂载")} <b>{config.mounted}</b> / {config.servers.length} {t("个服务器")}
+					<span className="hint"> · {t("只有「已启用 +（stdio 已确认）」的服务器会连接")}</span>
 				</div>
 				<div className="mcp-toolbar__spacer" />
 				<button type="button" className="primary" disabled={busy} onClick={() => setDraft({ ...EMPTY_MCP_DRAFT })}>
-					+ 添加服务器
+					+ {t("添加服务器")}
 				</button>
 			</div>
 
 			{config.servers.length === 0 ? (
 				<p className="settings-hint">
-					还没有自定义 MCP 服务器。添加一个之后，它的工具会以 <code>mcp__&lt;服务器&gt;__&lt;工具&gt;</code> 的名字挂给
-					Agent（默认在 codemode 脚本里调用）。
+					{t("还没有自定义 MCP 服务器。添加一个之后，它的工具会以")}{" "}
+					<code>mcp__&lt;{t("服务器")}&gt;__&lt;{t("工具")}&gt;</code>{" "}
+					{t("的名字挂给 Agent（默认在 codemode 脚本里调用）。")}
 				</p>
 			) : (
 				<div className="mcp-table">
 					<div className="mcp-row mcp-row--head">
-						<div>服务器</div>
-						<div>传输</div>
-						<div>状态</div>
-						<div>最近测试</div>
-						<div className="mcp-ops">操作</div>
+						<div>{t("服务器")}</div>
+						<div>{t("传输")}</div>
+						<div>{t("状态")}</div>
+						<div>{t("最近测试")}</div>
+						<div className="mcp-ops">{t("操作")}</div>
 					</div>
 					{config.servers.map((server) => {
 						const state = mcpServerState(server);
@@ -333,13 +337,13 @@ export function McpPanel({
 											type="button"
 											className={`mcp-toggle${isOpen ? " open" : ""}`}
 											aria-expanded={isOpen}
-											aria-label={`展开 ${server.name} 的详情`}
+											aria-label={t("展开 {name} 的详情", { name: server.name })}
 											onClick={() => setOpen((prev) => ({ ...prev, [server.name]: !isOpen }))}
 										/>
 										<div className="mcp-name__text">
 											<div className="mcp-name__title">{server.name}</div>
 											<div className="mcp-name__target" title={server.target}>
-												{server.target || "（未填写）"}
+												{server.target || t("（未填写）")}
 											</div>
 										</div>
 									</div>
@@ -348,12 +352,12 @@ export function McpPanel({
 
 									<div className="mcp-state">
 										<span className={`mcp-pill is-${tone}`}>{STATE_LABELS[state]}</span>
-										<label className="mcp-switch" title={`启用 ${server.name}`}>
+										<label className="mcp-switch" title={t("启用 {name}", { name: server.name })}>
 											<input
 												type="checkbox"
 												checked={server.enabled}
 												disabled={busy}
-												aria-label={`启用 ${server.name}`}
+												aria-label={t("启用 {name}", { name: server.name })}
 												onChange={(event) => onSave({ ...draftToInput(draftOf(server)), enabled: event.target.checked })}
 											/>
 											<span />
@@ -365,8 +369,13 @@ export function McpPanel({
 										{server.status.at === null
 											? ""
 											: server.status.ok
-												? ` · 成功${server.status.tools === undefined ? "" : ` · ${server.status.tools} 工具`}`
-												: " · 失败"}
+												? t(" · 成功{tools}", {
+													tools:
+														server.status.tools === undefined
+															? ""
+															: t(" · {count} 工具", { count: server.status.tools }),
+												})
+												: t(" · 失败")}
 									</div>
 
 									<div className="mcp-ops">
@@ -375,20 +384,20 @@ export function McpPanel({
 											disabled={testing === server.name}
 											onClick={() => void runTest(server.name, server.name)}
 										>
-											{testing === server.name ? "测试中…" : "测试"}
+											{testing === server.name ? t("测试中…") : t("测试")}
 										</button>
 										<button type="button" disabled={busy} onClick={() => setDraft(draftOf(server))}>
-											编辑
+											{t("编辑")}
 										</button>
 										<button
 											type="button"
 											className="quiet"
 											disabled={busy}
 											onClick={() => {
-												if (window.confirm(`删除 MCP 服务器「${server.name}」？`)) onDelete(server.name);
+												if (window.confirm(t("删除 MCP 服务器「{name}」？", { name: server.name }))) onDelete(server.name);
 											}}
 										>
-											删除
+											{t("删除")}
 										</button>
 									</div>
 								</div>
@@ -408,32 +417,33 @@ export function McpPanel({
 										) : null}
 										{server.status.error ? (
 											<>
-												<div className="mcp-detail__title">上次失败原因</div>
+												<div className="mcp-detail__title">{t("上次失败原因")}</div>
 												<div className="mcp-error">{server.status.error}</div>
 											</>
 										) : null}
-										<div className="mcp-detail__title">挂载状态</div>
+										<div className="mcp-detail__title">{t("挂载状态")}</div>
 										<div className="mcp-note">
-											{mountReason(server)}。
+											{t("{reason}。", { reason: mountReason(server) })}{" "}
 											{state === "mounted"
-												? " 工具的可见范围由下面的「暴露方式」决定。"
-												: " 条件不满足的服务器不连接，Agent 看不到它的工具。"}
+												? t("工具的可见范围由下面的「暴露方式」决定。")
+												: t("条件不满足的服务器不连接，Agent 看不到它的工具。")}
 										</div>
 									</div>
 									<div>
-										<div className="mcp-detail__title">暴露方式</div>
+										<div className="mcp-detail__title">{t("暴露方式")}</div>
 										<div className="mcp-note">
 											{EXPOSURE_OPTIONS.find((option) => option.value === server.exposure)?.hint ?? ""}
 										</div>
 										{server.description ? (
 											<>
-												<div className="mcp-detail__title">给模型的描述</div>
+												<div className="mcp-detail__title">{t("给模型的描述")}</div>
 												<div className="mcp-note">{server.description}</div>
 											</>
 										) : null}
-										<div className="mcp-detail__title">存放位置</div>
+										<div className="mcp-detail__title">{t("存放位置")}</div>
 										<div className="mcp-note">
-											{config.path}（0600）。请求头与环境变量保存在这里，由控制台读取，不写入项目容器。
+											{config.path}
+											{t("（0600）。请求头与环境变量保存在这里，由控制台读取，不写入项目容器。")}
 										</div>
 									</div>
 								</div>
@@ -445,29 +455,29 @@ export function McpPanel({
 
 			{draft ? (
 				<div className="mcp-editor" ref={editorRef}>
-					<h3 className="settings-section">{draft.original ? `编辑 ${draft.original}` : "添加 MCP 服务器"}</h3>
+					<h3 className="settings-section">{draft.original ? t("编辑 {name}", { name: draft.original }) : t("添加 MCP 服务器")}</h3>
 
 					<div className="mcp-editor__grid">
 						<label>
-							名称
+							{t("名称")}
 							<input
 								value={draft.name}
 								onChange={(event) => setDraft({ ...draft, name: event.target.value })}
 								placeholder="filesystem"
 								spellCheck={false}
 							/>
-							<span className="hint">只能字母、数字、下划线和短横线；工具名会带上它</span>
+							<span className="hint">{t("只能字母、数字、下划线和短横线；工具名会带上它")}</span>
 						</label>
 
 						<label>
-							传输方式
+							{t("传输方式")}
 							<select
 								value={draft.transport}
 								onChange={(event) => setDraft({ ...draft, transport: event.target.value as SentinelMcpTransport })}
 							>
-								<option value="stdio">stdio（宿主机执行命令）</option>
-								<option value="http">HTTP（远程 streamable HTTP）</option>
-								<option value="sse">SSE（旧版 HTTP+SSE 长连接）</option>
+								<option value="stdio">{t("stdio（宿主机执行命令）")}</option>
+								<option value="http">{t("HTTP（远程 streamable HTTP）")}</option>
+								<option value="sse">{t("SSE（旧版 HTTP+SSE 长连接）")}</option>
 							</select>
 							{draft.transport === "sse" ? <span className="hint">{SSE_HINT}</span> : null}
 						</label>
@@ -477,7 +487,7 @@ export function McpPanel({
 						<>
 							<div className="mcp-editor__grid">
 								<label>
-									命令
+									{t("命令")}
 									<input
 										value={draft.command}
 										onChange={(event) => setDraft({ ...draft, command: event.target.value })}
@@ -486,17 +496,17 @@ export function McpPanel({
 									/>
 								</label>
 								<label>
-									工作目录
+									{t("工作目录")}
 									<input
 										value={draft.cwd}
 										onChange={(event) => setDraft({ ...draft, cwd: event.target.value })}
-										placeholder="留空 = 当前项目工作目录"
+										placeholder={t("留空 = 当前项目工作目录")}
 										spellCheck={false}
 									/>
 								</label>
 							</div>
 							<label className="mcp-editor__wide">
-								参数
+								{t("参数")}
 								<textarea
 									value={draft.argsText}
 									onChange={(event) => setDraft({ ...draft, argsText: event.target.value })}
@@ -504,10 +514,10 @@ export function McpPanel({
 									rows={3}
 									spellCheck={false}
 								/>
-								<span className="hint">每行一个参数，顺序即参数顺序</span>
+								<span className="hint">{t("每行一个参数，顺序即参数顺序")}</span>
 							</label>
 							<label className="mcp-editor__wide">
-								环境变量
+								{t("环境变量")}
 								<textarea
 									value={draft.envText}
 									onChange={(event) => setDraft({ ...draft, envText: event.target.value })}
@@ -515,7 +525,7 @@ export function McpPanel({
 									rows={3}
 									spellCheck={false}
 								/>
-								<span className="hint">每行一个 KEY=VALUE；值支持 ${"${VAR}"} 引用宿主环境变量</span>
+								<span className="hint">{t("每行一个 KEY=VALUE；值支持")} ${"${VAR}"} {t("引用宿主环境变量")}</span>
 							</label>
 							<label className="mcp-editor__ack">
 								<input
@@ -523,7 +533,7 @@ export function McpPanel({
 									checked={draft.hostExecAcknowledged}
 									onChange={(event) => setDraft({ ...draft, hostExecAcknowledged: event.target.checked })}
 								/>
-								我确认该命令会在控制台宿主机上直接执行（不在容器内、不经过 bash 审批）
+								{t("我确认该命令会在控制台宿主机上直接执行（不在容器内、不经过 bash 审批）")}
 							</label>
 						</>
 					) : (
@@ -538,7 +548,7 @@ export function McpPanel({
 								/>
 							</label>
 							<label className="mcp-editor__wide">
-								请求头
+								{t("请求头")}
 								<textarea
 									value={draft.headersText}
 									onChange={(event) => setDraft({ ...draft, headersText: event.target.value })}
@@ -547,8 +557,10 @@ export function McpPanel({
 									spellCheck={false}
 								/>
 								<span className="hint">
-									每行一个 Name: Value；值支持 ${"${VAR}"} 引用宿主环境变量。本页不做 OAuth，需要 OAuth
-									的服务器请在终端执行 sentinel mcp login &lt;名称&gt;。
+									{t("每行一个 Name: Value；值支持")} ${"${VAR}"}{" "}
+									{t("引用宿主环境变量。本页不做 OAuth，需要 OAuth 的服务器请在终端执行 {command}。", {
+										command: `sentinel mcp login <${getLanguage() === "zh" ? "名称" : "name"}>`,
+									})}
 								</span>
 							</label>
 						</>
@@ -556,7 +568,7 @@ export function McpPanel({
 
 					<div className="mcp-editor__grid">
 						<label>
-							暴露方式
+							{t("暴露方式")}
 							<select
 								value={draft.exposure}
 								onChange={(event) => setDraft({ ...draft, exposure: event.target.value as SentinelMcpExposure })}
@@ -570,7 +582,7 @@ export function McpPanel({
 							<span className="hint">{EXPOSURE_OPTIONS.find((o) => o.value === draft.exposure)?.hint}</span>
 						</label>
 						<label>
-							单次请求超时（秒）
+							{t("单次请求超时（秒）")}
 							<input
 								value={draft.timeoutText}
 								inputMode="numeric"
@@ -578,19 +590,19 @@ export function McpPanel({
 								placeholder="60"
 								spellCheck={false}
 							/>
-							<span className="hint">留空用扩展默认值 60 秒</span>
+							<span className="hint">{t("留空用扩展默认值 60 秒")}</span>
 						</label>
 					</div>
 
 					<label className="mcp-editor__wide">
-						描述（给模型看，一行）
+						{t("描述（给模型看，一行）")}
 						<input
 							value={draft.description}
 							onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-							placeholder="文件系统读写服务器"
+							placeholder={t("文件系统读写服务器")}
 							spellCheck={false}
 						/>
-						<span className="hint">会出现在系统提示的 MCP 服务器清单里，帮助模型判断该不该用</span>
+						<span className="hint">{t("会出现在系统提示的 MCP 服务器清单里，帮助模型判断该不该用")}</span>
 					</label>
 
 					<label className="mcp-editor__ack">
@@ -599,22 +611,22 @@ export function McpPanel({
 							checked={draft.enabled}
 							onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
 						/>
-						保存后启用（不启用则只保存配置，不连接）
+						{t("保存后启用（不启用则只保存配置，不连接）")}
 					</label>
 
 					<div className="mcp-editor__actions">
 						<button type="button" className="primary" disabled={busy || !draftValid} onClick={submit}>
-							保存
+							{t("保存")}
 						</button>
 						<button
 							type="button"
 							disabled={testing === draftKey}
 							onClick={() => void runTest(draftKey, draft.name.trim(), draftToInput(draft))}
 						>
-							{testing === draftKey ? "测试中…" : "测试连接"}
+							{testing === draftKey ? t("测试中…") : t("测试连接")}
 						</button>
 						<button type="button" onClick={() => setDraft(null)}>
-							取消
+							{t("取消")}
 						</button>
 					</div>
 					{results[draftKey] ? (
@@ -624,13 +636,13 @@ export function McpPanel({
 						</div>
 					) : null}
 					<p className="mcp-footnote">
-						「测试连接」只做一次连接并读取工具列表，不会保存，也不影响正在运行的会话；stdio 服务器在测试时同样会在宿主机上启动进程。
+						{t("「测试连接」只做一次连接并读取工具列表，不会保存，也不影响正在运行的会话；stdio 服务器在测试时同样会在宿主机上启动进程。")}
 					</p>
 				</div>
 			) : null}
 
 			<p className="mcp-footnote">
-				保存与删除会重建活动会话（先中止正在运行的会话），新增的工具要等会话重建后才会出现。连接由会话内的 MCP 扩展在启动时完成，本页不显示实时连接状态。
+				{t("保存与删除会重建活动会话（先中止正在运行的会话），新增的工具要等会话重建后才会出现。连接由会话内的 MCP 扩展在启动时完成，本页不显示实时连接状态。")}
 			</p>
 		</div>
 	);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { t } from "../i18n.ts";
 import type {
 	SentinelModelLibraryView,
 	SentinelModelRoleName,
@@ -50,20 +51,27 @@ export function ModelRolePicker({
 
 	return createPortal(
 		<div className="cockpit-layer">
-			<button type="button" className="cockpit-scrim" aria-label="关闭" onClick={onClose} />
-			<div className="cockpit-dialog" role="dialog" aria-modal="true" aria-label={`更换${ROLE_LABELS[role]}`}>
+			<button type="button" className="cockpit-scrim" aria-label={t("关闭")} onClick={onClose} />
+			<div
+				className="cockpit-dialog"
+				role="dialog"
+				aria-modal="true"
+				aria-label={t("更换{role}", { role: ROLE_LABELS[role] })}
+			>
 				<div className="cockpit-dialog__head">
 					<div>
-						<h3>更换{ROLE_LABELS[role]}</h3>
-						<p>{ROLE_HINTS[role]} · 同一模型可被多个角色复用</p>
+						<h3>{t("更换{role}", { role: ROLE_LABELS[role] })}</h3>
+						<p>{t("{hint} · 同一模型可被多个角色复用", { hint: ROLE_HINTS[role] })}</p>
 					</div>
-					<button type="button" className="cockpit-iconbtn" aria-label="关闭" onClick={onClose}>
+					<button type="button" className="cockpit-iconbtn" aria-label={t("关闭")} onClick={onClose}>
 						<CloseIcon />
 					</button>
 				</div>
 				<div className="cockpit-dialog__body">
 					<p className="cockpit-dialog__note">
-						当前：{resolved ? `${resolved.entryName} · ${resolved.modelId}` : "未绑定"}
+						{t("当前：{target}", {
+							target: resolved ? `${resolved.entryName} · ${resolved.modelId}` : t("未绑定"),
+						})}
 					</p>
 					{role === "main" ? (
 						<label className={`cockpit-option${selected === "" ? " is-selected" : ""}`}>
@@ -74,8 +82,8 @@ export function ModelRolePicker({
 								onChange={() => setSelected("")}
 							/>
 							<span className="cockpit-option__main">
-								<b>未选择</b>
-								<span>主模型未配置时，依赖它的角色也无法解析</span>
+								<b>{t("未选择")}</b>
+								<span>{t("主模型未配置时，依赖它的角色也无法解析")}</span>
 							</span>
 						</label>
 					) : (
@@ -87,8 +95,12 @@ export function ModelRolePicker({
 								onChange={() => setSelected(FOLLOW_MAIN)}
 							/>
 							<span className="cockpit-option__main">
-								<b>跟随主模型</b>
-								<span>{mainEntry ? `使用 ${mainEntry.name} · ${mainEntry.modelId}` : "主模型尚未配置"}</span>
+								<b>{t("跟随主模型")}</b>
+								<span>
+									{mainEntry
+										? t("使用 {name} · {model}", { name: mainEntry.name, model: mainEntry.modelId })
+										: t("主模型尚未配置")}
+								</span>
 							</span>
 						</label>
 					)}
@@ -120,12 +132,12 @@ export function ModelRolePicker({
 					))}
 				</div>
 				<div className="cockpit-dialog__foot">
-					<span className="cockpit-hint">更多模型在「模型库」中添加</span>
+					<span className="cockpit-hint">{t("更多模型在「模型库」中添加")}</span>
 					<button type="button" onClick={onClose}>
-						取消
+						{t("取消")}
 					</button>
 					<button type="button" className="primary" onClick={() => onApply(selected === "" ? null : selected)}>
-						应用
+						{t("应用")}
 					</button>
 				</div>
 			</div>

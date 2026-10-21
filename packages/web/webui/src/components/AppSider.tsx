@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PROJECT_REPOSITORY } from "../branding.ts";
+import { getLanguage, t } from "../i18n.ts";
 import type { SessionInfoView, SentinelEngine, SentinelMode, SentinelPageId, SentinelSessionStatus } from "../types.ts";
 import { SENTINEL_MODE_LABELS } from "../types.ts";
 import {
@@ -69,51 +70,51 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 	{
 		group: "工作台",
 		items: [
-			{ page: "chat", label: "对话", icon: ChatIcon },
-			{ page: "projects", label: "项目", icon: ProjectsIcon },
-			{ page: "vulns", label: "漏洞", icon: VulnIcon },
-			{ page: "apimodels", label: "业务建模", icon: ApiModelIcon },
-			{ page: "droid", label: "安卓设备", icon: DroidIcon },
-			{ page: "pocs", label: "POC 库", icon: PocIcon },
-			{ page: "engine", label: "工程", icon: SubagentIcon },
-			{ page: "gates", label: "审批", icon: GateIcon },
-			{ page: "supervisor", label: "监督", icon: SupervisorIcon },
+			{ page: "chat", label: t("对话"), icon: ChatIcon },
+			{ page: "projects", label: t("项目"), icon: ProjectsIcon },
+			{ page: "vulns", label: t("漏洞"), icon: VulnIcon },
+			{ page: "apimodels", label: t("业务建模"), icon: ApiModelIcon },
+			{ page: "droid", label: t("安卓设备"), icon: DroidIcon },
+			{ page: "pocs", label: t("POC 库"), icon: PocIcon },
+			{ page: "engine", label: t("工程"), icon: SubagentIcon },
+			{ page: "gates", label: t("审批"), icon: GateIcon },
+			{ page: "supervisor", label: t("监督"), icon: SupervisorIcon },
 		],
 	},
 	{
 		group: "系统",
 		items: [
-			{ page: "settings.model", label: "设置", icon: SettingsIcon },
-			{ page: "about", label: "关于", icon: AboutIcon },
+			{ page: "settings.model", label: t("设置"), icon: SettingsIcon },
+			{ page: "about", label: t("关于"), icon: AboutIcon },
 		],
 	},
 ];
 
 /** The settings row expands into these pages. */
 const SETTINGS_CHILDREN: MenuEntry[] = [
-	{ page: "settings.model", label: "模型", icon: ModelIcon },
-	{ page: "settings.supervisor", label: "监督", icon: SupervisorIcon },
-	{ page: "settings.notify", label: "通知", icon: NotifyIcon },
-	{ page: "settings.permissions", label: "权限", icon: ShieldIcon },
-	{ page: "settings.presets", label: "预设 Agent", icon: SubagentIcon },
-	{ page: "settings.pocs", label: "POC 订阅", icon: PocIcon },
-	{ page: "settings.assets", label: "资产测绘", icon: AssetIcon },
-	{ page: "settings.websearch", label: "Web 搜索", icon: AssetIcon },
+	{ page: "settings.model", label: t("模型"), icon: ModelIcon },
+	{ page: "settings.supervisor", label: t("监督"), icon: SupervisorIcon },
+	{ page: "settings.notify", label: t("通知"), icon: NotifyIcon },
+	{ page: "settings.permissions", label: t("权限"), icon: ShieldIcon },
+	{ page: "settings.presets", label: t("预设 Agent"), icon: SubagentIcon },
+	{ page: "settings.pocs", label: t("POC 订阅"), icon: PocIcon },
+	{ page: "settings.assets", label: t("资产测绘"), icon: AssetIcon },
+	{ page: "settings.websearch", label: t("Web 搜索"), icon: AssetIcon },
 	{ page: "settings.mcp", label: "MCP", icon: McpIcon },
-	{ page: "settings.plugins", label: "插件", icon: PluginIcon },
-	{ page: "settings.security", label: "安全", icon: LockIcon },
-	{ page: "settings.environment", label: "环境", icon: EnvironmentIcon },
+	{ page: "settings.plugins", label: t("插件"), icon: PluginIcon },
+	{ page: "settings.security", label: t("安全"), icon: LockIcon },
+	{ page: "settings.environment", label: t("环境"), icon: EnvironmentIcon },
 ];
 
 /** Sidebar tags for an engineering task session's live status. */
 const TASK_TAG_LABELS: Record<string, string> = {
-	queued: "排队",
-	running: "运行",
-	done: "完成",
-	failed: "失败",
-	blocked: "阻塞",
-	aborted: "中止",
-	paused: "暂停",
+	queued: t("排队"),
+	running: t("运行"),
+	done: t("完成"),
+	failed: t("失败"),
+	blocked: t("阻塞"),
+	aborted: t("中止"),
+	paused: t("暂停"),
 };
 
 export function AppSider({
@@ -142,6 +143,7 @@ export function AppSider({
 	onRefresh,
 	authUser,
 	onLogout,
+	onSwitchLanguage,
 }: {
 	collapsed: boolean;
 	onToggleCollapse: () => void;
@@ -169,6 +171,7 @@ export function AppSider({
 	/** The logged-in administrator; null hides the logout button. */
 	authUser: string | null;
 	onLogout: () => void;
+	onSwitchLanguage: (language: "zh" | "en") => void;
 }) {
 	// The session list is the operator's working set, so it starts open; the
 	// settings submenu stays folded until it is needed.
@@ -365,9 +368,9 @@ export function AppSider({
 					className={dotClass}
 					title={
 						session.engine
-							? `工程任务：${TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus}`
+							? t("工程任务：{status}", { status: TASK_TAG_LABELS[session.engine.taskStatus] ?? session.engine.taskStatus })
 							: runningSessions.includes(session.id)
-								? "运行中"
+								? t("运行中")
 								: undefined
 					}
 				/>
@@ -382,18 +385,18 @@ export function AppSider({
 			<div className="menu-sub-head">
 				<span>
 					{sessions.length === 0
-						? "暂无会话"
+						? t("暂无会话")
 						: statusFilter === "open" || sourceFilter !== "all"
-							? `${visibleSessions.length} / ${sessions.length} 个会话`
-							: `${sessions.length} 个会话`}
+							? t("{visible} / {total} 个会话", { visible: visibleSessions.length, total: sessions.length })
+							: t("{total} 个会话", { total: sessions.length })}
 				</span>
 				<span className="menu-sub-head-ops">
-					<button type="button" className="menu-sub-add" title="新建会话" onClick={() => onNewSession()}>
+					<button type="button" className="menu-sub-add" title={t("新建会话")} onClick={() => onNewSession()}>
 						＋
 					</button>
 				</span>
 			</div>
-			<div className="menu-sub-filters" title="未完成隐藏「已完成/已忽略」；对话/工程按会话来源筛选，可与未完成组合">
+			<div className="menu-sub-filters" title={t("未完成隐藏「已完成/已忽略」；对话/工程按会话来源筛选，可与未完成组合")}>
 				<button
 					type="button"
 					className={statusFilter === "all" && sourceFilter === "all" ? "on" : ""}
@@ -402,14 +405,14 @@ export function AppSider({
 						setSource("all");
 					}}
 				>
-					全部
+					{t("全部")}
 				</button>
 				<button
 					type="button"
 					className={statusFilter === "open" ? "on" : ""}
 					onClick={() => setStatus(statusFilter === "open" ? "all" : "open")}
 				>
-					未完成
+					{t("未完成")}
 				</button>
 				<button
 					type="button"
@@ -417,7 +420,7 @@ export function AppSider({
 					disabled={!sessions.some((session) => !session.engine) && sourceFilter !== "chat"}
 					onClick={() => setSource(sourceFilter === "chat" ? "all" : "chat")}
 				>
-					对话
+					{t("对话")}
 				</button>
 				<button
 					type="button"
@@ -425,7 +428,7 @@ export function AppSider({
 					disabled={!sessions.some((session) => session.engine) && sourceFilter !== "engine"}
 					onClick={() => setSource(sourceFilter === "engine" ? "all" : "engine")}
 				>
-					工程
+					{t("工程")}
 				</button>
 			</div>
 			{/*
@@ -436,13 +439,13 @@ export function AppSider({
 			 */}
 			{chatSessions.length > 0 && engineGroups.length > 0 ? (
 				<div className="session-section-label">
-					对话 <span className="n">{chatSessions.length}</span>
+					{t("对话")} <span className="n">{chatSessions.length}</span>
 				</div>
 			) : null}
 			{chatSessions.map(sessionRow)}
 			{chatSessions.length > 0 && engineGroups.length > 0 ? (
 				<div className="session-section-label">
-					工程 <span className="n">{engineGroups.reduce((sum, group) => sum + group.sessions.length, 0)}</span>
+					{t("工程")} <span className="n">{engineGroups.reduce((sum, group) => sum + group.sessions.length, 0)}</span>
 				</div>
 			) : null}
 			{engineGroups.map((group) => {
@@ -454,7 +457,7 @@ export function AppSider({
 							className="engine-group-head"
 							role="button"
 							tabIndex={0}
-							title="点击折叠 / 展开该工程的会话"
+							title={t("点击折叠 / 展开该工程的会话")}
 							onClick={() => toggleEngineGroup(group.engineName)}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" || event.key === " ") toggleEngineGroup(group.engineName);
@@ -465,7 +468,7 @@ export function AppSider({
 							<span className="engine-group-name">{group.engineName}</span>
 							<span className="engine-group-count">
 								{group.sessions.length}
-								{running > 0 ? ` · 运行 ${running}` : ""}
+								{running > 0 ? t(" · 运行 {count}", { count: running }) : ""}
 							</span>
 						</div>
 						{collapsed ? null : group.sessions.map(sessionRow)}
@@ -488,16 +491,16 @@ export function AppSider({
 			<div
 				className="sider-brand"
 				onClick={onToggleCollapse}
-				title="全链哨兵 Full Chain Sentinel System"
+				title={t("全链哨兵 Full Chain Sentinel System")}
 			>
 				<div className="sider-logo">
 					<SentinelMark size={18} />
 				</div>
-				<span className="sider-title">全链哨兵</span>
+				<span className="sider-title">{t("全链哨兵")}</span>
 				<button
 					type="button"
 					className="sider-collapse"
-					title={collapsed ? "展开侧边栏" : "收起侧边栏"}
+					title={collapsed ? t("展开侧边栏") : t("收起侧边栏")}
 					onClick={(event) => {
 						event.stopPropagation();
 						onToggleCollapse();
@@ -512,7 +515,7 @@ export function AppSider({
 			<nav className="sider-menu">
 				{MENU.map((group) => (
 					<div key={group.group}>
-						<div className="menu-group">{collapsed ? "" : group.group}</div>
+						<div className="menu-group">{collapsed ? "" : t(group.group)}</div>
 						{group.items.map((item) => {
 							const Icon = item.icon;
 							const isChat = item.page === "chat";
@@ -605,17 +608,17 @@ export function AppSider({
 				<div className="sider-foot-row">
 					<span className="sider-foot-status">
 						<span className={`dot ${connected ? "ok" : ""}`} />
-						{connected ? SENTINEL_MODE_LABELS[mode] : "已断开"}
+						{connected ? SENTINEL_MODE_LABELS[mode] : t("已断开")}
 					</span>
 					{authUser ? (
-						<span className="sider-foot-user" title={`已登录：${authUser}`}>
+						<span className="sider-foot-user" title={t("已登录：{user}", { user: authUser })}>
 							{authUser}
 						</span>
 					) : null}
 				</div>
 				<div className="sider-foot-actions">
 					{authUser ? (
-						<button type="button" className="sider-foot-btn" title="退出登录" onClick={onLogout}>
+						<button type="button" className="sider-foot-btn" title={t("退出登录")} onClick={onLogout}>
 							<LogoutIcon />
 						</button>
 					) : null}
@@ -624,12 +627,20 @@ export function AppSider({
 						href={PROJECT_REPOSITORY}
 						target="_blank"
 						rel="noreferrer"
-						title="源码仓库 · GitHub"
-						aria-label="打开 GitHub 源码仓库"
+						title={t("源码仓库 · GitHub")}
+						aria-label={t("打开 GitHub 源码仓库")}
 					>
 						<GitHubIcon />
 					</a>
-					<button type="button" className="sider-foot-btn" title="刷新当前页" onClick={onRefresh}>
+					<button
+						type="button"
+						className="sider-foot-btn sider-foot-lang"
+						title={t("切换语言")}
+						onClick={() => onSwitchLanguage(getLanguage() === "zh" ? "en" : "zh")}
+					>
+						{getLanguage() === "zh" ? "EN" : "中"}
+					</button>
+					<button type="button" className="sider-foot-btn" title={t("刷新当前页")} onClick={onRefresh}>
 						<RefreshIcon />
 					</button>
 				</div>
@@ -703,32 +714,32 @@ function SessionHoverCard({
 			<div className="hc-name">{label}</div>
 			{session.engine ? (
 				<div className="hc-row">
-					<span>工程</span>
+					<span>{t("工程")}</span>
 					<b>{session.engine.engineName}</b>
 				</div>
 			) : null}
 			{live ? (
 				<div className="hc-row">
-					<span>任务状态</span>
+					<span>{t("任务状态")}</span>
 					<b>
 						{TASK_TAG_LABELS[live.task.status] ?? live.task.status}
 						{live.task.status === "running" || live.task.status === "queued"
-							? ` · 轮 ${(live.task as { roundsUsed?: number }).roundsUsed ?? 0}/${live.task.roundLimit}`
+							? t(" · 轮 {used}/{limit}", { used: (live.task as { roundsUsed?: number }).roundsUsed ?? 0, limit: live.task.roundLimit })
 							: ""}
 					</b>
 				</div>
 			) : null}
 			<div className="hc-row">
-				<span>人工标记</span>
-				<b>{session.status ? SESSION_STATUS_LABELS[session.status] : "未设置"}</b>
+				<span>{t("人工标记")}</span>
+				<b>{session.status ? SESSION_STATUS_LABELS[session.status] : t("未设置")}</b>
 			</div>
 			<div className="hc-row">
-				<span>最近活动</span>
-				<b>{new Date(session.modified).toLocaleString("zh-CN", { hour12: false })}</b>
+				<span>{t("最近活动")}</span>
+				<b>{new Date(session.modified).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false })}</b>
 			</div>
 			<div className="hc-actions">
-				<button type="button" title="重命名" onClick={() => onRename(session)}>
-					✎ 改名
+				<button type="button" title={t("重命名")} onClick={() => onRename(session)}>
+					✎ {t("改名")}
 				</button>
 				<SessionStatusControl
 					variant="chip"
@@ -741,12 +752,12 @@ function SessionHoverCard({
 				/>
 				<button
 					type="button"
-					title="删除会话（不可恢复）"
+					title={t("删除会话（不可恢复）")}
 					onClick={() => {
-						if (window.confirm(`删除会话「${label}」？\n该操作不可恢复。`)) onDelete(session.path);
+						if (window.confirm(t("删除会话「{name}」？\n该操作不可恢复。", { name: label }))) onDelete(session.path);
 					}}
 				>
-					🗑 删除
+					🗑 {t("删除")}
 				</button>
 			</div>
 		</div>,

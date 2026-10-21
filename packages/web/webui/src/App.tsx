@@ -128,6 +128,7 @@ import {
 } from "./poc-import.ts";
 import { ProjectAction } from "./project-actions.ts";
 import { SentinelConnection } from "./ws.ts";
+import { getLanguage, storeLanguage, t } from "./i18n.ts";
 
 interface LiveTool {
 	id: string;
@@ -171,8 +172,8 @@ function chattedAfterGoalEnd(messages: unknown[], goal: { endedAt?: number }): b
 /** Compact total duration for the terminal goal badge. */
 function formatGoalTotalMs(ms: number): string {
 	const minutes = Math.round(ms / 60000);
-	if (minutes < 60) return `${minutes} 分`;
-	return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`;
+	if (minutes < 60) return t("{minutes} 分", { minutes });
+	return t("{hours} 时 {minutes} 分", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 function goalMarkerElapsed(messages: unknown[], marker: AgentMessageView): number | undefined {
@@ -517,6 +518,12 @@ export function App() {
 	const handleServerMessage = useCallback(
 		(message: SentinelServerMessage) => {
 			switch (message.type) {
+				case "ui_config":
+					if (message.language !== getLanguage()) {
+						storeLanguage(message.language);
+						window.location.reload();
+					}
+					break;
 				case "snapshot": {
 					snapshotRef.current = message.snapshot;
 					setSnapshot(message.snapshot);
@@ -672,7 +679,7 @@ export function App() {
 							setPendingPackage(null);
 							setPendingOfficial(null);
 							setPluginNotice(
-								`插件「${installed.manifest.name}」安装完成，当前${installed.state === "running" ? "运行中" : "未运行"}。`,
+								t("插件「{name}」安装完成，当前{state}。", { name: installed.manifest.name, state: installed.state === "running" ? t("运行中") : t("未运行") }),
 							);
 							window.setTimeout(() => setPluginNotice(null), 8000);
 						}
@@ -715,7 +722,7 @@ export function App() {
 				}
 				case "plugin_artifact_saved":
 					setPluginsBusy(false);
-					setPluginNotice(`产物已保存到 ${message.savedTo}`);
+					setPluginNotice(t("产物已保存到 {path}", { path: message.savedTo }));
 					window.setTimeout(() => setPluginNotice(null), 8000);
 					break;
 				case "gatekeeper_config":
@@ -786,7 +793,7 @@ export function App() {
 						return prev;
 					});
 					if (message.advice.status === "pending") {
-						pushError("监督有一条待确认的建议，请打开监督悬浮窗查看");
+						pushError(t("监督有一条待确认的建议，请打开监督悬浮窗查看"));
 					}
 					break;
 				case "supervisor_config":
@@ -824,7 +831,7 @@ export function App() {
 				}
 				case "sources_saved": {
 					if (message.error) {
-						pushError(`构建源保存失败：${message.error}`);
+						pushError(t("构建源保存失败：{error}", { error: message.error }));
 						return;
 					}
 					setSourcesSavedAt(Date.now());
@@ -832,7 +839,7 @@ export function App() {
 				}
 				case "container_network_saved": {
 					if (message.error) {
-						pushError(`容器网络保存失败：${message.error}`);
+						pushError(t("容器网络保存失败：{error}", { error: message.error }));
 						return;
 					}
 					setContainerNetworkSavedAt(Date.now());
@@ -844,9 +851,9 @@ export function App() {
 				case "image_build_result": {
 					setImageBuilding(false);
 					if (!message.ok) {
-						pushError(`镜像构建失败：${message.error ?? "未知错误"}`);
+						pushError(t("镜像构建失败：{error}", { error: message.error ?? t("未知错误") }));
 					} else {
-						pushError("工具镜像构建完成，可点击「复检」确认");
+						pushError(t("工具镜像构建完成，可点击「复检」确认"));
 					}
 					return;
 				}
@@ -898,14 +905,14 @@ export function App() {
 					break;
 				case "doctrine_saved": {
 					if (message.error) {
-						pushError(`思路保存失败：${message.error}`);
+						pushError(t("思路保存失败：{error}", { error: message.error }));
 						return;
 					}
 					send({ type: "list_doctrines" });
 					break;
 				}
 				case "doctrine_deleted":
-					if (!message.ok) pushError(`思路删除失败：${message.error ?? "未知错误"}`);
+					if (!message.ok) pushError(t("思路删除失败：{error}", { error: message.error ?? t("未知错误") }));
 					else send({ type: "list_doctrines" });
 					break;
 				case "presets":
@@ -915,14 +922,14 @@ export function App() {
 					// The reply carries only the changed entry, and a save and a
 					// toggle can both arrive here, so the list is re-read as a whole.
 					if (message.error) {
-						pushError(`预设保存失败：${message.error}`);
+						pushError(t("预设保存失败：{error}", { error: message.error }));
 						return;
 					}
 					send({ type: "list_presets" });
 					break;
 				}
 				case "preset_deleted":
-					if (!message.ok) pushError(`预设删除失败：${message.error ?? "未知错误"}`);
+					if (!message.ok) pushError(t("预设删除失败：{error}", { error: message.error ?? t("未知错误") }));
 					else send({ type: "list_presets" });
 					break;
 				case "presets_export": {
@@ -939,7 +946,7 @@ export function App() {
 					break;
 				}
 				case "presets_imported": {
-					if (message.error) pushError(`预设导入失败：${message.error}`);
+					if (message.error) pushError(t("预设导入失败：{error}", { error: message.error }));
 					setPresetImport({
 						imported: message.imported.length,
 						skipped: message.skipped,
@@ -1038,7 +1045,7 @@ export function App() {
 					if (message.ok && message.action === "删除") setVulnDetail(null);
 					break;
 				case "vuln_review_result":
-					if (!message.ok) pushError(`重新评审失败：${message.error ?? "未知错误"}`);
+					if (!message.ok) pushError(t("重新评审失败：{error}", { error: message.error ?? t("未知错误") }));
 					break;
 				case "vulns_export": {
 					// Markdown is text, so the download is built directly instead of
@@ -1116,8 +1123,8 @@ export function App() {
 					// the page is newer than the process serving it: the browser keeps the
 					// rebuilt bundle, the server keeps the code it loaded at startup.
 					pushError(
-						/未知消息类型/.test(message.message)
-							? `${message.message}（服务端仍是旧版本，请重启控制台进程）`
+						/未知消息类型|Unknown message type/.test(message.message)
+							? t("{message}（服务端仍是旧版本，请重启控制台进程）", { message: message.message })
 							: message.message,
 					);
 					projectAction.failed(message.message);
@@ -1326,6 +1333,15 @@ export function App() {
 		};
 	}, [handleServerMessage, authReady]);
 
+	const switchLanguage = useCallback((language: "zh" | "en") => {
+		if (!connectionRef.current?.connected) {
+			storeLanguage(language);
+			window.location.reload();
+			return;
+		}
+		connectionRef.current.send({ type: "set_ui_language", language });
+	}, []);
+
 	const send = useCallback((message: Parameters<SentinelConnection["send"]>[0]) => {
 		connectionRef.current?.send(message);
 	}, []);
@@ -1381,7 +1397,7 @@ export function App() {
 	);
 
 	const openViewer = useCallback((command: string | undefined, output: string) => {
-		setViewer({ title: command ? command.slice(0, 80) : "工具输出", output });
+		setViewer({ title: command ? command.slice(0, 80) : t("工具输出"), output });
 	}, []);
 
 	// Another session (or project) has a different transcript: the event-built
@@ -1535,7 +1551,7 @@ export function App() {
 	const callPluginUi = useCallback(
 		(method: string, params: unknown): Promise<PluginUiCallResult> => {
 			const active = pluginUi ?? pluginPage;
-			if (!active) return Promise.resolve({ ok: false, error: "插件界面未打开" });
+			if (!active) return Promise.resolve({ ok: false, error: t("插件界面未打开") });
 			const requestId =
 				typeof crypto !== "undefined" && "randomUUID" in crypto
 					? crypto.randomUUID()
@@ -1543,7 +1559,7 @@ export function App() {
 			return new Promise((resolve) => {
 				const timer = window.setTimeout(() => {
 					pluginUiResolvers.current.delete(requestId);
-					resolve({ ok: false, error: "插件界面请求超时" });
+					resolve({ ok: false, error: t("插件界面请求超时") });
 				}, 600000);
 				pluginUiResolvers.current.set(requestId, (message) => {
 					window.clearTimeout(timer);
@@ -1777,12 +1793,12 @@ export function App() {
 		async (files: File[]) => {
 			if (files.length === 0) return;
 			if (files.length > 2000) {
-				pushError("一次最多导入 2000 个文件，请打包成 zip 或分批上传");
+				pushError(t("一次最多导入 2000 个文件，请打包成 zip 或分批上传"));
 				return;
 			}
 			const totalBytes = files.reduce((total, file) => total + file.size, 0);
 			if (totalBytes > POC_UPLOAD_MAX_BYTES) {
-				pushError(`文件总大小超过 ${Math.round(POC_UPLOAD_MAX_BYTES / 1024 / 1024)}MB 上限`);
+				pushError(t("文件总大小超过 {limit}MB 上限", { limit: Math.round(POC_UPLOAD_MAX_BYTES / 1024 / 1024) }));
 				return;
 			}
 			setPocImporting(true);
@@ -1797,7 +1813,7 @@ export function App() {
 				setLastPocImport(mergePocImportOutcomes(outcomes));
 			} catch (error) {
 				if (outcomes.length > 0) setLastPocImport(mergePocImportOutcomes(outcomes));
-				pushError(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+				pushError(t("导入失败：{error}", { error: error instanceof Error ? error.message : String(error) }));
 			} finally {
 				setPocImporting(false);
 				setPocImportProgress(null);
@@ -1862,17 +1878,17 @@ export function App() {
 	 * whose submission is guaranteed to fail.
 	 */
 	const goalDisabledReason = needsProject
-		? "请先创建或选择一个项目"
+		? t("请先创建或选择一个项目")
 		: envReport && !envReport.ok
-			? "Docker 环境不可用，无法启动目标"
+			? t("Docker 环境不可用，无法启动目标")
 			: mode === "review"
-				? "持续目标只在自动执行或 AI 审批模式下可用：请先切换模式"
+				? t("持续目标只在自动执行或 AI 审批模式下可用：请先切换模式")
 				: streaming
-					? "Agent 正在运行，等本轮结束或中止后再启动"
+					? t("Agent 正在运行，等本轮结束或中止后再启动")
 					: snapshot?.compacting
-						? "正在压缩上下文，压缩完成或中止后再启动目标"
+						? t("正在压缩上下文，压缩完成或中止后再启动目标")
 						: goal && goal.status !== "completed"
-							? "当前会话已有未结束的目标"
+							? t("当前会话已有未结束的目标")
 							: null;
 
 	const visibleMessages = useMemo(
@@ -1933,7 +1949,7 @@ export function App() {
 	}, [streaming, refreshStats, snapshot?.messages.length]);
 
 	const activeSession = sessions.find((session) => session.id === snapshot?.activeSessionId);
-	const sessionLabel = activeSession?.name ?? activeSession?.firstMessage.slice(0, 30) ?? "未选择会话";
+	const sessionLabel = activeSession?.name ?? activeSession?.firstMessage.slice(0, 30) ?? t("未选择会话");
 	const sessionCount: Record<string, number> = {};
 	for (const session of sessions) {
 		const id = session.cwd.split("/").pop() ?? "";
@@ -2009,6 +2025,7 @@ export function App() {
 				onLogout={() => {
 					void logout();
 				}}
+				onSwitchLanguage={switchLanguage}
 				projectSlot={
 					<ProjectPicker
 						projects={projects}
@@ -2028,8 +2045,8 @@ export function App() {
 						<div className="conn-banner" role="status">
 							<span className="conn-banner-dot" />
 							<span>
-								与后端连接已断开，正在自动重连… 若浏览器提示 ERR_ADDRESS_INVALID，请确认打开的是
-								<code> http://127.0.0.1:端口 </code>（<code>0.0.0.0</code> 不是可访问地址）。
+								{t("与后端连接已断开，正在自动重连… 若浏览器提示 ERR_ADDRESS_INVALID，请确认打开的是")}
+								<code> http://127.0.0.1:{t("端口")} </code>{t("（0.0.0.0 不是可访问地址）。")}
 							</span>
 						</div>
 					)}
@@ -2037,14 +2054,15 @@ export function App() {
 						<div className="env-banner" role="status">
 							<span className="env-banner-dot" />
 							<span>
-								Docker 环境不可用，对话已锁定：
-								{envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ??
-									"环境检查未通过"}
-								。请到
+								{t("Docker 环境不可用，对话已锁定：{reason}。", {
+									reason:
+										envReport.items.find((entry) => entry.blocking && entry.status !== "ok")?.label ??
+										t("环境检查未通过"),
+								})}
 								<button type="button" className="link" onClick={() => setPage("settings.environment")}>
-									设置 → 环境
+									{t("设置 → 环境")}
 								</button>
-								查看原因并构建镜像。
+								{t("查看原因并构建镜像。")}
 							</span>
 						</div>
 					) : null}
@@ -2052,23 +2070,24 @@ export function App() {
 						<div className="gate-banner" role="status">
 							<span className="gate-banner-dot" />
 							<span title={gatekeeper?.lastError ?? undefined}>
-								守门模型不可用，已放行 {gatekeeper?.failures ?? 0} 次判定（AI
-								审批模式下命令未经过拦截直接执行）。
-								{gatekeeper?.lastError ? ` 最近错误：${gatekeeper.lastError}` : ""}
-								请到
+								{t("守门模型不可用，已放行 {count} 次判定（AI 审批模式下命令未经过拦截直接执行）。", {
+									count: gatekeeper?.failures ?? 0,
+								})}
+								{gatekeeper?.lastError ? ` ${t("最近错误：{error}", { error: gatekeeper.lastError })}` : ""}
+								{t("请到")}
 								<button type="button" className="link" onClick={() => setPage("settings.model")}>
-									设置 → 模型
+									{t("设置 → 模型")}
 								</button>
-								检查守门端点，或到
+								{t("检查守门端点，或到")}
 							<button type="button" className="link" onClick={() => setPage("gates")}>
-								审批
+								{t("审批")}
 							</button>
-								查看失败记录。
+								{t("查看失败记录。")}
 							</span>
 							<button
 								type="button"
 								className="gate-banner-close"
-								title="本次失败期间不再提示；下一次判定失败会重新出现"
+								title={t("本次失败期间不再提示；下一次判定失败会重新出现")}
 								onClick={() => setDismissedGateFailure(gatekeeper?.lastFailureAt ?? null)}
 							>
 								×
@@ -2092,7 +2111,7 @@ export function App() {
 							</div>
 						) : (
 							<div className="page-card">
-								<p className="muted">正在打开插件界面…</p>
+								<p className="muted">{t("正在打开插件界面…")}</p>
 							</div>
 						)
 					) : needsProject && page === "chat" ? (
@@ -2107,7 +2126,7 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									对话
+									{t("对话")}
 									<span className="ws-panel__sub" title={activeSession?.firstMessage}>
 										{sessionLabel}
 									</span>
@@ -2170,11 +2189,11 @@ export function App() {
 								>
 									{visibleMessages.length === 0 && !liveText && !streaming ? (
 										<div className="ws-empty">
-											<span>等待第一条指令</span>
+											<span>{t("等待第一条指令")}</span>
 											<span>
 												{needsConfig
-													? "请先在「设置 → 模型」中配置 OpenAI 兼容端点。"
-													: "例如：对 10.10.10.5 进行全端口侦察，或派子代理并行侦察多个目标。"}
+													? t("请先在「设置 → 模型」中配置 OpenAI 兼容端点。")
+													: t("例如：对 10.10.10.5 进行全端口侦察，或派子代理并行侦察多个目标。")}
 											</span>
 										</div>
 									) : null}
@@ -2231,7 +2250,7 @@ export function App() {
 														{live && liveThinking ? (
 															<AgentEntry>
 																<details className="thinking" open>
-																	<summary>思考中…</summary>
+																	<summary>{t("思考中…")}</summary>
 																	<pre>{liveThinking}</pre>
 																</details>
 															</AgentEntry>
@@ -2270,16 +2289,18 @@ export function App() {
 											<span className="chip">
 												<b>
 													{snapshot.goal.status === "completed"
-														? "✓ 目标完成"
+														? `✓ ${t("目标完成")}`
 														: snapshot.goal.status === "blocked"
-															? "✕ 目标阻塞"
-															: "⏸ 目标暂停"}
+															? `✕ ${t("目标阻塞")}`
+															: `⏸ ${t("目标暂停")}`}
 												</b>
 												<span className="t">
-													共 {snapshot.goal.rounds.length} 次迭代 · 总耗时{" "}
-													{formatGoalTotalMs(
-														(snapshot.goal.endedAt ?? snapshot.goal.updatedAt) - snapshot.goal.startedAt,
-													)}
+													{t("共 {rounds} 次迭代 · 总耗时 {duration}", {
+														rounds: snapshot.goal.rounds.length,
+														duration: formatGoalTotalMs(
+															(snapshot.goal.endedAt ?? snapshot.goal.updatedAt) - snapshot.goal.startedAt,
+														),
+													})}
 												</span>
 											</span>
 										</div>
@@ -2289,7 +2310,7 @@ export function App() {
 											<span className="log-op-mark">&gt;</span>
 											<div className="log-op-body">
 												{item.text}
-												{item.imageCount > 0 ? `（附 ${item.imageCount} 张图片）` : ""}
+												{item.imageCount > 0 ? t("（附 {count} 张图片）", { count: item.imageCount }) : ""}
 											</div>
 										</div>
 									))}
@@ -2297,7 +2318,7 @@ export function App() {
 										<div key={`queued-${index}`} className="log-op queued">
 											<span className="log-op-mark">{item.kind === "steer" ? "↳" : "…"}</span>
 											<div className="log-op-body">
-												{item.kind === "steer" ? "插话中：" : "排队中："}
+												{item.kind === "steer" ? t("插话中：") : t("排队中：")}
 												{item.text}
 											</div>
 										</div>
@@ -2319,15 +2340,16 @@ export function App() {
 									projectId={snapshot?.project?.id ?? null}
 									blockedReason={
 										envReport && !envReport.ok
-											? `Docker 环境不可用：${
-													envReport.items.find((entry) => entry.blocking && entry.status !== "ok")
-														?.label ?? "环境检查未通过"
-												}。请到「设置 → 环境」修复。`
+											? t("Docker 环境不可用：{reason}。请到「设置 → 环境」修复。", {
+													reason:
+														envReport.items.find((entry) => entry.blocking && entry.status !== "ok")
+															?.label ?? t("环境检查未通过"),
+												})
 											: envReport
 												? snapshot?.compacting
-													? "正在压缩上下文，压缩完成后可继续发送；也可在工具栏点「中止压缩」放弃这次压缩"
+													? t("正在压缩上下文，压缩完成后可继续发送；也可在工具栏点「中止压缩」放弃这次压缩")
 													: null
-												: "正在检查 Docker 环境…"
+												: t("正在检查 Docker 环境…")
 									}
 									notifyRun={notifyRun ?? notifyAvailable}
 									onToggleNotifyRun={() => setNotifyRun(!(notifyRun ?? notifyAvailable))}
@@ -2546,8 +2568,8 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
-									<span className="ws-panel__sub">模型</span>
+									{t("设置")}
+									<span className="ws-panel__sub">{t("模型")}</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -2635,8 +2657,8 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
-									<span className="ws-panel__sub">监督</span>
+									{t("设置")}
+									<span className="ws-panel__sub">{t("监督")}</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -2667,8 +2689,8 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
-									<span className="ws-panel__sub">安全</span>
+									{t("设置")}
+									<span className="ws-panel__sub">{t("安全")}</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -2679,8 +2701,8 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
-									<span className="ws-panel__sub">通知</span>
+									{t("设置")}
+									<span className="ws-panel__sub">{t("通知")}</span>
 								</div>
 							</div>
 							<div className="ws-panel__body">
@@ -2708,11 +2730,11 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										权限
+										{t("权限")}
 										{permissionEffective
-											? ` · 子代理实际可用 ${Object.values(permissionEffective).filter(Boolean).length} 项`
+											? t(" · 子代理实际可用 {count} 项", { count: Object.values(permissionEffective).filter(Boolean).length })
 											: ""}
 									</span>
 								</div>
@@ -2750,7 +2772,7 @@ export function App() {
 									/>
 								) : (
 									<div className="ws-empty">
-										<span>正在读取权限配置…</span>
+										<span>{t("正在读取权限配置…")}</span>
 									</div>
 								)}
 							</div>
@@ -2759,10 +2781,10 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										环境
-										{envReport ? (envReport.ok ? " · 可用" : " · 不可用") : " · 检查中"}
+										{t("环境")}
+										{envReport ? (envReport.ok ? t(" · 可用") : t(" · 不可用")) : t(" · 检查中")}
 									</span>
 								</div>
 							</div>
@@ -2789,9 +2811,9 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										POC 订阅{pocSources.length > 0 ? ` · ${pocSources.length} 个源` : ""}
+										{t("POC 订阅")}{pocSources.length > 0 ? t(" · {count} 个源", { count: pocSources.length }) : ""}
 									</span>
 								</div>
 							</div>
@@ -2815,10 +2837,10 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										资产测绘
-										{assetConfig ? ` · 已挂载 ${assetConfig.usable} 个平台` : ""}
+										{t("资产测绘")}
+										{assetConfig ? t(" · 已挂载 {count} 个平台", { count: assetConfig.usable }) : ""}
 									</span>
 								</div>
 							</div>
@@ -2855,7 +2877,7 @@ export function App() {
 									/>
 								) : (
 									<div className="ws-empty">
-										<span>正在读取资产测绘配置…</span>
+										<span>{t("正在读取资产测绘配置…")}</span>
 									</div>
 								)}
 							</div>
@@ -2864,10 +2886,10 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										Web 搜索（Tavily）
-										{webSearchConfig ? ` · 号池 ${webSearchConfig.usable} 个 Key 可用` : ""}
+										{t("Web 搜索（Tavily）")}
+										{webSearchConfig ? t(" · 号池 {count} 个 Key 可用", { count: webSearchConfig.usable }) : ""}
 									</span>
 								</div>
 							</div>
@@ -2907,7 +2929,7 @@ export function App() {
 									/>
 								) : (
 									<div className="ws-empty">
-										<span>正在读取 Web 搜索配置…</span>
+										<span>{t("正在读取 Web 搜索配置…")}</span>
 									</div>
 								)}
 							</div>
@@ -2916,10 +2938,10 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
 										MCP
-										{mcpConfig ? ` · 已挂载 ${mcpConfig.mounted} 个服务器` : ""}
+										{mcpConfig ? t(" · 已挂载 {count} 个服务器", { count: mcpConfig.mounted }) : ""}
 									</span>
 								</div>
 							</div>
@@ -2961,7 +2983,7 @@ export function App() {
 									/>
 								) : (
 									<div className="ws-empty">
-										<span>正在读取 MCP 配置…</span>
+										<span>{t("正在读取 MCP 配置…")}</span>
 									</div>
 								)}
 							</div>
@@ -2970,11 +2992,11 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										插件
+										{t("插件")}
 										{pluginsView
-											? ` · ${pluginsView.plugins.length} 个插件 / ${pluginsView.hosts.length} 个主机`
+											? t(" · {plugins} 个插件 / {hosts} 个主机", { plugins: pluginsView.plugins.length, hosts: pluginsView.hosts.length })
 											: ""}
 									</span>
 								</div>
@@ -3077,12 +3099,12 @@ export function App() {
 											setPendingPackage(null);
 											setPluginBuildLog(null);
 											setPendingOfficial(plugin);
-											setPendingManifest({ manifest: plugin.manifest, source: "官方插件 · 随控制台内置" });
+											setPendingManifest({ manifest: plugin.manifest, source: t("官方插件 · 随控制台内置") });
 										}}
 									/>
 								) : (
 									<div className="ws-empty">
-										<span>正在读取插件中心…</span>
+										<span>{t("正在读取插件中心…")}</span>
 									</div>
 								)}
 							</div>
@@ -3091,12 +3113,12 @@ export function App() {
 						<div className="page-card">
 							<div className="ws-panel__head">
 								<div className="ws-panel__title">
-									设置
+									{t("设置")}
 									<span className="ws-panel__sub">
-										预设 Agent
+										{t("预设 Agent")}
 										{presets
-											? ` · ${presets.filter((preset) => preset.enabled).length} / ${presets.length} 已启用`
-											: " · 读取中"}
+											? t(" · {enabled} / {total} 已启用", { enabled: presets.filter((preset) => preset.enabled).length, total: presets.length })
+											: t(" · 读取中")}
 									</span>
 								</div>
 							</div>
@@ -3125,15 +3147,15 @@ export function App() {
 			</div>
 			{filesOpen ? (
 				<Overlay
-					title="文件"
-					subtitle={`${snapshot?.project?.name ?? "未选择项目"} · 容器工作目录 /work`}
+					title={t("文件")}
+					subtitle={t("{project} · 容器工作目录 /work", { project: snapshot?.project?.name ?? t("未选择项目") })}
 					onClose={() => setFilesOpen(false)}
 					actions={
 						<span className="ws-kv">
 							<span>
-								<b>{fileEntries.length}</b> 项
+								<b>{fileEntries.length}</b> {t("项")}
 							</span>
-							{fileBusy ? <span>读取中…</span> : null}
+							{fileBusy ? <span>{t("读取中…")}</span> : null}
 						</span>
 					}
 				>
@@ -3173,8 +3195,8 @@ export function App() {
 			) : null}
 			{subagentsOpen ? (
 				<Overlay
-					title="子代理"
-					subtitle={`当前会话 ${subagentTotal} 次派发${subagentRunning > 0 ? ` · ${subagentRunning} 个运行中` : ""}`}
+					title={t("子代理")}
+					subtitle={t("当前会话 {total} 次派发", { total: subagentTotal }) + (subagentRunning > 0 ? t(" · {count} 个运行中", { count: subagentRunning }) : "")}
 					onClose={() => setSubagentsOpen(false)}
 				>
 					<SubagentPanel
@@ -3188,7 +3210,7 @@ export function App() {
 						onLoad={(id) => send({ type: "get_subagent", id })}
 						onAbort={(id) => send({ type: "abort_subagent", id })}
 						onSteer={(id, text) => send({ type: "steer_subagent", id, text })}
-						onFullscreen={(title, output) => setViewer({ title: `子代理 ${title} 输出`, output })}
+						onFullscreen={(title, output) => setViewer({ title: t("子代理 {name} 输出", { name: title }), output })}
 					/>
 				</Overlay>
 			) : null}
@@ -3256,14 +3278,14 @@ export function App() {
 			) : null}
 			{supervisorCallOutput ? (
 				<Overlay
-					title="监督 · 调用输出"
-					subtitle={supervisorCallOutput.truncated ? "输出过长，已截断" : supervisorCallOutput.callId}
+					title={t("监督 · 调用输出")}
+					subtitle={supervisorCallOutput.truncated ? t("输出过长，已截断") : supervisorCallOutput.callId}
 					onClose={() => setSupervisorCallOutput(null)}
 				>
 					{supervisorCallOutput.error ? (
 						<p className="warn-text">{supervisorCallOutput.error}</p>
 					) : (
-						<pre className="sv-call-output">{supervisorCallOutput.text || "（空输出）"}</pre>
+						<pre className="sv-call-output">{supervisorCallOutput.text || t("（空输出）")}</pre>
 					)}
 				</Overlay>
 			) : null}

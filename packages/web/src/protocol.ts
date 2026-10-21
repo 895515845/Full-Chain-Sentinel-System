@@ -8,6 +8,7 @@ import type {
 	ThinkingLevel,
 } from "@earendil-works/pi-coding-agent";
 import type { DroidDevice, DroidToken } from "./droid.ts";
+import type { UiLanguage } from "./i18n-messages.ts";
 import type { SentinelPermissionPreset, SentinelPermissionSet, SentinelPermissionsConfig } from "./permissions.ts";
 import type { SentinelPluginManifest } from "./plugin-manifest.ts";
 import type { SentinelSessionListEntry, SentinelSessionStatus } from "./session-status.ts";
@@ -1713,6 +1714,7 @@ export type SentinelClientMessage =
 	/** Import an export file's text; existing presets are never overwritten. */
 	| { type: "import_presets"; content: string }
 	| { type: "get_gatekeeper_config" }
+	| { type: "set_ui_language"; language: UiLanguage }
 	| { type: "save_gatekeeper_config"; config: SentinelGatekeeperConfig }
 	/** Probes whatever the 守门模型 role resolves to with one fixed sample command. */
 	| { type: "test_judge" }
@@ -1891,6 +1893,7 @@ export type SentinelServerMessage =
 			error?: string;
 	  }
 	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
+	| { type: "ui_config"; language: UiLanguage }
 	/** One sample judgment, so the operator can see the prompt and endpoint work. */
 	| {
 			type: "judge_test_result";

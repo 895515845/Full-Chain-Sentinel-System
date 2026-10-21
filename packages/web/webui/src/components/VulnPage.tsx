@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { t } from "../i18n.ts";
 import type {
 	SentinelFilePreview,
 	SentinelVulnEvidence,
@@ -42,28 +43,31 @@ function ReviewChip({ review }: { review?: SentinelVulnReview }) {
 	if (!review || review.state === "skipped") return null;
 	if (review.state === "queued") {
 		return (
-			<span className="review-chip review-queued" title="评审 LLM 排队中">
-				…评
+			<span className="review-chip review-queued" title={t("评审 LLM 排队中")}>
+				{t("…评")}
 			</span>
 		);
 	}
 	if (review.state === "failed") {
 		return (
-			<span className="review-chip review-failed" title={`评审失败：${review.error ?? ""}`}>
-				未评
+			<span className="review-chip review-failed" title={t("评审失败：{error}", { error: review.error ?? "" })}>
+				{t("未评")}
 			</span>
 		);
 	}
 	if (review.verdict === "dubious") {
 		return (
-			<span className="review-chip review-dubious" title={`评审存疑：${review.reason ?? ""}`}>
-				⚠存疑
+			<span className="review-chip review-dubious" title={t("评审存疑：{reason}", { reason: review.reason ?? "" })}>
+				{t("⚠存疑")}
 			</span>
 		);
 	}
 	return (
-		<span className="review-chip review-done" title={`已评审（${review.model ?? ""}）：${review.reason ?? ""}`}>
-			✓评
+		<span
+			className="review-chip review-done"
+			title={t("已评审（{model}）：{reason}", { model: review.model ?? "", reason: review.reason ?? "" })}
+		>
+			{t("✓评")}
 		</span>
 	);
 }
@@ -94,7 +98,7 @@ function severityForScore(score: number): SentinelVulnSeverity {
 }
 
 /** Copy button used by the packet and evidence blocks. */
-function CopyButton({ text, label = "复制" }: { text: string; label?: string }) {
+function CopyButton({ text, label = t("复制") }: { text: string; label?: string }) {
 	const [copied, setCopied] = useState(false);
 	return (
 		<button
@@ -110,9 +114,18 @@ function CopyButton({ text, label = "复制" }: { text: string; label?: string }
 					.catch(() => {});
 			}}
 		>
-			{copied ? "已复制" : label}
+			{copied ? t("已复制") : label}
 		</button>
 	);
+}
+
+function vulnSource(source: string): string {
+	if (source === "主代理") return t("主代理");
+	if (source === "子代理") return t("子代理来源");
+	if (source.startsWith("子代理 ")) return `${t("子代理来源")} ${source.slice(4)}`;
+	const task = /^工程任务「(.+)」$/.exec(source);
+	if (task) return t("工程任务「{name}」", { name: task[1] ?? "" });
+	return source;
 }
 
 export function VulnPage({
@@ -149,12 +162,12 @@ export function VulnPage({
 		return (
 			<div className="page-card">
 				<div className="ws-panel__head">
-					<div className="ws-panel__title">漏洞中枢</div>
+					<div className="ws-panel__title">{t("漏洞中枢")}</div>
 				</div>
 				<div className="ws-panel__body">
 					<div className="ws-empty">
-						<span>尚未选择项目</span>
-						<span>漏洞记录按项目隔离，请先在侧栏顶部选择或创建一个项目</span>
+						<span>{t("尚未选择项目")}</span>
+						<span>{t("漏洞记录按项目隔离，请先在侧栏顶部选择或创建一个项目")}</span>
 					</div>
 				</div>
 			</div>
@@ -165,10 +178,10 @@ export function VulnPage({
 		<div className="page-card">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
-					漏洞中枢
+					{t("漏洞中枢")}
 					<span className="ws-panel__sub">
 						{projectName ? `${projectName} · ` : ""}
-						{stats.total} 条 · 待确认 {stats.byStatus.pending}
+						{t("{total} 条 · 待确认 {pending}", { total: stats.total, pending: stats.byStatus.pending })}
 					</span>
 				</div>
 				<div className="ws-panel__actions">
@@ -176,23 +189,25 @@ export function VulnPage({
 						type="button"
 						className="ghost small"
 						disabled={stats.byStatus.pending === 0}
-						title="把本项目所有「待确认」记录重新交给评审 LLM：按 CVSS 3.1 指标重算等级与分数（会覆盖这些记录现有的等级，时间线里会记录）"
+						title={t(
+							"把本项目所有「待确认」记录重新交给评审 LLM：按 CVSS 3.1 指标重算等级与分数（会覆盖这些记录现有的等级，时间线里会记录）",
+						)}
 						onClick={onReviewAllPending}
 					>
-						重新评审待确认
+						{t("重新评审待确认")}
 					</button>
 					<button
 						type="button"
 						className={`ghost small${filters.dubious ? " on" : ""}`}
-						title="只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论"
+						title={t("只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论")}
 						onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
 					>
-						⚠ 存疑
+						{t("⚠ 存疑")}
 					</button>
 					<input
 						className="inline-input"
 						value={search}
-						placeholder="搜索编号 / 标题 / 类型 / 描述"
+						placeholder={t("搜索编号 / 标题 / 类型 / 描述")}
 						spellCheck={false}
 						onChange={(event) => setSearch(event.target.value)}
 						onKeyDown={(event) => {
@@ -209,7 +224,7 @@ export function VulnPage({
 							})
 						}
 					>
-						<option value="">全部等级</option>
+						<option value="">{t("全部等级")}</option>
 						{SENTINEL_VULN_SEVERITIES.map((severity) => (
 							<option key={severity} value={severity}>
 								{SENTINEL_VULN_SEVERITY_LABELS[severity]}
@@ -226,7 +241,7 @@ export function VulnPage({
 							})
 						}
 					>
-						<option value="">全部状态</option>
+						<option value="">{t("全部状态")}</option>
 						{STATUSES.map((status) => (
 							<option key={status} value={status}>
 								{SENTINEL_VULN_STATUS_LABELS[status]}
@@ -234,11 +249,11 @@ export function VulnPage({
 						))}
 					</select>
 					<button type="button" onClick={() => onFiltersChange({ search: search.trim() || undefined })}>
-						重置
+						{t("重置")}
 					</button>
 					<button type="button" className="primary" onClick={() => onExport(filters)}>
 						<DownloadIcon />
-						导出 Markdown
+						{t("导出 Markdown")}
 					</button>
 				</div>
 			</div>
@@ -249,30 +264,30 @@ export function VulnPage({
 							{SENTINEL_VULN_SEVERITY_LABELS[severity]} {stats.bySeverity[severity]}
 						</span>
 					))}
-					<span className="vuln-stat-status">待确认 {stats.byStatus.pending}</span>
-					<span className="vuln-stat-status">已确认 {stats.byStatus.confirmed}</span>
-					<span className="vuln-stat-status">误报 {stats.byStatus.false_positive}</span>
-					<span className="vuln-stat-status">已修复 {stats.byStatus.fixed}</span>
+					<span className="vuln-stat-status">{t("待确认 {count}", { count: stats.byStatus.pending })}</span>
+					<span className="vuln-stat-status">{t("已确认 {count}", { count: stats.byStatus.confirmed })}</span>
+					<span className="vuln-stat-status">{t("误报 {count}", { count: stats.byStatus.false_positive })}</span>
+					<span className="vuln-stat-status">{t("已修复 {count}", { count: stats.byStatus.fixed })}</span>
 				</div>
 				{items.length === 0 ? (
 					<div className="ws-empty">
-						<span>{stats.total === 0 ? "还没有漏洞记录" : "没有符合条件的记录"}</span>
+						<span>{stats.total === 0 ? t("还没有漏洞记录") : t("没有符合条件的记录")}</span>
 						<span>
 							{stats.total === 0
-								? "代理用 vuln_submit 提交漏洞后会出现在这里（需要「设置 → 权限」中开启 vuln_submit）"
-								: "调整搜索或筛选条件"}
+								? t("代理用 vuln_submit 提交漏洞后会出现在这里（需要「设置 → 权限」中开启 vuln_submit）")
+								: t("调整搜索或筛选条件")}
 						</span>
 					</div>
 				) : (
 					<div className="data-table vuln-table">
 						<div className="data-row data-head">
-							<span>编号</span>
-							<span>等级</span>
-							<span>状态</span>
-							<span>目标</span>
-							<span>标题</span>
-							<span>来源</span>
-							<span>提交时间</span>
+							<span>{t("编号")}</span>
+							<span>{t("等级")}</span>
+							<span>{t("状态")}</span>
+							<span>{t("目标")}</span>
+							<span>{t("标题")}</span>
+							<span>{t("来源")}</span>
+							<span>{t("提交时间")}</span>
 						</div>
 						{items.map((item) => (
 							<div
@@ -291,12 +306,12 @@ export function VulnPage({
 										{SENTINEL_VULN_SEVERITY_LABELS[item.severity]}
 									</span>
 									<span className={isAgentRating(item.review) ? "vuln-cvss vuln-cvss-self" : "vuln-cvss"}>
-										{isAgentRating(item.review) ? "自评 " : ""}
+										{isAgentRating(item.review) ? `${t("自评")} ` : ""}
 										{item.cvss.toFixed(1)}
 									</span>
 									<ReviewChip review={item.review} />
 									{item.severityMismatch ? (
-										<span className="vuln-warn" title="等级与 CVSS 分数不一致">
+										<span className="vuln-warn" title={t("等级与 CVSS 分数不一致")}>
 											!
 										</span>
 									) : null}
@@ -312,15 +327,15 @@ export function VulnPage({
 								<span className="data-name" title={item.title}>
 									{item.title}
 								</span>
-								<span className="data-mono">{item.source}</span>
+								<span className="data-mono">{vulnSource(item.source)}</span>
 								<span className="data-mono">{formatWhen(item.createdAt)}</span>
 							</div>
 						))}
 					</div>
 				)}
 				<p className="ws-panel__hint">
-					代理提交的漏洞一律先记为「待确认」；确认、改级、标误报都在详情里完成，改动会记入时间线。
-					导出只包含当前项目的记录与当前筛选条件。
+					{t("代理提交的漏洞一律先记为「待确认」；确认、改级、标误报都在详情里完成，改动会记入时间线。")}{" "}
+					{t("导出只包含当前项目的记录与当前筛选条件。")}
 				</p>
 			</div>
 		</div>
@@ -343,9 +358,9 @@ function EvidenceBlock({
 		<div className="vuln-evidence">
 			<div className="vuln-evidence__head">
 				<span className="vuln-evidence__index">{index + 1}</span>
-				<span>{item.note ?? (item.kind === "file" ? "容器文件" : "命令证据")}</span>
-				{item.command ? <CopyButton text={item.command} label="复制命令" /> : null}
-				{item.output ? <CopyButton text={item.output} label="复制输出" /> : null}
+				<span>{item.note ?? (item.kind === "file" ? t("容器文件") : t("命令证据"))}</span>
+				{item.command ? <CopyButton text={item.command} label={t("复制命令")} /> : null}
+				{item.output ? <CopyButton text={item.output} label={t("复制输出")} /> : null}
 			</div>
 			{item.command ? <pre className="ws-console__body">{item.command}</pre> : null}
 			{item.output ? <pre className="ws-console__body">{item.output}</pre> : null}
@@ -353,7 +368,7 @@ function EvidenceBlock({
 				<div className="vuln-evidence__file">
 					<code>{item.path}</code>
 					<button type="button" onClick={() => onPreview(item.path as string)}>
-						预览
+						{t("预览")}
 					</button>
 				</div>
 			) : null}
@@ -364,10 +379,12 @@ function EvidenceBlock({
 					) : preview.kind === "text" ? (
 						<pre className="ws-console__body">
 							{preview.text}
-							{preview.truncated ? "\n…（已截断）" : ""}
+							{preview.truncated ? `\n${t("…（已截断）")}` : ""}
 						</pre>
 					) : (
-						<span className="ws-panel__hint">二进制文件（{preview.size} 字节），请在「文件」弹窗中下载查看</span>
+						<span className="ws-panel__hint">
+							{t("二进制文件（{size} 字节），请在「文件」弹窗中下载查看", { size: preview.size })}
+						</span>
 					)}
 				</div>
 			) : null}
@@ -449,24 +466,24 @@ export function VulnDetail({
 						<div className="vuln-detail__meta">
 							<span className={severityClass(vuln.severity)}>{SENTINEL_VULN_SEVERITY_LABELS[vuln.severity]}</span>
 							<span className={isAgentRating(vuln.review) ? "vuln-cvss vuln-cvss-self" : "vuln-cvss"}>
-								{isAgentRating(vuln.review) ? "自评 CVSS " : "CVSS "}
+								{isAgentRating(vuln.review) ? `${t("自评")} CVSS ` : "CVSS "}
 								{vuln.cvss.toFixed(1)}
 							</span>
 							{vuln.cvssVector ? <span className="data-mono">{vuln.cvssVector}</span> : null}
 							<span>{SENTINEL_VULN_STATUS_LABELS[vuln.status]}</span>
 							{vuln.review?.verdict === "dubious" ? (
-								<span className="vuln-warn" title={vuln.review.reason ?? "评审认为证据不足以支撑结论"}>
-									评审存疑
+								<span className="vuln-warn" title={vuln.review.reason ?? t("评审认为证据不足以支撑结论")}>
+									{t("评审存疑")}
 								</span>
 							) : null}
 							{vuln.severityMismatch ? (
-								<span className="vuln-warn" title="等级与 CVSS 分数不一致">
-									等级与分数不一致
+								<span className="vuln-warn" title={t("等级与 CVSS 分数不一致")}>
+									{t("等级与分数不一致")}
 								</span>
 							) : null}
 						</div>
 					</div>
-					<button type="button" className="ghost small" onClick={onClose} title="关闭">
+					<button type="button" className="ghost small" onClick={onClose} title={t("关闭")}>
 						<CloseIcon />
 					</button>
 				</div>
@@ -474,33 +491,33 @@ export function VulnDetail({
 				<div className="vuln-detail__body">
 					<div className="vuln-meta-grid">
 						<div>
-							<span>编号</span>
+							<span>{t("编号")}</span>
 							<code>{vuln.label}</code>
 						</div>
 						<div>
-							<span>目标</span>
+							<span>{t("目标")}</span>
 							<code>{vuln.target}</code>
 						</div>
 						<div>
-							<span>类型</span>
+							<span>{t("类型")}</span>
 							<span>{vuln.category ?? "—"}</span>
 						</div>
 						<div>
-							<span>来源</span>
-							<span>{vuln.source}</span>
+							<span>{t("来源")}</span>
+							<span>{vulnSource(vuln.source)}</span>
 						</div>
 						<div>
-							<span>提交时间</span>
+							<span>{t("提交时间")}</span>
 							<span>{formatWhen(vuln.createdAt)}</span>
 						</div>
 						{vuln.sessionId ? (
 							<div>
-								<span>会话</span>
+								<span>{t("会话")}</span>
 								<code>{vuln.sessionId}</code>
 							</div>
 						) : null}
 						<div>
-							<span>评审</span>
+							<span>{t("评审")}</span>
 							<span>
 								<ReviewChip review={vuln.review} />
 								{vuln.review.state === "done" && vuln.review.model ? ` ${vuln.review.model}` : ""}
@@ -514,38 +531,40 @@ export function VulnDetail({
 										style={{ marginLeft: 8 }}
 										onClick={() => onRetryReview(vuln.id, false)}
 									>
-										重试评审
+										{t("重试评审")}
 									</button>
 								) : vuln.review.state === "queued" ? (
 									<button type="button" className="ghost small" style={{ marginLeft: 8 }} disabled>
-										评审中…
+										{t("评审中…")}
 									</button>
 								) : (
 									<button
 										type="button"
 										className="ghost small"
 										style={{ marginLeft: 8 }}
-										title="按 CVSS 3.1 指标重新计算等级与分数。这条如果已被手动改过等级（或状态），也会一并覆盖，时间线里会记录"
+										title={t(
+											"按 CVSS 3.1 指标重新计算等级与分数。这条如果已被手动改过等级（或状态），也会一并覆盖，时间线里会记录",
+										)}
 										onClick={() => onRetryReview(vuln.id, true)}
 									>
-										重新评审
+										{t("重新评审")}
 									</button>
 								)}
 							</span>
 						</div>
 						{vuln.review.state === "done" && vuln.review.reason ? (
 							<div style={{ gridColumn: "1 / -1" }}>
-								<span>评审意见</span>
+								<span>{t("评审意见")}</span>
 								<span>
-									{vuln.review.verdict === "dubious" ? "⚠ 存疑：" : ""}
+									{vuln.review.verdict === "dubious" ? t("⚠ 存疑：") : ""}
 									{vuln.review.reason}
 								</span>
 							</div>
 						) : null}
 						{vuln.review.state === "failed" ? (
 							<div style={{ gridColumn: "1 / -1" }}>
-								<span>评审失败原因</span>
-								<span>{vuln.review.error ?? "未知错误"}</span>
+								<span>{t("评审失败原因")}</span>
+								<span>{vuln.review.error ?? t("未知错误")}</span>
 							</div>
 						) : null}
 					</div>
@@ -561,36 +580,36 @@ export function VulnDetail({
 									className="vuln-transition confirm"
 									onClick={() => transition("confirmed")}
 								>
-									✓ 确认
+									{t("✓ 确认")}
 								</button>
 								<button
 									type="button"
 									className="vuln-transition false"
 									onClick={() => transition("false_positive")}
 								>
-									✕ 标误报
+									{t("✕ 标误报")}
 								</button>
 							</>
 						) : null}
 						{vuln.status !== "fixed" ? (
 							<button type="button" className="vuln-transition fix" onClick={() => transition("fixed")}>
-								✔ 标已修复
+								{t("✔ 标已修复")}
 							</button>
 						) : null}
 						{vuln.status !== "pending" ? (
 							<button type="button" className="vuln-transition" onClick={() => transition("pending")}>
-								↩ 退回待确认
+								{t("↩ 退回待确认")}
 							</button>
 						) : null}
 						<span className="vuln-action-spacer" />
 						{savedAt ? (
 							<span className="vuln-saved-hint">
-								已保存 {savedAt.toLocaleTimeString("zh-CN", { hour12: false })}
+								{t("已保存 {time}", { time: savedAt.toLocaleTimeString("zh-CN", { hour12: false }) })}
 							</span>
 						) : null}
 					</div>
 					<div className="vuln-action-band vuln-action-band--rating">
-						<span className="vuln-action-label">等级</span>
+						<span className="vuln-action-label">{t("等级")}</span>
 						<select
 							value={severity}
 							onChange={(event) => setSeverity(event.target.value as SentinelVulnSeverity)}
@@ -613,33 +632,35 @@ export function VulnDetail({
 								if (event.key === "Enter") commitRating();
 							}}
 						/>
-						{!cvssValid ? <span className="page-error">CVSS 需要 0.0-10.0</span> : null}
+						{!cvssValid ? <span className="page-error">{t("CVSS 需要 0.0-10.0")}</span> : null}
 						{cvssValid && severityForScore(parsedCvss) !== severity ? (
 							<span className="vuln-warn">
-								分数对应「{SENTINEL_VULN_SEVERITY_LABELS[severityForScore(parsedCvss)]}」，与所选等级不一致
+								{t("分数对应「{severity}」，与所选等级不一致", {
+									severity: SENTINEL_VULN_SEVERITY_LABELS[severityForScore(parsedCvss)],
+								})}
 							</span>
 						) : null}
 						<span className="vuln-action-spacer" />
 						{confirmDelete ? (
 							<>
-								<span className="page-error">删除后不可恢复</span>
+								<span className="page-error">{t("删除后不可恢复")}</span>
 								<button type="button" className="danger" onClick={() => onDelete(vuln.id)}>
-									确认删除
+									{t("确认删除")}
 								</button>
 								<button type="button" onClick={() => setConfirmDelete(false)}>
-									取消
+									{t("取消")}
 								</button>
 							</>
 						) : (
 							<button type="button" className="danger" onClick={() => setConfirmDelete(true)}>
-								删除
+								{t("删除")}
 							</button>
 						)}
 					</div>
 					<input
 						className="inline-input vuln-note-input"
 						value={note}
-						placeholder="复核备注（回车提交，追加到时间线）…"
+						placeholder={t("复核备注（回车提交，追加到时间线）…")}
 						spellCheck={false}
 						onChange={(event) => setNote(event.target.value)}
 						onKeyDown={(event) => {
@@ -648,28 +669,28 @@ export function VulnDetail({
 					/>
 
 					<section>
-						<h3>漏洞详情</h3>
+						<h3>{t("漏洞详情")}</h3>
 						<pre className="vuln-text">{vuln.description}</pre>
 					</section>
 
 					<section>
 						<div className="vuln-section-head">
-							<h3>原始数据包</h3>
-							<CopyButton text={vuln.packet} label="复制数据包" />
+							<h3>{t("原始数据包")}</h3>
+							<CopyButton text={vuln.packet} label={t("复制数据包")} />
 						</div>
 						<pre className="vuln-packet">{vuln.packet}</pre>
 					</section>
 
 					{vuln.repro ? (
 						<section>
-							<h3>复现步骤</h3>
+							<h3>{t("复现步骤")}</h3>
 							<pre className="vuln-text">{vuln.repro}</pre>
 						</section>
 					) : null}
 
 					{vuln.evidence.length > 0 ? (
 						<section>
-							<h3>证据</h3>
+							<h3>{t("证据")}</h3>
 							{vuln.evidence.map((item, index) => (
 								<EvidenceBlock
 									key={`${item.kind}-${item.path ?? item.command ?? index}`}
@@ -684,14 +705,14 @@ export function VulnDetail({
 
 					{vuln.remediation ? (
 						<section>
-							<h3>修复建议</h3>
+							<h3>{t("修复建议")}</h3>
 							<pre className="vuln-text">{vuln.remediation}</pre>
 						</section>
 					) : null}
 
 					{vuln.references && vuln.references.length > 0 ? (
 						<section>
-							<h3>参考</h3>
+							<h3>{t("参考")}</h3>
 							<ul className="vuln-refs">
 								{vuln.references.map((reference) => (
 									<li key={reference}>{reference}</li>
@@ -701,7 +722,7 @@ export function VulnDetail({
 					) : null}
 
 					<section>
-						<h3>处理时间线</h3>
+						<h3>{t("处理时间线")}</h3>
 						<ul className="vuln-timeline">
 							{vuln.notes.map((entry, index) => (
 								<li key={`${entry.at}-${index}`}>

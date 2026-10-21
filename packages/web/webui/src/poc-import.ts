@@ -1,5 +1,6 @@
 /** HTTP upload and job polling for the POC library. */
 
+import { t } from "./i18n.ts";
 import type { SentinelPocImportJobView, SentinelPocImportOutcome, SentinelPocImportProgress } from "./types.ts";
 
 /** Must match `POC_IMPORT_MAX_BYTES` on the server. */
@@ -27,7 +28,7 @@ export async function uploadPocFile(file: File, signal?: AbortSignal): Promise<s
 	});
 	if (!response.ok) throw new Error(await responseError(response));
 	const body = (await response.json()) as { id?: unknown };
-	if (typeof body.id !== "string" || body.id === "") throw new Error("服务端没有返回导入任务 id");
+	if (typeof body.id !== "string" || body.id === "") throw new Error(t("服务端没有返回导入任务 id"));
 	return body.id;
 }
 
@@ -39,7 +40,7 @@ export async function waitForPocImport(
 ): Promise<SentinelPocImportOutcome> {
 	const deadline = Date.now() + IMPORT_TIMEOUT_MS;
 	while (Date.now() < deadline) {
-		if (signal?.aborted) throw new Error("导入已取消");
+		if (signal?.aborted) throw new Error(t("导入已取消"));
 		const response = await fetch(`/api/pocs/import/${encodeURIComponent(id)}`, {
 			headers: { accept: "application/json" },
 			cache: "no-store",
@@ -49,13 +50,13 @@ export async function waitForPocImport(
 		const job = (await response.json()) as SentinelPocImportJobView;
 		onProgress?.(job.progress);
 		if (job.status === "done") {
-			if (!job.outcome) throw new Error("导入完成但没有返回结果");
+			if (!job.outcome) throw new Error(t("导入完成但没有返回结果"));
 			return job.outcome;
 		}
-		if (job.status === "error") throw new Error(job.error ?? "导入失败");
+		if (job.status === "error") throw new Error(job.error ?? t("导入失败"));
 		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 	}
-	throw new Error("导入超时，请检查服务端是否仍在处理");
+	throw new Error(t("导入超时，请检查服务端是否仍在处理"));
 }
 
 /** Combine one file's outcome per request into the page's single summary. */

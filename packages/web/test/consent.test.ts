@@ -19,11 +19,13 @@ import {
 	consentFilePath,
 	consentStatus,
 	consentText,
+	consentTextFor,
 	consentTextHash,
 	isConsentExemptPath,
 	readConsentRecord,
 	writeConsentRecord,
 } from "../src/consent.ts";
+import { setServerLanguage } from "../src/i18n.ts";
 import { startSentinelServer } from "../src/server.ts";
 
 const roots: string[] = [];
@@ -116,7 +118,7 @@ test("accepting the statement records it and opens the console for good", async 
 		body: JSON.stringify({ accepted: true }),
 	});
 	expect(accepted.status).toBe(200);
-	expect(await accepted.json()).toMatchObject({ ok: true, version: 1 });
+	expect(await accepted.json()).toMatchObject({ ok: true, version: 2 });
 
 	// The record is on disk, readable only by its owner.
 	const record = readConsentRecord(root);
@@ -138,7 +140,7 @@ test("the promise is per account and per wording", () => {
 	roots.push(root);
 
 	// Nothing recorded yet.
-	expect(consentStatus(root, "operator")).toEqual({ required: true, acceptedAt: null, version: 1 });
+	expect(consentStatus(root, "operator")).toEqual({ required: true, acceptedAt: null, version: 2 });
 	// No account or no directory: nothing to tie the promise to, so it is required.
 	expect(consentStatus(undefined, "operator").required).toBe(true);
 	expect(consentStatus(root, null).required).toBe(true);
@@ -147,7 +149,7 @@ test("the promise is per account and per wording", () => {
 	expect(consentStatus(root, "operator")).toEqual({
 		required: false,
 		acceptedAt: record.acceptedAt,
-		version: 1,
+		version: 2,
 	});
 	// Another account inherits nothing.
 	expect(consentStatus(root, "someone-else").required).toBe(true);
@@ -210,4 +212,105 @@ test("the record file is what the console reads back after a restart", () => {
 		username: "operator",
 		acceptedAt: "2026-01-02T03:04:05.000Z",
 	});
+});
+
+test("the English statement is complete and shares the same acceptance", () => {
+	const root = mkdtempSync(join(tmpdir(), "sentinel-consent-language-"));
+	roots.push(root);
+	const english = consentTextFor("en");
+	expect(english.title).toBe("Authorization and Risk Acknowledgment");
+	expect(english.clauses).toHaveLength(6);
+	expect(english.ai).toHaveLength(4);
+	expect(english.promise).toContain("authorized");
+	// One record covers both translations: switching the console language does
+	// not ask the operator to accept the same commitment again.
+	writeConsentRecord(root, "operator");
+	expect(consentStatus(root, "operator").required).toBe(false);
+	expect(consentTextFor("zh").title).not.toBe(english.title);
+});
+
+test("the public language switch changes the statement before sign-in", async () => {
+	const { url } = await openServer();
+	const cookie = await createAccount(url);
+
+	const switched = await json(url, "/api/ui-language", {
+		method: "POST",
+		body: JSON.stringify({ language: "en" }),
+	});
+	expect(switched.status).toBe(200);
+	expect(await switched.json()).toMatchObject({ ok: true, language: "en" });
+
+	// A fresh browser asks the server which language to render before sign-in.
+	const current = await json(url, "/api/ui-language");
+	expect(current.status).toBe(200);
+	expect(await current.json()).toEqual({ language: "en" });
+
+	const english = await json(url, "/api/consent", { cookie });
+	expect(await english.json()).toMatchObject({ text: { title: "Authorization and Risk Acknowledgment" } });
+
+	const invalid = await json(url, "/api/ui-language", {
+		method: "POST",
+		body: JSON.stringify({ language: "fr" }),
+	});
+	expect(invalid.status).toBe(400);
+});
+
+test("the socket announces the language first and broadcasts a switch", async () => {
+	const { url, root } = await openServer();
+	const cookie = await createAccount(url);
+	await json(url, "/api/consent/accept", { method: "POST", cookie, body: JSON.stringify({ accepted: true }) });
+
+	const received: Array<Record<string, unknown>> = [];
+	const ws = new WebSocket(`${url.replace("http://", "ws://")}/ws`, { headers: { cookie } });
+	ws.on("message", (data: Buffer) => {
+		received.push(JSON.parse(data.toString()) as Record<string, unknown>);
+	});
+	await new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("no ui_config on connect")), 3000);
+		ws.on("open", () => {
+			const poll = setInterval(() => {
+				if (received.length === 0) return;
+				clearInterval(poll);
+				clearTimeout(timer);
+				resolve();
+			}, 10);
+		});
+	});
+	expect(received[0]).toEqual({ type: "ui_config", language: "zh" });
+
+	const switched = new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("no language broadcast")), 3000);
+		const poll = setInterval(() => {
+			if (!received.some((message) => message.type === "ui_config" && message.language === "en")) return;
+			clearInterval(poll);
+			clearTimeout(timer);
+			resolve();
+		}, 10);
+	});
+	ws.send(JSON.stringify({ type: "set_ui_language", language: "en" }));
+	await switched;
+	expect(JSON.parse(readFileSync(join(root, "ui-config.json"), "utf8"))).toEqual({ language: "en" });
+
+	// A new connection is told the same language before anything else.
+	const reopened: Array<Record<string, unknown>> = [];
+	const second = new WebSocket(`${url.replace("http://", "ws://")}/ws`, { headers: { cookie } });
+	second.on("message", (data: Buffer) => {
+		reopened.push(JSON.parse(data.toString()) as Record<string, unknown>);
+	});
+	await new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("no ui_config on reconnect")), 3000);
+		second.on("open", () => {
+			const poll = setInterval(() => {
+				if (reopened.length === 0) return;
+				clearInterval(poll);
+				clearTimeout(timer);
+				resolve();
+			}, 10);
+		});
+	});
+	expect(reopened[0]).toEqual({ type: "ui_config", language: "en" });
+
+	second.close();
+	ws.close();
+	setServerLanguage("zh");
 });

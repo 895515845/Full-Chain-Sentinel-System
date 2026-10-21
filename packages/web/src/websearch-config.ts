@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import type { SentinelAssetStatus, SentinelWebSearchConfigView } from "./protocol.ts";
 
 export const WEBSEARCH_CONFIG_VERSION = 1;
@@ -81,7 +82,7 @@ function asKeys(value: unknown): SentinelWebSearchKeyConfig[] {
 		const raw = (row ?? {}) as Partial<SentinelWebSearchKeyConfig>;
 		return {
 			id: typeof raw.id === "string" && raw.id ? raw.id : `tvk-${randomUUID().slice(0, 8)}`,
-			label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : "未命名 Key",
+			label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : t("未命名 Key"),
 			key: asKey(raw.key),
 			enabled: raw.enabled === true,
 			status: asStatus(raw.status),
@@ -157,7 +158,8 @@ export function saveWebSearchKey(
 	input: { id?: string; label: string; key?: string | null; enabled: boolean },
 ): SentinelWebSearchConfig {
 	const config = readForUpdate(agentDir);
-	if (!config) throw new Error(`${websearchJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!config)
+		throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: websearchJsonPath(agentDir) }));
 	const existing = input.id ? config.keys.find((entry) => entry.id === input.id) : undefined;
 	const key = input.key === null || input.key === undefined ? (existing?.key ?? "") : asKey(input.key);
 	if (existing) {
@@ -169,11 +171,12 @@ export function saveWebSearchKey(
 		}
 		existing.enabled = input.enabled;
 	} else {
-		if (!key) throw new Error("新 Key 必须填写密钥");
-		if (config.keys.length >= MAX_WEBSEARCH_KEYS) throw new Error(`号池最多 ${MAX_WEBSEARCH_KEYS} 个 Key`);
+		if (!key) throw new Error(t("新 Key 必须填写密钥"));
+		if (config.keys.length >= MAX_WEBSEARCH_KEYS)
+			throw new Error(t("号池最多 {max} 个 Key", { max: MAX_WEBSEARCH_KEYS }));
 		config.keys.push({
 			id: `tvk-${randomUUID().slice(0, 8)}`,
-			label: input.label.trim() || "未命名 Key",
+			label: input.label.trim() || t("未命名 Key"),
 			key,
 			enabled: input.enabled,
 			status: emptyStatus(),
@@ -185,7 +188,8 @@ export function saveWebSearchKey(
 
 export function deleteWebSearchKey(agentDir: string, id: string): SentinelWebSearchConfig {
 	const config = readForUpdate(agentDir);
-	if (!config) throw new Error(`${websearchJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!config)
+		throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: websearchJsonPath(agentDir) }));
 	config.keys = config.keys.filter((entry) => entry.id !== id);
 	writeWebSearchConfig(agentDir, config);
 	return readWebSearchConfig(agentDir);
@@ -193,7 +197,8 @@ export function deleteWebSearchKey(agentDir: string, id: string): SentinelWebSea
 
 export function setWebSearchQueryLimit(agentDir: string, limit: number): SentinelWebSearchConfig {
 	const config = readForUpdate(agentDir);
-	if (!config) throw new Error(`${websearchJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!config)
+		throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: websearchJsonPath(agentDir) }));
 	config.sessionQueryLimit = asLimit(limit);
 	writeWebSearchConfig(agentDir, config);
 	return readWebSearchConfig(agentDir);

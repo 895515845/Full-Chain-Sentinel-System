@@ -13,6 +13,7 @@
 
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { t } from "./i18n.ts";
 import { appendPluginAudit, type PluginAuditEntry } from "./plugin-audit.ts";
 import type { PluginView as HostPluginView } from "./plugin-host/store.ts";
 import type { SentinelPluginManifest } from "./plugin-manifest.ts";
@@ -96,20 +97,20 @@ function isLoopbackUrl(url: URL): boolean {
 /** Only loopback may be plain HTTP: the token would otherwise cross the network in the clear. */
 export function validatePluginHostInput(input: PluginHostInput): string | undefined {
 	const url = input.url.trim();
-	if (!url) return "请填写 host 地址";
+	if (!url) return t("请填写 host 地址");
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
 	} catch {
-		return "host 地址必须是完整 URL，例如 http://127.0.0.1:7800";
+		return t("host 地址必须是完整 URL，例如 http://127.0.0.1:7800");
 	}
-	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "只支持 http 和 https";
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return t("只支持 http 和 https");
 	if (parsed.protocol === "http:" && !isLoopbackUrl(parsed)) {
-		return "非回环地址必须用 HTTPS：token 走明文 HTTP 等于公开";
+		return t("非回环地址必须用 HTTPS：token 走明文 HTTP 等于公开");
 	}
-	if (parsed.username || parsed.password) return "地址里不要带用户名密码，token 单独填";
-	if (!input.token.trim()) return "请填写 host token（plugin-host 启动时打印）";
-	if (!input.name.trim()) return "请填写名称";
+	if (parsed.username || parsed.password) return t("地址里不要带用户名密码，token 单独填");
+	if (!input.token.trim()) return t("请填写 host token（plugin-host 启动时打印）");
+	if (!input.name.trim()) return t("请填写名称");
 	return undefined;
 }
 
@@ -132,7 +133,7 @@ async function hostFetch(
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		throw new PluginServiceError(`连接 ${host.name || host.url} 失败：${message}`);
+		throw new PluginServiceError(t("连接 {host} 失败：{error}", { host: host.name || host.url, error: message }));
 	}
 	return response;
 }
@@ -208,10 +209,14 @@ function longHostJson<T>(host: PluginHostRecord, path: string, body: unknown, ti
 			},
 		);
 		request.setTimeout(timeoutMs, () => {
-			request.destroy(new Error(`插件主机在 ${Math.round(timeoutMs / 1000)}s 内没有返回`));
+			request.destroy(new Error(t("插件主机在 {seconds}s 内没有返回", { seconds: Math.round(timeoutMs / 1000) })));
 		});
 		request.on("error", (error) => {
-			reject(new PluginServiceError(`连接 ${host.name || host.url} 失败：${error.message}`));
+			reject(
+				new PluginServiceError(
+					t("连接 {host} 失败：{error}", { host: host.name || host.url, error: error.message }),
+				),
+			);
 		});
 		request.end(payload);
 	});
@@ -219,7 +224,7 @@ function longHostJson<T>(host: PluginHostRecord, path: string, body: unknown, ti
 
 function findHost(agentDir: string, hostId: string): PluginHostRecord {
 	const host = effectivePluginHosts(agentDir).find((entry) => entry.id === hostId);
-	if (!host) throw new PluginServiceError(`未找到插件主机 ${hostId}`, 404);
+	if (!host) throw new PluginServiceError(t("未找到插件主机 {hostId}", { hostId }), 404);
 	return host;
 }
 
@@ -275,7 +280,7 @@ export async function listPlugins(agentDir: string): Promise<PluginListView> {
 			recordPluginHostStatus(agentDir, host.id, host.local, { at: Date.now(), ok: true });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			problems.push(`${host.name || host.url}：${message}`);
+			problems.push(t("{host}：{error}", { host: host.name || host.url, error: message }));
 			recordPluginHostStatus(agentDir, host.id, host.local, { at: Date.now(), ok: false, error: message });
 		}
 	}
@@ -564,7 +569,7 @@ export async function callPluginTool(
 	name: string,
 	args: Record<string, unknown>,
 ): Promise<PluginToolResult> {
-	if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new PluginServiceError("工具名非法", 400);
+	if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new PluginServiceError(t("工具名非法"), 400);
 	const host = findHost(agentDir, hostId);
 	return audited(
 		agentDir,
@@ -592,7 +597,7 @@ export async function getPluginValues(
 	const host = findHost(agentDir, hostId);
 	const payload = await hostJson<{ plugins: HostPluginView[] }>(host, "/v1/plugins");
 	const plugin = payload.plugins.find((entry) => entry.manifest.id === pluginId);
-	if (!plugin) throw new PluginServiceError(`未找到插件 ${pluginId}`, 404);
+	if (!plugin) throw new PluginServiceError(t("未找到插件 {pluginId}", { pluginId }), 404);
 	return plugin.values;
 }
 
@@ -664,7 +669,7 @@ export async function fetchPluginUiFile(
 	const host = findHost(agentDir, hostId);
 	const segments = relative.split("/").filter(Boolean);
 	if (segments.some((segment) => segment === "." || segment === "..")) {
-		throw new PluginServiceError("界面资源路径非法", 400);
+		throw new PluginServiceError(t("界面资源路径非法"), 400);
 	}
 	const path = `/plugins/${encodeURIComponent(pluginId)}/ui/${segments.map(encodeURIComponent).join("/")}`;
 	let response: Response;
@@ -675,15 +680,17 @@ export async function fetchPluginUiFile(
 		});
 	} catch (error) {
 		throw new PluginServiceError(
-			`读取插件界面资源失败：${error instanceof Error ? error.message : String(error)}`,
+			t("读取插件界面资源失败：{error}", {
+				error: error instanceof Error ? error.message : String(error),
+			}),
 			502,
 		);
 	}
 	if (!response.ok) {
-		throw new PluginServiceError(`读取插件界面资源失败（HTTP ${response.status}）`, 502);
+		throw new PluginServiceError(t("读取插件界面资源失败（HTTP {status}）", { status: response.status }), 502);
 	}
 	const data = Buffer.from(await response.arrayBuffer());
-	if (data.length > 2 * 1024 * 1024) throw new PluginServiceError("界面资源超过 2MB 上限", 413);
+	if (data.length > 2 * 1024 * 1024) throw new PluginServiceError(t("界面资源超过 2MB 上限"), 413);
 	return { contentType: response.headers.get("content-type") ?? "application/octet-stream", data };
 }
 
@@ -699,7 +706,9 @@ export async function downloadPluginArtifact(
 			host,
 			`/v1/plugins/${encodeURIComponent(pluginId)}/artifacts?path=${encodeURIComponent(path)}`,
 		);
-		if (!response.ok) throw new PluginServiceError(`下载产物失败：HTTP ${response.status}`, response.status);
+		if (!response.ok) {
+			throw new PluginServiceError(t("下载产物失败：HTTP {status}", { status: response.status }), response.status);
+		}
 		return Buffer.from(await response.arrayBuffer());
 	});
 	return data;

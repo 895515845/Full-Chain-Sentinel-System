@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { t } from "../i18n.ts";
 import type { SessionTreeNodeView, SentinelForkPoint } from "../types.ts";
 import { BranchIcon, CaretDownIcon, CaretRightIcon, CloseIcon } from "./icons.tsx";
 
@@ -37,9 +38,9 @@ function entrySummary(node: SessionTreeNodeView): string {
 	}
 	switch (node.entry.type) {
 		case "compaction":
-			return "≡ 压缩点";
+			return t("≡ 压缩点");
 		case "branch_summary":
-			return "↩ 分支摘要";
+			return t("↩ 分支摘要");
 		default:
 			return node.entry.type;
 	}
@@ -123,16 +124,16 @@ export function BranchModal({
 		<div className="modal-backdrop" onClick={onClose}>
 			<div className="modal branch-modal" onClick={(event) => event.stopPropagation()}>
 				<h2>
-					会话分支
+					{t("会话分支")}
 					<button type="button" className="ghost small" style={{ float: "right" }} onClick={onClose}>
 						<CloseIcon />
 					</button>
 				</h2>
-				<p className="modal-hint">点击分支立即跳转，原分支完整保留，可随时切回。</p>
+				<p className="modal-hint">{t("点击分支立即跳转，原分支完整保留，可随时切回。")}</p>
 
 				<div className="breadcrumb">
 					{path.length === 0 ? (
-						<span className="breadcrumb-empty">暂无消息</span>
+						<span className="breadcrumb-empty">{t("暂无消息")}</span>
 					) : (
 						path.map((item, index) => (
 							<span key={item.id} className="breadcrumb-crumb-wrap">
@@ -152,9 +153,9 @@ export function BranchModal({
 				</div>
 
 				<div className="branch-scroll">
-					<div className="branch-section-title">分叉点 · {forks.length}</div>
+					<div className="branch-section-title">{t("分叉点 · {count}", { count: forks.length })}</div>
 					{forks.length === 0 ? (
-						<div className="branch-empty">还没有分叉。在历史消息上点「↩ 从此分叉」即可开新分支。</div>
+						<div className="branch-empty">{t("还没有分叉。在历史消息上点「↩ 从此分叉」即可开新分支。")}</div>
 					) : null}
 					{forks.map((fork) => {
 						const open = expandedFork === fork.id;
@@ -172,7 +173,7 @@ export function BranchModal({
 									<span className="fork-summary">
 										<BranchIcon size={12} /> {fork.summary.slice(0, 30)}
 									</span>
-									<span className="fork-count">{fork.branches.length} 条分支</span>
+									<span className="fork-count">{t("{count} 条分支", { count: fork.branches.length })}</span>
 								</button>
 								{open ? (
 									<div className="fork-branches">
@@ -189,8 +190,8 @@ export function BranchModal({
 													<span className="branch-name">
 														{branch.label || branch.summary.slice(0, 26)}
 													</span>
-													<span className="branch-meta">{branch.messageCount} 条</span>
-													{branch.active ? <span className="branch-now">当前</span> : null}
+													<span className="branch-meta">{t("{count} 条", { count: branch.messageCount })}</span>
+													{branch.active ? <span className="branch-now">{t("当前")}</span> : null}
 												</button>
 												{editingBranch === branch.entryId ? (
 													<input
@@ -205,14 +206,14 @@ export function BranchModal({
 															if (event.key === "Escape") setEditingBranch(null);
 														}}
 														onBlur={() => setEditingBranch(null)}
-														placeholder="分支名称"
+														placeholder={t("分支名称")}
 														spellCheck={false}
 													/>
 												) : (
 													<button
 														type="button"
 														className="ghost small"
-														title="命名分支"
+														title={t("命名分支")}
 														onClick={() => {
 															setEditingBranch(branch.entryId);
 															setEditValue(branch.label);
@@ -232,7 +233,7 @@ export function BranchModal({
 					{forkPoints.length > 0 ? (
 						<>
 							<div className="branch-section-title" style={{ marginTop: 14 }}>
-								从历史消息分叉
+								{t("从历史消息分叉")}
 							</div>
 							{forkPoints
 								.slice()
@@ -246,7 +247,7 @@ export function BranchModal({
 										onClick={() => jump(point.entryId)}
 										title={point.text}
 									>
-										↩ {point.text.slice(0, 40) || "(空)"}
+										↩ {point.text.slice(0, 40) || t("(空)")}
 									</button>
 								))}
 						</>

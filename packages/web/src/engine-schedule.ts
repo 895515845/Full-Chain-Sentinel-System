@@ -7,6 +7,7 @@
  * same rules can be unit-tested without a commander or a container.
  */
 
+import { t } from "./i18n.ts";
 import type {
 	SentinelEngineSchedule,
 	SentinelEngineScheduleAction,
@@ -25,7 +26,7 @@ export interface DueScheduleAction {
 
 function optionalTime(value: number | null | undefined, field: string): number | null {
 	if (value === null || value === undefined) return null;
-	if (!Number.isFinite(value)) throw new Error(`${field}不是有效时间`);
+	if (!Number.isFinite(value)) throw new Error(t("{field}不是有效时间", { field }));
 	return Math.round(value);
 }
 
@@ -45,24 +46,24 @@ export function isValidScheduleTimezone(timezone: string): boolean {
  * `now` so tests and the scheduler share one clock.
  */
 export function normalizeSchedule(input: SentinelEngineScheduleInput, now: number): SentinelEngineSchedule {
-	if (!input || typeof input !== "object") throw new Error("定时计划无效");
+	if (!input || typeof input !== "object") throw new Error(t("定时计划无效"));
 	const timezone = typeof input.timezone === "string" ? input.timezone.trim() : "";
-	if (!isValidScheduleTimezone(timezone)) throw new Error("计划时区无效，请重新打开页面后再试");
-	const startAt = optionalTime(input.startAt, "开始时间");
-	if (startAt === null || startAt <= now) throw new Error("开始时间必须晚于当前时间");
-	const pauseAt = optionalTime(input.pauseAt, "暂停时间");
-	const resumeAt = optionalTime(input.resumeAt, "恢复时间");
-	const deadlineAt = optionalTime(input.deadlineAt, "最晚停止时间");
+	if (!isValidScheduleTimezone(timezone)) throw new Error(t("计划时区无效，请重新打开页面后再试"));
+	const startAt = optionalTime(input.startAt, t("开始时间"));
+	if (startAt === null || startAt <= now) throw new Error(t("开始时间必须晚于当前时间"));
+	const pauseAt = optionalTime(input.pauseAt, t("暂停时间"));
+	const resumeAt = optionalTime(input.resumeAt, t("恢复时间"));
+	const deadlineAt = optionalTime(input.deadlineAt, t("最晚停止时间"));
 	if ((pauseAt === null) !== (resumeAt === null)) {
-		throw new Error("暂停时间和恢复时间必须同时填写，或同时留空");
+		throw new Error(t("暂停时间和恢复时间必须同时填写，或同时留空"));
 	}
-	if (pauseAt !== null && pauseAt <= startAt) throw new Error("暂停时间必须晚于开始时间");
+	if (pauseAt !== null && pauseAt <= startAt) throw new Error(t("暂停时间必须晚于开始时间"));
 	if (resumeAt !== null && pauseAt !== null && resumeAt <= pauseAt) {
-		throw new Error("恢复时间必须晚于暂停时间");
+		throw new Error(t("恢复时间必须晚于暂停时间"));
 	}
 	if (deadlineAt !== null) {
 		const lastStep = resumeAt ?? pauseAt ?? startAt;
-		if (deadlineAt <= lastStep) throw new Error("最晚停止时间必须晚于最后一次计划动作");
+		if (deadlineAt <= lastStep) throw new Error(t("最晚停止时间必须晚于最后一次计划动作"));
 	}
 	return {
 		timezone,

@@ -9,6 +9,7 @@
  * paths the model reads.
  */
 
+import { t } from "./i18n.ts";
 import { formatSize } from "./transcript.ts";
 
 /** Largest single attachment; the server refuses anything larger. */
@@ -58,10 +59,10 @@ export function uploadFile(
 				});
 				return;
 			}
-			reject(new Error(payload.error ?? `上传失败（HTTP ${request.status}）`));
+			reject(new Error(payload.error ?? t("上传失败（HTTP {status}）", { status: request.status })));
 		};
-		request.onerror = () => reject(new Error("上传失败：连接中断"));
-		request.onabort = () => reject(new Error("上传已取消"));
+		request.onerror = () => reject(new Error(t("上传失败：连接中断")));
+		request.onabort = () => reject(new Error(t("上传已取消")));
 		request.send(file);
 	});
 }
@@ -74,7 +75,7 @@ export function uploadFile(
 export function attachmentManifest(files: readonly UploadedFile[]): string {
 	if (files.length === 0) return "";
 	const lines = files.map((file) => `- ${file.path}（${formatSize(file.size)}）`);
-	return `已上传文件（可用 read/bash 直接读）：\n${lines.join("\n")}`;
+	return t("已上传文件（可用 read/bash 直接读）：\n{files}", { files: lines.join("\n") });
 }
 
 /**
@@ -103,9 +104,9 @@ export type AttachmentPlan =
 export function planAttachments(files: readonly File[], projectId: string | null): AttachmentPlan[] {
 	return files.map((file) => {
 		if (file.type.startsWith("image/")) return { kind: "image", file };
-		if (!projectId) return { kind: "refused", file, reason: "请先选择项目" };
+		if (!projectId) return { kind: "refused", file, reason: t("请先选择项目") };
 		if (file.size > MAX_UPLOAD_BYTES) {
-			return { kind: "refused", file, reason: `超过 ${formatSize(MAX_UPLOAD_BYTES)} 上限` };
+			return { kind: "refused", file, reason: t("超过 {size} 上限", { size: formatSize(MAX_UPLOAD_BYTES) }) };
 		}
 		return { kind: "upload", file, projectId };
 	});

@@ -12,6 +12,7 @@
  * reader for events we do not consume.
  */
 
+import { t } from "../i18n.ts";
 import type { McpToolOutcome } from "./types.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -28,7 +29,7 @@ async function readRpc(response: Response, id: number): Promise<RpcResponse> {
 		const payload = (await response.json()) as RpcResponse | RpcResponse[];
 		if (Array.isArray(payload)) {
 			const match = payload.find((entry) => entry.id === id);
-			if (!match) throw new Error("JSON-RPC 响应里没有匹配的 id");
+			if (!match) throw new Error(t("JSON-RPC 响应里没有匹配的 id"));
 			return match;
 		}
 		return payload;
@@ -46,7 +47,7 @@ async function readRpc(response: Response, id: number): Promise<RpcResponse> {
 			// A comment or a partial event; the matching message follows.
 		}
 	}
-	throw new Error("SSE 流里没有收到 JSON-RPC 响应");
+	throw new Error(t("SSE 流里没有收到 JSON-RPC 响应"));
 }
 
 /** Call one tool on the plugin's MCP endpoint. Throws on transport or JSON-RPC errors. */
@@ -78,10 +79,10 @@ export async function callPluginTool(
 			},
 		}),
 	});
-	if (!initialize.ok) throw new Error(`initialize 失败：HTTP ${initialize.status}`);
+	if (!initialize.ok) throw new Error(t("initialize 失败：HTTP {status}", { status: initialize.status }));
 	const sessionId = initialize.headers.get("mcp-session-id");
 	const initialized = await readRpc(initialize, 1);
-	if (initialized.error) throw new Error(initialized.error.message ?? "initialize 被拒绝");
+	if (initialized.error) throw new Error(initialized.error.message ?? t("initialize 被拒绝"));
 	if (sessionId) headers["mcp-session-id"] = sessionId;
 
 	const call = await fetch(base, {
@@ -95,9 +96,9 @@ export async function callPluginTool(
 			params: { name, arguments: args },
 		}),
 	});
-	if (!call.ok) throw new Error(`tools/call 失败：HTTP ${call.status}`);
+	if (!call.ok) throw new Error(t("tools/call 失败：HTTP {status}", { status: call.status }));
 	const answer = await readRpc(call, 2);
-	if (answer.error) throw new Error(answer.error.message ?? "工具调用被拒绝");
+	if (answer.error) throw new Error(answer.error.message ?? t("工具调用被拒绝"));
 	const result = (answer.result ?? {}) as {
 		content?: unknown;
 		isError?: boolean;

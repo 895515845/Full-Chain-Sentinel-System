@@ -1112,6 +1112,12 @@ button.ghost.small.on {
 	font-size: 15px;
 }
 
+.sider-foot-btn.sider-foot-lang {
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
 .sider-foot-btn:hover:not(:disabled) {
 	background: var(--nav-hover);
 	border-color: transparent;
@@ -12558,6 +12564,32 @@ button.link {
 	z-index: 2;
 	color: #8b98a5;
 	font-size: 13px;
+}
+
+.public-language {
+	position: absolute;
+	top: 16px;
+	right: 18px;
+	z-index: 2;
+	padding: 5px 10px;
+	border: 1px solid rgba(255, 255, 255, 0.24);
+	border-radius: var(--radius);
+	background: rgba(12, 23, 38, 0.35);
+	color: rgba(255, 255, 255, 0.84);
+	font-size: 11.5px;
+	line-height: 1;
+	cursor: pointer;
+	backdrop-filter: blur(8px);
+}
+
+.public-language:hover {
+	border-color: rgba(255, 255, 255, 0.48);
+	color: #fff;
+}
+
+.auth-language {
+	top: 18px;
+	right: 22px;
 }
 
 .auth-panel {

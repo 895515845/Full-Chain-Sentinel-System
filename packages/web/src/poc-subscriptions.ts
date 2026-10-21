@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import { MAX_ZIP_TOTAL_BYTES } from "./poc-zip.ts";
 import type { PocStore } from "./pocs.ts";
 import type {
@@ -91,13 +92,13 @@ export interface SubscriptionHooks {
 /** Validate a source URL: http or https only, no credentials in the URL itself. */
 export function sourceUrlError(url: string): string | undefined {
 	const trimmed = url.trim();
-	if (!trimmed) return "URL 不能为空";
+	if (!trimmed) return t("URL 不能为空");
 	try {
 		const parsed = new URL(trimmed);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "只支持 http / https URL";
-		if (parsed.username || parsed.password) return "URL 里不能带用户名密码，请用认证头";
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return t("只支持 http / https URL");
+		if (parsed.username || parsed.password) return t("URL 里不能带用户名密码，请用认证头");
 	} catch {
-		return "URL 无法解析";
+		return t("URL 无法解析");
 	}
 	return undefined;
 }
@@ -144,16 +145,16 @@ async function download(url: string, headerName: string, headerValue: string): P
 		const response = await fetch(url, { headers, redirect: "follow", signal: controller.signal });
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const declared = Number(response.headers.get("content-length") ?? 0);
-		if (declared > MAX_ZIP_TOTAL_BYTES) throw new Error(`文件超过 ${MAX_ZIP_MB}MB 上限`);
+		if (declared > MAX_ZIP_TOTAL_BYTES) throw new Error(t("文件超过 {max}MB 上限", { max: MAX_ZIP_MB }));
 		const chunks: Uint8Array[] = [];
 		let total = 0;
 		const reader = response.body?.getReader();
-		if (!reader) throw new Error("响应没有内容");
+		if (!reader) throw new Error(t("响应没有内容"));
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			total += value.byteLength;
-			if (total > MAX_ZIP_TOTAL_BYTES) throw new Error(`文件超过 ${MAX_ZIP_MB}MB 上限`);
+			if (total > MAX_ZIP_TOTAL_BYTES) throw new Error(t("文件超过 {max}MB 上限", { max: MAX_ZIP_MB }));
 			chunks.push(value);
 		}
 		return Buffer.concat(chunks);
@@ -229,17 +230,18 @@ export class PocSubscriptions {
 	/** Create or update; returns the saved view or a rejection reason. */
 	save(input: SentinelPocSourceSave): { source: SentinelPocSource } | { error: string } {
 		const name = input.name.trim();
-		if (!name) return { error: "名称不能为空" };
+		if (!name) return { error: t("名称不能为空") };
 		const url = input.url.trim();
 		const urlError = sourceUrlError(url);
 		if (urlError) return { error: urlError };
 		const headerName = input.headerName?.trim() ?? "";
-		if (headerName && !/^[A-Za-z0-9-]+$/.test(headerName)) return { error: "认证头的名称只能是字母、数字与连字符" };
+		if (headerName && !/^[A-Za-z0-9-]+$/.test(headerName))
+			return { error: t("认证头的名称只能是字母、数字与连字符") };
 
 		const intervalHours = clampIntervalHours(input.intervalHours);
 		if (input.id) {
 			const source = this.sources.find((item) => item.id === input.id);
-			if (!source) return { error: "该订阅源不存在" };
+			if (!source) return { error: t("该订阅源不存在") };
 			source.name = name;
 			source.url = url;
 			source.headerName = headerName;
@@ -282,8 +284,8 @@ export class PocSubscriptions {
 	/** Sync one source now. Refuses a second concurrent sync of the same source. */
 	async sync(id: string, trigger: "manual" | "auto"): Promise<{ source: SentinelPocSource } | { error: string }> {
 		const source = this.sources.find((item) => item.id === id);
-		if (!source) return { error: "该订阅源不存在" };
-		if (this.running.has(id)) return { error: "该订阅源正在同步" };
+		if (!source) return { error: t("该订阅源不存在") };
+		if (this.running.has(id)) return { error: t("该订阅源正在同步") };
 		this.running.add(id);
 		const startedAt = Date.now();
 		let outcome: SentinelPocImportOutcome | undefined;
@@ -300,7 +302,7 @@ export class PocSubscriptions {
 					lastError = error;
 				}
 			}
-			if (!bytes) throw lastError instanceof Error ? lastError : new Error("下载失败");
+			if (!bytes) throw lastError instanceof Error ? lastError : new Error(t("下载失败"));
 			outcome = await this.store.importAsync([{ name: "subscription.zip", bytes }]);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);

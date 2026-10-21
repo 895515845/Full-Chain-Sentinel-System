@@ -1,11 +1,13 @@
+import { getLanguage } from "./i18n.ts";
+
 /**
- * The install page's developer guide, kept as one plain-text block.
+ * The install page's developer guide, kept as one plain-text block per language.
  *
  * It is written for a coding AI, not for a reader: a single copy gives the model
  * the whole contract, the constraints, a runnable skeleton, and the acceptance
  * checks. Markdown fences use `~~~` so the text can live in a template literal.
  */
-export const PLUGIN_DEV_GUIDE = `# 哨兵插件开发任务
+export const PLUGIN_DEV_GUIDE_ZH = `# 哨兵插件开发任务
 
 你要为一个「全链哨兵」社区插件写代码。严格按下面的契约产出，不要引入未说明的机制。
 最终交付：一个 zip 包，里面有 plugin.json、Dockerfile 和构建上下文。安装在哨兵的插件主机上
@@ -309,3 +311,310 @@ curl http://127.0.0.1:7801/healthz
 参考实现：examples/plugins/hello-world（带界面）、examples/plugins/recon（CLI 包装）、plugins/memshell-party。
 完整文档：docs/plugin-authoring.md、docs/plugin-ui.md。
 `;
+
+export const PLUGIN_DEV_GUIDE_EN = `# Sentinel Plugin Development Task
+
+You are writing code for a "Full-Chain Sentinel" community plugin. Produce it exactly according to the contract below; do not introduce mechanisms that are not described here.
+Final deliverable: one zip package containing plugin.json, a Dockerfile, and the build context. Installation runs
+docker build on the Sentinel plugin host and then starts it directly — no image registry and no digest is needed.
+
+## 1. Package structure
+
+~~~
+my-plugin/
+├── plugin.json
+├── Dockerfile
+├── .dockerignore
+├── server.mjs          # MCP server (any language)
+└── ui/                 # optional frontend
+    ├── index.html
+    ├── sdk.js
+    ├── app.js
+    └── app.css
+~~~
+
+Packaging: zip -r my-plugin.zip my-plugin/
+After upload, the plugin host unpacks it, runs docker build (tag sentinel-plugin/<id>:<version>), and then starts the container.
+
+## 2. plugin.json (full contract)
+
+~~~json
+{
+  "schema": 1,
+  "id": "com.example.recon",
+  "name": "Recon toolkit",
+  "version": "0.1.0",
+  "description": "One line explaining what this plugin does",
+  "author": "github:your-name",
+  "source": "https://github.com/you/sentinel-plugin-recon",
+  "license": "MIT",
+  "build": { "dockerfile": "Dockerfile", "context": "." },
+  "mcp": {
+    "transport": "http",
+    "port": 7801,
+    "path": "/mcp",
+    "startupTimeoutMs": 20000,
+    "requestTimeoutMs": 300000
+  },
+  "config": [
+    { "key": "API_KEY", "label": "API Key", "type": "secret", "required": true },
+    { "key": "RATE", "label": "Rate", "type": "number", "required": false, "default": 1000 }
+  ],
+  "permissions": { "network": "bridge", "capAdd": [], "privileged": false },
+  "locality": "any",
+  "resources": { "cpus": 1, "memory": "512m", "pidsLimit": 128 },
+  "healthcheck": { "path": "/healthz", "intervalMs": 10000, "timeoutMs": 3000, "retries": 3 },
+  "artifacts": { "path": "/artifacts", "maxFileBytes": 52428800 },
+  "tools": [
+    { "name": "recon_scan", "description": "Scan a domain" }
+  ],
+  "ui": {
+    "entry": "/ui/index.html",
+    "title": "Recon panel",
+    "protocol": 1,
+    "sidebar": { "label": "Recon", "icon": "/ui/icon.svg" }
+  }
+}
+~~~
+
+Hard rules:
+- id is a reverse domain name; version is a semantic version; description ≤400 characters.
+- build.dockerfile and build.context are paths relative to the plugin root (the directory containing plugin.json); they must not start with / or contain \`..\`.
+- There is no longer an image field. Writing image is rejected by validation; images are always built on the spot by the plugin host.
+- mcp.transport can only be "http" (streamable HTTP). stdio and SSE are not supported; authors must convert on their own.
+- mcp.requestTimeoutMs is in milliseconds, range 5000–1800000, default 300000.
+- permissions.network is none/bridge/host; bridge is the default. capAdd only allows NET_RAW, NET_ADMIN, NET_BIND_SERVICE, SYS_PTRACE.
+- resources limits: cpus ≤2, memory ≤2g, pidsLimit ≤1024.
+- locality: local-only (needs a local network perspective) / remote-only (needs public internet egress) / any.
+- ui is optional; v1 only has entry/title/protocol, protocol is fixed at 1, and network:true is forbidden.
+- config keys must match ^[A-Z][A-Z0-9_]*$, and are injected into the container as PLUGIN_<KEY>.
+
+## 3. Dockerfile requirements
+
+- The build runs on the plugin host using the host's Docker daemon; the base image must be pullable from a registry the host can reach.
+- All image sources must use registries reachable from mainland China: for Docker use docker.1ms.run/library/... or ghcr.nju.edu.cn/...,
+  for apk use mirrors.tuna.tsinghua.edu.cn, for npm use registry.npmmirror.com, for pip use pypi.tuna.tsinghua.edu.cn,
+  for Go use goproxy.cn, for Maven use maven.aliyun.com. Do not depend on direct connections to Docker Hub, npmjs, or pypi.org.
+- Do not put dependencies on host paths; the build context is everything you can COPY from inside your package.
+- The container must start the MCP server listening on 0.0.0.0:<mcp.port>; binding only to 127.0.0.1 makes the port mapping unreachable.
+- If you need a JDK/JRE, Python, or Node, install it yourself in the Dockerfile; do not assume the host has it.
+- Write a .dockerignore so that .git, node_modules, and large files are not stuffed into the build context.
+- To switch mirrors or pass parameters at build time, use \`build.args\` (for example \`{"APK_MIRROR":"mirrors.tuna.tsinghua.edu.cn"}\`); the host turns them into \`docker build --build-arg\`.
+- When the build fails, the plugin page shows the last part of the build log; the log is also written to plugins/<id>/build.log on the plugin host.
+
+Minimal example:
+
+~~~dockerfile
+FROM docker.1ms.run/library/node:22-alpine
+WORKDIR /app
+COPY server.mjs .
+COPY ui ./ui
+ENV PORT=7801
+EXPOSE 7801
+CMD ["node", "server.mjs"]
+~~~
+
+## 4. Container and MCP server
+
+- Startup only counts as successful when GET <healthcheck.path> returns 2xx.
+- The MCP endpoint is POST <mcp.path>, JSON-RPC 2.0; returning plain JSON is fine, and SSE is also acceptable.
+- Must implement: initialize, tools/list, tools/call; supporting ping is recommended.
+- Tool names may only use letters, digits, underscores, and hyphens; every tool needs a description and an inputSchema (JSON Schema).
+- Report errors inside a tool with result.isError=true plus an explanatory content text; do not throw a 500.
+
+Request/response example:
+
+~~~json
+// request
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}
+// response
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"recon","version":"0.1.0"}}}
+
+// request
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"recon_scan","arguments":{"domain":"example.com"}}}
+// response
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Found 42 subdomains"}]}}
+~~~
+
+Minimal Node skeleton (ready to modify):
+
+~~~js
+import { createServer } from "node:http";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const PORT = Number(process.env.PORT ?? 7801);
+const ARTIFACTS = "/artifacts";
+const TOOLS = [{
+  name: "recon_scan",
+  description: "Scan a domain",
+  inputSchema: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] },
+}];
+
+function send(res, status, body) {
+  const json = JSON.stringify(body);
+  res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(json) });
+  res.end(json);
+}
+
+function handle(message) {
+  const id = message.id;
+  if (message.method === "initialize") {
+    return { jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "recon", version: "0.1.0" } } };
+  }
+  if (message.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
+  if (message.method === "tools/call") {
+    const domain = String(message.params?.arguments?.domain ?? "");
+    const run = "run-" + Date.now();
+    mkdirSync(join(ARTIFACTS, run), { recursive: true });
+    writeFileSync(join(ARTIFACTS, run, "result.txt"), domain);
+    return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "Done: " + domain }], _meta: { artifacts: [run + "/result.txt"] } } };
+  }
+  return { jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } };
+}
+
+createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/healthz") return send(res, 200, { ok: true });
+  if (req.method !== "POST" || req.url !== "/mcp") { res.writeHead(404).end(); return; }
+  let body = "";
+  req.on("data", (chunk) => (body += chunk));
+  req.on("end", () => send(res, 200, handle(JSON.parse(body))));
+}).listen(PORT, "0.0.0.0");
+~~~
+
+## 5. Configuration and secrets
+
+- config fields are injected as PLUGIN_<KEY> environment variables and read when the process starts.
+- Values with type:"secret" are stored only in the plugin host's config.json (0600) and are not echoed back by the API; do not log them and do not put them into tool return values.
+- Changing configuration rebuilds the container; the /data directory is preserved.
+
+## 6. Artifacts
+
+- Write large output to /artifacts/<run-id>/ and put only a summary in the tool return value. The console shows 10 per page and indexes at most 2000 files per plugin.
+- Give relative paths in result._meta.artifacts, for example ["run-1/result.txt"].
+- The default per-file limit is 50MB, controlled by artifacts.maxFileBytes.
+
+## 7. Optional frontend /ui/
+
+After declaring ui.entry, the plugin drawer shows "Open interface". It links to the console path /plugin-ui/<host>/<plugin>/, which the console reverse-proxies to the entry directory in the container.
+
+Rules:
+- The entry is the HTML that ui.entry points to; all other assets use relative paths (./app.js), never absolute paths like /app.js.
+- The page must include sdk.js from the same directory and must wait for SentinelPlugin.connect() to resolve before sending requests.
+- The console overlay already has the plugin name, version, connection status, reload, and close; the page starts at the toolbar and must not repeat the host title.
+- Once ui.sidebar is declared, it is pinned to the left workbench group by default; operators can turn it off under "Interface" in the plugin drawer. Clicking the sidebar item opens the same interface in the main content area. icon must be a flat svg/png directly under /ui/; label defaults to ui.title or the plugin name.
+
+### 7.1 The plugin must serve the interface files too
+
+The console does not read ui/ from the zip directly; it asks the plugin host to request http://127.0.0.1:<mcp.port>/ui/<file> inside the container. So a plugin that declares ui must also mount /ui/* on its own MCP HTTP server:
+
+~~~go
+mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.Dir("/app/ui"))))
+~~~
+
+- Bake ui/ into the image (for example COPY ui /app/ui); do not leave it only in the build context.
+- Use relative paths under /ui/ for the entry and assets; the console only proxies GET/HEAD and the per-file limit is 20MB.
+- If you only register /mcp and do not serve /ui/*, all interface assets will 404, and the page will be blank or show "the interface did not connect to the console within 12 seconds".
+
+### 7.2 Sidebar entry (optional)
+
+~~~json
+"ui": {
+  "entry": "/ui/index.html",
+  "title": "Recon panel",
+  "protocol": 1,
+  "sidebar": { "label": "Recon", "icon": "/ui/icon.svg" }
+}
+~~~
+
+- Shown by default after it is declared; when an operator turns it off, a hidden record is saved in the console and applies across projects.
+- The entry is in the "Workbench" group on the left, alongside conversations, projects, and engineering; it is greyed out while the plugin is not running.
+- icon only supports flat .svg/.png under /ui/; omit it if you have none, and the console will use a generic icon.
+- Opening it gives the same sandbox iframe and bridge, with no extra code; switching away from the plugin page and coming back reloads the page.
+- The page has an opaque origin; do not depend on console cookies. Use relative paths for static assets; the console automatically adds the capability token for this opening.
+- Copy base.css from templates/plugin-ui-shared/base.css into /ui/ and organize the page with the pui-page / pui-bar / pui-card /
+  pui-table / pui-btn / pui-input / pui-pill / pui-output classes; do not define another set of fonts and colors yourself.
+- The iframe is an opaque origin with sandbox="allow-scripts": it cannot read the console Cookie/DOM/localStorage, cannot fetch console endpoints directly, cannot submit forms to the console, and cannot open top-level pages.
+- v1 does not allow the interface to access the external network (network:true in the manifest is rejected). When you need the external network, have the plugin container make the request and hand the result to the interface through tools/artifacts.
+- A single artifact read is capped at 1MB; storage is 256KB total, 32KB per value, and at most 64 keys.
+
+SDK API (window.SentinelPlugin):
+
+~~~js
+const ui = await SentinelPlugin.connect();
+ui.context;                              // {plugin, host, project, tools, configKeys}
+await ui.callTool("recon_scan", { domain: "example.com" }); // can only call this plugin's own tools
+await ui.listArtifacts();                // [{path,size}]
+await ui.readArtifact("run-1/result.txt", "text");
+await ui.getConfig();                    // non-secret config
+await ui.saveConfig({ RATE: "1000" });   // rebuilds the container; the UI reconnects after saving
+await ui.storage.set("lastDomain", "example.com");
+await ui.storage.get("lastDomain");
+~~~
+
+Minimal page:
+
+~~~html
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="./app.css"></head>
+<body>
+  <h1 id="name">Plugin</h1>
+  <button id="run">Call recon_scan</button>
+  <pre id="out"></pre>
+  <script src="./sdk.js"></script>
+  <script>
+    SentinelPlugin.connect().then(async (ui) => {
+      document.getElementById("name").textContent = ui.context.plugin.name;
+      document.getElementById("run").onclick = async () => {
+        const result = await ui.callTool("recon_scan", { domain: "example.com" });
+        document.getElementById("out").textContent = JSON.stringify(result, null, 2);
+      };
+    });
+  </script>
+</body></html>
+~~~
+
+Templates: templates/plugin-ui-vanilla (zero build), templates/plugin-ui-react (Vite, base must be "./").
+
+## 8. Packaging and installation
+
+~~~sh
+zip -r my-plugin.zip my-plugin/
+~~~
+
+In the console choose "Settings → Plugins → Upload plugin package", pick the zip, confirm the manifest and permissions, check "Allow running Dockerfile builds on the plugin host", and install.
+The build runs on the host and may take a few minutes (base image and dependency downloads count as part of the build). If it fails, check the build log.
+
+Local debugging can run server.mjs alone, without Docker:
+
+~~~sh
+PORT=7801 node server.mjs
+curl http://127.0.0.1:7801/healthz
+~~~
+
+## 9. Acceptance checklist
+
+- [ ] plugin.json, Dockerfile, and the build context are at the zip root or one level down
+- [ ] docker build succeeds on this machine and the container listens on 0.0.0.0
+- [ ] GET /healthz returns 2xx
+- [ ] initialize / tools/list / tools/call all return valid JSON-RPC
+- [ ] the container finishes starting within startupTimeoutMs
+- [ ] secrets come only from PLUGIN_<KEY>, with no hardcoding and no logging
+- [ ] large output goes to /artifacts and tool return values contain only summaries
+- [ ] with an interface: assets use relative paths, data comes only through sdk.js, and there is no external network access
+
+## 10. Things not to do
+
+- Do not write an image field or depend on an image registry; the plugin host builds only from the uploaded package.
+- Do not COPY files from outside the package in the Dockerfile; anything outside the build context does not exist.
+- Do not use stdio / SSE transport; do not depend on the docker socket; do not use privileged.
+- Do not assume same-origin in the interface, do not read document.cookie, and do not fetch /api.
+- Do not stuff large scan output directly into tool return values.
+
+Official plugins (built into the console, one-click install from the "Official plugins" tab) and third-party plugins follow exactly the same contract, with no private interfaces of any kind.
+
+Reference implementations: examples/plugins/hello-world (with interface), examples/plugins/recon (CLI wrapper), plugins/memshell-party.
+Full documentation: docs/plugin-authoring.md, docs/plugin-ui.md.
+`;
+
+export const PLUGIN_DEV_GUIDE = getLanguage() === "zh" ? PLUGIN_DEV_GUIDE_ZH : PLUGIN_DEV_GUIDE_EN;

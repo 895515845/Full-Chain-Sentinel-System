@@ -17,6 +17,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { request as httpRequest } from "node:http";
+import { t } from "../i18n.ts";
 
 const HOP_BY_HOP = new Set([
 	"connection",
@@ -79,7 +80,7 @@ export function proxyToPlugin(options: ProxyOptions): void {
 			return;
 		}
 		response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
-		response.end(JSON.stringify({ error: `插件端点不可达：${error.message}` }));
+		response.end(JSON.stringify({ error: t("插件端点不可达：{error}", { error: error.message }) }));
 	});
 	// A browser or agent that gives up must not leave the container's handler writing into a dead socket.
 	response.on("close", () => {

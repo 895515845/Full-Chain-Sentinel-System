@@ -15,6 +15,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { t } from "./i18n.ts";
 
 /** Every switch the permissions screen offers. */
 export type SentinelPermissionKey =
@@ -211,24 +212,36 @@ function reconSet(): SentinelPermissionSet {
 export const PERMISSION_PRESETS: readonly SentinelPermissionPreset[] = [
 	{
 		id: "standard",
-		label: "标准",
-		hint: "全部工具可用，和默认行为一致",
+		get label() {
+			return t("标准");
+		},
+		get hint() {
+			return t("全部工具可用，和默认行为一致");
+		},
 		main: fullSet(),
 		subagent: { ...fullSet(), spawn_agent: false },
 		commander: { bash: true, read: true },
 	},
 	{
 		id: "recon",
-		label: "只读侦察",
-		hint: "只读文件与 MCP 查询，不能执行命令、不能改文件；子代理同样只读，指挥官只保留 read",
+		get label() {
+			return t("只读侦察");
+		},
+		get hint() {
+			return t("只读文件与 MCP 查询，不能执行命令、不能改文件；子代理同样只读，指挥官只保留 read");
+		},
 		main: reconSet(),
 		subagent: { ...reconSet(), spawn_agent: false },
 		commander: { bash: false, read: true },
 	},
 	{
 		id: "locked",
-		label: "全部禁用",
-		hint: "不挂载任何工具，只保留纯对话",
+		get label() {
+			return t("全部禁用");
+		},
+		get hint() {
+			return t("不挂载任何工具，只保留纯对话");
+		},
 		main: emptySet(),
 		subagent: emptySet(),
 		commander: { bash: false, read: false },
@@ -375,7 +388,7 @@ export function excludeToolsFor(set: SentinelPermissionSet): string[] {
 /** Names the console can report without knowing the full tool registry. */
 export function describePermissions(set: SentinelPermissionSet): string {
 	const off = PERMISSION_KEYS.filter((key) => !set[key]).map((key) => key);
-	return off.length === 0 ? "全部启用" : `已禁用：${off.join("、")}`;
+	return off.length === 0 ? t("全部启用") : t("已禁用：{tools}", { tools: off.join(t("、")) });
 }
 
 export function permissionsJsonPath(agentDir: string): string {

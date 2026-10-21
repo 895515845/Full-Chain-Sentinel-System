@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getLanguage, t } from "../i18n.ts";
 import type { SentinelTestResult, SentinelWebSearchConfigView, SentinelWebSearchKeyInput, SentinelWebSearchKeyView } from "../types.ts";
 
 /**
@@ -11,11 +12,11 @@ import type { SentinelTestResult, SentinelWebSearchConfigView, SentinelWebSearch
  */
 
 function formatWhen(at: number | null): string {
-	if (at === null) return "尚未调用";
+	if (at === null) return t("尚未调用");
 	const diff = Date.now() - at;
 	const minute = 60_000;
-	if (diff < minute) return "刚刚";
-	if (diff < 60 * minute) return `${Math.round(diff / minute)} 分钟前`;
+	if (diff < minute) return t("刚刚");
+	if (diff < 60 * minute) return t("{count} 分钟前", { count: Math.round(diff / minute) });
 	const date = new Date(at);
 	const pad = (value: number): string => String(value).padStart(2, "0");
 	if (diff < 24 * 60 * minute) return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -23,8 +24,8 @@ function formatWhen(at: number | null): string {
 }
 
 function fullWhen(at: number | null): string {
-	if (at === null) return "尚未调用";
-	return new Date(at).toLocaleString("zh-CN", { hour12: false });
+	if (at === null) return t("尚未调用");
+	return new Date(at).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false });
 }
 
 export type WebSearchKeyState = "mounted" | "disabled" | "unkeyed" | "unverified";
@@ -36,10 +37,10 @@ export function webSearchKeyState(key: SentinelWebSearchKeyView): WebSearchKeySt
 }
 
 const STATE_LABELS: Record<WebSearchKeyState, string> = {
-	mounted: "已入池",
-	disabled: "未启用",
-	unkeyed: "未配置密钥",
-	unverified: "验证失败",
+	mounted: t("已入池"),
+	disabled: t("未启用"),
+	unkeyed: t("未配置密钥"),
+	unverified: t("验证失败"),
 };
 
 const STATE_TONES: Record<WebSearchKeyState, string> = {
@@ -96,7 +97,7 @@ export function WebSearchPanel({
 
 	const addKey = (): void => {
 		if (!draft.trim() || busy) return;
-		onSave({ label: label.trim() || "未命名 Key", key: draft.trim(), enabled: true });
+		onSave({ label: label.trim() || t("未命名 Key"), key: draft.trim(), enabled: true });
 		setLabel("");
 		setDraft("");
 	};
@@ -115,29 +116,30 @@ export function WebSearchPanel({
 	return (
 		<div className="asset-page">
 			<div className="asset-notice">
-				<b>外发提示</b>
-				搜索关键词与 API Key 会发送到 Tavily（api.tavily.com），搜索前请确认不包含涉密内容。多个
-				Key 组成号池，控制台按剩余额度自动轮换；单 Key 额度耗尽自动切换。
+				<b>{t("外发提示")}</b>{" "}
+				{t(
+					"搜索关键词与 API Key 会发送到 Tavily（api.tavily.com），搜索前请确认不包含涉密内容。多个 Key 组成号池，控制台按剩余额度自动轮换；单 Key 额度耗尽自动切换。",
+				)}
 			</div>
 
 			<div className="asset-toolbar">
 				<div className="asset-toolbar__stats">
-					号池 <b>{config.usable}</b> / {config.keys.length} 个 Key 参与轮换
+					{t("号池")} <b>{config.usable}</b> / {config.keys.length} {t("个 Key 参与轮换")}
 				</div>
 				<div className="asset-toolbar__spacer" />
 				<div className="asset-limit">
-					<span>每会话上限</span>
+					<span>{t("每会话上限")}</span>
 					<input
 						value={limits}
 						inputMode="numeric"
 						onChange={(event) => setLimits(event.target.value.replace(/[^\d]/g, ""))}
 						placeholder="0"
 						spellCheck={false}
-						aria-label="每个会话的搜索次数上限"
+						aria-label={t("每个会话的搜索次数上限")}
 					/>
-					<span>次 · 0 = 不限</span>
+					<span>{t("次 · 0 = 不限")}</span>
 					<button type="button" className="primary" disabled={busy} onClick={() => onSaveLimit(Number(limits) || 0)}>
-						保存
+						{t("保存")}
 					</button>
 				</div>
 			</div>
@@ -147,19 +149,19 @@ export function WebSearchPanel({
 					className="websearch-add-input websearch-add-input--label"
 					value={label}
 					onChange={(event) => setLabel(event.target.value)}
-					placeholder="备注名（如 主账号）"
+					placeholder={t("备注名（如 主账号）")}
 					spellCheck={false}
-					aria-label="新 Key 的备注名"
+					aria-label={t("新 Key 的备注名")}
 				/>
 				<input
 					className="websearch-add-input websearch-add-input--key"
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
-					placeholder="粘贴 Tavily API Key（tvly-…），保存后自动验证并入池"
+					placeholder={t("粘贴 Tavily API Key（tvly-…），保存后自动验证并入池")}
 					type="password"
 					spellCheck={false}
 					autoComplete="off"
-					aria-label="新 Key 的 API Key"
+					aria-label={t("新 Key 的 API Key")}
 					onKeyDown={(event) => {
 						if (event.key === "Enter") addKey();
 					}}
@@ -170,23 +172,23 @@ export function WebSearchPanel({
 					disabled={busy || !draft.trim() || config.keys.length >= 20}
 					onClick={addKey}
 				>
-					添加并验证
+					{t("添加并验证")}
 				</button>
 			</div>
 
 			<div className="asset-table">
 				<div className="asset-row websearch-row asset-row--head">
 					<div>Key</div>
-					<div>状态</div>
-					<div>剩余额度</div>
-					<div>最近调用</div>
-					<div className="asset-ops">操作</div>
+					<div>{t("状态")}</div>
+					<div>{t("剩余额度")}</div>
+					<div>{t("最近调用")}</div>
+					<div className="asset-ops">{t("操作")}</div>
 				</div>
 
 				{config.keys.length === 0 ? (
 					<div className="asset-row websearch-row">
 						<div className="asset-cell asset-cell--span">
-							还没有 Key：在上方粘贴并添加。申请地址 https://app.tavily.com
+							{t("还没有 Key：在上方粘贴并添加。申请地址")} https://app.tavily.com
 						</div>
 					</div>
 				) : null}
@@ -211,12 +213,12 @@ export function WebSearchPanel({
 
 								<div className="asset-state">
 									<span className={`asset-pill is-${tone}`}>{STATE_LABELS[state]}</span>
-									<label className="asset-switch" title={`启用 ${entry.label}`}>
+									<label className="asset-switch" title={t("启用 {label}", { label: entry.label })}>
 										<input
 											type="checkbox"
 											checked={entry.enabled}
 											disabled={busy}
-											aria-label={`启用 ${entry.label}`}
+											aria-label={t("启用 {label}", { label: entry.label })}
 											onChange={(event) =>
 												onSave({ id: entry.id, label: entry.label, key: null, enabled: event.target.checked })
 											}
@@ -236,12 +238,12 @@ export function WebSearchPanel({
 
 								<div className="asset-cell asset-cell--nowrap" title={fullWhen(entry.status.at)}>
 									{formatWhen(entry.status.at)}
-									{entry.status.at === null ? "" : entry.status.ok ? " · 成功" : " · 失败"}
+									{entry.status.at === null ? "" : entry.status.ok ? t(" · 成功") : t(" · 失败")}
 								</div>
 
 								<div className="asset-ops">
 									<button type="button" disabled={testing === entry.id || !entry.hasKey} onClick={() => void runTest(entry)}>
-										{testing === entry.id ? "验证中…" : "测试"}
+										{testing === entry.id ? t("验证中…") : t("测试")}
 									</button>
 									{entry.enabled ? (
 										<button
@@ -250,7 +252,7 @@ export function WebSearchPanel({
 											disabled={busy}
 											onClick={() => onSave({ id: entry.id, label: entry.label, key: null, enabled: false })}
 										>
-											禁用
+											{t("禁用")}
 										</button>
 									) : (
 										<button
@@ -259,11 +261,11 @@ export function WebSearchPanel({
 											disabled={busy || !entry.hasKey}
 											onClick={() => onSave({ id: entry.id, label: entry.label, key: null, enabled: true })}
 										>
-											启用
+											{t("启用")}
 										</button>
 									)}
 									<button type="button" className="quiet" disabled={busy} onClick={() => onDelete(entry.id)}>
-										删除
+										{t("删除")}
 									</button>
 								</div>
 							</div>
@@ -287,9 +289,9 @@ export function WebSearchPanel({
 			</div>
 
 			<p className="asset-footnote">
-				保存 / 删除 Key 与修改上限都会重建会话（历史保留），有会话正在运行时会拒绝并提示，请先中止。添加
-				Key 时自动验证一次，通过即入池；控制台每分钟刷新一次各 Key 剩余额度，查询时优先使用剩余最多的。
-				密钥只写入本机 websearch.json（0600），前端不回显；原始响应写入项目 evidence/search/。
+				{t(
+					"保存 / 删除 Key 与修改上限都会重建会话（历史保留），有会话正在运行时会拒绝并提示，请先中止。添加 Key 时自动验证一次，通过即入池；控制台每分钟刷新一次各 Key 剩余额度，查询时优先使用剩余最多的。密钥只写入本机 websearch.json（0600），前端不回显；原始响应写入项目 evidence/search/。",
+				)}
 			</p>
 		</div>
 	);

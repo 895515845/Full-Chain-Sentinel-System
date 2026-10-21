@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { getLanguage, t } from "../i18n.ts";
 import type {
 	SentinelSupervisorAdvice,
 	SentinelSupervisorCall,
@@ -21,29 +22,29 @@ import type {
 import { SUPERVISOR_STRATEGY_OPTIONS, supervisorStrategyKey, supervisorStrategyLabel } from "../supervisor-strategy.ts";
 
 const PHASE_LABELS: Record<string, string> = {
-	recon: "侦察",
-	enum: "枚举",
-	vuln_mapping: "漏洞验证",
-	exploitation: "利用",
-	post: "后渗透",
-	report: "报告",
-	unknown: "未判断",
+	recon: t("侦察"),
+	enum: t("枚举"),
+	vuln_mapping: t("漏洞验证"),
+	exploitation: t("利用"),
+	post: t("后渗透"),
+	report: t("报告"),
+	unknown: t("未判断"),
 };
 
 const PROGRESS_LABELS: Record<string, string> = {
-	advancing: "有进展",
-	stalled: "停滞",
-	looping: "循环",
-	unknown: "未判断",
+	advancing: t("有进展"),
+	stalled: t("停滞"),
+	looping: t("循环"),
+	unknown: t("未判断"),
 };
 
 type Tab = "state" | "process" | "logs";
 
 const ADVICE_LOG_LABELS: Record<string, string> = {
-	"advice-pending": "待确认",
-	"advice-sent": "已发送",
-	"advice-ignored": "已忽略",
-	"advice-skip": "冷却跳过",
+	"advice-pending": t("待确认"),
+	"advice-sent": t("已发送"),
+	"advice-ignored": t("已忽略"),
+	"advice-skip": t("冷却跳过"),
 };
 
 function mergeLogs(first: SentinelSupervisorLog[], second: SentinelSupervisorLog[]): SentinelSupervisorLog[] {
@@ -74,7 +75,7 @@ function progressClass(value: string): string {
 }
 
 function timeLabel(at: number): string {
-	return new Date(at).toLocaleTimeString("zh-CN", { hour12: false });
+	return new Date(at).toLocaleTimeString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false });
 }
 
 function formatTokens(value: number): string {
@@ -84,20 +85,20 @@ function formatTokens(value: number): string {
 }
 
 function statusLabel(view: SentinelSupervisorView): string {
-	if (view.status === "waiting") return "等待开始";
-	if (view.status === "stopped") return "已停止";
-	if (view.running) return "分析中";
-	return "监督中";
+	if (view.status === "waiting") return t("等待开始");
+	if (view.status === "stopped") return t("已停止");
+	if (view.running) return t("分析中");
+	return t("监督中");
 }
 
 function modeLabel(mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): string {
-	if (mode === "observe") return "观察模式";
-	return delivery === "auto" ? "介入 · 自动发送" : "介入 · 确认后发送";
+	if (mode === "observe") return t("观察模式");
+	return delivery === "auto" ? t("介入 · 自动发送") : t("介入 · 确认后发送");
 }
 
 function CallRow({ call, onOpen }: { call: SentinelSupervisorCall; onOpen: (callId: string) => void }) {
 	return (
-		<button type="button" className="sv-call" onClick={() => onOpen(call.callId)} title="查看完整输出">
+		<button type="button" className="sv-call" onClick={() => onOpen(call.callId)} title={t("查看完整输出")}>
 			<span className={`sv-call__status ${call.status === "error" ? "bad" : "ok"}`} />
 			<span className="sv-call__tool">{call.tool}</span>
 			<span className="sv-call__args">{call.args}</span>
@@ -122,7 +123,7 @@ function AdviceCard({
 		return (
 			<div className={`sv-advice ${advice.status}`}>
 				<div className="sv-advice__head">
-					{advice.status === "sent" ? "建议已发送" : "建议已忽略"}
+					{advice.status === "sent" ? t("建议已发送") : t("建议已忽略")}
 					<span>{timeLabel(advice.sentAt ?? advice.at)}</span>
 				</div>
 				<pre>{advice.text}</pre>
@@ -132,16 +133,16 @@ function AdviceCard({
 	return (
 		<div className="sv-advice pending">
 			<div className="sv-advice__head">
-				待确认的监督建议
+				{t("待确认的监督建议")}
 				<span>{timeLabel(advice.at)}</span>
 			</div>
 			<pre>{advice.text}</pre>
 			<div className="sv-advice__actions">
 				<button type="button" className="primary" onClick={() => onSend(advice.id)}>
-					发送给 Agent
+					{t("发送给 Agent")}
 				</button>
 				<button type="button" onClick={() => onIgnore(advice.id)}>
-					忽略
+					{t("忽略")}
 				</button>
 			</div>
 		</div>
@@ -155,9 +156,9 @@ function EpisodeItem({ episode }: { episode: SentinelSupervisorEpisode }) {
 				<span>{timeLabel(episode.at)}</span>
 				<span>{phaseLabel(episode.phase)}</span>
 				<span className={progressClass(episode.progress)}>{progressLabel(episode.progress)}</span>
-				{episode.error ? <span className="bad">失败</span> : null}
+				{episode.error ? <span className="bad">{t("失败")}</span> : null}
 			</div>
-			<div className="sv-episode__intent">{episode.intent || episode.error || "（无摘要）"}</div>
+			<div className="sv-episode__intent">{episode.intent || episode.error || t("（无摘要）")}</div>
 			{episode.outcomes.length > 0 ? (
 				<ul className="sv-episode__list">
 					{episode.outcomes.slice(0, 4).map((item, index) => (
@@ -243,19 +244,21 @@ export function SupervisorFloatingWindow({
 	);
 
 	return (
-		<aside className="svb" aria-label="监督">
+		<aside className="svb" aria-label={t("监督")}>
 			<header className="svb-head">
 				<div className="svb-heading">
-					<div className="svb-eyebrow">监督 · {view.sessionName}</div>
+					<div className="svb-eyebrow">
+						{t("监督")} · {view.sessionName}
+					</div>
 					<div className="svb-sub">
 						{modeLabel(mode, delivery)} ·{" "}
-						{activeStrategies.map((entry) => entry.name || supervisorStrategyLabel(entry.strategy)).join(" + ")} ·
-						已分析 {view.episodeCount} 个 episode
+						{activeStrategies.map((entry) => entry.name || supervisorStrategyLabel(entry.strategy)).join(" + ")} ·{" "}
+						{t("已分析 {count} 个 episode", { count: view.episodeCount })}
 					</div>
 				</div>
 				<span className={`svb-status ${view.status}`}>{statusLabel(view)}</span>
-				<button type="button" className="svb-collapse" onClick={onHide} title="隐藏窗口，监督继续">
-					收起
+				<button type="button" className="svb-collapse" onClick={onHide} title={t("隐藏窗口，监督继续")}>
+					{t("收起")}
 				</button>
 			</header>
 
@@ -265,29 +268,35 @@ export function SupervisorFloatingWindow({
 					<span className={`svb-progress ${progressClass(state.progress)}`}>
 						{progressLabel(state.progress)}
 					</span>
-					{view.pendingAdvice ? <span className="svb-advice-flag">待确认建议</span> : null}
+					{view.pendingAdvice ? <span className="svb-advice-flag">{t("待确认建议")}</span> : null}
 					<span className={`svb-model ${view.model ? "" : "bad"}`}>
-						{view.model?.modelId ?? "未配置模型"}
+						{view.model?.modelId ?? t("未配置模型")}
 					</span>
 				</div>
-				<div className="svb-intent">{state.intent || "等待第一批调用…"}</div>
+				<div className="svb-intent">{state.intent || t("等待第一批调用…")}</div>
 
-				<div className="svb-meter" aria-label={`监督判断：${progressLabel(state.progress)}`}>
+				<div
+					className="svb-meter"
+					aria-label={t("监督判断：{progress}", { progress: progressLabel(state.progress) })}
+				>
 					<span className={state.progress === "advancing" ? "on ok" : ""} />
 					<span className={state.progress === "stalled" ? "on warn" : ""} />
 					<span className={state.progress === "looping" ? "on bad" : ""} />
 				</div>
 				<div className="svb-meter-meta">
-					<span>监督判断：{progressLabel(state.progress)}</span>
+					<span>{t("监督判断：{progress}", { progress: progressLabel(state.progress) })}</span>
 					<span>
-						{view.callCount} 次调用 · {view.episodeCount} 个 episode
+						{t("{calls} 次调用 · {episodes} 个 episode", {
+							calls: view.callCount,
+							episodes: view.episodeCount,
+						})}
 					</span>
 				</div>
 
 				<div className="svb-strategy">
 					<div className="svb-strategy__head">
-						<span>监督策略</span>
-						<span>{activeStrategies.length} 个</span>
+						<span>{t("监督策略")}</span>
+						<span>{t("{count} 个", { count: activeStrategies.length })}</span>
 					</div>
 					<div className="svb-strategy__list">
 						{SUPERVISOR_STRATEGY_OPTIONS.map((option) => {
@@ -345,10 +354,10 @@ export function SupervisorFloatingWindow({
 									className="on"
 									aria-pressed
 									disabled={stopped}
-									title="该自定义策略已删除；点击可移除"
+									title={t("该自定义策略已删除；点击可移除")}
 									onClick={() => toggleStrategy(entry)}
 								>
-									{entry.name}（已删除）
+									{t("{name}（已删除）", { name: entry.name })}
 								</button>
 							))}
 					</div>
@@ -366,7 +375,7 @@ export function SupervisorFloatingWindow({
 						disabled={stopped}
 						onClick={() => onSetMode("observe", delivery)}
 					>
-						观察
+						{t("观察")}
 					</button>
 					<button
 						type="button"
@@ -374,7 +383,7 @@ export function SupervisorFloatingWindow({
 						disabled={stopped}
 						onClick={() => onSetMode("intervene", "auto")}
 					>
-						介入 · 自动
+						{t("介入 · 自动")}
 					</button>
 					<button
 						type="button"
@@ -382,7 +391,7 @@ export function SupervisorFloatingWindow({
 						disabled={stopped}
 						onClick={() => onSetMode("intervene", "confirm")}
 					>
-						介入 · 确认
+						{t("介入 · 确认")}
 					</button>
 					<button
 						type="button"
@@ -390,25 +399,27 @@ export function SupervisorFloatingWindow({
 						onClick={onRunNow}
 						disabled={view.status !== "running" || view.running}
 					>
-						{view.running ? "分析中…" : "立即分析"}
+						{view.running ? t("分析中…") : t("立即分析")}
 					</button>
 				</div>
 
-				<div className="svb-tabs" role="tablist" aria-label="监督视图">
-					{tabButton("state", "状态")}
-					{tabButton("process", "过程", episodes.length + view.recentCalls.length)}
-					{tabButton("logs", "日志", mergedLogs.length)}
+				<div className="svb-tabs" role="tablist" aria-label={t("监督视图")}>
+					{tabButton("state", t("状态"))}
+					{tabButton("process", t("过程"), episodes.length + view.recentCalls.length)}
+					{tabButton("logs", t("日志"), mergedLogs.length)}
 				</div>
 
 				<div className="svb-tabpanel" hidden={tab !== "state"}>
 					{view.pendingAdvice ? (
 						<AdviceCard advice={view.pendingAdvice} onSend={onSendAdvice} onIgnore={onIgnoreAdvice} />
 					) : null}
-					{view.lastError ? <p className="svb-error">最近错误：{view.lastError}</p> : null}
+					{view.lastError ? (
+						<p className="svb-error">{t("最近错误：{error}", { error: view.lastError })}</p>
+					) : null}
 
 					<div className="svb-section">
 						<div className="svb-section-head">
-							<h4>已排除 / 新证据</h4>
+							<h4>{t("已排除 / 新证据")}</h4>
 							<span>{state.deadEnds.length + state.newEvidence.length}</span>
 						</div>
 						<div className="svb-chips">
@@ -423,7 +434,7 @@ export function SupervisorFloatingWindow({
 								</span>
 							))}
 							{state.deadEnds.length === 0 && state.newEvidence.length === 0 ? (
-								<span className="svb-empty">还没有排除项或新证据。</span>
+								<span className="svb-empty">{t("还没有排除项或新证据。")}</span>
 							) : null}
 						</div>
 					</div>
@@ -431,15 +442,15 @@ export function SupervisorFloatingWindow({
 					{state.tested.length > 0 ? (
 						<div className="svb-section">
 							<div className="svb-section-head">
-								<h4>已测试</h4>
+								<h4>{t("已测试")}</h4>
 								<span>{state.tested.length}</span>
 							</div>
 							<table className="svb-table">
 								<thead>
 									<tr>
-										<th>目标</th>
-										<th>测试</th>
-										<th>结果</th>
+										<th>{t("目标")}</th>
+										<th>{t("测试")}</th>
+										<th>{t("结果")}</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -457,7 +468,7 @@ export function SupervisorFloatingWindow({
 
 					{state.nextCandidates.length > 0 ? (
 						<div className="svb-next">
-							<h4>下一步候选</h4>
+							<h4>{t("下一步候选")}</h4>
 							<ul>
 								{state.nextCandidates.slice(0, 4).map((item, index) => (
 									<li key={index}>{item}</li>
@@ -469,7 +480,7 @@ export function SupervisorFloatingWindow({
 					{adviceLogs.length > 0 ? (
 						<div className="svb-section">
 							<div className="svb-section-head">
-								<h4>最近介入</h4>
+								<h4>{t("最近介入")}</h4>
 								<span>{adviceLogs.length}</span>
 							</div>
 							<div className="svb-advice-log">
@@ -487,7 +498,7 @@ export function SupervisorFloatingWindow({
 					) : null}
 
 					<div className="svb-meta">
-						<span>监督模型 tokens {formatTokens(view.usage.total)}</span>
+						<span>{t("监督模型 tokens {tokens}", { tokens: formatTokens(view.usage.total) })}</span>
 						<span>
 							{view.usage.input} in / {view.usage.output} out
 						</span>
@@ -497,11 +508,13 @@ export function SupervisorFloatingWindow({
 				<div className="svb-tabpanel" hidden={tab !== "process"}>
 					<div className="svb-section">
 						<div className="svb-section-head">
-							<h4>最近 episode</h4>
+							<h4>{t("最近 episode")}</h4>
 							<span>{episodes.length}</span>
 						</div>
 						{episodes.length === 0 ? (
-							<p className="svb-empty">还没有 episode。每 20 次调用或发现重复/空转后会生成一条。</p>
+							<p className="svb-empty">
+								{t("还没有 episode。每 20 次调用或发现重复/空转后会生成一条。")}
+							</p>
 						) : (
 							<div className="sv-episode-list">
 								{[...episodes].slice(-5).reverse().map((episode) => (
@@ -513,11 +526,11 @@ export function SupervisorFloatingWindow({
 
 					<div className="svb-section">
 						<div className="svb-section-head">
-							<h4>最近调用</h4>
+							<h4>{t("最近调用")}</h4>
 							<span>{view.recentCalls.length}</span>
 						</div>
 						{view.recentCalls.length === 0 ? (
-							<p className="svb-empty">还没有工具调用。</p>
+							<p className="svb-empty">{t("还没有工具调用。")}</p>
 						) : (
 							<div className="sv-call-list">
 								{[...view.recentCalls].slice(-10).reverse().map((call) => (
@@ -536,23 +549,23 @@ export function SupervisorFloatingWindow({
 								<span>{log.text}</span>
 							</div>
 						))}
-						{mergedLogs.length === 0 ? <p className="svb-empty">暂无日志。</p> : null}
+						{mergedLogs.length === 0 ? <p className="svb-empty">{t("暂无日志。")}</p> : null}
 					</div>
 				</div>
 			</div>
 
 			<footer className="svb-foot">
-				<span>收起窗口不会停止监督</span>
+				<span>{t("收起窗口不会停止监督")}</span>
 				<div>
 					<button
 						type="button"
 						className="danger"
 						disabled={stopped}
 						onClick={() => {
-							if (window.confirm("停止监督后，本次会话不再采集；要重新监督只能新开对话。确定停止？")) onStop();
+							if (window.confirm(t("停止监督后，本次会话不再采集；要重新监督只能新开对话。确定停止？"))) onStop();
 						}}
 					>
-						停止监督
+						{t("停止监督")}
 					</button>
 				</div>
 			</footer>

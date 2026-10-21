@@ -14,6 +14,7 @@
  */
 
 import { createHmac } from "node:crypto";
+import { t } from "./i18n.ts";
 import type {
 	SentinelNotifyChannel,
 	SentinelNotifyChannelConfig,
@@ -114,21 +115,26 @@ async function attempt(config: SentinelNotifyConfig, title: string, markdown: st
 		});
 	} catch (error) {
 		if (error instanceof Error && error.name === "TimeoutError") {
-			return `请求超时（${SEND_TIMEOUT_MS / 1000}s）`;
+			return t("请求超时（{seconds}s）", { seconds: SEND_TIMEOUT_MS / 1000 });
 		}
-		const cause = error instanceof Error && error.cause instanceof Error ? `：${error.cause.message}` : "";
-		return `${error instanceof Error ? error.message : String(error)}${cause}`;
+		const message = error instanceof Error ? error.message : String(error);
+		const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+		return cause ? t("{message}：{cause}", { message, cause }) : message;
 	}
 	if (!response.ok) return `HTTP ${response.status}`;
 	let reply: DingTalkReply;
 	try {
 		reply = (await response.json()) as DingTalkReply;
 	} catch {
-		return "响应不是合法 JSON";
+		return t("响应不是合法 JSON");
 	}
 	if (reply.errcode === 0) return undefined;
-	const hint = reply.errcode === 310000 ? "（通常是加签校验失败或缺少自定义关键词）" : "";
-	return `钉钉返回 errcode ${reply.errcode}: ${reply.errmsg ?? ""}${hint}`;
+	const hint = reply.errcode === 310000 ? t("（通常是加签校验失败或缺少自定义关键词）") : "";
+	return t("钉钉返回 errcode {code}: {message}{hint}", {
+		code: String(reply.errcode),
+		message: reply.errmsg ?? "",
+		hint,
+	});
 }
 
 /**
@@ -140,12 +146,12 @@ export function webhookUrlError(webhook: string): string | undefined {
 	try {
 		url = new URL(webhook);
 	} catch {
-		return "webhook 不是合法的 URL";
+		return t("webhook 不是合法的 URL");
 	}
 	if (url.protocol === "https:") return undefined;
 	const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 	if (url.protocol === "http:" && loopback) return undefined;
-	return "webhook 必须是 https 地址";
+	return t("webhook 必须是 https 地址");
 }
 
 function delay(ms: number): Promise<void> {
@@ -163,7 +169,7 @@ export async function sendDingTalk(
 ): Promise<SentinelNotifyStatus> {
 	const webhook = config.webhook.trim();
 	if (!webhook) {
-		return { at: Date.now(), ok: false, error: "未配置 webhook 地址" };
+		return { at: Date.now(), ok: false, error: t("未配置 webhook 地址") };
 	}
 	const urlError = webhookUrlError(webhook);
 	if (urlError) return { at: Date.now(), ok: false, error: urlError };
@@ -178,17 +184,17 @@ export async function sendDingTalk(
 
 /** Settings-screen "send a test message" action. */
 export async function testDingTalk(config: SentinelNotifyConfig): Promise<SentinelTestResult> {
-	if (!config.webhook.trim()) return { ok: false, message: "请先填写 webhook 地址" };
+	if (!config.webhook.trim()) return { ok: false, message: t("请先填写 webhook 地址") };
 	const urlError = webhookUrlError(config.webhook.trim());
-	if (urlError) return { ok: false, message: urlError, detail: "钉钉自定义机器人只接受 https。" };
+	if (urlError) return { ok: false, message: urlError, detail: t("钉钉自定义机器人只接受 https。") };
 	const status = await sendDingTalk(
 		config,
 		"全链哨兵 测试通知",
 		"### 全链哨兵 测试通知\n\n如果你在群里看到这条消息，通知配置可用。",
 	);
 	return status.ok
-		? { ok: true, message: "测试消息已发送，请查看钉钉群" }
-		: { ok: false, message: "发送失败", detail: status.error };
+		? { ok: true, message: t("测试消息已发送，请查看钉钉群") }
+		: { ok: false, message: t("发送失败"), detail: status.error };
 }
 
 /** Feishu custom-bot requests are limited to 30,000 bytes. */
@@ -274,23 +280,28 @@ async function attemptFeishu(
 		});
 	} catch (error) {
 		if (error instanceof Error && error.name === "TimeoutError") {
-			return `请求超时（${SEND_TIMEOUT_MS / 1000}s）`;
+			return t("请求超时（{seconds}s）", { seconds: SEND_TIMEOUT_MS / 1000 });
 		}
-		const cause = error instanceof Error && error.cause instanceof Error ? `：${error.cause.message}` : "";
-		return `${error instanceof Error ? error.message : String(error)}${cause}`;
+		const message = error instanceof Error ? error.message : String(error);
+		const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+		return cause ? t("{message}：{cause}", { message, cause }) : message;
 	}
 	if (!response.ok) return `HTTP ${response.status}`;
 	let reply: FeishuReply;
 	try {
 		reply = (await response.json()) as FeishuReply;
 	} catch {
-		return "响应不是合法 JSON";
+		return t("响应不是合法 JSON");
 	}
 	if (reply.StatusCode === 0 || reply.code === 0) return undefined;
 	const code = reply.code ?? reply.StatusCode;
 	const message = reply.msg ?? reply.StatusMessage ?? "";
-	const hint = code === 19021 ? "（通常是加签校验失败或缺少自定义关键词）" : "";
-	return `飞书返回 code ${code ?? "未知"}: ${message}${hint}`;
+	const hint = code === 19021 ? t("（通常是加签校验失败或缺少自定义关键词）") : "";
+	return t("飞书返回 code {code}: {message}{hint}", {
+		code: code ?? t("未知"),
+		message,
+		hint,
+	});
 }
 
 /**
@@ -303,7 +314,7 @@ export async function sendFeishu(
 	markdown: string,
 ): Promise<SentinelNotifyStatus> {
 	const webhook = config.webhook.trim();
-	if (!webhook) return { at: Date.now(), ok: false, error: "未配置 webhook 地址" };
+	if (!webhook) return { at: Date.now(), ok: false, error: t("未配置 webhook 地址") };
 	const urlError = webhookUrlError(webhook);
 	if (urlError) return { at: Date.now(), ok: false, error: urlError };
 	let lastError: string | undefined;
@@ -317,17 +328,17 @@ export async function sendFeishu(
 
 /** Settings-screen "send a test message" action for Feishu. */
 export async function testFeishu(config: SentinelNotifyChannelConfig): Promise<SentinelTestResult> {
-	if (!config.webhook.trim()) return { ok: false, message: "请先填写 webhook 地址" };
+	if (!config.webhook.trim()) return { ok: false, message: t("请先填写 webhook 地址") };
 	const urlError = webhookUrlError(config.webhook.trim());
-	if (urlError) return { ok: false, message: urlError, detail: "飞书自定义机器人只接受 https。" };
+	if (urlError) return { ok: false, message: urlError, detail: t("飞书自定义机器人只接受 https。") };
 	const status = await sendFeishu(
 		config,
 		"全链哨兵 测试通知",
 		"### 全链哨兵 测试通知\n\n如果你在群里看到这条消息，通知配置可用。",
 	);
 	return status.ok
-		? { ok: true, message: "测试消息已发送，请查看飞书群" }
-		: { ok: false, message: "发送失败", detail: status.error };
+		? { ok: true, message: t("测试消息已发送，请查看飞书群") }
+		: { ok: false, message: t("发送失败"), detail: status.error };
 }
 
 /** Channels that are enabled and have a webhook, in a stable display order. */
@@ -353,7 +364,7 @@ export async function sendNotifications(
 ): Promise<SentinelNotifyStatus> {
 	const channels = enabledNotifyChannels(config);
 	if (channels.length === 0) {
-		return { at: Date.now(), ok: false, error: "未启用通知渠道或未配置 webhook" };
+		return { at: Date.now(), ok: false, error: t("未启用通知渠道或未配置 webhook") };
 	}
 	const results = await Promise.all(
 		channels.map(async (channel) => ({
@@ -374,9 +385,9 @@ export async function sendNotifications(
 		if (status.ok) {
 			outcomes[channel] = { ok: true };
 		} else {
-			const error = status.error ?? "发送失败";
+			const error = status.error ?? t("发送失败");
 			outcomes[channel] = { ok: false, error };
-			errors.push(`${channel === "dingtalk" ? "钉钉" : "飞书"}：${error}`);
+			errors.push(channel === "dingtalk" ? t("钉钉：{error}", { error }) : t("飞书：{error}", { error }));
 		}
 	}
 	return {

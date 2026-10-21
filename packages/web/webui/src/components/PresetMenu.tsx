@@ -9,6 +9,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { t } from "../i18n.ts";
 import type { SentinelPresetView } from "../types.ts";
 
 /** Where the menu hangs: below the button, or above it when there is no room. */
@@ -95,18 +96,18 @@ export function PresetMenu(props: {
 			}}
 			onClick={(event) => event.stopPropagation()}
 		>
-			<div className="preset-menu-title">以哪个身份新建会话</div>
+			<div className="preset-menu-title">{t("以哪个身份新建会话")}</div>
 			<button
 				type="button"
 				className="preset-menu-item"
-				title="不追加任何系统提示，使用默认 Agent"
+				title={t("不追加任何系统提示，使用默认 Agent")}
 				onClick={() => props.onPick()}
 			>
 				<span className="preset-menu-name">
-					默认 Agent
-					{props.currentId === null ? <span className="preset-menu-current">当前</span> : null}
+					{t("默认 Agent")}
+					{props.currentId === null ? <span className="preset-menu-current">{t("当前")}</span> : null}
 				</span>
-				<span className="preset-menu-desc">不追加任何身份设定</span>
+				<span className="preset-menu-desc">{t("不追加任何身份设定")}</span>
 			</button>
 			{enabled.map((preset) => (
 				<button
@@ -118,14 +119,14 @@ export function PresetMenu(props: {
 				>
 					<span className="preset-menu-name">
 						{preset.name}
-						{props.currentId === preset.id ? <span className="preset-menu-current">当前</span> : null}
+						{props.currentId === preset.id ? <span className="preset-menu-current">{t("当前")}</span> : null}
 					</span>
 					{preset.description ? <span className="preset-menu-desc">{preset.description}</span> : null}
 				</button>
 			))}
 			{enabled.length === 0 ? (
 				<div className="preset-menu-hint">
-					还没有启用的预设 Agent。到「设置 → 预设 Agent」新建一个，回到这里就能选它开会话。
+					{t("还没有启用的预设 Agent。到「设置 → 预设 Agent」新建一个，回到这里就能选它开会话。")}
 				</div>
 			) : null}
 		</div>,

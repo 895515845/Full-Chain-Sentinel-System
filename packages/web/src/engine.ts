@@ -42,6 +42,7 @@ import {
 import { EngineStore } from "./engine-store.ts";
 import { resolveJudgeEndpoint } from "./gatekeeper.ts";
 import { clampRoundLimit } from "./goal.ts";
+import { t } from "./i18n.ts";
 import { modelsJsonPath } from "./model-config.ts";
 import { resolveLibraryRole } from "./model-library.ts";
 import { hasEnabledNotifyChannel, sendNotifications } from "./notify.ts";
@@ -194,18 +195,23 @@ export class EngineManager {
 				if (engine.schedule && engine.schedule.phase !== "finished") {
 					engine = this.disableScheduleRow(engine, "restart");
 				}
-				this.store.setEngineStatus(engine.id, "paused", "服务重启，任务已暂停；点「继续」恢复", null);
+				this.store.setEngineStatus(engine.id, "paused", t("服务重启，任务已暂停；点「继续」恢复"), null);
 				engine = this.store.getEngine(engine.id) ?? engine;
 			} else if (prior.status === "paused" && engine.schedule && engine.schedule.phase !== "finished") {
 				engine = this.disableScheduleRow(engine, "restart");
-				this.store.setEngineStatus(engine.id, "paused", "服务重启，定时计划已停用；点「继续」恢复", null);
+				this.store.setEngineStatus(engine.id, "paused", t("服务重启，定时计划已停用；点「继续」恢复"), null);
 				engine = this.store.getEngine(engine.id) ?? engine;
 			} else if (prior.status === "completed" && engine.schedule && engine.schedule.phase !== "finished") {
 				engine = this.disableScheduleRow(engine, "completed");
 			} else if (prior.status === "stopped" && engine.schedule && engine.schedule.phase !== "finished") {
 				engine = this.disableScheduleRow(engine, "manual");
 			} else if (engine.status === "scheduled" && !engine.schedule) {
-				this.store.setEngineStatus(engine.id, "paused", "定时计划数据缺失，无法自动启动；点「继续」手动启动", null);
+				this.store.setEngineStatus(
+					engine.id,
+					"paused",
+					t("定时计划数据缺失，无法自动启动；点「继续」手动启动"),
+					null,
+				);
 				engine = this.store.getEngine(engine.id) ?? engine;
 			}
 			this.live.set(engine.id, this.emptyLive(engine));
@@ -275,18 +281,18 @@ export class EngineManager {
 	 */
 	async createEngine(project: SentinelProjectInfo, input: SentinelEngineCreateInput): Promise<SentinelEngine> {
 		const name = input.name.trim();
-		if (!name) throw new Error("工程名称不能为空");
+		if (!name) throw new Error(t("工程名称不能为空"));
 		const targets = parseTargetLines(input.targets);
-		if (targets.length === 0) throw new Error("目标列表不能为空（一行一个目标，可带备注）");
+		if (targets.length === 0) throw new Error(t("目标列表不能为空（一行一个目标，可带备注）"));
 		const limits = normalizeLimits(input.limits);
 		const doctrines = resolveDoctrines(this.agentDir, input.doctrines);
-		if (doctrines.length === 0) throw new Error("请至少选择一个指挥思路");
+		if (doctrines.length === 0) throw new Error(t("请至少选择一个指挥思路"));
 		// An engine that judges its commands needs somewhere to send them; refusing
 		// here beats creating an engine whose gate silently fails open on every task.
 		const gateMode: SentinelEngineGateMode = input.gateMode === "ai" ? "ai" : "auto";
 		if (gateMode === "ai" && !this.judgeAvailable()) {
 			throw new Error(
-				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
+				t("未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」"),
 			);
 		}
 		const schedule = input.schedule ? normalizeSchedule(input.schedule, Date.now()) : null;
@@ -322,18 +328,18 @@ export class EngineManager {
 	/** Operator pause: stop dispatching, abort running tasks, keep everything for resume. */
 	async pauseEngine(id: string): Promise<void> {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
-		if (entry.engine.status !== "running") throw new Error("只有运行中的工程才能暂停");
+		if (!entry) throw new Error(t("工程不存在"));
+		if (entry.engine.status !== "running") throw new Error(t("只有运行中的工程才能暂停"));
 		this.disableActiveSchedule(entry, "manual");
-		await this.pauseEngineInternal(entry, "操作员暂停", false);
+		await this.pauseEngineInternal(entry, t("操作员暂停"), false);
 		this.armScheduler();
 	}
 
 	/** Resume a paused engine: reopen the commander with a board recap, revive paused tasks. */
 	async resumeEngine(id: string): Promise<void> {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
-		if (entry.engine.status !== "paused") throw new Error("只有已暂停的工程才能继续");
+		if (!entry) throw new Error(t("工程不存在"));
+		if (entry.engine.status !== "paused") throw new Error(t("只有已暂停的工程才能继续"));
 		this.disableActiveSchedule(entry, "manual");
 		if (entry.engine.startedAt === null) {
 			await this.startPausedEngine(entry);
@@ -346,10 +352,10 @@ export class EngineManager {
 	/** Stop for good: abort everything; the report stays whatever it was. */
 	async abortEngine(id: string): Promise<void> {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		this.disableActiveSchedule(entry, "manual");
-		await this.stopWorkers(entry, "aborted", "工程已终止");
-		this.store.setEngineStatus(id, "stopped", "操作员终止", Date.now());
+		await this.stopWorkers(entry, "aborted", t("工程已终止"));
+		this.store.setEngineStatus(id, "stopped", t("操作员终止"), Date.now());
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
 		this.armScheduler();
@@ -358,9 +364,9 @@ export class EngineManager {
 	/** Replace the plan of a not-yet-started engine. Started engines only cancel. */
 	setSchedule(id: string, input: SentinelEngineScheduleInput): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		if (entry.engine.status !== "scheduled") {
-			throw new Error("只有尚未启动的计划工程才能修改计划；运行中的工程请先停用计划");
+			throw new Error(t("只有尚未启动的计划工程才能修改计划；运行中的工程请先停用计划"));
 		}
 		const schedule = normalizeSchedule(input, Date.now());
 		this.store.setEngineSchedule(id, schedule);
@@ -376,14 +382,14 @@ export class EngineManager {
 	 */
 	cancelSchedule(id: string): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		if (!entry.engine.schedule || entry.engine.schedule.phase === "finished") {
-			throw new Error("该工程没有生效中的定时计划");
+			throw new Error(t("该工程没有生效中的定时计划"));
 		}
 		const now = Date.now();
 		this.disableActiveSchedule(entry, "canceled", now);
 		if (entry.engine.status === "scheduled") {
-			this.store.setEngineStatus(id, "stopped", "计划已取消", now);
+			this.store.setEngineStatus(id, "stopped", t("计划已取消"), now);
 			entry.engine = this.store.getEngine(id) ?? entry.engine;
 		}
 		this.armScheduler();
@@ -431,7 +437,7 @@ export class EngineManager {
 				this.pushCommanderEvent(entry, {
 					kind: "status",
 					status: "error",
-					note: `任务 ${task.id} 自动续跑失败：${result.error}`,
+					note: t("任务 {id} 自动续跑失败：{error}", { id: task.id, error: result.error }),
 				});
 				continue;
 			}
@@ -476,7 +482,7 @@ export class EngineManager {
 			this.hooks.onChange(this.getEngine(id) ?? entry.engine);
 		} catch (error) {
 			this.store.setEngineStartedAt(id, null);
-			this.store.setEngineStatus(id, "paused", `启动失败：${errorText(error)}`, null);
+			this.store.setEngineStatus(id, "paused", t("启动失败：{error}", { error: errorText(error) }), null);
 			entry.engine = this.store.getEngine(id) ?? entry.engine;
 			this.hooks.onChange(entry.engine);
 			throw error;
@@ -501,7 +507,10 @@ export class EngineManager {
 		const current = entry.engine.schedule;
 		if (!current || current.phase !== "waiting_start" || Date.now() < current.startAt) return;
 		if (check && !check.ok) {
-			await this.failScheduledStart(entry, `定时启动失败：${check.error ?? "环境检查未通过"}`);
+			await this.failScheduledStart(
+				entry,
+				t("定时启动失败：{error}", { error: check.error ?? t("环境检查未通过") }),
+			);
 			return;
 		}
 		const at = Date.now();
@@ -519,7 +528,7 @@ export class EngineManager {
 			this.hooks.onChange(this.getEngine(id) ?? entry.engine);
 		} catch (error) {
 			this.store.setEngineStartedAt(id, null);
-			await this.failScheduledStart(entry, `定时启动失败：${errorText(error)}`);
+			await this.failScheduledStart(entry, t("定时启动失败：{error}", { error: errorText(error) }));
 		}
 	}
 
@@ -533,7 +542,10 @@ export class EngineManager {
 		const current = entry.engine.schedule;
 		if (!current || current.phase !== "paused") return;
 		if (check && !check.ok) {
-			await this.failScheduledStart(entry, `定时恢复失败：${check.error ?? "环境检查未通过"}`);
+			await this.failScheduledStart(
+				entry,
+				t("定时恢复失败：{error}", { error: check.error ?? t("环境检查未通过") }),
+			);
 			return;
 		}
 		const schedule = entry.engine.schedule;
@@ -543,7 +555,7 @@ export class EngineManager {
 		try {
 			await this.resumeEngineInternal(entry, true);
 		} catch (error) {
-			await this.pauseEngineInternal(entry, `定时恢复失败：${errorText(error)}`, false);
+			await this.pauseEngineInternal(entry, t("定时恢复失败：{error}", { error: errorText(error) }), false);
 			this.disableActiveSchedule(entry, "start_failed");
 		}
 	}
@@ -556,18 +568,23 @@ export class EngineManager {
 		if (entry.engine.status === "running") {
 			if (deadline) {
 				this.disableActiveSchedule(entry, "deadline", now);
-				await this.pauseEngineInternal(entry, "定时计划到点，工程未完成，已暂停；计划已停用", false);
+				await this.pauseEngineInternal(entry, t("定时计划到点，工程未完成，已暂停；计划已停用"), false);
 			} else {
 				this.store.setEngineSchedule(entry.engine.id, applyScheduleAction(schedule, "pause", now));
 				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
-				await this.pauseEngineInternal(entry, "定时暂停，将在计划时间自动恢复", true);
+				await this.pauseEngineInternal(entry, t("定时暂停，将在计划时间自动恢复"), true);
 			}
 			return;
 		}
 		if (entry.engine.status === "paused") {
 			this.disableActiveSchedule(entry, deadline ? "deadline" : "manual", now);
 			if (deadline) {
-				this.store.setEngineStatus(entry.engine.id, "paused", "定时计划到点，工程未完成，已暂停；计划已停用", null);
+				this.store.setEngineStatus(
+					entry.engine.id,
+					"paused",
+					t("定时计划到点，工程未完成，已暂停；计划已停用"),
+					null,
+				);
 				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 			}
 			this.hooks.onChange(entry.engine);
@@ -591,7 +608,7 @@ export class EngineManager {
 				this.store.setEngineStatus(
 					entry.engine.id,
 					"paused",
-					"错过定时开始时间超过 10 分钟，计划已停用；点「继续」手动启动",
+					t("错过定时开始时间超过 10 分钟，计划已停用；点「继续」手动启动"),
 					null,
 				);
 				entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
@@ -662,7 +679,7 @@ export class EngineManager {
 				try {
 					await this.applyDueSchedule(candidate.entry, candidate.due.action);
 				} catch (error) {
-					const note = `定时动作失败：${errorText(error)}`;
+					const note = t("定时动作失败：{error}", { error: errorText(error) });
 					this.pushCommanderEvent(candidate.entry, { kind: "status", status: "error", note });
 					this.disableActiveSchedule(candidate.entry, "start_failed");
 					const status = candidate.entry.engine.status;
@@ -684,9 +701,9 @@ export class EngineManager {
 
 	async deleteEngine(id: string): Promise<void> {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		if (entry.engine.status === "running" || entry.engine.status === "paused") {
-			if (entry.engine.status === "running") await this.stopWorkers(entry, "aborted", "工程已删除");
+			if (entry.engine.status === "running") await this.stopWorkers(entry, "aborted", t("工程已删除"));
 		}
 		entry.commanderUnsubscribe();
 		entry.commander?.dispose();
@@ -706,13 +723,13 @@ export class EngineManager {
 	 */
 	setGateMode(id: string, gateMode: SentinelEngineGateMode): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		if (entry.engine.gateMode === gateMode) return;
 		const busy = entry.engine.tasks.some((task) => task.status === "running" || task.status === "queued");
-		if (busy) throw new Error("有任务正在运行或排队，请先暂停工程并等任务结束再修改");
+		if (busy) throw new Error(t("有任务正在运行或排队，请先暂停工程并等任务结束再修改"));
 		if (gateMode === "ai" && !this.judgeAvailable()) {
 			throw new Error(
-				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」",
+				t("未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再选「AI 裁判」"),
 			);
 		}
 		this.store.setEngineGateMode(id, gateMode);
@@ -744,7 +761,7 @@ export class EngineManager {
 	 */
 	setPresets(id: string, presetIds: string[]): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		this.store.setEnginePresets(id, this.normalizePresetIds(presetIds));
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
@@ -757,7 +774,7 @@ export class EngineManager {
 	 */
 	setPresetOptional(id: string, optional: boolean): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		this.store.setEnginePresetOptional(id, optional);
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
@@ -766,9 +783,9 @@ export class EngineManager {
 	/** Add targets mid-run; the commander learns about them through its next prompt. */
 	addTargets(id: string, targetsText: string): void {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		const targets = parseTargetLines(targetsText);
-		if (targets.length === 0) throw new Error("追加的目标列表为空");
+		if (targets.length === 0) throw new Error(t("追加的目标列表为空"));
 		this.store.addTargets(id, targets);
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		void this.promptCommander(
@@ -787,9 +804,9 @@ export class EngineManager {
 	 */
 	async steerCommander(id: string, text: string): Promise<void> {
 		const entry = this.live.get(id);
-		if (!entry) throw new Error("工程不存在");
+		if (!entry) throw new Error(t("工程不存在"));
 		const trimmed = text.trim();
-		if (!trimmed) throw new Error("消息不能为空");
+		if (!trimmed) throw new Error(t("消息不能为空"));
 		if (entry.engine.status === "running") {
 			// Record the operator's line in the commander feed before prompting, so the
 			// conversation reads as a chat rather than a one-way command log.
@@ -798,7 +815,7 @@ export class EngineManager {
 			return;
 		}
 		if (entry.engine.status !== "completed") {
-			throw new Error("只有运行中或已完成的工程可以和指挥官对话");
+			throw new Error(t("只有运行中或已完成的工程可以和指挥官对话"));
 		}
 		await this.ensureDebrief(entry);
 		this.pushCommanderEvent(entry, { kind: "text", text: trimmed, from: "operator" });
@@ -812,9 +829,9 @@ export class EngineManager {
 	 */
 	async abortTask(taskId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
 		const task = this.store.getTask(taskId);
-		if (!task) return { ok: false, error: `任务 ${taskId} 不存在（可能已完成、已删除或 id 有误）` };
+		if (!task) return { ok: false, error: t("任务 {id} 不存在（可能已完成、已删除或 id 有误）", { id: taskId }) };
 		const entry = this.live.get(task.engineId);
-		if (!entry) return { ok: false, error: "任务所属工程不存在" };
+		if (!entry) return { ok: false, error: t("任务所属工程不存在") };
 		if (task.status === "queued") {
 			this.store.updateTask(taskId, { status: "aborted", endedAt: Date.now(), error: reason });
 			entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
@@ -822,8 +839,12 @@ export class EngineManager {
 			return { ok: true };
 		}
 		const worker = entry.workers.get(taskId);
-		if (!worker) return { ok: false, error: `任务 ${taskId} 不在运行中（当前状态：${task.status}）` };
-		await worker.abort(`中止：${reason}`);
+		if (!worker)
+			return {
+				ok: false,
+				error: t("任务 {id} 不在运行中（当前状态：{status}）", { id: taskId, status: task.status }),
+			};
+		await worker.abort(t("中止：{reason}", { reason }));
 		return { ok: true };
 	}
 
@@ -843,28 +864,35 @@ export class EngineManager {
 		input: { instruction: string; criteria: string[]; roundLimit: number | null },
 	): { task?: SentinelEngineTask; position?: number; error?: string } {
 		const task = this.store.getTask(taskId);
-		if (!task) return { error: `任务 ${taskId} 不存在（可能已完成、已删除或 id 有误）` };
+		if (!task) return { error: t("任务 {id} 不存在（可能已完成、已删除或 id 有误）", { id: taskId }) };
 		const entry = this.live.get(task.engineId);
-		if (!entry) return { error: "任务所属工程不存在" };
-		if (entry.engine.status !== "running") return { error: "工程未在运行中，不能续跑任务" };
+		if (!entry) return { error: t("任务所属工程不存在") };
+		if (entry.engine.status !== "running") return { error: t("工程未在运行中，不能续跑任务") };
 		if (task.status === "queued" || task.status === "running") {
-			return { error: `任务 ${taskId} 仍在排队或运行中；要补充指令请用 steer_task` };
+			return { error: t("任务 {id} 仍在排队或运行中；要补充指令请用 steer_task", { id: taskId }) };
 		}
 		if (!task.sessionId) {
-			return { error: `任务 ${taskId} 没有可续跑的会话（启动前就失败了），请用 dispatch_task 重新派发` };
+			return {
+				error: t("任务 {id} 没有可续跑的会话（启动前就失败了），请用 dispatch_task 重新派发", { id: taskId }),
+			};
 		}
 		const instruction = input.instruction.trim();
-		if (!instruction) return { error: "续跑指令不能为空" };
+		if (!instruction) return { error: t("续跑指令不能为空") };
 		const tokenLimit = entry.engine.limits.tokenLimit;
 		if (tokenLimit !== null && task.usage && task.usage.total > tokenLimit) {
 			return {
-				error: `任务已用 ${task.usage.total} tokens，超过本工程单任务上限 ${tokenLimit}；续跑会在下一轮被熔断，请派发新任务`,
+				error: t("任务已用 {total} tokens，超过本工程单任务上限 {limit}；续跑会在下一轮被熔断，请派发新任务", {
+					total: task.usage.total,
+					limit: tokenLimit,
+				}),
 			};
 		}
 		const project = this.projectOf(entry.engine);
 		const sessionDir = getDefaultSessionDir(project.cwd, this.agentDir);
 		if (!SessionManager.findById(project.cwd, task.sessionId, sessionDir)) {
-			return { error: `任务 ${taskId} 的会话文件不存在，无法在原会话上继续；请用 dispatch_task 重新派发` };
+			return {
+				error: t("任务 {id} 的会话文件不存在，无法在原会话上继续；请用 dispatch_task 重新派发", { id: taskId }),
+			};
 		}
 		const criteria = [...new Set(input.criteria.map((item) => item.trim()).filter(Boolean))].slice(0, 20);
 		const roundLimit = clampRoundLimit(input.roundLimit ?? entry.engine.limits.roundLimit);
@@ -880,13 +908,13 @@ export class EngineManager {
 			(item) => item.status === "queued",
 		).length;
 		const updated = this.store.getTask(taskId);
-		return updated ? { task: updated, position } : { error: "任务续跑状态写入失败" };
+		return updated ? { task: updated, position } : { error: t("任务续跑状态写入失败") };
 	}
 
 	/** Deterministic progress snapshot the operator can pull at any time. */
 	reportSnapshot(id: string): { filename: string; markdown: string } {
 		const engine = this.store.getEngine(id);
-		if (!engine) throw new Error("工程不存在");
+		if (!engine) throw new Error(t("工程不存在"));
 		return buildSnapshotReport(engine);
 	}
 
@@ -896,16 +924,16 @@ export class EngineManager {
 	 */
 	taskSessionPath(taskId: string): string {
 		const task = this.store.getTask(taskId);
-		if (!task || !task.sessionId) throw new Error("该任务没有会话（可能尚未启动或已被删除）");
+		if (!task || !task.sessionId) throw new Error(t("该任务没有会话（可能尚未启动或已被删除）"));
 		const engine = this.store.getEngine(task.engineId);
-		if (!engine) throw new Error("任务所属工程不存在");
+		if (!engine) throw new Error(t("任务所属工程不存在"));
 		const project = this.projectOf(engine);
 		const sessionDir = getDefaultSessionDir(project.cwd, this.agentDir);
 		// Task rows keep the session id, but a session file is named
 		// `<timestamp>_<sessionId>.jsonl`: the id alone is not a path, so resolve it
 		// exactly the way the session list does.
 		const file = SessionManager.findById(project.cwd, task.sessionId, sessionDir);
-		if (!file) throw new Error("该任务的会话文件不存在（可能已被删除）");
+		if (!file) throw new Error(t("该任务的会话文件不存在（可能已被删除）"));
 		return resolvePath(file);
 	}
 
@@ -942,7 +970,7 @@ export class EngineManager {
 		return {
 			presetOptional: entry.engine.presetOptional,
 			dispatch: (input) => {
-				if (entry.engine.status !== "running") return { error: "工程已暂停或结束，不能派发任务" };
+				if (entry.engine.status !== "running") return { error: t("工程已暂停或结束，不能派发任务") };
 				// The preset is validated here rather than left to the session. A task
 				// dispatched with an unusable preset would otherwise run as the default
 				// agent while the board showed the name the commander asked for, and the
@@ -980,17 +1008,17 @@ export class EngineManager {
 			},
 			abortTask: async (taskId, reason) => {
 				try {
-					return await this.abortTask(taskId, `指挥官中止：${reason}`);
+					return await this.abortTask(taskId, t("指挥官中止：{reason}", { reason }));
 				} catch (error) {
 					return { ok: false, error: errorText(error) };
 				}
 			},
 			steerTask: async (taskId, instruction) => {
 				const worker = entry.workers.get(taskId);
-				if (!worker || !worker.isRunning) return { ok: false, error: "任务不在运行中，无法注入指令" };
+				if (!worker || !worker.isRunning) return { ok: false, error: t("任务不在运行中，无法注入指令") };
 				try {
 					const delivered = await worker.steer(instruction);
-					return delivered ? { ok: true } : { ok: false, error: "指令未能注入（任务刚好结束）" };
+					return delivered ? { ok: true } : { ok: false, error: t("指令未能注入（任务刚好结束）") };
 				} catch (error) {
 					return { ok: false, error: errorText(error) };
 				}
@@ -1005,14 +1033,16 @@ export class EngineManager {
 			board: () => this.store.getEngine(entry.engine.id)?.tasks ?? entry.engine.tasks,
 			finish: (report) => {
 				if (entry.engine.status !== "running") {
-					return { ok: false, error: "工程未在运行中，不能结束；请先继续工程" };
+					return { ok: false, error: t("工程未在运行中，不能结束；请先继续工程") };
 				}
 				const board = this.store.getEngine(entry.engine.id)?.tasks ?? [];
 				const outstanding = board.filter((task) => task.status === "queued" || task.status === "running");
 				if (outstanding.length > 0) {
 					return {
 						ok: false,
-						error: `还有 ${outstanding.length} 个任务未结束（排队或运行中），先等它们结束或用 abort_task 中止`,
+						error: t("还有 {count} 个任务未结束（排队或运行中），先等它们结束或用 abort_task 中止", {
+							count: outstanding.length,
+						}),
 					};
 				}
 				this.disableActiveSchedule(entry, "completed");
@@ -1089,7 +1119,7 @@ export class EngineManager {
 		}
 		const project = this.projectOf(entry.engine);
 		const model = await this.resolveCommanderModel();
-		if (!model) throw new Error("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点");
+		if (!model) throw new Error(t("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点"));
 		const commanderPermissions = readPermissionsConfig(this.agentDir).commander;
 		const brief = buildCommanderBrief(
 			entry.engine,
@@ -1131,7 +1161,7 @@ export class EngineManager {
 		this.pushCommanderEvent(entry, {
 			kind: "status",
 			status: "running",
-			note: kind === "initial" ? "指挥官启动" : "指挥官恢复",
+			note: kind === "initial" ? t("指挥官启动") : t("指挥官恢复"),
 		});
 		await this.promptCommander(
 			entry,
@@ -1161,7 +1191,7 @@ export class EngineManager {
 			this.pushCommanderEvent(entry, {
 				kind: "status",
 				status: "error",
-				note: `指挥官运行失败：${errorText(error)}`,
+				note: t("指挥官运行失败：{error}", { error: errorText(error) }),
 			});
 		} finally {
 			entry.commanderPromptInFlight = false;
@@ -1180,7 +1210,7 @@ export class EngineManager {
 		const engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 		const project = this.projectOf(engine);
 		const model = await this.resolveCommanderModel();
-		if (!model) throw new Error("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点");
+		if (!model) throw new Error(t("指挥官模型未配置：请先在「设置 → 模型」配置端点，或在工程页配置指挥官专用端点"));
 		const brief = [
 			`你是工程「${engine.name}」的指挥官。工程已经完成，现在只做复盘对话。`,
 			"不要派发任务、不要修改工程、不要调用任何工具；只根据下面的总报告和看板回答操作员的问题。",
@@ -1212,7 +1242,7 @@ export class EngineManager {
 		entry.debrief = created.session;
 		entry.debriefUnsubscribe = created.session.subscribe((event) => this.onCommanderEvent(entry, event));
 		await created.session.bindExtensions({});
-		this.pushCommanderEvent(entry, { kind: "status", note: "工程已完成，进入复盘对话" });
+		this.pushCommanderEvent(entry, { kind: "status", note: t("工程已完成，进入复盘对话") });
 		return created.session;
 	}
 
@@ -1232,7 +1262,7 @@ export class EngineManager {
 			this.pushCommanderEvent(entry, {
 				kind: "status",
 				status: "error",
-				note: `指挥官复盘失败：${errorText(error)}`,
+				note: t("指挥官复盘失败：{error}", { error: errorText(error) }),
 			});
 		} finally {
 			entry.debriefPromptInFlight = false;
@@ -1278,7 +1308,7 @@ export class EngineManager {
 		const outstanding = board.filter((task) => task.status === "queued" || task.status === "running");
 		if (outstanding.length > 0) return;
 		if (entry.nudges >= MAX_COMMANDER_NUDGES) {
-			this.store.setEngineStatus(entry.engine.id, "paused", "指挥官多次空转，工程已暂停等待操作员", null);
+			this.store.setEngineStatus(entry.engine.id, "paused", t("指挥官多次空转，工程已暂停等待操作员"), null);
 			entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 			this.hooks.onChange(entry.engine);
 			return;
@@ -1405,14 +1435,14 @@ export class EngineManager {
 			this.store.updateTask(taskId, {
 				status: "failed",
 				endedAt: Date.now(),
-				error: `任务启动失败：${errorText(error)}`,
-				summary: `任务启动失败：${errorText(error)}`,
+				error: t("任务启动失败：{error}", { error: errorText(error) }),
+				summary: t("任务启动失败：{error}", { error: errorText(error) }),
 			});
 			entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
 			this.hooks.onChange(entry.engine);
 			this.onTaskTerminal(entry, taskId, {
 				status: "failed",
-				summary: `任务启动失败：${errorText(error)}`,
+				summary: t("任务启动失败：{error}", { error: errorText(error) }),
 				usage: emptyUsage(),
 			});
 		}
@@ -1499,7 +1529,8 @@ export class EngineManager {
 
 	private projectOf(engine: SentinelEngine): SentinelProjectInfo {
 		const project = listProjects(this.agentDir).projects.find((item) => item.id === engine.projectId);
-		if (!project) throw new Error(`工程所属项目「${engine.projectName}」已不存在，无法继续执行`);
+		if (!project)
+			throw new Error(t("工程所属项目「{project}」已不存在，无法继续执行", { project: engine.projectName }));
 		return { id: project.id, name: project.name, cwd: project.workDir, container: project.container };
 	}
 
@@ -1555,14 +1586,16 @@ export class EngineManager {
 		const done = engine.tasks.filter((task) => task.status === "done").length;
 		const failed = engine.tasks.filter((task) => ["failed", "blocked", "aborted"].includes(task.status)).length;
 		const markdown = [
-			`### 工程已完成：${engine.name}`,
-			`- 项目：${engine.projectName}`,
-			`- 任务：完成 ${done}，未成 ${failed}`,
-			`- 耗时：${Math.round(((engine.endedAt ?? Date.now()) - (engine.startedAt ?? engine.createdAt)) / 60000)} 分钟`,
+			t("### 工程已完成：{name}", { name: engine.name }),
+			t("- 项目：{project}", { project: engine.projectName }),
+			t("- 任务：完成 {done}，未成 {failed}", { done, failed }),
+			t("- 耗时：{minutes} 分钟", {
+				minutes: Math.round(((engine.endedAt ?? Date.now()) - (engine.startedAt ?? engine.createdAt)) / 60000),
+			}),
 			"",
 			engine.report?.slice(0, config.summaryLimit || 2000) ?? "",
 		].join("\n");
-		void sendNotifications(config, `工程已完成：${engine.name}`, markdown);
+		void sendNotifications(config, t("工程已完成：{name}", { name: engine.name }), markdown);
 	}
 }
 
@@ -1625,10 +1658,14 @@ export function presetChoiceHint(
 	const presets = allowedPresets(agentDir, engine);
 	if (presets.length === 0) {
 		return engine.presetOptional
-			? "本工程未启用任何预设 Agent，请省略 preset 参数，使用默认 Agent。"
-			: "本工程要求每个任务都指定预设 Agent，但当前没有可用预设：请让操作员启用或授权预设，不要派发无预设的任务。";
+			? t("本工程未启用任何预设 Agent，请省略 preset 参数，使用默认 Agent。")
+			: t(
+					"本工程要求每个任务都指定预设 Agent，但当前没有可用预设：请让操作员启用或授权预设，不要派发无预设的任务。",
+				);
 	}
-	return `可用预设：${presets.map((preset) => `${preset.id}（${preset.name}）`).join("、")}`;
+	return t("可用预设：{list}", {
+		list: presets.map((preset) => `${preset.id}（${preset.name}）`).join("、"),
+	});
 }
 
 /**
@@ -1669,20 +1706,32 @@ export function resolveDispatchPreset(
 		if (!engine.presetOptional) {
 			return {
 				preset: null,
-				error: `本工程要求每个任务都指定预设 Agent，本次派发没有指定。${presetChoiceHint(agentDir, engine)}`,
+				error: t("本工程要求每个任务都指定预设 Agent，本次派发没有指定。{hint}", {
+					hint: presetChoiceHint(agentDir, engine),
+				}),
 			};
 		}
 		return { preset: null };
 	}
 	const preset = findPreset(agentDir, presetId);
-	if (!preset) return { preset: null, error: `预设「${presetId}」不存在。${presetChoiceHint(agentDir, engine)}` };
+	if (!preset)
+		return {
+			preset: null,
+			error: t("预设「{id}」不存在。{hint}", { id: presetId, hint: presetChoiceHint(agentDir, engine) }),
+		};
 	if (!preset.enabled) {
-		return { preset: null, error: `预设「${preset.name}」已停用。${presetChoiceHint(agentDir, engine)}` };
+		return {
+			preset: null,
+			error: t("预设「{name}」已停用。{hint}", { name: preset.name, hint: presetChoiceHint(agentDir, engine) }),
+		};
 	}
 	if (engine.presetIds.length > 0 && !engine.presetIds.includes(preset.id)) {
 		return {
 			preset: null,
-			error: `预设「${preset.name}」不在本工程的预设白名单内。${presetChoiceHint(agentDir, engine)}`,
+			error: t("预设「{name}」不在本工程的预设白名单内。{hint}", {
+				name: preset.name,
+				hint: presetChoiceHint(agentDir, engine),
+			}),
 		};
 	}
 	return { preset };
@@ -1766,25 +1815,36 @@ export function buildCommanderBrief(
 
 function buildSnapshotReport(engine: SentinelEngine): { filename: string; markdown: string } {
 	const statusLabels: Record<string, string> = {
-		queued: "排队中",
-		running: "运行中",
-		done: "已完成",
-		failed: "失败",
-		blocked: "已阻塞",
-		aborted: "已中止",
-		paused: "已暂停",
+		queued: t("排队中"),
+		running: t("运行中"),
+		done: t("已完成"),
+		failed: t("失败"),
+		blocked: t("已阻塞"),
+		aborted: t("已中止"),
+		paused: t("已暂停"),
 	};
 	const lines = [
-		`# 工程进度快照：${engine.name}`,
+		t("# 工程进度快照：{name}", { name: engine.name }),
 		"",
-		`- 项目：${engine.projectName}`,
-		`- 状态：${engine.status === "scheduled" ? "已计划" : engine.status === "running" ? "运行中" : engine.status === "paused" ? "已暂停" : engine.status === "completed" ? "已完成" : "已终止"}`,
-		`- 目标数：${engine.targets.length}`,
-		`- 任务数：${engine.tasks.length}`,
+		t("- 项目：{project}", { project: engine.projectName }),
+		t("- 状态：{status}", {
+			status:
+				engine.status === "scheduled"
+					? t("已计划")
+					: engine.status === "running"
+						? t("运行中")
+						: engine.status === "paused"
+							? t("已暂停")
+							: engine.status === "completed"
+								? t("已完成")
+								: t("已终止"),
+		}),
+		t("- 目标数：{count}", { count: engine.targets.length }),
+		t("- 任务数：{count}", { count: engine.tasks.length }),
 		"",
-		"## 任务看板",
+		t("## 任务看板"),
 		"",
-		"| 状态 | 任务 | 目标 | 次数 | 结论 |",
+		t("| 状态 | 任务 | 目标 | 次数 | 结论 |"),
 		"| --- | --- | --- | --- | --- |",
 	];
 	for (const task of engine.tasks) {

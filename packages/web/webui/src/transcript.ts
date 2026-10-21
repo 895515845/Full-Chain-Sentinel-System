@@ -9,6 +9,7 @@
  * everything above it.
  */
 
+import { t } from "./i18n.ts";
 import type { AgentMessageView } from "./types.ts";
 
 /**
@@ -65,10 +66,10 @@ export function runDigest(prompt: AgentMessageView | undefined, body: readonly A
 			message.content.some((block) => (block as { type?: string }).type === "thinking"),
 	).length;
 	const parts: string[] = [];
-	if (tools > 0) parts.push(`${tools} 次工具调用`);
-	if (thinking > 0) parts.push(`${thinking} 段思考`);
+	if (tools > 0) parts.push(t("{count} 次工具调用", { count: tools }));
+	if (thinking > 0) parts.push(t("{count} 段思考", { count: thinking }));
 	const compactions = body.filter((message) => isSummaryMessage(message)).length;
-	if (compactions > 0) parts.push(`${compactions} 次压缩`);
+	if (compactions > 0) parts.push(t("{count} 次压缩", { count: compactions }));
 	// A stretch with no prompt of its own (what a compaction kept) still reports
 	// its elapsed time, measured from its own first timestamped message.
 	const started = messageTimestamp(prompt) ?? firstTimestamp(body);

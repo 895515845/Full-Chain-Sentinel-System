@@ -16,6 +16,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import { pluginKey, pluginServerName } from "./plugin-manifest.ts";
 
 export const PLUGIN_STATE_VERSION = 1;
@@ -215,7 +216,7 @@ function readPluginStateForUpdate(agentDir: string): PluginStateFile | null {
 
 function stateForWrite(agentDir: string): PluginStateFile {
 	const state = readPluginStateForUpdate(agentDir);
-	if (!state) throw new Error(`${pluginStatePath(agentDir)} 无法解析，请先修复或删除该文件`);
+	if (!state) throw new Error(t("{path} 无法解析，请先修复或删除该文件", { path: pluginStatePath(agentDir) }));
 	return state;
 }
 
@@ -265,7 +266,7 @@ export function effectivePluginHosts(agentDir: string): PluginHostRecord[] {
 		const index = hosts.findIndex((host) => host.id === id || host.url === url);
 		const record: PluginHostRecord = {
 			id: index >= 0 ? hosts[index].id : id,
-			name: "本机插件主机",
+			name: t("本机插件主机"),
 			url,
 			token: local.token,
 			local: true,

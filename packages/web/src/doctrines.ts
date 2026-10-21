@@ -11,6 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
 
 export interface SentinelDoctrine {
 	id: string;
@@ -96,11 +97,11 @@ export function saveDoctrine(
 ): { doctrine?: SentinelDoctrine; error?: string } {
 	const name = input.name.trim();
 	const text = input.text.trim();
-	if (!name) return { error: "思路名称不能为空" };
-	if (!text) return { error: "思路内容不能为空" };
+	if (!name) return { error: t("思路名称不能为空") };
+	if (!text) return { error: t("思路内容不能为空") };
 	const custom = readCustom(agentDir);
 	const existing = input.id ? custom.find((item) => item.id === input.id) : undefined;
-	if (input.id && !existing) return { error: "该思路不存在（内置思路不能修改）" };
+	if (input.id && !existing) return { error: t("该思路不存在（内置思路不能修改）") };
 	const doctrine: SentinelDoctrine = existing
 		? { ...existing, name, text }
 		: {
@@ -118,7 +119,7 @@ export function saveDoctrine(
 
 export function deleteDoctrine(agentDir: string, id: string): { ok: boolean; error?: string } {
 	const custom = readCustom(agentDir);
-	if (!custom.some((item) => item.id === id)) return { ok: false, error: "该思路不存在（内置思路不能删除）" };
+	if (!custom.some((item) => item.id === id)) return { ok: false, error: t("该思路不存在（内置思路不能删除）") };
 	writeCustom(
 		agentDir,
 		custom.filter((item) => item.id !== id),

@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { t } from "../i18n.ts";
 import type {
 	SentinelGatekeeperConfig,
 	SentinelMcpToolGate,
@@ -85,26 +86,26 @@ export function GatekeeperPanel({
 	return (
 		<div className="settings settings--wide cockpit gatekeeper">
 			<div className="cockpit-sec">
-				<h3>守门设置（AI 审批）</h3>
-				<span className="cockpit-sec__meta">全局默认 · 判定端点取「守门模型」</span>
+				<h3>{t("守门设置（AI 审批）")}</h3>
+				<span className="cockpit-sec__meta">{t("全局默认 · 判定端点取「守门模型」")}</span>
 			</div>
 			<p className="gate-prose">
-				AI 审批模式下每条命令都先交给「守门模型」判定：返回 <code>ALLOW</code> 才执行，返回{" "}
-				<code>BLOCK: 理由</code>{" "}
-				则拒绝并把理由回给 Agent。判定失败（超时、报错、返回无法解析）一律放行，并在审计页记为「请求失败」。
-				端点在上面「角色 → 守门模型」里选。
+				{t("AI 审批模式下每条命令都先交给「守门模型」判定：返回")} <code>ALLOW</code>{" "}
+				{t("才执行，返回")} <code>{t("BLOCK: 理由")}</code>{" "}
+				{t("则拒绝并把理由回给 Agent。判定失败（超时、报错、返回无法解析）一律放行，并在审计页记为「请求失败」。")}{" "}
+				{t("端点在上面「角色 → 守门模型」里选。")}
 			</p>
 
 			<div className="gate-card">
 				<div className="gate-row gate-endpoint">
-					<span className="gate-row__label">当前生效端点</span>
+					<span className="gate-row__label">{t("当前生效端点")}</span>
 					{judgeResolved ? (
 						<span className="gate-endpoint__value">
 							{judgeResolved.entryName} · <strong>{judgeResolved.modelId}</strong>
-							{judgeResolved.followedMain ? <span className="gate-row__tag">跟随主模型</span> : null}
+							{judgeResolved.followedMain ? <span className="gate-row__tag">{t("跟随主模型")}</span> : null}
 						</span>
 					) : (
-						<span className="gate-endpoint__value is-missing">无（切到 AI 审批会被拒绝）</span>
+						<span className="gate-endpoint__value is-missing">{t("无（切到 AI 审批会被拒绝）")}</span>
 					)}
 					<button
 						type="button"
@@ -112,11 +113,11 @@ export function GatekeeperPanel({
 						disabled={judgeResolved === null || testing}
 						onClick={runTest}
 					>
-						{testing ? "判定中…" : "测试判定"}
+						{testing ? t("判定中…") : t("测试判定")}
 					</button>
 				</div>
 				<div className="gate-row gate-mode">
-					<span className="gate-row__label">全局默认模式</span>
+					<span className="gate-row__label">{t("全局默认模式")}</span>
 					<div className="mode-switch gate-mode-switch">
 						{SENTINEL_MODES.map((item) => (
 							<button
@@ -130,11 +131,11 @@ export function GatekeeperPanel({
 						))}
 					</div>
 					<span className="gate-row__hint">
-						新建会话跟随它；已有会话可在对话工具栏单独设定或点「跟随全局」回到默认。
+						{t("新建会话跟随它；已有会话可在对话工具栏单独设定或点「跟随全局」回到默认。")}
 					</span>
 				</div>
 				<label className="gate-row">
-					<span className="gate-row__label">判定超时（毫秒）</span>
+					<span className="gate-row__label">{t("判定超时（毫秒）")}</span>
 					<input
 						className="gate-input"
 						value={timeoutMs}
@@ -143,10 +144,10 @@ export function GatekeeperPanel({
 						placeholder="15000"
 						spellCheck={false}
 					/>
-					<span className="gate-row__hint">超时即放行并记为「请求失败」。范围 1000–120000。</span>
+					<span className="gate-row__hint">{t("超时即放行并记为「请求失败」。范围 1000–120000。")}</span>
 				</label>
 				<label className="gate-row">
-					<span className="gate-row__label">并发上限</span>
+					<span className="gate-row__label">{t("并发上限")}</span>
 					<input
 						className="gate-input"
 						value={concurrency}
@@ -156,7 +157,7 @@ export function GatekeeperPanel({
 						spellCheck={false}
 					/>
 					<span className="gate-row__hint">
-						同时进行中的判定数量，0 = 不限制（子代理并行侦察时用得上）。上限 64。
+						{t("同时进行中的判定数量，0 = 不限制（子代理并行侦察时用得上）。上限 64。")}
 					</span>
 				</label>
 			</div>
@@ -170,12 +171,13 @@ export function GatekeeperPanel({
 			) : null}
 
 			<div className="cockpit-sec">
-				<h3>MCP 工具判定</h3>
+				<h3>{t("MCP 工具判定")}</h3>
 			</div>
 			<p className="gate-prose">
-				bash 命令在任何模式下都由上面的模式决定；这一段管的是另外一类调用：MCP 与插件工具。
-				打开后，AI 审批模式下每一次这类调用也会先交给守门模型，被拦时把理由回给 Agent。
-				<b>每次调用都要多花一次模型往返</b>，高频只读工具（列目录、查资产）会明显变慢。
+				{t("bash 命令在任何模式下都由上面的模式决定；这一段管的是另外一类调用：MCP 与插件工具。")}{" "}
+				{t("打开后，AI 审批模式下每一次这类调用也会先交给守门模型，被拦时把理由回给 Agent。")}
+				<b>{t("每次调用都要多花一次模型往返")}</b>
+				{t("，高频只读工具（列目录、查资产）会明显变慢。")}
 			</p>
 			<div className="gate-card">
 				<label className="gate-option">
@@ -185,9 +187,9 @@ export function GatekeeperPanel({
 						onChange={(event) => setMcpTools((prev) => ({ ...prev, enabled: event.target.checked }))}
 					/>
 					<span className="gate-option__text">
-						<span className="gate-option__title">同时判定 MCP 工具</span>
+						<span className="gate-option__title">{t("同时判定 MCP 工具")}</span>
 						<span className="gate-option__hint">
-							关闭后守门模型只看 bash 命令，插件与 MCP 工具不再经过判定
+							{t("关闭后守门模型只看 bash 命令，插件与 MCP 工具不再经过判定")}
 						</span>
 					</span>
 				</label>
@@ -199,10 +201,10 @@ export function GatekeeperPanel({
 						onChange={(event) => setMcpTools((prev) => ({ ...prev, includePlugins: event.target.checked }))}
 					/>
 					<span className="gate-option__text">
-						<span className="gate-option__title">包含插件工具</span>
+						<span className="gate-option__title">{t("包含插件工具")}</span>
 						<span className="gate-option__hint">
-							插件工具（server 名以 <code>plugin-</code> 开头）能操作受管主机，最值得判；一个插件常有几十个工具，
-							也最吵。默认不纳入
+							{t("插件工具（server 名以")} <code>plugin-</code>{" "}
+							{t("开头）能操作受管主机，最值得判；一个插件常有几十个工具， 也最吵。默认不纳入")}
 						</span>
 					</span>
 				</label>
@@ -210,7 +212,7 @@ export function GatekeeperPanel({
 
 			<div className="gate-actions">
 				<button type="button" className="primary" onClick={() => onSave(settingsDraft)}>
-					保存守门配置
+					{t("保存守门配置")}
 				</button>
 			</div>
 		</div>

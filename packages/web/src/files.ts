@@ -16,6 +16,7 @@
 import { lstatSync, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { execInContainer } from "./docker.ts";
+import { t } from "./i18n.ts";
 import type { SentinelFileEntry, SentinelFilePreview } from "./protocol.ts";
 
 /** Mount point of the project work directory inside the container. */
@@ -70,11 +71,11 @@ export function guessMimeType(path: string): string {
  */
 export function resolveWorkPath(input: string): string {
 	const trimmed = (input ?? "").trim();
-	if (trimmed.includes("\0")) throw new Error("路径包含非法字符");
+	if (trimmed.includes("\0")) throw new Error(t("路径包含非法字符"));
 	const absolute = trimmed === "" ? WORK_ROOT : trimmed.startsWith("/") ? trimmed : posix.join(WORK_ROOT, trimmed);
 	const normalized = posix.normalize(absolute);
 	if (normalized !== WORK_ROOT && !normalized.startsWith(`${WORK_ROOT}/`)) {
-		throw new Error("路径越界：只能访问容器 /work 目录内的文件");
+		throw new Error(t("路径越界：只能访问容器 /work 目录内的文件"));
 	}
 	return normalized;
 }
@@ -116,11 +117,15 @@ export function toContainerWorkPath(input: string, hostWorkDir: string): string 
 /** Map a container exit code to a readable failure. */
 function fail(action: string, code: number, stderr: string): never {
 	const detail = stderr.trim();
-	if (code === 2) throw new Error(`${action}失败：文件不存在或不可读`);
-	if (code === 3) throw new Error(`${action}失败：文件超过 ${TRANSFER_MAX_BYTES / 1024 / 1024}MB 上限`);
-	if (code === 4) throw new Error(`${action}失败：不允许操作 /work 根目录`);
-	if (code === 5) throw new Error(`${action}失败：目标已存在`);
-	throw new Error(`${action}失败${detail ? `：${detail}` : `（退出码 ${code}）`}`);
+	if (code === 2) throw new Error(t("{action}失败：文件不存在或不可读", { action }));
+	if (code === 3) {
+		throw new Error(t("{action}失败：文件超过 {max}MB 上限", { action, max: TRANSFER_MAX_BYTES / 1024 / 1024 }));
+	}
+	if (code === 4) throw new Error(t("{action}失败：不允许操作 /work 根目录", { action }));
+	if (code === 5) throw new Error(t("{action}失败：目标已存在", { action }));
+	throw new Error(
+		detail ? t("{action}失败：{detail}", { action, detail }) : t("{action}失败（退出码 {code}）", { action, code }),
+	);
 }
 
 /**
@@ -164,8 +169,8 @@ function isPermissionError(error: unknown): boolean {
 
 function describeListError(error: unknown): Error {
 	const code = (error as { code?: string }).code;
-	if (code === "ENOENT" || code === "ENOTDIR") return new Error("目录不存在或不可读");
-	if (isPermissionError(error)) return new Error("读取目录失败：权限不足");
+	if (code === "ENOENT" || code === "ENOTDIR") return new Error(t("目录不存在或不可读"));
+	if (isPermissionError(error)) return new Error(t("读取目录失败：权限不足"));
 	return error instanceof Error ? error : new Error(String(error));
 }
 
@@ -233,8 +238,8 @@ export async function listFilesInContainer(
 	const target = resolveWorkPath(path);
 	const result = await execInContainer(container, LIST_SCRIPT, [target], { signal, timeoutMs: 30000 });
 	if (result.code !== 0) {
-		if (result.code === 2) throw new Error("目录不存在或不可读");
-		fail("读取目录", result.code, result.stderr);
+		if (result.code === 2) throw new Error(t("目录不存在或不可读"));
+		fail(t("读取目录"), result.code, result.stderr);
 	}
 	const entries: SentinelFileEntry[] = [];
 	for (const line of result.stdout.split("\n")) {
@@ -270,7 +275,7 @@ export async function readFilePreview(
 		signal,
 		timeoutMs: 30000,
 	});
-	if (result.code !== 0) fail("读取文件", result.code, result.stderr);
+	if (result.code !== 0) fail(t("读取文件"), result.code, result.stderr);
 	const size = Number.parseInt(result.stderr.trim(), 10) || 0;
 	const truncated = size > PREVIEW_MAX_BYTES;
 	const bytes = truncated ? result.stdoutBytes.subarray(0, PREVIEW_MAX_BYTES) : result.stdoutBytes;
@@ -305,7 +310,7 @@ export async function downloadFile(
 		signal,
 		timeoutMs: 120000,
 	});
-	if (result.code !== 0) fail("下载", result.code, result.stderr);
+	if (result.code !== 0) fail(t("下载"), result.code, result.stderr);
 	return { path: target, size: result.stdoutBytes.length, data: result.stdoutBytes.toString("base64") };
 }
 
@@ -320,14 +325,14 @@ export async function writeFile(
 ): Promise<{ path: string; size: number }> {
 	const target = resolveWorkPath(path);
 	if (content.length > TRANSFER_MAX_BYTES) {
-		throw new Error(`上传失败：文件超过 ${TRANSFER_MAX_BYTES / 1024 / 1024}MB 上限`);
+		throw new Error(t("上传失败：文件超过 {max}MB 上限", { max: TRANSFER_MAX_BYTES / 1024 / 1024 }));
 	}
 	const result = await execInContainer(container, WRITE_SCRIPT, [target], {
 		stdin: content,
 		signal,
 		timeoutMs: 120000,
 	});
-	if (result.code !== 0) fail("写入", result.code, result.stderr);
+	if (result.code !== 0) fail(t("写入"), result.code, result.stderr);
 	return { path: target, size: content.length };
 }
 
@@ -335,9 +340,9 @@ const DELETE_SCRIPT = ['[ "$1" != "/work" ] || exit 4', 'rm -r -- "$1" || exit 2
 
 export async function deletePath(container: string, path: string, signal?: AbortSignal): Promise<void> {
 	const target = resolveWorkPath(path);
-	if (target === WORK_ROOT) throw new Error("删除失败：不允许操作 /work 根目录");
+	if (target === WORK_ROOT) throw new Error(t("删除失败：不允许操作 /work 根目录"));
 	const result = await execInContainer(container, DELETE_SCRIPT, [target], { signal, timeoutMs: 60000 });
-	if (result.code !== 0) fail("删除", result.code, result.stderr);
+	if (result.code !== 0) fail(t("删除"), result.code, result.stderr);
 }
 
 const RENAME_SCRIPT = [
@@ -356,9 +361,11 @@ export async function renamePath(
 ): Promise<{ from: string; to: string }> {
 	const source = resolveWorkPath(from);
 	const target = resolveWorkPath(to);
-	if (source === WORK_ROOT || target === WORK_ROOT) throw new Error("重命名失败：不允许操作 /work 根目录");
+	if (source === WORK_ROOT || target === WORK_ROOT) {
+		throw new Error(t("重命名失败：不允许操作 /work 根目录"));
+	}
 	const result = await execInContainer(container, RENAME_SCRIPT, [source, target], { signal, timeoutMs: 60000 });
-	if (result.code !== 0) fail("重命名", result.code, result.stderr);
+	if (result.code !== 0) fail(t("重命名"), result.code, result.stderr);
 	return { from: source, to: target };
 }
 
@@ -366,8 +373,8 @@ const MKDIR_SCRIPT = ['mkdir -p "$1" || exit 2'].join("\n");
 
 export async function makeDirectory(container: string, path: string, signal?: AbortSignal): Promise<{ path: string }> {
 	const target = resolveWorkPath(path);
-	if (target === WORK_ROOT) throw new Error("新建目录失败：目录已存在");
+	if (target === WORK_ROOT) throw new Error(t("新建目录失败：目录已存在"));
 	const result = await execInContainer(container, MKDIR_SCRIPT, [target], { signal, timeoutMs: 30000 });
-	if (result.code !== 0) fail("新建目录", result.code, result.stderr);
+	if (result.code !== 0) fail(t("新建目录"), result.code, result.stderr);
 	return { path: target };
 }

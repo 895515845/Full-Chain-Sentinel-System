@@ -17,6 +17,7 @@ import {
 	projectWorkDir,
 	removeContainer,
 } from "./docker.ts";
+import { t } from "./i18n.ts";
 
 export interface SentinelProject {
 	id: string;
@@ -65,20 +66,20 @@ export async function addProject(
 	input: { name: string },
 ): Promise<{ project?: SentinelProject; error?: string }> {
 	const name = input.name.trim();
-	if (!name) return { error: "项目名称不能为空" };
+	if (!name) return { error: t("项目名称不能为空") };
 	const file = readProjects(agentDir);
 	if (file.projects.some((project) => project.name === name)) {
-		return { error: "已存在同名项目" };
+		return { error: t("已存在同名项目") };
 	}
 	if (!(await hasImage())) {
-		return { error: "工具镜像尚未构建，请先构建镜像后再创建项目" };
+		return { error: t("工具镜像尚未构建，请先构建镜像后再创建项目") };
 	}
 	const id = randomUUID();
 	const container = containerNameFor(id);
 	const workDir = projectWorkDir(name);
 	const created = await createContainer(container, workDir, readContainerNetwork(agentDir));
 	if (!created.ok) {
-		return { error: `容器创建失败：${created.error}` };
+		return { error: t("容器创建失败：{error}", { error: created.error ?? "" }) };
 	}
 	const project: SentinelProject = { id, name, container, workDir, createdAt: new Date().toISOString() };
 	file.projects.push(project);
@@ -100,13 +101,13 @@ export async function recreateProject(
 ): Promise<{ project?: SentinelProject; error?: string }> {
 	const file = readProjects(agentDir);
 	const project = file.projects.find((entry) => entry.id === id);
-	if (!project) return { error: "项目不存在" };
+	if (!project) return { error: t("项目不存在") };
 	if (!(await hasImage())) {
-		return { error: "工具镜像尚未构建，请先构建镜像后再重建容器" };
+		return { error: t("工具镜像尚未构建，请先构建镜像后再重建容器") };
 	}
 	await removeContainer(project.container);
 	const created = await createContainer(project.container, project.workDir, readContainerNetwork(agentDir));
-	if (!created.ok) return { error: `容器重建失败：${created.error}` };
+	if (!created.ok) return { error: t("容器重建失败：{error}", { error: created.error ?? "" }) };
 	return { project };
 }
 
@@ -116,7 +117,7 @@ export async function removeProject(
 ): Promise<{ removed?: SentinelProject; error?: string }> {
 	const file = readProjects(agentDir);
 	const index = file.projects.findIndex((project) => project.id === id);
-	if (index === -1) return { error: "项目不存在" };
+	if (index === -1) return { error: t("项目不存在") };
 	const [removed] = file.projects.splice(index, 1);
 	if (file.lastActiveProjectId === id) delete file.lastActiveProjectId;
 	writeProjects(agentDir, file);

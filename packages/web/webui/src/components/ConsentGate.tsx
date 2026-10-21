@@ -13,7 +13,9 @@
 import { type ReactNode, useEffect, useState } from "react";
 
 import { PROJECT_LICENSE, PROJECT_LICENSE_URL, PROJECT_REPOSITORY } from "../branding.ts";
+import { t } from "../i18n.ts";
 import { ExternalLinkIcon, SentinelMark } from "./icons.tsx";
+import { LanguageSwitch } from "./LanguageSwitch.tsx";
 
 interface ConsentClause {
 	title: string;
@@ -56,12 +58,12 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 				const data = (await response.json().catch(() => ({}))) as { text?: ConsentText };
 				if (cancelled) return;
 				if (!response.ok || !data.text) {
-					setError("无法读取承诺条款，请刷新页面重试");
+					setError(t("无法读取承诺条款，请刷新页面重试"));
 					return;
 				}
 				setText(data.text);
 			} catch {
-				if (!cancelled) setError("无法连接服务，请确认服务在运行");
+				if (!cancelled) setError(t("无法连接服务，请确认服务在运行"));
 			}
 		};
 		void load();
@@ -82,12 +84,12 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 			});
 			if (!response.ok) {
 				const data = (await response.json().catch(() => ({}))) as { error?: unknown };
-				setError(typeof data.error === "string" ? data.error : "记录承诺失败，请重试");
+				setError(typeof data.error === "string" ? data.error : t("记录承诺失败，请重试"));
 				return;
 			}
 			onAccepted();
 		} catch {
-			setError("无法连接服务，请确认服务在运行");
+			setError(t("无法连接服务，请确认服务在运行"));
 		} finally {
 			setBusy(false);
 		}
@@ -95,13 +97,14 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 
 	return (
 		<div className="consent">
+			<LanguageSwitch className="consent-language" />
 			<div className="consent-card">
 				{rejected ? (
 					<div className="consent-dead">
-						<h3>已拒绝，无法进入平台</h3>
-						<p>未勾选承诺时平台不提供任何功能。关闭页面即可；如果改变主意，可以重新阅读并接受。</p>
+						<h3>{t("已拒绝，无法进入平台")}</h3>
+						<p>{t("未勾选承诺时平台不提供任何功能。关闭页面即可；如果改变主意，可以重新阅读并接受。")}</p>
 						<button type="button" className="consent-reject" onClick={() => setRejected(false)}>
-							重新阅读并接受
+							{t("重新阅读并接受")}
 						</button>
 					</div>
 				) : (
@@ -111,8 +114,8 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 								<SentinelMark size={24} />
 							</span>
 							<div>
-								<h2>{text?.title ?? "授权与风险承诺"}</h2>
-								<p>{text?.subtitle ?? "首次使用前必须阅读并勾选承诺，否则无法进入平台"}</p>
+								<h2>{text?.title ?? t("授权与风险承诺")}</h2>
+								<p>{text?.subtitle ?? t("首次使用前必须阅读并勾选承诺，否则无法进入平台")}</p>
 							</div>
 						</div>
 						<div className="consent-body">
@@ -151,16 +154,16 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 									{/* Presentation, not part of the hashed promise: adding this line must not
 									    invalidate an acceptance the operator already made. */}
 									<p className="consent-source">
-										本项目以 {PROJECT_LICENSE} 许可开源
+										{t("本项目以 {license} 许可开源", { license: PROJECT_LICENSE })}
 										<span className="consent-source__sep">·</span>
 										<a href={PROJECT_REPOSITORY} target="_blank" rel="noreferrer">
-											查看源码与许可证
+											{t("查看源码与许可证")}
 											<ExternalLinkIcon size={10} />
 										</a>
 									</p>
 								</>
 							) : (
-								<p className="consent-note">{error || "正在读取承诺条款…"}</p>
+								<p className="consent-note">{error || t("正在读取承诺条款…")}</p>
 							)}
 							{error && text ? <div className="consent-error">{error}</div> : null}
 						</div>
@@ -173,7 +176,7 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 									</svg>
 								</span>
 								<span className="consent-label">
-									<b>{text?.promise ?? "我承诺只用于授权合法的渗透测试"}</b>
+									<b>{text?.promise ?? t("我承诺只用于授权合法的渗透测试")}</b>
 									<span className="consent-ack">{text?.ack ?? ""}</span>
 								</span>
 							</label>
@@ -184,13 +187,13 @@ export function ConsentGate({ onAccepted }: { onAccepted: () => void }) {
 									disabled={!checked || busy || !text}
 									onClick={() => void accept()}
 								>
-									{busy ? "正在记录…" : "进入平台"}
+									{busy ? t("正在记录…") : t("进入平台")}
 								</button>
 								<button type="button" className="consent-reject" onClick={() => setRejected(true)}>
-									不同意，退出
+									{t("不同意，退出")}
 								</button>
 								<span className={checked ? "consent-hint ok" : "consent-hint"}>
-									{checked ? "已确认，可以进入平台" : "请先勾选承诺，否则无法进入平台"}
+									{checked ? t("已确认，可以进入平台") : t("请先勾选承诺，否则无法进入平台")}
 								</span>
 							</div>
 						</div>

@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { open, readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { t } from "./i18n.ts";
 import type { PocImportProgress } from "./pocs.ts";
 import type { SentinelPocImportOutcome } from "./protocol.ts";
 import { safeFileName } from "./upload.ts";
@@ -88,9 +89,9 @@ export class PocImportManager {
 
 	/** Stream one request body to a private temp file, then enqueue its import. */
 	async accept(name: string, body: AsyncIterable<Buffer | Uint8Array>): Promise<PocImportAcceptResult> {
-		if (this.closed) return { ok: false, status: 503, error: "服务正在停止" };
+		if (this.closed) return { ok: false, status: 503, error: t("服务正在停止") };
 		if (this.queue.length + (this.running ? 1 : 0) >= MAX_QUEUED) {
-			return { ok: false, status: 429, error: "已有太多导入任务，请稍后再试" };
+			return { ok: false, status: 429, error: t("已有太多导入任务，请稍后再试") };
 		}
 		const id = randomUUID();
 		const filePath = join(this.dir, `${id}.upload`);
@@ -98,7 +99,7 @@ export class PocImportManager {
 		try {
 			handle = await open(filePath, "wx", 0o600);
 		} catch {
-			return { ok: false, status: 500, error: "无法创建导入临时文件" };
+			return { ok: false, status: 500, error: t("无法创建导入临时文件") };
 		}
 		let size = 0;
 		try {
@@ -111,7 +112,7 @@ export class PocImportManager {
 					return {
 						ok: false,
 						status: 413,
-						error: `文件超过 ${Math.round(this.maxBytes / 1024 / 1024)}MB 上限`,
+						error: t("文件超过 {max}MB 上限", { max: Math.round(this.maxBytes / 1024 / 1024) }),
 					};
 				}
 				let written = 0;
@@ -124,11 +125,11 @@ export class PocImportManager {
 		} catch {
 			await handle.close().catch(() => {});
 			await unlink(filePath).catch(() => {});
-			return { ok: false, status: 400, error: "上传中断，未完成的文件已清理" };
+			return { ok: false, status: 400, error: t("上传中断，未完成的文件已清理") };
 		}
 		if (this.closed) {
 			await unlink(filePath).catch(() => {});
-			return { ok: false, status: 503, error: "服务正在停止" };
+			return { ok: false, status: 503, error: t("服务正在停止") };
 		}
 		const job: Job = {
 			id,
@@ -168,7 +169,7 @@ export class PocImportManager {
 		this.closed = true;
 		for (const job of this.queue.splice(0)) {
 			job.status = "error";
-			job.error = "服务正在停止";
+			job.error = t("服务正在停止");
 		}
 		this.running?.controller.abort();
 		try {
@@ -200,7 +201,7 @@ export class PocImportManager {
 			job.status = "error";
 			job.finishedAt = Date.now();
 			job.error = job.controller.signal.aborted
-				? "导入已取消"
+				? t("导入已取消")
 				: error instanceof Error
 					? error.message
 					: String(error);

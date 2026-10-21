@@ -21,6 +21,7 @@
  * module owns the transitions, so the rules are unit-testable without an agent.
  */
 
+import { t } from "./i18n.ts";
 import type {
 	SentinelGoal,
 	SentinelGoalCompletion,
@@ -379,13 +380,13 @@ export function advanceGoal(goal: SentinelGoal, at: number): { goal: SentinelGoa
 	if (goal.status !== "active") return { goal, action: "stop" };
 	if (goal.roundsUsed >= goal.roundLimit) {
 		return {
-			goal: pauseGoal(goal, "limit", `已达自动续跑上限（${goal.roundLimit} 轮）`, at),
+			goal: pauseGoal(goal, "limit", t("已达自动续跑上限（{count} 轮）", { count: goal.roundLimit }), at),
 			action: "stop",
 		};
 	}
 	if (goal.noProgressStreak >= NO_PROGRESS_LIMIT) {
 		return {
-			goal: pauseGoal(goal, "no-progress", `连续 ${NO_PROGRESS_LIMIT} 轮没有调用任何工具`, at),
+			goal: pauseGoal(goal, "no-progress", t("连续 {count} 轮没有调用任何工具", { count: NO_PROGRESS_LIMIT }), at),
 			action: "stop",
 		};
 	}
@@ -393,24 +394,24 @@ export function advanceGoal(goal: SentinelGoal, at: number): { goal: SentinelGoa
 }
 
 export function goalStatusLabel(goal: SentinelGoal): string {
-	if (goal.status === "active") return "进行中";
-	if (goal.status === "completed") return "已完成";
-	if (goal.status === "blocked") return "已阻塞";
-	return `已暂停（${goalPauseLabel(goal.pauseReason)}）`;
+	if (goal.status === "active") return t("进行中");
+	if (goal.status === "completed") return t("已完成");
+	if (goal.status === "blocked") return t("已阻塞");
+	return t("已暂停（{reason}）", { reason: goalPauseLabel(goal.pauseReason) });
 }
 
 export function goalPauseLabel(reason: SentinelGoalPauseReason | undefined): string {
 	switch (reason) {
 		case "limit":
-			return "轮数上限";
+			return t("轮数上限");
 		case "no-progress":
-			return "空转熔断";
+			return t("空转熔断");
 		case "interrupted":
-			return "会话重建";
+			return t("会话重建");
 		case "loop-guard":
-			return "输出重复";
+			return t("输出重复");
 		default:
-			return "手动暂停";
+			return t("手动暂停");
 	}
 }
 

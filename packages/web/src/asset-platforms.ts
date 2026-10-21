@@ -20,6 +20,7 @@
  *   are serialized and rate-limit answers are retried with a delay.
  */
 
+import { t } from "./i18n.ts";
 import type { SentinelAssetPlatform, SentinelTestResult } from "./protocol.ts";
 
 /** One page's default and ceiling. Every platform accepts at least 100. */
@@ -60,7 +61,10 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 		label: "FOFA",
 		searchUrl: "https://fofa.info/api/v1/search/all",
 		accountUrl: "https://fofa.info/api/v1/info/my",
-		syntax: 'FOFA 语法，如 ip="1.1.1.1"、domain="example.com"、title="后台"、body="login"、port="8080"',
+		// A getter, so a language switch reaches the syntax text without a reload.
+		get syntax() {
+			return t('FOFA 语法，如 ip="1.1.1.1"、domain="example.com"、title="后台"、body="login"、port="8080"');
+		},
 		docUrl: "https://fofa.info/api",
 	},
 	quake: {
@@ -68,7 +72,9 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 		label: "360 Quake",
 		searchUrl: "https://quake.360.net/api/v3/search/quake_service",
 		accountUrl: "https://quake.360.net/api/v3/user/info",
-		syntax: 'Quake 语法，如 ip:"1.1.1.1"、domain:"example.com"、title:"后台"、port:8080、service:"http"',
+		get syntax() {
+			return t('Quake 语法，如 ip:"1.1.1.1"、domain:"example.com"、title:"后台"、port:8080、service:"http"');
+		},
 		docUrl: "https://quake.360.net/quake/#/help",
 	},
 	hunter: {
@@ -76,10 +82,14 @@ export const ASSET_PLATFORM_META: Record<SentinelAssetPlatform, AssetPlatformMet
 		label: "奇安信 Hunter",
 		searchUrl: "https://hunter.qianxin.com/openApi/search",
 		accountUrl: "https://hunter.qianxin.com/openApi/userInfo",
-		syntax: 'Hunter 语法，如 ip="1.1.1.1"、domain="example.com"、web.title="后台"、port="8080"',
+		get syntax() {
+			return t('Hunter 语法，如 ip="1.1.1.1"、domain="example.com"、web.title="后台"、port="8080"');
+		},
 		docUrl: "https://hunter.qianxin.com/home/help",
 		// Verified against the live API: page_size=5 answers 400 页大小不合法.
-		note: "Hunter 的 page_size 只接受 1 / 10 / 20 / 50 / 100，其它值会被向上取到最近的合法值。",
+		get note() {
+			return t("Hunter 的 page_size 只接受 1 / 10 / 20 / 50 / 100，其它值会被向上取到最近的合法值。");
+		},
 	},
 };
 
@@ -176,7 +186,7 @@ function text(value: unknown): string {
 function clipBanner(value: unknown): string {
 	const banner = text(value).replace(/\r\n/g, "\n").trim();
 	if (banner.length <= MAX_BANNER_CHARS) return banner;
-	return `${banner.slice(0, MAX_BANNER_CHARS)}…（已截断）`;
+	return `${banner.slice(0, MAX_BANNER_CHARS)}${t("…（已截断）")}`;
 }
 
 function emptyRecord(): AssetRecord {
@@ -252,7 +262,7 @@ function enqueue<T>(platform: SentinelAssetPlatform, task: () => Promise<T>): Pr
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) {
-			reject(new Error("已取消"));
+			reject(new Error(t("已取消")));
 			return;
 		}
 		const timer = setTimeout(() => {
@@ -261,7 +271,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 		}, ms);
 		const onAbort = (): void => {
 			clearTimeout(timer);
-			reject(new Error("已取消"));
+			reject(new Error(t("已取消")));
 		};
 		signal?.addEventListener("abort", onAbort, { once: true });
 	});
@@ -297,10 +307,12 @@ async function request(
 	try {
 		response = await fetchImpl(url, { ...init, signal: combined });
 	} catch (error) {
-		if (signal?.aborted) throw new AssetPlatformError(platform, "已取消", false);
-		const reason = timeout.aborted ? `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒）` : "网络错误";
+		if (signal?.aborted) throw new AssetPlatformError(platform, t("已取消"), false);
+		const reason = timeout.aborted
+			? t("请求超时（{seconds} 秒）", { seconds: REQUEST_TIMEOUT_MS / 1000 })
+			: t("网络错误");
 		const detail = error instanceof Error ? error.message : String(error);
-		throw new AssetPlatformError(platform, `${reason}：${detail}`, true);
+		throw new AssetPlatformError(platform, t("{reason}：{detail}", { reason, detail }), true);
 	}
 	const body = await response.text().catch(() => "");
 	return { status: response.status, body };
@@ -309,16 +321,24 @@ async function request(
 /** Parse a JSON body, naming the platform in the failure. */
 function parseJson(platform: SentinelAssetPlatform, body: string, status: number): unknown {
 	if (!body.trim()) {
-		throw new AssetPlatformError(platform, `接口返回空响应（HTTP ${status}）`, status >= 500 || status === 429);
+		throw new AssetPlatformError(
+			platform,
+			t("接口返回空响应（HTTP {status}）", { status }),
+			status >= 500 || status === 429,
+		);
 	}
 	try {
 		return JSON.parse(body) as unknown;
 	} catch {
 		// Quake answers a bad token with an HTML/plain redirect to /quake/login.
 		if (body.includes("/quake/login")) {
-			throw new AssetPlatformError(platform, "令牌无效或已过期（Quake 返回登录跳转）", false);
+			throw new AssetPlatformError(platform, t("令牌无效或已过期（Quake 返回登录跳转）"), false);
 		}
-		throw new AssetPlatformError(platform, `接口返回的不是 JSON（HTTP ${status}）：${body.slice(0, 120)}`, false);
+		throw new AssetPlatformError(
+			platform,
+			t("接口返回的不是 JSON（HTTP {status}）：{body}", { status, body: body.slice(0, 120) }),
+			false,
+		);
 	}
 }
 
@@ -389,14 +409,17 @@ function parseFofa(
 		consumed_fpoint?: number;
 	};
 	if (data.error) {
-		const message = data.errmsg ?? "FOFA 拒绝了这次查询";
+		const message = data.errmsg ?? t("FOFA 拒绝了这次查询");
 		throw new AssetPlatformError("fofa", message, isRateLimitText(message));
 	}
 	if (!Array.isArray(data.results)) {
-		throw new AssetPlatformError("fofa", `FOFA 返回结构异常：${body.slice(0, 120)}`, false);
+		throw new AssetPlatformError("fofa", t("FOFA 返回结构异常：{body}", { body: body.slice(0, 120) }), false);
 	}
 	const records = data.results.filter((row): row is unknown[] => Array.isArray(row)).map((row) => fofaRecord(row));
-	const quota = typeof data.consumed_fpoint === "number" ? `本次消耗 ${data.consumed_fpoint} F 点` : undefined;
+	const quota =
+		typeof data.consumed_fpoint === "number"
+			? t("本次消耗 {points} F 点", { points: data.consumed_fpoint })
+			: undefined;
 	return {
 		total: typeof data.size === "number" ? data.size : records.length,
 		records,
@@ -495,11 +518,11 @@ function parseQuake(
 	};
 	// Quake reports success as the number 0 and failures as strings like "q3005".
 	if (String(data.code) !== "0") {
-		const message = data.message ?? "Quake 拒绝了这次查询";
+		const message = data.message ?? t("Quake 拒绝了这次查询");
 		throw new AssetPlatformError("quake", message, isRateLimitText(String(data.code)) || isRateLimitText(message));
 	}
 	if (!Array.isArray(data.data)) {
-		throw new AssetPlatformError("quake", `Quake 返回结构异常：${body.slice(0, 120)}`, false);
+		throw new AssetPlatformError("quake", t("Quake 返回结构异常：{body}", { body: body.slice(0, 120) }), false);
 	}
 	const records = data.data.map((row) => quakeRecord(row));
 	const total = data.meta?.pagination?.total;
@@ -589,21 +612,21 @@ function parseHunter(
 		};
 	};
 	if (data.code !== 200) {
-		const message = data.message ?? "Hunter 拒绝了这次查询";
+		const message = data.message ?? t("Hunter 拒绝了这次查询");
 		throw new AssetPlatformError(
 			"hunter",
-			`${message}（code ${data.code}）`,
+			t("{message}（code {code}）", { message, code: String(data.code) }),
 			data.code === 429 || isRateLimitText(message),
 		);
 	}
 	const payload = data.data ?? {};
 	if (!Array.isArray(payload.arr)) {
-		throw new AssetPlatformError("hunter", `Hunter 返回结构异常：${body.slice(0, 120)}`, false);
+		throw new AssetPlatformError("hunter", t("Hunter 返回结构异常：{body}", { body: body.slice(0, 120) }), false);
 	}
 	const records = payload.arr.map((row) => hunterRecord(row));
 	const quota =
 		typeof payload.rest_quota === "number"
-			? `本次消耗 ${payload.consume_quota ?? "?"} 点，剩余 ${payload.rest_quota} 点`
+			? t("本次消耗 {used} 点，剩余 {left} 点", { used: payload.consume_quota ?? "?", left: payload.rest_quota })
 			: undefined;
 	const syntaxHint = Array.isArray(payload.syntax_prompt) ? payload.syntax_prompt.slice(0, 3).join("；") : undefined;
 	return {
@@ -691,11 +714,16 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 			vip_level?: number;
 		};
 		if (data.error)
-			throw new AssetPlatformError("fofa", data.errmsg ?? "FOFA 拒绝了这次查询", isRateLimitText(data.errmsg ?? ""));
-		const quota = `免费点 ${data.remain_free_point ?? "?"} · F 点 ${data.fofa_point ?? "?"}${
-			data.isvip ? ` · VIP${data.vip_level ?? ""}` : ""
-		}`;
-		return { ok: true, message: `FOFA 连接正常（${quota}）`, quota };
+			throw new AssetPlatformError(
+				"fofa",
+				data.errmsg ?? t("FOFA 拒绝了这次查询"),
+				isRateLimitText(data.errmsg ?? ""),
+			);
+		const quota = `${t("免费点 {free} · F 点 {points}", {
+			free: data.remain_free_point ?? "?",
+			points: data.fofa_point ?? "?",
+		})}${data.isvip ? ` · VIP${data.vip_level ?? ""}` : ""}`;
+		return { ok: true, message: t("FOFA 连接正常（{quota}）", { quota }), quota };
 	}
 	if (options.platform === "quake") {
 		const url = options.accountUrl ?? meta.accountUrl;
@@ -712,14 +740,20 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 			data?: { month_remaining_credit?: number; credit?: number; baned?: boolean; ban_status?: string };
 		};
 		if (String(data.code) !== "0") {
-			throw new AssetPlatformError("quake", data.message ?? "Quake 拒绝了这次请求", false);
+			throw new AssetPlatformError("quake", data.message ?? t("Quake 拒绝了这次请求"), false);
 		}
 		const payload = data.data ?? {};
 		if (payload.baned) {
-			return { ok: false, message: `Quake 账号已被封禁：${payload.ban_status ?? "未知原因"}` };
+			return {
+				ok: false,
+				message: t("Quake 账号已被封禁：{reason}", { reason: payload.ban_status ?? t("未知原因") }),
+			};
 		}
-		const quota = `本月剩余额度 ${payload.month_remaining_credit ?? "?"} 点 · 总额度 ${payload.credit ?? "?"}`;
-		return { ok: true, message: `360 Quake 连接正常（${quota}）`, quota };
+		const quota = t("本月剩余额度 {remaining} 点 · 总额度 {total}", {
+			remaining: payload.month_remaining_credit ?? "?",
+			total: payload.credit ?? "?",
+		});
+		return { ok: true, message: t("360 Quake 连接正常（{quota}）", { quota }), quota };
 	}
 	const url = new URL(options.accountUrl ?? meta.accountUrl);
 	url.searchParams.set("api-key", options.key);
@@ -730,11 +764,22 @@ async function probeOnce(options: AssetProbeOptions): Promise<SentinelTestResult
 		data?: { rest_free_point?: number; day_free_point?: number; rest_equity_point?: number };
 	};
 	if (data.code !== 200) {
-		throw new AssetPlatformError("hunter", `${data.message ?? "Hunter 拒绝了这次请求"}（code ${data.code}）`, false);
+		throw new AssetPlatformError(
+			"hunter",
+			t("{message}（code {code}）", {
+				message: data.message ?? t("Hunter 拒绝了这次请求"),
+				code: String(data.code),
+			}),
+			false,
+		);
 	}
 	const payload = data.data ?? {};
-	const quota = `免费点 ${payload.rest_free_point ?? "?"} / 每日 ${payload.day_free_point ?? "?"} · 权益点 ${payload.rest_equity_point ?? "?"}`;
-	return { ok: true, message: `奇安信 Hunter 连接正常（${quota}）`, quota };
+	const quota = t("免费点 {free} / 每日 {daily} · 权益点 {equity}", {
+		free: payload.rest_free_point ?? "?",
+		daily: payload.day_free_point ?? "?",
+		equity: payload.rest_equity_point ?? "?",
+	});
+	return { ok: true, message: t("奇安信 Hunter 连接正常（{quota}）", { quota }), quota };
 }
 
 /** The syntax reminder for one platform, used in tool output and error text. */

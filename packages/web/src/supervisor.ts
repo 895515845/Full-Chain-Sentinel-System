@@ -10,6 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import { t } from "./i18n.ts";
 import { resolveLibraryRole, toResolvedModelView } from "./model-library.ts";
 import type {
 	SentinelSupervisorAdvice,
@@ -350,7 +351,12 @@ async function requestSupervisorCompletion(
 	});
 	if (!response.ok) {
 		const body = await response.text().catch(() => "");
-		throw new Error(`监督模型端点返回 ${response.status}${body ? `：${body.slice(0, 200)}` : ""}`);
+		throw new Error(
+			t("监督模型端点返回 {status}{detail}", {
+				status: response.status,
+				detail: body ? t("：{body}", { body: body.slice(0, 200) }) : "",
+			}),
+		);
 	}
 	const data = (await response.json()) as {
 		choices?: Array<{
@@ -409,11 +415,11 @@ export async function callSupervisorModel(
 		const detail = [
 			reply.finishReason ? `finish_reason=${reply.finishReason}` : "",
 			`completion_tokens=${reply.usage.output}`,
-			reply.reasoning.trim() ? "只有 reasoning_content" : "content 为空",
+			reply.reasoning.trim() ? t("只有 reasoning_content") : t("content 为空"),
 		]
 			.filter(Boolean)
-			.join("，");
-		throw new Error(`监督模型返回了空回复（${detail}）`);
+			.join(t("，"));
+		throw new Error(t("监督模型返回了空回复（{detail}）", { detail }));
 	}
 	return { raw, model: config.modelId, usage, finishReason: reply.finishReason };
 }
@@ -529,9 +535,9 @@ export class Supervisor {
 	): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
 		if (session.armed && session.status === "stopped") {
-			throw new Error("本次会话的监督已停止；请在新对话重新开启");
+			throw new Error(t("本次会话的监督已停止；请在新对话重新开启"));
 		}
-		if (this.hasUserMessages(session)) throw new Error("监督只能在开始对话前开启");
+		if (this.hasUserMessages(session)) throw new Error(t("监督只能在开始对话前开启"));
 		session.mode = mode;
 		session.delivery = delivery;
 		const selected: SentinelSupervisorStrategyEntry[] =
@@ -580,7 +586,15 @@ export class Supervisor {
 		this.log(
 			session,
 			"arm",
-			`已开启监督：${mode === "observe" ? "观察模式" : `介入模式（${delivery === "auto" ? "自动发送" : "确认后发送"}）`} · ${session.strategyName}`,
+			t("已开启监督：{mode} · {strategy}", {
+				mode:
+					mode === "observe"
+						? t("观察模式")
+						: t("介入模式（{delivery}）", {
+								delivery: delivery === "auto" ? t("自动发送") : t("确认后发送"),
+							}),
+				strategy: session.strategyName,
+			}),
 		);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
@@ -593,7 +607,7 @@ export class Supervisor {
 		session.startedAt = Date.now();
 		this.persist(session);
 		this.upsert(session);
-		this.log(session, "start", "对话已开始，监督开始采集");
+		this.log(session, "start", t("对话已开始，监督开始采集"));
 		this.emit(session);
 	}
 
@@ -611,14 +625,14 @@ export class Supervisor {
 		session.inFlight = null;
 		this.persist(session);
 		this.upsert(session);
-		this.log(session, "stop", "监督已停止，本会话不再采集");
+		this.log(session, "stop", t("监督已停止，本会话不再采集"));
 		this.emit(session);
 		return this.view(sessionId);
 	}
 
 	setMode(sessionId: string, mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
-		if (session.status === "stopped") throw new Error("本次会话的监督已停止");
+		if (session.status === "stopped") throw new Error(t("本次会话的监督已停止"));
 		session.mode = mode;
 		session.delivery = delivery;
 		if (mode === "observe" && session.pendingAdvice) {
@@ -630,7 +644,14 @@ export class Supervisor {
 		this.log(
 			session,
 			"mode",
-			`切换为${mode === "observe" ? "观察模式" : `介入模式（${delivery === "auto" ? "自动发送" : "确认后发送"}）`}`,
+			t("切换为{mode}", {
+				mode:
+					mode === "observe"
+						? t("观察模式")
+						: t("介入模式（{delivery}）", {
+								delivery: delivery === "auto" ? t("自动发送") : t("确认后发送"),
+							}),
+			}),
 		);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
@@ -644,7 +665,7 @@ export class Supervisor {
 		strategies: SentinelSupervisorStrategyEntry[] | null = null,
 	): SentinelSupervisorView {
 		const session = this.requireSession(sessionId);
-		if (session.status === "stopped") throw new Error("本次会话的监督已停止");
+		if (session.status === "stopped") throw new Error(t("本次会话的监督已停止"));
 		const selected: SentinelSupervisorStrategyEntry[] =
 			strategies && strategies.length > 0
 				? strategies
@@ -665,7 +686,11 @@ export class Supervisor {
 		if (note !== undefined) session.strategyNote = clipStrategyNote(note);
 		this.persist(session);
 		this.upsert(session);
-		this.log(session, "strategy", `监督策略切换为：${selected.map((entry) => entry.name).join(" + ")}`);
+		this.log(
+			session,
+			"strategy",
+			t("监督策略切换为：{names}", { names: selected.map((entry) => entry.name).join(" + ") }),
+		);
 		this.emit(session);
 		return this.view(sessionId) as SentinelSupervisorView;
 	}
@@ -715,10 +740,10 @@ export class Supervisor {
 
 	runNow(sessionId: string): void {
 		const session = this.requireSession(sessionId);
-		if (session.status !== "running") throw new Error("对话开始后才能分析");
-		if (session.running) throw new Error("监督分析正在进行");
+		if (session.status !== "running") throw new Error(t("对话开始后才能分析"));
+		if (session.running) throw new Error(t("监督分析正在进行"));
 		const calls = session.batchCalls.length > 0 ? [...session.batchCalls] : session.recentCalls.slice(-20);
-		if (calls.length === 0) throw new Error("还没有可分析的调用");
+		if (calls.length === 0) throw new Error(t("还没有可分析的调用"));
 		void this.runEpisode(session, "manual", calls);
 	}
 
@@ -732,7 +757,8 @@ export class Supervisor {
 		return {
 			sessionId: session.sessionId,
 			sessionPath: session.manager.getSessionFile() ?? null,
-			sessionName: session.manager.getSessionName()?.trim() || (session.startedAt !== null ? "对话" : "新对话"),
+			sessionName:
+				session.manager.getSessionName()?.trim() || (session.startedAt !== null ? t("对话") : t("新对话")),
 			projectId: session.projectId,
 			projectName: session.projectName,
 			mode: session.mode,
@@ -772,8 +798,8 @@ export class Supervisor {
 
 	sendAdvice(sessionId: string, adviceId: string): SentinelSupervisorAdvice {
 		const advice = this.store.getAdvice(adviceId);
-		if (!advice || advice.sessionId !== sessionId) throw new Error("监督建议不存在");
-		if (advice.status === "ignored") throw new Error("这条建议已被忽略");
+		if (!advice || advice.sessionId !== sessionId) throw new Error(t("监督建议不存在"));
+		if (advice.status === "ignored") throw new Error(t("这条建议已被忽略"));
 		if (advice.status === "sent") return advice;
 		const sent: SentinelSupervisorAdvice = { ...advice, status: "sent", sentAt: Date.now() };
 		this.store.setAdviceStatus(sent.id, "sent", sent.sentAt);
@@ -783,7 +809,7 @@ export class Supervisor {
 		if (session) {
 			if (session.pendingAdvice?.id === sent.id) session.pendingAdvice = null;
 			session.lastAdviceAt = sent.sentAt ?? Date.now();
-			this.log(session, "advice-sent", sent.text.split("\n")[1] ?? "监督建议已发送");
+			this.log(session, "advice-sent", sent.text.split("\n")[1] ?? t("监督建议已发送"));
 			this.emit(session);
 		}
 		return sent;
@@ -791,14 +817,14 @@ export class Supervisor {
 
 	ignoreAdvice(sessionId: string, adviceId: string): SentinelSupervisorAdvice {
 		const advice = this.store.getAdvice(adviceId);
-		if (!advice || advice.sessionId !== sessionId) throw new Error("监督建议不存在");
+		if (!advice || advice.sessionId !== sessionId) throw new Error(t("监督建议不存在"));
 		const ignored: SentinelSupervisorAdvice = { ...advice, status: "ignored" };
 		this.store.setAdviceStatus(ignored.id, "ignored", null);
 		this.hooks.onAdvice(ignored);
 		const session = this.sessions.get(sessionId);
 		if (session) {
 			if (session.pendingAdvice?.id === ignored.id) session.pendingAdvice = null;
-			this.log(session, "advice-ignored", "操作员忽略了监督建议");
+			this.log(session, "advice-ignored", t("操作员忽略了监督建议"));
 			this.emit(session);
 		}
 		return ignored;
@@ -814,13 +840,13 @@ export class Supervisor {
 			const limit = 200_000;
 			return { text: text.slice(0, limit), truncated: text.length > limit };
 		}
-		throw new Error("这次调用的完整输出已不在当前会话文件中");
+		throw new Error(t("这次调用的完整输出已不在当前会话文件中"));
 	}
 
 	async test(): Promise<SupervisorTestOutcome> {
 		const resolved = resolveLibraryRole(this.agentDir, "supervisor");
 		if (!resolved) {
-			return { result: { ok: false, message: "尚未配置监督模型，请在 设置 → 模型 里选择一个模型" } };
+			return { result: { ok: false, message: t("尚未配置监督模型，请在 设置 → 模型 里选择一个模型") } };
 		}
 		const config = readSupervisorConfig(this.agentDir);
 		const controller = new AbortController();
@@ -832,7 +858,11 @@ export class Supervisor {
 			return {
 				result: {
 					ok: true,
-					message: `监督模型可用，耗时 ${Date.now() - started}ms（${resolved.entryName} / ${reply.model}）`,
+					message: t("监督模型可用，耗时 {ms}ms（{entry} / {model}）", {
+						ms: Date.now() - started,
+						entry: resolved.entryName,
+						model: reply.model,
+					}),
 				},
 				raw: reply.raw.slice(0, 800),
 			};
@@ -869,7 +899,7 @@ export class Supervisor {
 
 	private requireSession(sessionId: string): SupervisorSession {
 		const session = this.sessions.get(sessionId);
-		if (!session) throw new Error("监督尚未在这个会话上开启");
+		if (!session) throw new Error(t("监督尚未在这个会话上开启"));
 		return session;
 	}
 
@@ -914,7 +944,7 @@ export class Supervisor {
 		const config = readSupervisorConfig(this.agentDir);
 		const resolved = resolveLibraryRole(this.agentDir, "supervisor");
 		if (!resolved) {
-			session.lastError = "尚未配置监督模型";
+			session.lastError = t("尚未配置监督模型");
 			session.pendingTrigger = null;
 			session.batchCalls = [];
 			this.log(session, "error", session.lastError);
@@ -924,12 +954,15 @@ export class Supervisor {
 		session.running = true;
 		session.pendingTrigger = null;
 		session.lastError = null;
-		this.log(session, "trigger", `开始分析 ${calls.length} 次调用（${trigger}）`);
+		this.log(session, "trigger", t("开始分析 {count} 次调用（{trigger}）", { count: calls.length, trigger }));
 		this.emit(session);
 		const started = Date.now();
 		const controller = new AbortController();
 		session.inFlight = controller;
-		const timeoutText = `监督模型请求超时（${Math.round(config.timeoutMs / 1000)} 秒）；可在 设置 → 模型 → 监督 调大超时、减小每批调用数或换更快的模型`;
+		const timeoutText = t(
+			"监督模型请求超时（{seconds} 秒）；可在 设置 → 模型 → 监督 调大超时、减小每批调用数或换更快的模型",
+			{ seconds: Math.round(config.timeoutMs / 1000) },
+		);
 		let timedOut = false;
 		const timeout = setTimeout(() => {
 			timedOut = true;
@@ -956,7 +989,7 @@ export class Supervisor {
 				parsed = parseSupervisorEpisode(reply.raw);
 			} catch (error) {
 				if (reply.finishReason === "length") {
-					throw new Error("监督模型输出被截断（finish_reason=length）；请减小每批调用数或换更快的模型");
+					throw new Error(t("监督模型输出被截断（finish_reason=length）；请减小每批调用数或换更快的模型"));
 				}
 				throw error;
 			}
@@ -1000,7 +1033,11 @@ export class Supervisor {
 			this.persist(session);
 			this.store.insertEpisode({ episode, calls });
 			this.upsert(session);
-			this.log(session, "episode", `${episode.phase} · ${episode.intent || "无法判断意图"} · ${episode.progress}`);
+			this.log(
+				session,
+				"episode",
+				`${episode.phase} · ${episode.intent || t("无法判断意图")} · ${episode.progress}`,
+			);
 			this.hooks.onEpisode(episode, calls);
 			this.maybeAdvise(session, episode);
 		} catch (error) {
@@ -1042,7 +1079,7 @@ export class Supervisor {
 			this.persist(session);
 			this.store.insertEpisode({ episode, calls });
 			this.upsert(session);
-			this.log(session, "error", `监督分析失败：${message}`);
+			this.log(session, "error", t("监督分析失败：{message}", { message }));
 			this.hooks.onEpisode(episode, calls);
 		} finally {
 			clearTimeout(timeout);
@@ -1086,7 +1123,7 @@ export class Supervisor {
 		if (!draft?.needed || episode.confidence < 0.45) return;
 		if (session.pendingAdvice) return;
 		if (Date.now() - session.lastAdviceAt < ADVICE_COOLDOWN_MS) {
-			this.log(session, "advice-skip", "监督建议处于冷却期，未发送");
+			this.log(session, "advice-skip", t("监督建议处于冷却期，未发送"));
 			return;
 		}
 		const text = buildAdviceText(episode);
@@ -1106,10 +1143,10 @@ export class Supervisor {
 		this.hooks.onAdvice(advice);
 		if (advice.delivery === "auto") {
 			this.hooks.onSendAdvice(advice);
-			this.log(session, "advice-sent", "监督建议已自动发送给主 Agent");
+			this.log(session, "advice-sent", t("监督建议已自动发送给主 Agent"));
 		} else {
 			session.pendingAdvice = advice;
-			this.log(session, "advice-pending", "监督建议等待操作员确认");
+			this.log(session, "advice-pending", t("监督建议等待操作员确认"));
 		}
 		this.upsert(session);
 		this.emit(session);
@@ -1152,7 +1189,7 @@ export class Supervisor {
 		return {
 			sessionId: session.sessionId,
 			sessionPath: session.manager.getSessionFile() ?? null,
-			sessionName: view?.sessionName ?? "对话",
+			sessionName: view?.sessionName ?? t("对话"),
 			projectId: session.projectId,
 			projectName: session.projectName,
 			mode: session.mode,

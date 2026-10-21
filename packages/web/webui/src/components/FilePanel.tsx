@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getLanguage, t } from "../i18n.ts";
 import { formatSize } from "../transcript.ts";
 import type { SentinelFileEntry, SentinelFilePreview } from "../types.ts";
 import { DirIcon, FileIcon, ParentDirIcon } from "./icons.tsx";
@@ -14,7 +15,7 @@ export interface FilePanelState {
 
 function formatTime(seconds: number): string {
 	if (!seconds) return "";
-	return new Date(seconds * 1000).toLocaleString("zh-CN", { hour12: false });
+	return new Date(seconds * 1000).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en-US", { hour12: false });
 }
 
 /** Turn a base64 payload from the server into a browser download. */
@@ -40,7 +41,7 @@ function readAsBase64(file: File): Promise<string> {
 			const result = String(reader.result ?? "");
 			resolve(result.slice(result.indexOf(",") + 1));
 		};
-		reader.onerror = () => reject(reader.error ?? new Error("读取文件失败"));
+		reader.onerror = () => reject(reader.error ?? new Error(t("读取文件失败")));
 		reader.readAsDataURL(file);
 	});
 }
@@ -130,16 +131,16 @@ export function FilePanel({
 			<div className="panel-toolbar">
 				<button type="button" onClick={() => onOpen(parentOf(state.path))} disabled={state.path === "/work"}>
 					<ParentDirIcon />
-					上级
+					{t("上级")}
 				</button>
 				<button type="button" onClick={() => onOpen(state.path)} disabled={state.busy}>
-					刷新
+					{t("刷新")}
 				</button>
 				<button type="button" onClick={() => uploadRef.current?.click()}>
-					上传
+					{t("上传")}
 				</button>
 				<button type="button" onClick={() => setNewDir("")}>
-					新建目录
+					{t("新建目录")}
 				</button>
 				<input
 					ref={uploadRef}
@@ -168,7 +169,7 @@ export function FilePanel({
 					<input
 						autoFocus
 						value={newDir}
-						placeholder="目录名"
+						placeholder={t("目录名")}
 						onChange={(event) => setNewDir(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key === "Escape") setNewDir(null);
@@ -187,16 +188,16 @@ export function FilePanel({
 							setNewDir(null);
 						}}
 					>
-						创建
+						{t("创建")}
 					</button>
 					<button type="button" onClick={() => setNewDir(null)}>
-						取消
+						{t("取消")}
 					</button>
 				</div>
 			) : null}
 
 			<div className="file-list">
-				{state.entries.length === 0 ? <div className="file-empty">空目录</div> : null}
+				{state.entries.length === 0 ? <div className="file-empty">{t("空目录")}</div> : null}
 				{state.entries.map((entry) => (
 					<div key={entry.path} className={`file-row ${preview?.path === entry.path ? "active" : ""}`}>
 						{renaming === entry.path ? (
@@ -223,10 +224,10 @@ export function FilePanel({
 										setRenaming(null);
 									}}
 								>
-									确定
+									{t("确定")}
 								</button>
 								<button type="button" onClick={() => setRenaming(null)}>
-									取消
+									{t("取消")}
 								</button>
 							</>
 						) : (
@@ -240,35 +241,35 @@ export function FilePanel({
 									<span className="file-icon">{entry.type === "dir" ? <DirIcon /> : <FileIcon />}</span>
 									<span className="file-name">{entry.name}</span>
 									<span className="file-meta">
-										{entry.type === "dir" ? "目录" : formatSize(entry.size)} · {formatTime(entry.mtime)}
+										{entry.type === "dir" ? t("目录") : formatSize(entry.size)} · {formatTime(entry.mtime)}
 									</span>
 								</button>
 								<button
 									type="button"
 									className="file-action"
-									title="重命名"
+									title={t("重命名")}
 									onClick={() => {
 										setRenaming(entry.path);
 										setRenameValue(entry.name);
 									}}
 								>
-									改名
+									{t("改名")}
 								</button>
 								<button
 									type="button"
 									className="file-action danger"
-									title="删除（目录会连同内容一起删除）"
+									title={t("删除（目录会连同内容一起删除）")}
 									onClick={() => {
 										if (
 											window.confirm(
-												`确定删除 ${entry.name}？${entry.type === "dir" ? "目录内的文件会一并删除。" : ""}`,
+												t("确定删除 {name}？{suffix}", { name: entry.name, suffix: entry.type === "dir" ? t("目录内的文件会一并删除。") : "" }),
 											)
 										) {
 											onDelete(entry.path);
 										}
 									}}
 								>
-									删除
+									{t("删除")}
 								</button>
 							</>
 						)}
@@ -283,12 +284,12 @@ export function FilePanel({
 							{baseName(preview.path)}
 						</span>
 						<span className="file-meta">
-							{preview.kind === "binary" ? "二进制" : preview.kind === "image" ? "图片" : "文本"} ·{" "}
+							{preview.kind === "binary" ? t("二进制") : preview.kind === "image" ? t("图片") : t("文本")} ·{" "}
 							{formatSize(preview.size)}
-							{preview.truncated ? " · 已截断" : ""}
+							{preview.truncated ? t(" · 已截断") : ""}
 						</span>
 						<button type="button" onClick={() => onDownload(preview.path)}>
-							下载
+							{t("下载")}
 						</button>
 						{previewIsText && !isEditing ? (
 							<button
@@ -298,7 +299,7 @@ export function FilePanel({
 									setDraft(preview.text ?? "");
 								}}
 							>
-								编辑
+								{t("编辑")}
 							</button>
 						) : null}
 						{isEditing ? (
@@ -312,7 +313,7 @@ export function FilePanel({
 										setEditing(null);
 									}}
 								>
-									保存
+									{t("保存")}
 								</button>
 								<button
 									type="button"
@@ -321,7 +322,7 @@ export function FilePanel({
 										setDraft("");
 									}}
 								>
-									取消
+									{t("取消")}
 								</button>
 							</>
 						) : null}
@@ -342,11 +343,11 @@ export function FilePanel({
 					) : preview.kind === "text" ? (
 						<pre className="file-text">{preview.text}</pre>
 					) : (
-						<div className="file-empty">二进制文件不提供预览，可下载后查看。</div>
+						<div className="file-empty">{t("二进制文件不提供预览，可下载后查看。")}</div>
 					)}
 				</div>
 			) : (
-				<div className="file-empty">选择一个文件查看内容</div>
+				<div className="file-empty">{t("选择一个文件查看内容")}</div>
 			)}
 		</div>
 	);

@@ -1,3 +1,4 @@
+import { t } from "../i18n.ts";
 import type {
 	SentinelOfficialPluginView,
 	SentinelPluginHostView,
@@ -35,7 +36,7 @@ export function OfficialPluginsPanel({
 	if (plugins.length === 0) {
 		return (
 			<div className="official-plugins empty">
-				<p className="muted">当前版本没有内置官方插件。</p>
+				<p className="muted">{t("当前版本没有内置官方插件。")}</p>
 			</div>
 		);
 	}
@@ -43,16 +44,16 @@ export function OfficialPluginsPanel({
 	return (
 		<div className="official-plugins">
 			<p className="official-plugins__intro">
-				随控制台分发的官方插件。安装时仍会选择目标主机，并确认构建许可与网络/能力权限。
+				{t("随控制台分发的官方插件。安装时仍会选择目标主机，并确认构建许可与网络/能力权限。")}
 			</p>
 			<div className="official-plugins__table-wrap">
 				<table className="official-plugin-table">
 					<thead>
 						<tr>
-							<th>插件</th>
-							<th>版本</th>
-							<th>工具</th>
-							<th>状态</th>
+							<th>{t("插件")}</th>
+							<th>{t("版本")}</th>
+							<th>{t("工具")}</th>
+							<th>{t("状态")}</th>
 							<th />
 						</tr>
 					</thead>
@@ -62,7 +63,12 @@ export function OfficialPluginsPanel({
 							const mine = installed.filter((entry) => entry.manifest.id === manifest.id);
 							const current = mine[0] ? versionOf(mine[0]) : null;
 							const update = current !== null && current !== manifest.version;
-							const label = current === null ? "安装" : update ? `更新到 v${manifest.version}` : "安装到其他主机";
+							const label =
+								current === null
+									? t("安装")
+									: update
+										? t("更新到 v{version}", { version: manifest.version })
+										: t("安装到其他主机");
 							return (
 								<tr key={manifest.id}>
 									<td>
@@ -73,7 +79,7 @@ export function OfficialPluginsPanel({
 											<div className="official-plugin-name__text">
 												<div className="official-plugin-name__title">
 													<b>{manifest.name}</b>
-													<span className="chip info">官方</span>
+													<span className="chip info">{t("官方")}</span>
 												</div>
 												<p>{manifest.description}</p>
 												<div className="official-plugin-name__meta">
@@ -96,24 +102,26 @@ export function OfficialPluginsPanel({
 									<td>
 										{current ? (
 											update ? (
-												<span className="official-plugin__update">已装 v{current}，可更新</span>
+												<span className="official-plugin__update">
+													{t("已装 v{current}，可更新", { current })}
+												</span>
 											) : (
-												<span className="chip ok">已安装</span>
+												<span className="chip ok">{t("已安装")}</span>
 											)
 										) : (
-											<span className="muted">未安装</span>
+											<span className="muted">{t("未安装")}</span>
 										)}
 									</td>
 									<td>
 										<div className="official-plugin-row__actions">
 											<a href={manifest.source} target="_blank" rel="noreferrer">
-												源码
+												{t("源码")}
 											</a>
 											<button
 												type="button"
 												className="primary"
 												disabled={busy || hosts.length === 0}
-												title={hosts.length === 0 ? "先添加一个插件主机" : undefined}
+												title={hosts.length === 0 ? t("先添加一个插件主机") : undefined}
 												onClick={() => onChoose(plugin)}
 											>
 												{label}

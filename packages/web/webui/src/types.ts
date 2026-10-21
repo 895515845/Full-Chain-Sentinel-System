@@ -1,14 +1,17 @@
 /** Client-side view of the Full Chain Sentinel wire protocol (mirrors packages/web/src/protocol.ts). */
 
+import type { UiLanguage } from "../../src/i18n-messages.ts";
+import { t } from "./i18n.ts";
+
 export type SentinelMode = "review" | "ai" | "auto";
 
 /** The three modes in the order the toolbar offers them. */
 export const SENTINEL_MODES: readonly SentinelMode[] = ["review", "ai", "auto"];
 
 export const SENTINEL_MODE_LABELS: Record<SentinelMode, string> = {
-	review: "审批模式",
-	ai: "AI 审批",
-	auto: "自动执行",
+	review: t("审批模式"),
+	ai: t("AI 审批"),
+	auto: t("自动执行"),
 };
 
 /**
@@ -453,16 +456,16 @@ export interface SentinelGatekeeperView {
 }
 
 export const SENTINEL_GATE_DECISION_LABELS: Record<SentinelGateDecisionKind, string> = {
-	allow: "放行",
-	block: "拦截",
-	failed: "请求失败",
+	allow: t("放行"),
+	block: t("拦截"),
+	failed: t("请求失败"),
 };
 
 /** How a call got through, in the row badge and the stat tiles. */
 export const SENTINEL_GATE_APPROVAL_LABELS: Record<SentinelGateApproval, string> = {
-	ai: "AI 判定",
-	human: "人工放行",
-	auto: "自动放行",
+	ai: t("AI 判定"),
+	human: t("人工放行"),
+	auto: t("自动放行"),
 };
 
 /** Severity buckets of the vulnerability hub. */
@@ -474,18 +477,18 @@ export type SentinelVulnStatus = "pending" | "confirmed" | "false_positive" | "f
 export const SENTINEL_VULN_SEVERITIES: readonly SentinelVulnSeverity[] = ["critical", "high", "medium", "low", "info"];
 
 export const SENTINEL_VULN_SEVERITY_LABELS: Record<SentinelVulnSeverity, string> = {
-	critical: "严重",
-	high: "高危",
-	medium: "中危",
-	low: "低危",
-	info: "信息",
+	critical: t("严重"),
+	high: t("高危"),
+	medium: t("中危"),
+	low: t("低危"),
+	info: t("信息"),
 };
 
 export const SENTINEL_VULN_STATUS_LABELS: Record<SentinelVulnStatus, string> = {
-	pending: "待确认",
-	confirmed: "已确认",
-	false_positive: "误报",
-	fixed: "已修复",
+	pending: t("待确认"),
+	confirmed: t("已确认"),
+	false_positive: t("误报"),
+	fixed: t("已修复"),
 };
 
 /** One piece of supporting evidence: a command with its output, or a container file. */
@@ -679,10 +682,10 @@ export interface SentinelPocSourceSave {
 export type SentinelApiModelStatus = "modeling" | "done" | "manual" | "failed";
 
 export const SENTINEL_API_MODEL_STATUS_LABELS: Record<SentinelApiModelStatus, string> = {
-	modeling: "建模中",
-	done: "已完成",
-	manual: "人工结束",
-	failed: "失败",
+	modeling: t("建模中"),
+	done: t("已完成"),
+	manual: t("人工结束"),
+	failed: t("失败"),
 };
 
 /** One field of a business entity. */
@@ -1425,6 +1428,7 @@ export type SentinelClientMessage =
 	| { type: "export_presets"; ids?: string[] }
 	| { type: "import_presets"; content: string }
 	| { type: "get_gatekeeper_config" }
+	| { type: "set_ui_language"; language: UiLanguage }
 	| { type: "save_gatekeeper_config"; config: SentinelGatekeeperConfig }
 	| { type: "test_judge" }
 	| { type: "gate_audit_query"; filter?: SentinelGateFilter; page?: number; pageSize?: number }
@@ -1588,6 +1592,7 @@ export type SentinelServerMessage =
 			error?: string;
 	  }
 	| { type: "gatekeeper_config"; config: SentinelGatekeeperConfig }
+	| { type: "ui_config"; language: UiLanguage }
 	| { type: "judge_test_result"; result: SentinelTestResult; raw?: string }
 	| { type: "gate_audit"; page: SentinelGatePage }
 	| { type: "gate_audit_stats"; stats: SentinelGateStats; tabCounts: Record<SentinelGateApproval, number> }

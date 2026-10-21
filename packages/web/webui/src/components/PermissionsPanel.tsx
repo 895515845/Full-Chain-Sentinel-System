@@ -32,34 +32,35 @@ import type {
 	SentinelPluginsView,
 	SentinelToolInfo,
 } from "../types.ts";
+import { t } from "../i18n.ts";
 import { mcpServerState, mountReason, TRANSPORT_LABELS } from "./McpPanel.tsx";
 import { RefreshIcon } from "./icons.tsx";
 
 /** Order and wording of the switches; spawn_agent is main-agent only. */
 const SWITCHES: { key: SentinelPermissionKey; label: string; hint: string; subagent: boolean }[] = [
-	{ key: "read", label: "read", hint: "读取工作目录中的文件内容", subagent: true },
-	{ key: "bash", label: "bash", hint: "在项目容器内执行命令（审批模式仍逐条确认）", subagent: true },
-	{ key: "edit", label: "edit", hint: "对已有文件做精确文本替换", subagent: true },
-	{ key: "write", label: "write", hint: "新建或整体覆盖文件", subagent: true },
-	{ key: "codemode", label: "codemode", hint: "脚本编排，只能调用上面已允许的工具", subagent: true },
-	{ key: "tool_search", label: "tool_search", hint: "检索并加载尚未声明的工具，禁用的搜不到", subagent: true },
+	{ key: "read", label: "read", hint: t("读取工作目录中的文件内容"), subagent: true },
+	{ key: "bash", label: "bash", hint: t("在项目容器内执行命令（审批模式仍逐条确认）"), subagent: true },
+	{ key: "edit", label: "edit", hint: t("对已有文件做精确文本替换"), subagent: true },
+	{ key: "write", label: "write", hint: t("新建或整体覆盖文件"), subagent: true },
+	{ key: "codemode", label: "codemode", hint: t("脚本编排，只能调用上面已允许的工具"), subagent: true },
+	{ key: "tool_search", label: "tool_search", hint: t("检索并加载尚未声明的工具，禁用的搜不到"), subagent: true },
 	{
 		key: "mcp",
 		label: "MCP",
-		hint: "连接「设置 → MCP」中配置的服务器并使用它们的工具（项目目录与配置目录里的 mcp.json 都不读）",
+		hint: t("连接「设置 → MCP」中配置的服务器并使用它们的工具（项目目录与配置目录里的 mcp.json 都不读）"),
 		subagent: true,
 	},
-	{ key: "spawn_agent", label: "spawn_agent", hint: "派生子代理并行执行；子代理永远不能再派生", subagent: false },
+	{ key: "spawn_agent", label: "spawn_agent", hint: t("派生子代理并行执行；子代理永远不能再派生"), subagent: false },
 	{
 		key: "poc_read",
 		label: "poc_search / poc_read",
-		hint: "检索 POC 库（只读参考：模板不进容器，要执行需自己写 yaml 后用 bash 跑 nuclei）",
+		hint: t("检索 POC 库（只读参考：模板不进容器，要执行需自己写 yaml 后用 bash 跑 nuclei）"),
 		subagent: true,
 	},
 	{
 		key: "web_search",
 		label: "web_search / web_extract",
-		hint: "用 Tavily 号池做公网 Web 搜索与页面抓取（设置 → Web 搜索 管理 Key，按剩余额度自动轮换）",
+		hint: t("用 Tavily 号池做公网 Web 搜索与页面抓取（设置 → Web 搜索 管理 Key，按剩余额度自动轮换）"),
 		subagent: true,
 	},
 ];
@@ -70,10 +71,10 @@ const SUBAGENT_SWITCHES = SWITCHES.filter((item) => item.subagent);
 const COMMANDER_SWITCHES: { key: SentinelCommanderPermissionKey; label: string; hint: string }[] = [
 	{
 		key: "bash",
-		label: "bash（受限）",
-		hint: "项目容器内执行命令，仅用于拆解任务前的一次性轻量确认；受每工程 40 条预算、单条 20 秒超时、输出截断与破坏性命令拦截约束",
+		label: t("bash（受限）"),
+		hint: t("项目容器内执行命令，仅用于拆解任务前的一次性轻量确认；受每工程 40 条预算、单条 20 秒超时、输出截断与破坏性命令拦截约束"),
 	},
-	{ key: "read", label: "read", hint: "读取项目工作目录中的文件（只读，不能修改）" },
+	{ key: "read", label: "read", hint: t("读取项目工作目录中的文件（只读，不能修改）") },
 ];
 
 export function PermissionsPanel({
@@ -200,7 +201,7 @@ export function PermissionsPanel({
 				<span className="perm-switch-body">
 					<span className="perm-switch-name">{item.label}</span>
 					<span className="perm-switch-hint">
-						{blockedByParent ? "主 Agent 已禁用，子 Agent 无法单独开启" : item.hint}
+						{blockedByParent ? t("主 Agent 已禁用，子 Agent 无法单独开启") : item.hint}
 					</span>
 				</span>
 			</label>
@@ -217,13 +218,13 @@ export function PermissionsPanel({
 	const mcpServerRows = (
 		<div className="perm-mcp">
 			{mcpServers === null ? (
-				<p className="perm-mcp-note">正在读取 MCP 配置…</p>
+				<p className="perm-mcp-note">{t("正在读取 MCP 配置…")}</p>
 			) : mcpServers.length === 0 ? (
-				<p className="perm-mcp-note">还没有配置服务器（设置 → MCP）。</p>
+				<p className="perm-mcp-note">{t("还没有配置服务器（设置 → MCP）。")}</p>
 			) : (
 				<>
 					<p className="perm-mcp-note">
-						逐个服务器控制。这里的开关就是「设置 → MCP」的启用，对所有 Agent 生效。
+						{t("逐个服务器控制。这里的开关就是「设置 → MCP」的启用，对所有 Agent 生效。")}
 					</p>
 					{mcpServers.map((server) => {
 						const state = mcpServerState(server);
@@ -245,7 +246,7 @@ export function PermissionsPanel({
 											? state === "mounted"
 												? server.target
 												: mountReason(server)
-											: "主开关已关闭：全部不挂载"}
+											: t("主开关已关闭：全部不挂载")}
 									</span>
 								</span>
 							</label>
@@ -259,12 +260,11 @@ export function PermissionsPanel({
 	return (
 		<div className="perm">
 			<p className="settings-hint">
-				工具在会话创建时挂载，被禁用的工具会从注册表里移除：模型看不到、tool_search 搜不到、codemode 也调不到。
-				保存后会立即重建当前会话（历史保留）；有会话正在运行时会拒绝保存，请先中止。
+				{t("工具在会话创建时挂载，被禁用的工具会从注册表里移除：模型看不到、tool_search 搜不到、codemode 也调不到。保存后会立即重建当前会话（历史保留）；有会话正在运行时会拒绝保存，请先中止。")}
 			</p>
 
 			<div className="perm-presets">
-				<span className="perm-presets-label">预设</span>
+				<span className="perm-presets-label">{t("预设")}</span>
 				{presets.map((preset) => (
 					<button
 						key={preset.id}
@@ -278,7 +278,7 @@ export function PermissionsPanel({
 					</button>
 				))}
 				<span className="perm-presets-hint">
-					{dirty ? "有未保存的修改" : `主 Agent 已禁用 ${disabledCount(draft.main)} 项`}
+					{dirty ? t("有未保存的修改") : t("主 Agent 已禁用 {count} 项", { count: disabledCount(draft.main) })}
 				</span>
 				<span className="composer-spacer" />
 				<button
@@ -286,10 +286,10 @@ export function PermissionsPanel({
 					className="ghost small"
 					onClick={onRefresh}
 					disabled={busy}
-					title="重新读取已挂载工具"
+					title={t("重新读取已挂载工具")}
 				>
 					<RefreshIcon />
-					刷新清单
+					{t("刷新清单")}
 				</button>
 				<button
 					type="button"
@@ -308,13 +308,13 @@ export function PermissionsPanel({
 						})
 					}
 				>
-					保存并重建会话
+					{t("保存并重建会话")}
 				</button>
 			</div>
 
 			<div className="perm-columns">
 				<section className="perm-column">
-					<h3>主 Agent</h3>
+					<h3>{t("主 Agent")}</h3>
 					{SWITCHES.map((item) => (
 						<Fragment key={item.key}>
 							{switchRow("main", item)}
@@ -323,13 +323,13 @@ export function PermissionsPanel({
 					))}
 				</section>
 				<section className="perm-column">
-					<h3>子 Agent</h3>
-					<p className="perm-column-note">子代理的权限永远不超过主 Agent，且永远不能再派生子代理。</p>
+					<h3>{t("子 Agent")}</h3>
+					<p className="perm-column-note">{t("子代理的权限永远不超过主 Agent，且永远不能再派生子代理。")}</p>
 					{SUBAGENT_SWITCHES.map((item) => switchRow("subagent", item))}
 					<label className="perm-switch">
 						<span className="perm-switch-body">
-							<span className="perm-switch-name">轮次上限</span>
-							<span className="perm-switch-hint">单个子代理最多执行的轮数，达到后中止并汇报已有结果</span>
+							<span className="perm-switch-name">{t("轮次上限")}</span>
+							<span className="perm-switch-hint">{t("单个子代理最多执行的轮数，达到后中止并汇报已有结果")}</span>
 						</span>
 						<input
 							type="number"
@@ -346,16 +346,16 @@ export function PermissionsPanel({
 					</label>
 				</section>
 				<section className="perm-column perm-column--tools">
-					<h3>当前已挂载工具 ({tools.length})</h3>
+					<h3>{t("当前已挂载工具 ({count})", { count: tools.length })}</h3>
 					{tools.length === 0 ? (
-						<p className="perm-column-note">当前没有会话（先选择项目），或所有工具都被禁用。</p>
+						<p className="perm-column-note">{t("当前没有会话（先选择项目），或所有工具都被禁用。")}</p>
 					) : (
 						<ul className="perm-tools">
 							{tools.map((tool) => (
 								<li key={tool.name} className={tool.active ? "" : "dim"}>
 									<code>{tool.name}</code>
 									<span>{tool.source}</span>
-									{tool.active ? null : <span className="perm-tool-note">按需加载</span>}
+									{tool.active ? null : <span className="perm-tool-note">{t("按需加载")}</span>}
 								</li>
 							))}
 						</ul>
@@ -364,32 +364,31 @@ export function PermissionsPanel({
 			</div>
 
 			<section className="perm-plugins">
-				<h3>插件</h3>
+				<h3>{t("插件")}</h3>
 				<p className="perm-column-note">
-					插件在实现上是 MCP 服务器，因此先受上面的 MCP 总开关约束；这里决定每个插件挂载给哪一类 Agent。
-					关掉后该 Agent 的会话不连接这个插件，它的工具不会注册，tool_search 也搜不到。插件页的启用开关仍然有效，两处都开才会挂载。
+					{t("插件在实现上是 MCP 服务器，因此先受上面的 MCP 总开关约束；这里决定每个插件挂载给哪一类 Agent。关掉后该 Agent 的会话不连接这个插件，它的工具不会注册，tool_search 也搜不到。插件页的启用开关仍然有效，两处都开才会挂载。")}
 				</p>
 				{plugins === null ? (
-					<p className="perm-mcp-note">正在读取插件…</p>
+					<p className="perm-mcp-note">{t("正在读取插件…")}</p>
 				) : plugins.plugins.length === 0 ? (
-					<p className="perm-mcp-note">还没有安装插件（设置 → 插件）。</p>
+					<p className="perm-mcp-note">{t("还没有安装插件（设置 → 插件）。")}</p>
 				) : (
 					<div className="perm-plugin-list">
 						<div className="perm-plugin-head">
-							<span>插件</span>
-							<span>主 Agent</span>
-							<span>子 Agent</span>
+							<span>{t("插件")}</span>
+							<span>{t("主 Agent")}</span>
+							<span>{t("子 Agent")}</span>
 						</div>
 						{plugins.plugins.map((plugin) => {
 							const key = `${plugin.hostId}/${plugin.manifest.id}`;
 							const mainOn = pluginOn("main", key);
 							const subOn = pluginOn("subagent", key);
 							const note = !plugin.enabled
-								? "插件页已停用：不挂载"
+								? t("插件页已停用：不挂载")
 								: !draft.main.mcp
-									? "MCP 总开关已关闭：全部不挂载"
+									? t("MCP 总开关已关闭：全部不挂载")
 									: plugin.state === "running"
-										? `${plugin.hostName} · 运行中`
+										? t("{host} · 运行中", { host: plugin.hostName })
 										: `${plugin.hostName} · ${plugin.state}`;
 							return (
 								<div key={key} className={`perm-plugin-row ${plugin.enabled && mainOn ? "on" : ""}`}>
@@ -400,24 +399,24 @@ export function PermissionsPanel({
 										</span>
 										<span className="perm-plugin-hint">{note}</span>
 									</div>
-									<label className="perm-plugin-switch" title="主 Agent 是否挂载">
+									<label className="perm-plugin-switch" title={t("主 Agent 是否挂载")}>
 										<input
 											type="checkbox"
 											checked={mainOn}
 											disabled={busy}
-											aria-label={`${plugin.manifest.name} 挂载给主 Agent`}
+											aria-label={t("{name} 挂载给主 Agent", { name: plugin.manifest.name })}
 											onChange={() => togglePlugin("main", key)}
 										/>
 									</label>
 									<label
 										className="perm-plugin-switch"
-										title={mainOn ? "子 Agent 是否挂载" : "主 Agent 已关闭，子 Agent 无法单独开启"}
+										title={mainOn ? t("子 Agent 是否挂载") : t("主 Agent 已关闭，子 Agent 无法单独开启")}
 									>
 										<input
 											type="checkbox"
 											checked={mainOn && subOn}
 											disabled={busy || !mainOn}
-											aria-label={`${plugin.manifest.name} 挂载给子 Agent`}
+											aria-label={t("{name} 挂载给子 Agent", { name: plugin.manifest.name })}
 											onChange={() => togglePlugin("subagent", key)}
 										/>
 									</label>
@@ -429,10 +428,9 @@ export function PermissionsPanel({
 			</section>
 
 			<section className="perm-commander">
-				<h3>指挥官（工程模式）</h3>
+				<h3>{t("指挥官（工程模式）")}</h3>
 				<p className="perm-column-note">
-					指挥官的调度工具（dispatch_task
-					等）始终挂载；这里控制的是它拆解任务用的受限执行面。修改在指挥官会话下次创建时生效（新建或恢复工程），运行中的工程不受影响。
+					{t("指挥官的调度工具（dispatch_task 等）始终挂载；这里控制的是它拆解任务用的受限执行面。修改在指挥官会话下次创建时生效（新建或恢复工程），运行中的工程不受影响。")}
 				</p>
 				<div className="perm-commander-switches">
 					{COMMANDER_SWITCHES.map((item) => (
@@ -451,7 +449,7 @@ export function PermissionsPanel({
 					))}
 					{draft.commander.bash ? null : (
 						<p className="perm-column-note">
-							bash 已关闭：指挥官将完全基于目标清单与任务结果摘要编排，不能再自行确认目标类型。
+							{t("bash 已关闭：指挥官将完全基于目标清单与任务结果摘要编排，不能再自行确认目标类型。")}
 						</p>
 					)}
 				</div>
@@ -459,8 +457,7 @@ export function PermissionsPanel({
 
 			{draft.main.bash || draft.main.edit || draft.main.write ? null : (
 				<p className="perm-warn">
-					当前配置下 Agent 不能执行命令，也不能修改文件：适合只读侦察。如果它需要落地脚本或证据文件，请至少开启
-					write。
+					{t("当前配置下 Agent 不能执行命令，也不能修改文件：适合只读侦察。如果它需要落地脚本或证据文件，请至少开启 write。")}
 				</p>
 			)}
 		</div>

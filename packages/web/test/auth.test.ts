@@ -112,7 +112,7 @@ test("a fresh install asks for setup, and setup both creates the account and log
 	expect(await session.json()).toEqual({
 		ok: true,
 		username: "operator",
-		consent: { required: false, acceptedAt: null, version: 1 },
+		consent: { required: false, acceptedAt: null, version: 2 },
 	});
 
 	const health = await json(url, "/api/health", { cookie });

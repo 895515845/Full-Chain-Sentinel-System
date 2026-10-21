@@ -36,6 +36,7 @@ import { testModelConfig } from "./endpoint-probe.ts";
 import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
+import { getServerLanguage, setServerLanguage, t } from "./i18n.ts";
 import { readProviderModelConfig } from "./model-config.ts";
 import {
 	deletePreset,
@@ -63,6 +64,7 @@ import type {
 	SentinelServerMessage,
 } from "./protocol.ts";
 import { VulnReviewer } from "./reviewer.ts";
+import { readUiConfig, writeUiConfig } from "./ui-config.ts";
 import type { WorkerSession } from "./worker.ts";
 
 interface AcquiredTaskSession {
@@ -71,10 +73,10 @@ interface AcquiredTaskSession {
 }
 
 import {
-	CONSENT_TEXT,
 	CONSENT_VERSION,
 	type ConsentStatus,
 	consentStatus,
+	consentTextFor,
 	isConsentExemptPath,
 	writeConsentRecord,
 } from "./consent.ts";
@@ -104,15 +106,17 @@ const MIME_TYPES: Record<string, string> = {
 	".woff2": "font/woff2",
 };
 
-const FALLBACK_PAGE = `<!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"><title>全链哨兵 控制台</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+function fallbackPage(): string {
+	return `<!doctype html>
+<html lang="${getServerLanguage() === "zh" ? "zh-CN" : "en"}">
+<head><meta charset="utf-8"><title>${t("全链哨兵 控制台")}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
 <body style="background:#111418;color:#d7dde4;font-family:system-ui;padding:48px;line-height:1.7">
-<h1>全链哨兵 Web 控制台</h1>
-<p>前端资源尚未构建。请在仓库根目录执行：</p>
+<h1>${t("全链哨兵 Web 控制台")}</h1>
+<p>${t("前端资源尚未构建。请在仓库根目录执行：")}</p>
 <pre style="background:#1b2027;padding:12px;border-radius:8px">npm --prefix packages/web run build</pre>
-<p>构建完成后刷新本页。</p>
+<p>${t("构建完成后刷新本页。")}</p>
 </body></html>`;
+}
 
 export interface SentinelServerOptions {
 	cwd?: string;
@@ -187,7 +191,7 @@ async function servePluginIcon(
 		const pluginId = decodeURIComponent(parts[2] ?? "");
 		const file = decodeURIComponent(parts[3] ?? "");
 		if (!hostId || !pluginId || !/^[A-Za-z0-9._-]+\.(svg|png)$/.test(file)) {
-			sendJson(response, { error: "没有这个图标" }, 404);
+			sendJson(response, { error: t("没有这个图标") }, 404);
 			return;
 		}
 		const asset = await runtime.getPluginUiFile(hostId, pluginId, file);
@@ -199,7 +203,7 @@ async function servePluginIcon(
 		});
 		response.end(asset.data);
 	} catch {
-		sendJson(response, { error: "没有这个图标" }, 404);
+		sendJson(response, { error: t("没有这个图标") }, 404);
 	}
 }
 
@@ -217,30 +221,30 @@ async function servePluginUi(agentDir: string, request: IncomingMessage, respons
 	const token = parts[1] ?? "";
 	const grant = pluginUiTokens.get(token);
 	if (!grant || grant.expiresAt <= Date.now()) {
-		sendJson(response, { error: "没有这个界面" }, 404);
+		sendJson(response, { error: t("没有这个界面") }, 404);
 		return;
 	}
 	let hostId = "";
 	try {
 		hostId = parts[2] ? decodeURIComponent(parts[2]) : "";
 	} catch {
-		sendJson(response, { error: "插件主机 id 非法" }, 400);
+		sendJson(response, { error: t("插件主机 id 非法") }, 400);
 		return;
 	}
 	let pluginId = "";
 	try {
 		pluginId = parts[3] ? decodeURIComponent(parts[3]) : "";
 	} catch {
-		sendJson(response, { error: "插件 id 非法" }, 400);
+		sendJson(response, { error: t("插件 id 非法") }, 400);
 		return;
 	}
 	if (!hostId || !pluginId || grant.hostId !== hostId || grant.pluginId !== pluginId) {
-		sendJson(response, { error: "没有这个界面" }, 404);
+		sendJson(response, { error: t("没有这个界面") }, 404);
 		return;
 	}
 	const host = effectivePluginHosts(agentDir).find((entry) => entry.id === hostId);
 	if (!host) {
-		sendJson(response, { error: "插件主机不存在" }, 404);
+		sendJson(response, { error: t("插件主机不存在") }, 404);
 		return;
 	}
 	const rest: string[] = [];
@@ -249,11 +253,11 @@ async function servePluginUi(agentDir: string, request: IncomingMessage, respons
 		try {
 			segment = decodeURIComponent(raw);
 		} catch {
-			sendJson(response, { error: "界面路径非法" }, 400);
+			sendJson(response, { error: t("界面路径非法") }, 400);
 			return;
 		}
 		if (!segment || segment === "." || segment === ".." || segment.includes("/") || segment.includes("\\")) {
-			sendJson(response, { error: "界面路径非法" }, 400);
+			sendJson(response, { error: t("界面路径非法") }, 400);
 			return;
 		}
 		rest.push(encodeURIComponent(segment));
@@ -266,7 +270,11 @@ async function servePluginUi(agentDir: string, request: IncomingMessage, respons
 			signal: AbortSignal.timeout(20000),
 		});
 	} catch (error) {
-		sendJson(response, { error: `读取插件界面失败：${error instanceof Error ? error.message : String(error)}` }, 502);
+		sendJson(
+			response,
+			{ error: t("读取插件界面失败：{error}", { error: error instanceof Error ? error.message : String(error) }) },
+			502,
+		);
 		return;
 	}
 	const body = Buffer.from(await upstream.arrayBuffer());
@@ -367,7 +375,7 @@ function serveStatic(distDir: string, requestPath: string, response: ServerRespo
 	const index = readWebuiFile("index.html", distDir);
 	if (!index) {
 		response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-		response.end(FALLBACK_PAGE);
+		response.end(fallbackPage());
 		return;
 	}
 	sendFile(response, index, "index.html");
@@ -379,6 +387,7 @@ export async function startSentinelServer(
 	const startupCwd = resolve(options.cwd ?? process.cwd());
 	const clients = new Set<WebSocket>();
 	const agentDir = options.agentDir;
+	if (agentDir) setServerLanguage(readUiConfig(agentDir).language);
 	// The gate follows authentication by default: a console with no password to
 	// protect (the automated tests) is not the deployment this guards, and one that
 	// has a password should not be visible before its login page.
@@ -530,8 +539,8 @@ export async function startSentinelServer(
 	/** Why a run cannot start, phrased for the operator. */
 	function blockedReason(report: SentinelEnvReport): string {
 		const blocker = report.items.find((entry) => entry.blocking && entry.status !== "ok");
-		const detail = blocker ? `${blocker.label}：${blocker.detail}` : "环境检查未通过";
-		return `Docker 环境不可用（${detail}）。请在「设置 → 环境」中修复后复检。`;
+		const detail = blocker ? `${blocker.label}：${blocker.detail}` : t("环境检查未通过");
+		return t("Docker 环境不可用（{detail}）。请在「设置 → 环境」中修复后复检。", { detail });
 	}
 
 	function broadcast(message: SentinelServerMessage): void {
@@ -656,18 +665,35 @@ export async function startSentinelServer(
 			? consentStatus(agentDir, username)
 			: { required: false, acceptedAt: null, version: CONSENT_VERSION };
 
+	/**
+	 * Language switch for the login and consent screens, which exist before the
+	 * console WebSocket. The console itself uses the socket message so it can
+	 * receive the acknowledgement and reload in the new language.
+	 */
+	async function handleUiLanguage(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const body = await readJsonBody(request);
+		if (!body || (body.language !== "zh" && body.language !== "en")) {
+			sendJson(response, { error: t("语言必须是 zh 或 en") }, 400);
+			return;
+		}
+		setServerLanguage(body.language);
+		if (agentDir) writeUiConfig(agentDir, { language: body.language });
+		broadcast({ type: "ui_config", language: body.language });
+		sendJson(response, { ok: true, language: body.language });
+	}
+
 	async function handleSetup(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		if (!agentDir) {
-			sendJson(response, { error: "缺少配置目录，无法创建账号" }, 500);
+			sendJson(response, { error: t("缺少配置目录，无法创建账号") }, 500);
 			return;
 		}
 		if (readStoredAuth(agentDir)) {
-			sendJson(response, { error: "管理员账号已存在，请直接登录" }, 409);
+			sendJson(response, { error: t("管理员账号已存在，请直接登录") }, 409);
 			return;
 		}
 		const body = await readJsonBody(request);
 		if (!body) {
-			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			sendJson(response, { error: t("请求体不是合法的 JSON") }, 400);
 			return;
 		}
 		const username = textField(body, "username").trim();
@@ -689,25 +715,29 @@ export async function startSentinelServer(
 		stored: StoredAuth | null,
 	): Promise<void> {
 		if (!stored) {
-			sendJson(response, { error: "还没有管理员账号，请先创建" }, 409);
+			sendJson(response, { error: t("还没有管理员账号，请先创建") }, 409);
 			return;
 		}
 		const key = request.socket.remoteAddress ?? "unknown";
 		const lockedFor = limiter.blocked(key);
 		if (lockedFor > 0) {
-			sendJson(response, { error: `尝试次数过多，请 ${Math.ceil(lockedFor / 1000)} 秒后再试` }, 429);
+			sendJson(
+				response,
+				{ error: t("尝试次数过多，请 {seconds} 秒后再试", { seconds: Math.ceil(lockedFor / 1000) }) },
+				429,
+			);
 			return;
 		}
 		const body = await readJsonBody(request);
 		if (!body) {
-			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			sendJson(response, { error: t("请求体不是合法的 JSON") }, 400);
 			return;
 		}
 		const username = textField(body, "username").trim();
 		const password = textField(body, "password");
 		if (!verifyLogin(stored, username, password)) {
 			limiter.failure(key);
-			sendJson(response, { error: "用户名或密码不正确" }, 401);
+			sendJson(response, { error: t("用户名或密码不正确") }, 401);
 			return;
 		}
 		limiter.success(key);
@@ -725,16 +755,16 @@ export async function startSentinelServer(
 		stored: StoredAuth,
 	): Promise<void> {
 		if (!agentDir) {
-			sendJson(response, { error: "缺少配置目录" }, 500);
+			sendJson(response, { error: t("缺少配置目录") }, 500);
 			return;
 		}
 		const body = await readJsonBody(request);
 		if (!body) {
-			sendJson(response, { error: "请求体不是合法的 JSON" }, 400);
+			sendJson(response, { error: t("请求体不是合法的 JSON") }, 400);
 			return;
 		}
 		if (!verifyLogin(stored, stored.username, textField(body, "current"))) {
-			sendJson(response, { error: "当前密码不正确" }, 400);
+			sendJson(response, { error: t("当前密码不正确") }, 400);
 			return;
 		}
 		try {
@@ -760,12 +790,12 @@ export async function startSentinelServer(
 		username: string,
 	): Promise<void> {
 		if (!agentDir) {
-			sendJson(response, { error: "缺少配置目录，无法记录承诺" }, 500);
+			sendJson(response, { error: t("缺少配置目录，无法记录承诺") }, 500);
 			return;
 		}
 		const body = await readJsonBody(request);
 		if (body?.accepted !== true) {
-			sendJson(response, { error: "必须勾选承诺才能记录" }, 400);
+			sendJson(response, { error: t("必须勾选承诺才能记录") }, 400);
 			return;
 		}
 		const record = writeConsentRecord(agentDir, username);
@@ -799,7 +829,11 @@ export async function startSentinelServer(
 			const declared = Number(request.headers["content-length"] ?? 0);
 			if (Number.isFinite(declared) && declared > POC_IMPORT_MAX_BYTES) {
 				request.resume();
-				sendJson(response, { error: `文件超过 ${Math.round(POC_IMPORT_MAX_BYTES / 1024 / 1024)}MB 上限` }, 413);
+				sendJson(
+					response,
+					{ error: t("文件超过 {mb}MB 上限", { mb: Math.round(POC_IMPORT_MAX_BYTES / 1024 / 1024) }) },
+					413,
+				);
 				return;
 			}
 			const accepted = await pocImports.accept(name, request);
@@ -823,7 +857,7 @@ export async function startSentinelServer(
 	function handlePocImportStatus(response: ServerResponse, id: string): void {
 		const job = pocImports.get(id);
 		if (!job) {
-			sendJson(response, { error: "导入任务不存在或已过期" }, 404);
+			sendJson(response, { error: t("导入任务不存在或已过期") }, 404);
 			return;
 		}
 		sendJson(response, job);
@@ -890,12 +924,20 @@ export async function startSentinelServer(
 				return;
 			}
 		}
+		if (path === "/api/ui-language" && request.method === "GET") {
+			sendJson(response, { language: getServerLanguage() });
+			return;
+		}
+		if (path === "/api/ui-language" && request.method === "POST") {
+			void handleUiLanguage(request, response);
+			return;
+		}
 		const authorized = authEnabled ? hasValidSession(auth, request) : true;
 		// Plugin UI assets are authenticated by the capability token in the path;
 		// the sandboxed iframe cannot present the console cookie.
 		if (path.startsWith("/plugin-ui/")) {
 			if (!agentDir) {
-				sendJson(response, { error: "控制台没有配置目录，无法读取插件界面" }, 503);
+				sendJson(response, { error: t("控制台没有配置目录，无法读取插件界面") }, 503);
 				return;
 			}
 			void servePluginUi(agentDir, request, response);
@@ -921,7 +963,7 @@ export async function startSentinelServer(
 			if (path.startsWith("/api/pocs/import/") && request.method === "GET") {
 				const id = path.slice("/api/pocs/import/".length);
 				if (!/^[0-9a-f-]{36}$/i.test(id)) {
-					sendJson(response, { error: "导入任务 id 非法" }, 400);
+					sendJson(response, { error: t("导入任务 id 非法") }, 400);
 					return;
 				}
 				handlePocImportStatus(response, id);
@@ -950,7 +992,7 @@ export async function startSentinelServer(
 			if (path === "/api/upload" && request.method === "POST") {
 				const active = runtime.snapshot();
 				if (!active.project) {
-					sendJson(response, { error: "请先创建或选择一个项目，再上传附件" }, 409);
+					sendJson(response, { error: t("请先创建或选择一个项目，再上传附件") }, 409);
 					return;
 				}
 				void handleUpload(request, response, active.cwd);
@@ -960,19 +1002,19 @@ export async function startSentinelServer(
 			// before the promise: the page has to be able to show the text, and the
 			// operator has to be able to accept it.
 			if (path === "/api/consent") {
-				sendJson(response, { ...consentFor(auth?.username ?? null), text: CONSENT_TEXT });
+				sendJson(response, { ...consentFor(auth?.username ?? null), text: consentTextFor(getServerLanguage()) });
 				return;
 			}
 			if (path === "/api/consent/accept" && request.method === "POST") {
 				if (!agentDir || !auth) {
-					sendJson(response, { error: "缺少账号或配置目录，无法记录承诺" }, 500);
+					sendJson(response, { error: t("缺少账号或配置目录，无法记录承诺") }, 500);
 					return;
 				}
 				void handleConsentAccept(request, response, auth.username);
 				return;
 			}
 		} else if (path.startsWith("/api/")) {
-			sendJson(response, { error: "未登录" }, 401);
+			sendJson(response, { error: t("未登录") }, 401);
 			return;
 		}
 		serveStatic(webuiDistDir(), path, response);
@@ -1012,6 +1054,7 @@ export async function startSentinelServer(
 	});
 	wss.on("connection", (socket) => {
 		clients.add(socket);
+		socket.send(JSON.stringify({ type: "ui_config", language: getServerLanguage() } satisfies SentinelServerMessage));
 		socket.send(JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies SentinelServerMessage));
 		socket.send(
 			JSON.stringify({
@@ -1041,7 +1084,7 @@ export async function startSentinelServer(
 		try {
 			message = JSON.parse(raw) as SentinelClientMessage;
 		} catch {
-			sendError(socket, "无法解析的消息格式");
+			sendError(socket, t("无法解析的消息格式"));
 			return;
 		}
 		try {
@@ -1049,7 +1092,7 @@ export async function startSentinelServer(
 				case "prompt": {
 					const images = message.images ?? [];
 					if (!message.text.trim() && images.length === 0) {
-						sendError(socket, "消息不能为空");
+						sendError(socket, t("消息不能为空"));
 						return;
 					}
 					// A run needs the container backend, so the environment check gates it.
@@ -1119,12 +1162,12 @@ export async function startSentinelServer(
 						message.decision.command,
 						message.decision.alwaysAllowPrefix === true,
 					);
-					if (!ok) sendError(socket, "该审批请求已失效（可能已被其他窗口处理或运行已中止）");
+					if (!ok) sendError(socket, t("该审批请求已失效（可能已被其他窗口处理或运行已中止）"));
 					return;
 				}
 				case "decide_all": {
 					const count = runtime.decideAll(message.approved);
-					if (count === 0) sendError(socket, "没有待处理的审批请求");
+					if (count === 0) sendError(socket, t("没有待处理的审批请求"));
 					return;
 				}
 				case "allow_prefix":
@@ -1152,7 +1195,7 @@ export async function startSentinelServer(
 					return;
 				case "rename_session": {
 					if (!message.name.trim()) {
-						sendError(socket, "会话名称不能为空");
+						sendError(socket, t("会话名称不能为空"));
 						return;
 					}
 					await runtime.renameSession(message.path, message.name.trim());
@@ -1163,7 +1206,7 @@ export async function startSentinelServer(
 					// The toolbar labels the session it is showing; the list passes a path.
 					const statusPath = message.path ?? runtime.currentSessionPath;
 					if (!statusPath) {
-						sendError(socket, "没有活动会话");
+						sendError(socket, t("没有活动会话"));
 						return;
 					}
 					// Setting it on a loaded session also refreshes the snapshot, which is
@@ -1260,7 +1303,7 @@ export async function startSentinelServer(
 					const config = agentDir ? readProviderModelConfig(agentDir, message.id) : null;
 					const result = config
 						? await testModelConfig(config)
-						: { ok: false, message: "这个模型没有可用的端点配置" };
+						: { ok: false, message: t("这个模型没有可用的端点配置") };
 					sendTo(socket, { type: "model_test_result", result });
 					return;
 				}
@@ -1332,7 +1375,7 @@ export async function startSentinelServer(
 				}
 				case "build_image": {
 					if (imageBuild) {
-						sendError(socket, "镜像构建已在进行中");
+						sendError(socket, t("镜像构建已在进行中"));
 						return;
 					}
 					const controller = new AbortController();
@@ -1362,7 +1405,7 @@ export async function startSentinelServer(
 					return;
 				case "set_sources": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法保存构建源");
+						sendError(socket, t("未配置配置目录，无法保存构建源"));
 						return;
 					}
 					// The sources are baked into the image, so this only records them;
@@ -1385,7 +1428,7 @@ export async function startSentinelServer(
 				}
 				case "set_container_network": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法保存容器网络");
+						sendError(socket, t("未配置配置目录，无法保存容器网络"));
 						return;
 					}
 					// Only the next container creation reads this: existing containers keep
@@ -1627,14 +1670,14 @@ export async function startSentinelServer(
 						})
 						.catch((error: unknown) => {
 							const detail = error instanceof Error ? error.message : String(error);
-							const reason = /没有这个接口|404/.test(detail)
-								? "插件主机版本过旧，没有构建日志接口；请重启插件主机后再安装"
+							const reason = /没有这个接口|404|not found/i.test(detail)
+								? t("插件主机版本过旧，没有构建日志接口；请重启插件主机后再安装")
 								: detail;
 							sendTo(socket, {
 								type: "plugin_build_log",
 								hostId: message.hostId,
 								pluginId: message.pluginId,
-								log: `读取构建日志失败：${reason}`,
+								log: t("读取构建日志失败：{reason}", { reason }),
 							});
 						});
 					return;
@@ -1646,7 +1689,7 @@ export async function startSentinelServer(
 				case "install_official_plugin": {
 					const official = getOfficialPlugin(message.pluginId);
 					if (!official) {
-						sendError(socket, `没有这个官方插件：${message.pluginId}`);
+						sendError(socket, t("没有这个官方插件：{id}", { id: message.pluginId }));
 						return;
 					}
 					void runtime
@@ -1790,7 +1833,7 @@ export async function startSentinelServer(
 				}
 				case "add_project": {
 					if (!agentDir) {
-						sendError(socket, "内部错误：agentDir 未初始化");
+						sendError(socket, t("内部错误：agentDir 未初始化"));
 						return;
 					}
 					const result = await addProject(agentDir, { name: message.name });
@@ -1803,17 +1846,17 @@ export async function startSentinelServer(
 				}
 				case "remove_project": {
 					if (!agentDir) {
-						sendError(socket, "内部错误：agentDir 未初始化");
+						sendError(socket, t("内部错误：agentDir 未初始化"));
 						return;
 					}
 					const registry = listProjects(agentDir);
 					const target = registry.projects.find((project) => project.id === message.id);
 					if (!target) {
-						sendError(socket, "项目不存在");
+						sendError(socket, t("项目不存在"));
 						return;
 					}
 					if (message.confirmName !== target.name) {
-						sendError(socket, `确认失败：请输入完整项目名「${target.name}」`);
+						sendError(socket, t("确认失败：请输入完整项目名「{name}」", { name: target.name }));
 						return;
 					}
 					// Unregister, stop+remove the container, and delete the findings: a
@@ -1847,7 +1890,7 @@ export async function startSentinelServer(
 				}
 				case "recreate_project": {
 					if (!agentDir) {
-						sendError(socket, "内部错误：agentDir 未初始化");
+						sendError(socket, t("内部错误：agentDir 未初始化"));
 						return;
 					}
 					// Settings that shape a container (the network mode, the mounts) are read
@@ -1866,17 +1909,17 @@ export async function startSentinelServer(
 				}
 				case "switch_project": {
 					if (!agentDir) {
-						sendError(socket, "内部错误：agentDir 未初始化");
+						sendError(socket, t("内部错误：agentDir 未初始化"));
 						return;
 					}
 					const registry = listProjects(agentDir);
 					const target = registry.projects.find((project) => project.id === message.id);
 					if (!target) {
-						sendError(socket, "项目不存在");
+						sendError(socket, t("项目不存在"));
 						return;
 					}
 					if (!(await ensureProjectReady(target))) {
-						sendError(socket, `项目容器 ${target.container} 无法启动，请检查 Docker`);
+						sendError(socket, t("项目容器 {container} 无法启动，请检查 Docker", { container: target.container }));
 						return;
 					}
 					setLastActiveProject(agentDir, target.id);
@@ -1946,7 +1989,7 @@ export async function startSentinelServer(
 				case "get_vuln": {
 					const vuln = runtime.getVuln(message.id);
 					if (!vuln) {
-						sendError(socket, "该漏洞记录不存在（可能属于其他项目，或已被删除）");
+						sendError(socket, t("该漏洞记录不存在（可能属于其他项目，或已被删除）"));
 						return;
 					}
 					sendTo(socket, { type: "vuln", vuln });
@@ -1960,7 +2003,7 @@ export async function startSentinelServer(
 							action: "复核",
 							id: message.id,
 							ok: false,
-							error: "该漏洞记录不存在（可能属于其他项目，或已被删除）",
+							error: t("该漏洞记录不存在（可能属于其他项目，或已被删除）"),
 						} satisfies SentinelServerMessage);
 						return;
 					}
@@ -1970,7 +2013,7 @@ export async function startSentinelServer(
 				}
 				case "retry_vuln_review": {
 					if (!reviewer) {
-						sendError(socket, "未配置配置目录，无法评审");
+						sendError(socket, t("未配置配置目录，无法评审"));
 						return;
 					}
 					const result = message.force ? reviewer.requeue(message.id) : reviewer.retry(message.id);
@@ -1984,7 +2027,7 @@ export async function startSentinelServer(
 				}
 				case "review_pending_vulns": {
 					if (!reviewer) {
-						sendError(socket, "未配置配置目录，无法评审");
+						sendError(socket, t("未配置配置目录，无法评审"));
 						return;
 					}
 					// The requeue itself is the feedback: the refreshed list shows
@@ -2000,7 +2043,7 @@ export async function startSentinelServer(
 						action: "删除",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该漏洞记录不存在" }),
+						...(ok ? {} : { error: t("该漏洞记录不存在") }),
 					});
 					return;
 				}
@@ -2024,7 +2067,7 @@ export async function startSentinelServer(
 				case "get_poc": {
 					const poc = runtime.getPoc(message.id);
 					if (!poc) {
-						sendError(socket, `POC 库中没有 id 为 ${message.id} 的模板`);
+						sendError(socket, t("POC 库中没有 id 为 {id} 的模板", { id: message.id }));
 						return;
 					}
 					sendTo(socket, { type: "poc", poc });
@@ -2051,7 +2094,7 @@ export async function startSentinelServer(
 						action: "删除",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该订阅源不存在" }),
+						...(ok ? {} : { error: t("该订阅源不存在") }),
 					});
 					return;
 				}
@@ -2088,7 +2131,7 @@ export async function startSentinelServer(
 						action: "删除",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该模板不存在" }),
+						...(ok ? {} : { error: t("该模板不存在") }),
 					});
 					return;
 				}
@@ -2115,7 +2158,7 @@ export async function startSentinelServer(
 				case "get_api_model": {
 					const view = runtime.getApiModel(message.id);
 					if (!view) {
-						sendError(socket, `没有 id 为 ${message.id} 的业务建模记录`);
+						sendError(socket, t("没有 id 为 {id} 的业务建模记录", { id: message.id }));
 						return;
 					}
 					sendTo(socket, { type: "api_model", model: view.model, events: view.events });
@@ -2124,13 +2167,13 @@ export async function startSentinelServer(
 				case "end_api_model": {
 					// The page's way out of a run whose session is gone; a loaded
 					// session ends it through the normal path (tools off, marker).
-					const ok = runtime.finishApiModel(message.id, "manual", "操作员在业务建模页结束");
+					const ok = runtime.finishApiModel(message.id, "manual", t("操作员在业务建模页结束"));
 					sendTo(socket, {
 						type: "api_model_result",
 						action: "结束",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该记录不存在" }),
+						...(ok ? {} : { error: t("该记录不存在") }),
 					});
 					return;
 				}
@@ -2141,7 +2184,7 @@ export async function startSentinelServer(
 						action: "删除",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该记录不存在" }),
+						...(ok ? {} : { error: t("该记录不存在") }),
 					});
 					return;
 				}
@@ -2201,7 +2244,7 @@ export async function startSentinelServer(
 				case "export_api_model": {
 					const file = runtime.exportApiModel(message.id, message.format);
 					if (!file) {
-						sendError(socket, "该记录不存在");
+						sendError(socket, t("该记录不存在"));
 						return;
 					}
 					sendTo(socket, {
@@ -2215,7 +2258,7 @@ export async function startSentinelServer(
 				case "get_subagent": {
 					const run = runtime.getSubagent(message.id);
 					if (!run) {
-						sendError(socket, "该子代理记录不存在");
+						sendError(socket, t("该子代理记录不存在"));
 						return;
 					}
 					sendTo(socket, { type: "subagent_run", run });
@@ -2228,13 +2271,13 @@ export async function startSentinelServer(
 						action: "中止",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该子代理已结束，无需中止" }),
+						...(ok ? {} : { error: t("该子代理已结束，无需中止") }),
 					});
 					return;
 				}
 				case "steer_subagent": {
 					if (!message.text.trim()) {
-						sendError(socket, "追加指令不能为空");
+						sendError(socket, t("追加指令不能为空"));
 						return;
 					}
 					const steerEnv = await ensureEnvironment();
@@ -2248,7 +2291,7 @@ export async function startSentinelServer(
 						action: "追加指令",
 						id: message.id,
 						ok,
-						...(ok ? {} : { error: "该子代理已结束，无法追加指令" }),
+						...(ok ? {} : { error: t("该子代理已结束，无法追加指令") }),
 					});
 					return;
 				}
@@ -2257,12 +2300,12 @@ export async function startSentinelServer(
 					return;
 				case "engine_create": {
 					if (!engines) {
-						sendError(socket, "未配置配置目录，无法使用工程模式");
+						sendError(socket, t("未配置配置目录，无法使用工程模式"));
 						return;
 					}
 					const project = runtime.snapshot().project;
 					if (!project) {
-						sendError(socket, "请先创建或选择一个项目，工程属于项目");
+						sendError(socket, t("请先创建或选择一个项目，工程属于项目"));
 						return;
 					}
 					// A scheduled engine checks the environment when it actually starts, not
@@ -2287,7 +2330,7 @@ export async function startSentinelServer(
 				}
 				case "engine_set_gate_mode": {
 					if (!engines) {
-						sendError(socket, "未配置配置目录，无法使用工程模式");
+						sendError(socket, t("未配置配置目录，无法使用工程模式"));
 						return;
 					}
 					engines.setGateMode(message.id, message.gateMode);
@@ -2296,7 +2339,7 @@ export async function startSentinelServer(
 				}
 				case "engine_set_presets": {
 					if (!engines) {
-						sendError(socket, "未配置配置目录，无法使用工程模式");
+						sendError(socket, t("未配置配置目录，无法使用工程模式"));
 						return;
 					}
 					engines.setPresets(message.id, message.presetIds);
@@ -2305,7 +2348,7 @@ export async function startSentinelServer(
 				}
 				case "engine_set_preset_optional": {
 					if (!engines) {
-						sendError(socket, "未配置配置目录，无法使用工程模式");
+						sendError(socket, t("未配置配置目录，无法使用工程模式"));
 						return;
 					}
 					engines.setPresetOptional(message.id, message.optional);
@@ -2365,8 +2408,8 @@ export async function startSentinelServer(
 					return;
 				case "engine_abort_task": {
 					if (!engines) return;
-					const aborted = await engines.abortTask(message.taskId, "操作员在工程页中止");
-					if (!aborted.ok) sendError(socket, aborted.error ?? "任务未能中止");
+					const aborted = await engines.abortTask(message.taskId, t("操作员在工程页中止"));
+					if (!aborted.ok) sendError(socket, aborted.error ?? t("任务未能中止"));
 					return;
 				}
 				case "engine_task_events": {
@@ -2416,7 +2459,7 @@ export async function startSentinelServer(
 					return;
 				case "save_doctrine": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法保存指挥思路");
+						sendError(socket, t("未配置配置目录，无法保存指挥思路"));
 						return;
 					}
 					const result = saveDoctrine(agentDir, message.input);
@@ -2434,7 +2477,9 @@ export async function startSentinelServer(
 				}
 				case "delete_doctrine": {
 					if (!agentDir) return;
-					const result = agentDir ? deleteDoctrine(agentDir, message.id) : { ok: false, error: "未配置配置目录" };
+					const result = agentDir
+						? deleteDoctrine(agentDir, message.id)
+						: { ok: false, error: t("未配置配置目录") };
 					sendTo(socket, {
 						type: "doctrine_deleted",
 						id: message.id,
@@ -2448,7 +2493,7 @@ export async function startSentinelServer(
 					return;
 				case "save_preset": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法保存预设 Agent");
+						sendError(socket, t("未配置配置目录，无法保存预设 Agent"));
 						return;
 					}
 					const result = savePreset(agentDir, message.input);
@@ -2477,7 +2522,7 @@ export async function startSentinelServer(
 				}
 				case "set_preset_enabled": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法修改预设 Agent");
+						sendError(socket, t("未配置配置目录，无法修改预设 Agent"));
 						return;
 					}
 					const result = setPresetEnabled(agentDir, message.id, message.enabled);
@@ -2491,7 +2536,7 @@ export async function startSentinelServer(
 				}
 				case "export_presets": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法导出预设 Agent");
+						sendError(socket, t("未配置配置目录，无法导出预设 Agent"));
 						return;
 					}
 					// The file is built here and handed over as text: the browser turns it
@@ -2506,14 +2551,14 @@ export async function startSentinelServer(
 				}
 				case "import_presets": {
 					if (!agentDir) {
-						sendError(socket, "未配置配置目录，无法导入预设 Agent");
+						sendError(socket, t("未配置配置目录，无法导入预设 Agent"));
 						return;
 					}
 					let parsed: unknown;
 					try {
 						parsed = JSON.parse(message.content) as unknown;
 					} catch {
-						sendError(socket, "导入失败：文件内容不是合法的 JSON");
+						sendError(socket, t("导入失败：文件内容不是合法的 JSON"));
 						return;
 					}
 					const result = importPresets(agentDir, parsed);
@@ -2528,6 +2573,13 @@ export async function startSentinelServer(
 						skipped: result.skipped,
 						...(result.error ? { error: result.error } : {}),
 					});
+					return;
+				}
+				case "set_ui_language": {
+					if (message.language !== "zh" && message.language !== "en") return;
+					setServerLanguage(message.language);
+					if (agentDir) writeUiConfig(agentDir, { language: message.language });
+					broadcast({ type: "ui_config", language: message.language });
 					return;
 				}
 				case "get_gatekeeper_config":
@@ -2633,7 +2685,7 @@ export async function startSentinelServer(
 				case "supervisor_detail": {
 					const detail = runtime.getSupervisorDetail(message.sessionId);
 					if (!detail) {
-						sendError(socket, "监督记录不存在");
+						sendError(socket, t("监督记录不存在"));
 						return;
 					}
 					sendTo(socket, { type: "supervisor_detail", detail } satisfies SentinelServerMessage);
@@ -2662,7 +2714,7 @@ export async function startSentinelServer(
 					return;
 				}
 				default:
-					sendError(socket, `未知消息类型: ${(message as { type?: string }).type ?? "?"}`);
+					sendError(socket, t("未知消息类型: {type}", { type: (message as { type?: string }).type ?? "?" }));
 			}
 		} catch (error) {
 			sendError(socket, error instanceof Error ? error.message : String(error));
@@ -2696,7 +2748,7 @@ export async function startSentinelServer(
 							{
 								id: "check-failed",
 								group: "Docker 运行时",
-								label: "环境检查",
+								label: t("环境检查"),
 								status: "fail" as const,
 								detail: error instanceof Error ? error.message : String(error),
 								blocking: true,

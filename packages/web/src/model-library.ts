@@ -17,6 +17,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
 import {
 	DEFAULT_MODEL_API,
 	NO_AUTH_PLACEHOLDER_KEY,
@@ -52,11 +53,21 @@ export const SENTINEL_MODEL_ROLE_NAMES: SentinelModelRoleName[] = [
 	"commander",
 ];
 export const SENTINEL_MODEL_ROLE_LABELS: Record<SentinelModelRoleName, string> = {
-	main: "主模型",
-	judge: "守门模型",
-	reviewer: "漏洞评审",
-	supervisor: "监督模型",
-	commander: "指挥端点",
+	get main() {
+		return t("主模型");
+	},
+	get judge() {
+		return t("守门模型");
+	},
+	get reviewer() {
+		return t("漏洞评审");
+	},
+	get supervisor() {
+		return t("监督模型");
+	},
+	get commander() {
+		return t("指挥端点");
+	},
 };
 
 export interface SentinelModelEntry {
@@ -228,9 +239,9 @@ export function migrateModelLibrary(agentDir: string): SentinelModelLibrary {
 	const add = (providerId: string, name: string): void => {
 		if (readProviderModelConfig(agentDir, providerId)) entries.push({ id: providerId, name });
 	};
-	add(SENTINEL_PROVIDER_ID, "主端点");
-	add(SENTINEL_COMMANDER_PROVIDER_ID, "指挥官端点");
-	add(SENTINEL_JUDGE_PROVIDER_ID, "守门端点");
+	add(SENTINEL_PROVIDER_ID, t("主端点"));
+	add(SENTINEL_COMMANDER_PROVIDER_ID, t("指挥官端点"));
+	add(SENTINEL_JUDGE_PROVIDER_ID, t("守门端点"));
 	const has = (id: string): boolean => entries.some((entry) => entry.id === id);
 	const judge: SentinelRoleRef = has(SENTINEL_JUDGE_PROVIDER_ID)
 		? { kind: "model", id: SENTINEL_JUDGE_PROVIDER_ID }
@@ -357,13 +368,13 @@ export function nextEntryId(entries: SentinelModelEntry[]): string {
 
 function requireEntry(library: SentinelModelLibrary, id: string): SentinelModelEntry {
 	const entry = library.entries.find((candidate) => candidate.id === id);
-	if (!entry) throw new Error("模型不存在，可能已被删除");
+	if (!entry) throw new Error(t("模型不存在，可能已被删除"));
 	return entry;
 }
 
 function positiveInteger(value: number | undefined, label: string): number | undefined {
 	if (value === undefined) return undefined;
-	if (!Number.isInteger(value) || value <= 0) throw new Error(`${label}必须是正整数`);
+	if (!Number.isInteger(value) || value <= 0) throw new Error(t("{label}必须是正整数", { label }));
 	return value;
 }
 
@@ -376,31 +387,32 @@ function positiveInteger(value: number | undefined, label: string): number | und
 function cleanCapabilities(raw: SentinelModelCapabilities | undefined): SentinelModelCapabilities | undefined {
 	if (!raw) return undefined;
 	const api = raw.api?.trim() || DEFAULT_MODEL_API;
-	if (!(MODEL_APIS as readonly string[]).includes(api)) throw new Error(`不支持的协议：${raw.api}`);
-	const contextWindow = positiveInteger(raw.contextWindow, "上下文窗口");
-	const maxTokens = positiveInteger(raw.maxTokens, "最大输出");
+	if (!(MODEL_APIS as readonly string[]).includes(api))
+		throw new Error(t("不支持的协议：{api}", { api: String(raw.api) }));
+	const contextWindow = positiveInteger(raw.contextWindow, t("上下文窗口"));
+	const maxTokens = positiveInteger(raw.maxTokens, t("最大输出"));
 	if (contextWindow !== undefined && maxTokens !== undefined && maxTokens > contextWindow) {
-		throw new Error("最大输出不能大于上下文窗口");
+		throw new Error(t("最大输出不能大于上下文窗口"));
 	}
 	let cost: SentinelModelCostRates | undefined;
 	if (raw.cost) {
 		const rate = (value: unknown, label: string): number => {
 			if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-				throw new Error(`${label}必须是不小于 0 的数字（美元 / 百万 token）`);
+				throw new Error(t("{label}必须是不小于 0 的数字（美元 / 百万 token）", { label }));
 			}
 			return value;
 		};
 		cost = {
-			input: rate(raw.cost.input, "输入价格"),
-			output: rate(raw.cost.output, "输出价格"),
-			cacheRead: rate(raw.cost.cacheRead, "缓存读价格"),
-			cacheWrite: rate(raw.cost.cacheWrite, "缓存写价格"),
+			input: rate(raw.cost.input, t("输入价格")),
+			output: rate(raw.cost.output, t("输出价格")),
+			cacheRead: rate(raw.cost.cacheRead, t("缓存读价格")),
+			cacheWrite: rate(raw.cost.cacheWrite, t("缓存写价格")),
 		};
 	}
 	let promptCache: SentinelModelPromptCache | undefined;
 	if (raw.promptCache) {
-		const short = positiveInteger(raw.promptCache.short, "短期缓存时长");
-		const long = positiveInteger(raw.promptCache.long, "长期缓存时长");
+		const short = positiveInteger(raw.promptCache.short, t("短期缓存时长"));
+		const long = positiveInteger(raw.promptCache.long, t("长期缓存时长"));
 		if (short !== undefined || long !== undefined) {
 			promptCache = { ...(short !== undefined ? { short } : {}), ...(long !== undefined ? { long } : {}) };
 		}
@@ -424,8 +436,8 @@ function cleanInput(input: SentinelModelEntryInput | SentinelModelEntryPatch): {
 } {
 	const baseUrl = input.baseUrl.trim();
 	const modelId = input.modelId.trim();
-	if (!baseUrl) throw new Error("Base URL 不能为空");
-	if (!modelId) throw new Error("模型 ID 不能为空");
+	if (!baseUrl) throw new Error(t("Base URL 不能为空"));
+	if (!modelId) throw new Error(t("模型 ID 不能为空"));
 	const capabilities = cleanCapabilities(input.capabilities);
 	return { name: input.name.trim() || modelId, baseUrl, modelId, ...(capabilities ? { capabilities } : {}) };
 }
@@ -469,8 +481,8 @@ export function duplicateLibraryEntry(agentDir: string, id: string): SentinelMod
 	const library = readModelLibrary(agentDir);
 	const source = requireEntry(library, id);
 	const config = readProviderModelConfig(agentDir, id);
-	if (!config) throw new Error("这个模型没有可复制的端点配置");
-	const entry: SentinelModelEntry = { id: nextEntryId(library.entries), name: `${source.name} 副本` };
+	if (!config) throw new Error(t("这个模型没有可复制的端点配置"));
+	const entry: SentinelModelEntry = { id: nextEntryId(library.entries), name: `${source.name} ${t("副本")}` };
 	writeProviderModelConfig(agentDir, entry.id, entry.name, config);
 	library.entries.push(entry);
 	writeModelLibrary(agentDir, library);
@@ -483,8 +495,8 @@ export function removeLibraryEntry(agentDir: string, id: string): void {
 	const entry = requireEntry(library, id);
 	const used = rolesUsing(library, id);
 	if (used.length > 0) {
-		const labels = used.map((role) => SENTINEL_MODEL_ROLE_LABELS[role]).join("、");
-		throw new Error(`「${entry.name}」正被 ${labels} 使用，请先改掉这些角色再删除`);
+		const labels = used.map((role) => SENTINEL_MODEL_ROLE_LABELS[role]).join(t("、"));
+		throw new Error(t("「{name}」正被 {roles} 使用，请先改掉这些角色再删除", { name: entry.name, roles: labels }));
 	}
 	library.entries = library.entries.filter((candidate) => candidate.id !== id);
 	writeModelLibrary(agentDir, library);
@@ -502,14 +514,14 @@ export function setLibraryRole(
 		if (target === null) {
 			library.roles.main = null;
 		} else {
-			if (target === FOLLOW_MAIN) throw new Error("主模型不能跟随主模型");
+			if (target === FOLLOW_MAIN) throw new Error(t("主模型不能跟随主模型"));
 			requireEntry(library, target);
 			library.roles.main = { kind: "model", id: target };
 		}
 	} else if (target === FOLLOW_MAIN) {
 		library.roles[role] = { kind: "follow-main" };
 	} else if (target === null) {
-		throw new Error("这个角色必须选择一条模型或跟随主模型");
+		throw new Error(t("这个角色必须选择一条模型或跟随主模型"));
 	} else {
 		requireEntry(library, target);
 		library.roles[role] = { kind: "model", id: target };

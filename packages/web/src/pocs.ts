@@ -16,6 +16,7 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import { openZip } from "./poc-zip.ts";
 import type {
 	SentinelPoc,
@@ -310,7 +311,7 @@ export class PocStore {
 		let current = "";
 		try {
 			for (const file of this.candidates(files, session.skipped)) {
-				if (options.signal?.aborted) throw new Error("导入已取消");
+				if (options.signal?.aborted) throw new Error(t("导入已取消"));
 				this.rotateChunk(session);
 				this.applyImport(session, file);
 				processed += 1;
@@ -360,16 +361,16 @@ export class PocStore {
 
 	private applyImport(session: ImportSession, file: { name: string; content: string }): void {
 		if (file.content.length > MAX_TEMPLATE_BYTES) {
-			session.skipped.push({ name: file.name, reason: "模板过大" });
+			session.skipped.push({ name: file.name, reason: t("模板过大") });
 			return;
 		}
 		if (isNucleiWorkflow(file.content)) {
-			session.skipped.push({ name: file.name, reason: "nuclei workflow，不是模板" });
+			session.skipped.push({ name: file.name, reason: t("nuclei workflow，不是模板") });
 			return;
 		}
 		const parsed = parseNucleiTemplate(file.content);
 		if (!parsed) {
-			session.skipped.push({ name: file.name, reason: "缺少有效的模板 id" });
+			session.skipped.push({ name: file.name, reason: t("缺少有效的模板 id") });
 			return;
 		}
 		if (session.seen.has(parsed.id)) return; // same id twice in one batch: first wins
@@ -423,7 +424,7 @@ export class PocStore {
 		for (const file of files) {
 			const safeName = safeEntryName(file.name);
 			if (!safeName) {
-				skipped.push({ name: file.name, reason: "非法文件名" });
+				skipped.push({ name: file.name, reason: t("非法文件名") });
 				continue;
 			}
 			if (safeName.endsWith(".zip")) {
@@ -431,7 +432,7 @@ export class PocStore {
 				try {
 					stream = openZip(file.bytes);
 				} catch (error) {
-					skipped.push({ name: safeName, reason: error instanceof Error ? error.message : "解压失败" });
+					skipped.push({ name: safeName, reason: error instanceof Error ? error.message : t("解压失败") });
 					continue;
 				}
 				for (const entry of stream.entries) {
@@ -447,7 +448,7 @@ export class PocStore {
 				continue;
 			}
 			if (isYamlName(safeName)) yield { name: safeName, content: file.bytes.toString("utf8") };
-			else skipped.push({ name: safeName, reason: "只支持 .yaml / .yml / .zip" });
+			else skipped.push({ name: safeName, reason: t("只支持 .yaml / .yml / .zip") });
 		}
 	}
 

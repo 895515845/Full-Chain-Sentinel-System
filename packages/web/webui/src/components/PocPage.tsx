@@ -16,6 +16,7 @@
  */
 
 import { useRef, useState } from "react";
+import { t } from "../i18n.ts";
 import type {
 	SentinelPoc,
 	SentinelPocFilters,
@@ -47,7 +48,7 @@ function CopyButton({ text }: { text: string }) {
 					.catch(() => {});
 			}}
 		>
-			{copied ? "已复制" : "复制全文"}
+			{copied ? t("已复制") : t("复制全文")}
 		</button>
 	);
 }
@@ -55,10 +56,18 @@ function CopyButton({ text }: { text: string }) {
 /** The official source's newest outcome as one dim line; failures say why. */
 function officialLine(source: SentinelPocSource): string {
 	const last = source.lastResult;
-	if (!last) return "官方同步：还没有同步过";
+	if (!last) return t("官方同步：还没有同步过");
 	const when = last.at.slice(0, 19).replace("T", " ");
-	const base = `${when} · 新增 ${last.imported} · 覆盖 ${last.replaced} · 跳过 ${last.skipped} · ${(last.durationMs / 1000).toFixed(1)}s`;
-	return last.ok ? `官方同步：${base}` : `官方同步失败：${base} · ${last.error ?? "未知错误"}`;
+	const base = t("{when} · 新增 {imported} · 覆盖 {replaced} · 跳过 {skipped} · {duration}s", {
+		when,
+		imported: last.imported,
+		replaced: last.replaced,
+		skipped: last.skipped,
+		duration: (last.durationMs / 1000).toFixed(1),
+	});
+	return last.ok
+		? t("官方同步：{base}", { base })
+		: t("官方同步失败：{base} · {error}", { base, error: last.error ?? t("未知错误") });
 }
 
 export function PocPage({
@@ -144,7 +153,7 @@ export function PocPage({
 		const open = openId === item.id;
 		const expanded = open && detail?.id === item.id ? detail : null;
 		const confirmDelete = (): void => {
-			if (window.confirm(`删除模板「${item.id}」？\n该操作不可恢复。`)) onDelete(item.id);
+			if (window.confirm(t("删除模板「{id}」？\n该操作不可恢复。", { id: item.id }))) onDelete(item.id);
 		};
 		return [
 			<tr
@@ -179,13 +188,13 @@ export function PocPage({
 				<td className="poc-op">
 					<button
 						type="button"
-						title={`删除模板 ${item.id}（不可恢复）`}
+						title={t("删除模板 {id}（不可恢复）", { id: item.id })}
 						onClick={(event) => {
 							event.stopPropagation();
 							confirmDelete();
 						}}
 					>
-						删除
+						{t("删除")}
 					</button>
 				</td>
 			</tr>,
@@ -200,17 +209,17 @@ export function PocPage({
 									<i />
 								</span>
 								<span className="poc-term-file">
-									{item.sourceFile} · 导入 {item.importedAt.slice(0, 16).replace("T", " ")}
+									{item.sourceFile} · {t("导入")} {item.importedAt.slice(0, 16).replace("T", " ")}
 									{item.tags.length > 0 ? ` · ${item.tags.join(", ")}` : ""}
 								</span>
 								<span className="poc-term-ops">
 									{expanded ? <CopyButton text={expanded.content} /> : null}
 									<button type="button" className="poc-term-op danger" onClick={confirmDelete}>
-										删除模板
+										{t("删除模板")}
 									</button>
 								</span>
 							</div>
-							<pre className="poc-term-body">{expanded ? expanded.content : "加载模板全文…"}</pre>
+							<pre className="poc-term-body">{expanded ? expanded.content : t("加载模板全文…")}</pre>
 						</div>
 					</td>
 				</tr>
@@ -222,8 +231,10 @@ export function PocPage({
 		<div className="page-card">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
-					POC 库
-					<span className="ws-panel__sub">共 {stats.total} 个 · Agent 侧只读（poc_search / poc_read）</span>
+					{t("POC 库")}
+					<span className="ws-panel__sub">
+						{t("共 {total} 个 · Agent 侧只读（poc_search / poc_read）", { total: stats.total })}
+					</span>
 				</div>
 				<div className="ws-panel__actions">
 					<input
@@ -241,19 +252,19 @@ export function PocPage({
 						type="button"
 						className="ghost small"
 						disabled={officialSyncing}
-						title="从官方仓库 projectdiscovery/nuclei-templates 下载最新模板包（zip 约 18MB、约 1.4 万个模板），按 id 去重后并入 POC 库；不会删除已有模板"
+						title={t("从官方仓库 projectdiscovery/nuclei-templates 下载最新模板包（zip 约 18MB、约 1.4 万个模板），按 id 去重后并入 POC 库；不会删除已有模板")}
 						onClick={onSyncOfficial}
 					>
-						{officialSyncing ? "同步中…" : "一键同步官方 POC"}
+						{officialSyncing ? t("同步中…") : t("一键同步官方 POC")}
 					</button>
 					<button
 						type="button"
 						className="primary"
 						disabled={importing}
-						title="选择或拖入 Nuclei 模板文件：可多选 .yaml / .yml，或打包的 .zip（解包后自动跳过非模板文件）"
+						title={t("选择或拖入 Nuclei 模板文件：可多选 .yaml / .yml，或打包的 .zip（解包后自动跳过非模板文件）")}
 						onClick={() => fileInput.current?.click()}
 					>
-						{importing ? "导入中…" : "导入 POC"}
+						{importing ? t("导入中…") : t("导入 POC")}
 					</button>
 				</div>
 			</div>
@@ -269,7 +280,7 @@ export function PocPage({
 				<div className="poc-toolbar">
 					<input
 						className="poc-search"
-						placeholder="搜索模板 id、名称、标签或 CVE…"
+						placeholder={t("搜索模板 id、名称、标签或 CVE…")}
 						value={search}
 						spellCheck={false}
 						onChange={(event) => setSearch(event.target.value)}
@@ -285,7 +296,7 @@ export function PocPage({
 							apply(value ? { severity: value as SentinelPocSeverity } : { severity: undefined });
 						}}
 					>
-						<option value="">全部等级</option>
+						<option value="">{t("全部等级")}</option>
 						{SENTINEL_VULN_SEVERITIES.map((severity) => (
 							<option key={severity} value={severity}>
 								{SENTINEL_VULN_SEVERITY_LABELS[severity]}
@@ -294,7 +305,7 @@ export function PocPage({
 					</select>
 					<input
 						className="poc-select poc-tag"
-						placeholder="精确标签，如 cve"
+						placeholder={t("精确标签，如 cve")}
 						value={tag}
 						spellCheck={false}
 						onChange={(event) => setTag(event.target.value)}
@@ -303,27 +314,37 @@ export function PocPage({
 						}}
 					/>
 					<span className="poc-hits">
-						匹配 {total} 条
-						{filters.search || filters.severity || filters.tag ? "（已筛选）" : ""}
+						{t("匹配 {total} 条", { total })}
+						{filters.search || filters.severity || filters.tag ? t("（已筛选）") : ""}
 					</span>
 				</div>
 	
 				{importing && importProgress ? (
 					<div className="poc-import-progress">
-						已处理 {importProgress.processed} 条 · 新增 {importProgress.imported} · 覆盖 {importProgress.replaced} ·
-						跳过 {importProgress.skipped}
+						{t("已处理 {processed} 条 · 新增 {imported} · 覆盖 {replaced} · 跳过 {skipped}", {
+							processed: importProgress.processed,
+							imported: importProgress.imported,
+							replaced: importProgress.replaced,
+							skipped: importProgress.skipped,
+						})}
 						{importProgress.current ? ` · ${importProgress.current}` : ""}
 					</div>
 				) : null}
 
 				{outcome ? (
 					<div className="poc-import-note">
-						导入完成：新增 {outcome.imported} 条，覆盖 {outcome.replaced} 条
+						{t("导入完成：新增 {imported} 条，覆盖 {replaced} 条", {
+							imported: outcome.imported,
+							replaced: outcome.replaced,
+						})}
 						{outcome.skipped.length > 0
-							? `，跳过 ${outcome.skipped.length} 条（${outcome.skipped
-									.slice(0, 3)
-									.map((item) => `${item.name}：${item.reason}`)
-									.join("；")}${outcome.skipped.length > 3 ? " 等" : ""}）`
+							? t("，跳过 {count} 条（{items}）", {
+									count: outcome.skipped.length,
+									items: `${outcome.skipped
+										.slice(0, 3)
+										.map((item) => t("{name}：{reason}", { name: item.name, reason: item.reason }))
+										.join(t("；"))}${outcome.skipped.length > 3 ? ` ${t("等")}` : ""}`,
+								})
 							: ""}
 					</div>
 				) : null}
@@ -334,14 +355,16 @@ export function PocPage({
 							<tr>
 								<th className="poc-caret-col" />
 								<th className="poc-sortable" onClick={() => toggleSort("id")}>
-									模板 ID{sortKey === "id" ? (sortDesc ? " ▼" : " ▲") : ""}
+									{t("模板 ID")}
+									{sortKey === "id" ? (sortDesc ? " ▼" : " ▲") : ""}
 								</th>
-								<th>等级</th>
-								<th>名称</th>
-								<th>标签</th>
+								<th>{t("等级")}</th>
+								<th>{t("名称")}</th>
+								<th>{t("标签")}</th>
 								<th>CVE</th>
 								<th className="poc-sortable" onClick={() => toggleSort("when")}>
-									导入时间{sortKey === "when" ? (sortDesc ? " ▼" : " ▲") : ""}
+									{t("导入时间")}
+									{sortKey === "when" ? (sortDesc ? " ▼" : " ▲") : ""}
 								</th>
 								<th />
 							</tr>
@@ -350,8 +373,7 @@ export function PocPage({
 							{sorted.length === 0 ? (
 								<tr className="poc-empty">
 									<td colSpan={8}>
-										暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用
-										poc_search / poc_read 只读检索。
+										{t("暂无模板。点右上「导入 POC」上传 nuclei 模板（可多选 yaml 或 zip）；导入后 Agent 可用 poc_search / poc_read 只读检索。")}
 									</td>
 								</tr>
 							) : (
@@ -364,22 +386,27 @@ export function PocPage({
 				{pages > 1 ? (
 					<div className="poc-pager">
 						<button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-							上一页
+							{t("上一页")}
 						</button>
 						<span>
-							第 {page} / {pages} 页 · 共 {total} 条
+							{t("第 {page} / {pages} 页 · 共 {total} 条", { page, pages, total })}
 						</span>
 						<button type="button" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>
-							下一页
+							{t("下一页")}
 						</button>
 					</div>
 				) : null}
 	
 				<div className="poc-foot">
-					<span>库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei</span>
+					<span>{t("库为全局共享；模板不进容器，Agent 需自己写 yaml 后经 bash 执行 nuclei")}</span>
 					<span className="poc-foot-sev">
-						严重 {stats.bySeverity.critical} · 高危 {stats.bySeverity.high} · 中危 {stats.bySeverity.medium} · 低危{" "}
-						{stats.bySeverity.low} · 信息 {stats.bySeverity.info}
+						{t("严重 {critical} · 高危 {high} · 中危 {medium} · 低危 {low} · 信息 {info}", {
+							critical: stats.bySeverity.critical,
+							high: stats.bySeverity.high,
+							medium: stats.bySeverity.medium,
+							low: stats.bySeverity.low,
+							info: stats.bySeverity.info,
+						})}
 					</span>
 				</div>
 			</div>

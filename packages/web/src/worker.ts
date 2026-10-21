@@ -34,6 +34,7 @@ import {
 	startRound,
 } from "./goal.ts";
 import type { GoalPort } from "./goal-tool.ts";
+import { t } from "./i18n.ts";
 import type {
 	SentinelEngineEvent,
 	SentinelEngineTask,
@@ -197,7 +198,7 @@ export class EngineWorker {
 		try {
 			await session.prompt(this.task.objective, {});
 		} catch (error) {
-			this.settle("failed", `启动失败：${errorText(error)}`, this.currentUsage());
+			this.settle("failed", t("启动失败：{error}", { error: errorText(error) }), this.currentUsage());
 		}
 	}
 
@@ -208,7 +209,7 @@ export class EngineWorker {
 		if (!restored || restored.status === "completed") {
 			this.settle(
 				"done",
-				restored?.completion?.summary ?? "任务会话已结束（恢复时未发现未完成目标）",
+				restored?.completion?.summary ?? t("任务会话已结束（恢复时未发现未完成目标）"),
 				this.currentUsage(),
 			);
 			return;
@@ -227,7 +228,7 @@ export class EngineWorker {
 				{ triggerTurn: true },
 			)
 			.catch((error: unknown) => {
-				this.settle("failed", `恢复失败：${errorText(error)}`, this.currentUsage());
+				this.settle("failed", t("恢复失败：{error}", { error: errorText(error) }), this.currentUsage());
 			});
 	}
 
@@ -276,7 +277,7 @@ export class EngineWorker {
 				{ triggerTurn: true },
 			);
 		} catch (error) {
-			this.settle("failed", `续跑启动失败：${errorText(error)}`, this.currentUsage());
+			this.settle("failed", t("续跑启动失败：{error}", { error: errorText(error) }), this.currentUsage());
 		}
 	}
 
@@ -398,19 +399,23 @@ export class EngineWorker {
 		});
 		this.roundToolCalls = 0;
 		if (this.goal.status === "completed") {
-			this.settle("done", this.goal.completion?.summary ?? "任务完成", this.currentUsage());
+			this.settle("done", this.goal.completion?.summary ?? t("任务完成"), this.currentUsage());
 			return;
 		}
 		if (this.goal.status === "blocked") {
-			this.settle("blocked", this.goal.blocked?.reason ?? "任务阻塞", this.currentUsage());
+			this.settle("blocked", this.goal.blocked?.reason ?? t("任务阻塞"), this.currentUsage());
 			return;
 		}
 		if (aborted) {
-			this.settle("aborted", "任务被中止", this.currentUsage());
+			this.settle("aborted", t("任务被中止"), this.currentUsage());
 			return;
 		}
 		if (this.overTokenLimit()) {
-			this.settle("failed", `任务超出 token 上限（已用 ${this.currentUsage().total}）`, this.currentUsage());
+			this.settle(
+				"failed",
+				t("任务超出 token 上限（已用 {total}）", { total: this.currentUsage().total }),
+				this.currentUsage(),
+			);
 			return;
 		}
 		if (outcome === "error") {
@@ -422,7 +427,9 @@ export class EngineWorker {
 			this.hooks.onProgress();
 			this.settle(
 				"failed",
-				`模型请求中断：${providerError ?? "原因未知"}（可用 continue_task 在原会话上续跑）`,
+				t("模型请求中断：{reason}（可用 continue_task 在原会话上续跑）", {
+					reason: providerError ?? t("原因未知"),
+				}),
 				this.currentUsage(),
 			);
 			return;
@@ -437,7 +444,7 @@ export class EngineWorker {
 			// more to give on its own, so it goes back to the commander.
 			this.settle(
 				"failed",
-				`${goal.pauseNote ?? "自动续跑停止"}（可用 continue_task 在原会话上续跑）`,
+				t("{note}（可用 continue_task 在原会话上续跑）", { note: goal.pauseNote ?? t("自动续跑停止") }),
 				this.currentUsage(),
 			);
 			return;
@@ -452,7 +459,7 @@ export class EngineWorker {
 				{ triggerTurn: true },
 			)
 			.catch((error: unknown) => {
-				this.settle("failed", `续跑启动失败：${errorText(error)}`, this.currentUsage());
+				this.settle("failed", t("续跑启动失败：{error}", { error: errorText(error) }), this.currentUsage());
 			});
 	}
 
@@ -460,7 +467,7 @@ export class EngineWorker {
 	private armTimeLimit(): void {
 		if (this.limits.timeLimitMin === null) return;
 		this.timeLimitTimer = setTimeout(() => {
-			void this.abort(`超出任务时间上限（${this.limits.timeLimitMin} 分钟）`);
+			void this.abort(t("超出任务时间上限（{minutes} 分钟）", { minutes: String(this.limits.timeLimitMin) }));
 		}, this.limits.timeLimitMin * 60_000);
 	}
 

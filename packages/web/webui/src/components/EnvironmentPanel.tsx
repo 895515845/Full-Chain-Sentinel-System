@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SentinelContainerNetwork, SentinelEnvItem, SentinelEnvReport, SentinelSources } from "../types.ts";
+import { t } from "../i18n.ts";
 import { RefreshIcon } from "./icons.tsx";
 
 /** One-click Chinese mirrors; the server normalizes whatever is saved. */
@@ -34,13 +35,13 @@ const EMPTY_SOURCES: SentinelSources = {
 const SOURCE_FIELDS: Array<{ key: keyof SentinelSources; label: string; placeholder: string }> = [
 	{
 		key: "baseImage",
-		label: "基础镜像",
-		placeholder: "kalilinux/kali-rolling:latest（可只填 registry，如 docker.m.daocloud.io）",
+		label: t("基础镜像"),
+		placeholder: t("kalilinux/kali-rolling:latest（可只填 registry，如 docker.m.daocloud.io）"),
 	},
-	{ key: "aptMirror", label: "apt 源", placeholder: "http://http.kali.org/kali（官方）" },
-	{ key: "pipIndex", label: "pip 源", placeholder: "https://pypi.org/simple（官方）" },
-	{ key: "npmRegistry", label: "npm 源", placeholder: "https://registry.npmjs.org（官方）" },
-	{ key: "goProxy", label: "go 代理", placeholder: "https://proxy.golang.org,direct（官方）" },
+	{ key: "aptMirror", label: t("apt 源"), placeholder: t("http://http.kali.org/kali（官方）") },
+	{ key: "pipIndex", label: t("pip 源"), placeholder: t("https://pypi.org/simple（官方）") },
+	{ key: "npmRegistry", label: t("npm 源"), placeholder: t("https://registry.npmjs.org（官方）") },
+	{ key: "goProxy", label: t("go 代理"), placeholder: t("https://proxy.golang.org,direct（官方）") },
 ];
 
 /**
@@ -66,14 +67,13 @@ function SourcesForm({
 	return (
 		<section className="env-sources">
 			<div className="env-sources-head">
-				<h3>构建源</h3>
+				<h3>{t("构建源")}</h3>
 				<span className="composer-spacer" />
-				{!dirty && savedAt !== null ? <span className="env-note">已保存，重建镜像后生效</span> : null}
-				{dirty ? <span className="env-note">有未保存的修改</span> : null}
+				{!dirty && savedAt !== null ? <span className="env-note">{t("已保存，重建镜像后生效")}</span> : null}
+				{dirty ? <span className="env-note">{t("有未保存的修改")}</span> : null}
 			</div>
 			<p className="settings-hint">
-				这些值会烘焙进工具镜像，所以保存后需要重建镜像；pip / npm / go 三项在容器内运行时（pip install、npm
-				install、go install）同样生效。留空表示使用官方源。
+				{t("这些值会烘焙进工具镜像，所以保存后需要重建镜像；pip / npm / go 三项在容器内运行时（pip install、npm install、go install）同样生效。留空表示使用官方源。")}
 			</p>
 			<div className="env-source-grid">
 				{SOURCE_FIELDS.map((field) => (
@@ -90,14 +90,14 @@ function SourcesForm({
 			</div>
 			<div className="env-source-actions">
 				<button type="button" className="ghost small" onClick={() => setDraft(CHINA_SOURCES)} disabled={busy}>
-					中国镜像源
+					{t("中国镜像源")}
 				</button>
 				<button type="button" className="ghost small" onClick={() => setDraft(EMPTY_SOURCES)} disabled={busy}>
-					清空（用官方源）
+					{t("清空（用官方源）")}
 				</button>
 				<span className="composer-spacer" />
 				<button type="button" className="primary" onClick={() => onSave(draft)} disabled={busy || !dirty}>
-					保存
+					{t("保存")}
 				</button>
 			</div>
 		</section>
@@ -113,15 +113,15 @@ function SourcesForm({
 const NETWORK_OPTIONS: Array<{ value: SentinelContainerNetwork; label: string; detail: string }> = [
 	{
 		value: "host",
-		label: "host（默认）",
+		label: t("host（默认）"),
 		detail:
-			"容器直接用宿主机的网络：里面起的监听端口（反向 shell、payload 服务、handler）目标机器能连回来，127.0.0.1 就是宿主机（Burp、本地靶场），内网、VPN 与内网 DNS 都是真实的。代价是与宿主机抢端口，且不再有 Docker 的网络隔离。",
+			t("容器直接用宿主机的网络：里面起的监听端口（反向 shell、payload 服务、handler）目标机器能连回来，127.0.0.1 就是宿主机（Burp、本地靶场），内网、VPN 与内网 DNS 都是真实的。代价是与宿主机抢端口，且不再有 Docker 的网络隔离。"),
 	},
 	{
 		value: "bridge",
-		label: "bridge（Docker 默认隔离）",
+		label: t("bridge（Docker 默认隔离）"),
 		detail:
-			"容器有自己的地址，只能通过 host.docker.internal 访问宿主机，且不对外发布任何端口——目标机器连不回容器里的监听。需要隔离、也不需要反弹时用它。",
+			t("容器有自己的地址，只能通过 host.docker.internal 访问宿主机，且不对外发布任何端口——目标机器连不回容器里的监听。需要隔离、也不需要反弹时用它。"),
 	},
 ];
 
@@ -146,13 +146,13 @@ function NetworkForm({
 	return (
 		<section className="env-sources">
 			<div className="env-sources-head">
-				<h3>容器网络</h3>
+				<h3>{t("容器网络")}</h3>
 				<span className="composer-spacer" />
-				{!dirty && savedAt !== null ? <span className="env-note">已保存，重建容器后生效</span> : null}
-				{dirty ? <span className="env-note">有未保存的修改</span> : null}
+				{!dirty && savedAt !== null ? <span className="env-note">{t("已保存，重建容器后生效")}</span> : null}
+				{dirty ? <span className="env-note">{t("有未保存的修改")}</span> : null}
 			</div>
 			<p className="settings-hint">
-				新建项目和重建的容器用这个模式；已经在跑的容器保持原样，要到「项目」页点「重建容器」才会切换（上面「项目容器」那一项会写明它们现在用的是哪个）。
+				{t("新建项目和重建的容器用这个模式；已经在跑的容器保持原样，要到「项目」页点「重建容器」才会切换（上面「项目容器」那一项会写明它们现在用的是哪个）。")}
 			</p>
 			<div className="env-network-options">
 				{NETWORK_OPTIONS.map((option) => (
@@ -172,7 +172,7 @@ function NetworkForm({
 			<div className="env-source-actions">
 				<span className="composer-spacer" />
 				<button type="button" className="primary" onClick={() => onSave(draft)} disabled={busy || !dirty}>
-					保存
+					{t("保存")}
 				</button>
 			</div>
 		</section>
@@ -180,10 +180,10 @@ function NetworkForm({
 }
 
 const STATUS_LABEL: Record<SentinelEnvItem["status"], string> = {
-	ok: "通过",
-	warn: "警告",
-	fail: "失败",
-	skipped: "跳过",
+	ok: t("通过"),
+	warn: t("警告"),
+	fail: t("失败"),
+	skipped: t("跳过"),
 };
 
 /** Stable group order, independent of the order the server emitted items in. */
@@ -198,17 +198,17 @@ function grouped(items: SentinelEnvItem[]): { group: string; items: SentinelEnvI
 
 function diagnostics(report: SentinelEnvReport): string {
 	const lines = [
-		`全链哨兵 环境诊断`,
-		`时间: ${new Date(report.at).toLocaleString("zh-CN")}`,
-		`地址: ${report.url}`,
-		`结论: ${report.ok ? "通过" : "未通过"}`,
+		t("全链哨兵 环境诊断"),
+		t("时间: {time}", { time: new Date(report.at).toLocaleString("zh-CN") }),
+		t("地址: {url}", { url: report.url }),
+		t("结论: {result}", { result: report.ok ? t("通过") : t("未通过") }),
 		"",
 	];
 	for (const { group, items } of grouped(report.items)) {
-		lines.push(`[${group}]`);
+		lines.push(`[${t(group)}]`);
 		for (const item of items) {
-			lines.push(`${STATUS_LABEL[item.status]}${item.blocking ? "(阻断)" : ""} ${item.label}: ${item.detail}`);
-			if (item.hint) lines.push(`  建议: ${item.hint}`);
+			lines.push(`${STATUS_LABEL[item.status]}${item.blocking ? t("(阻断)") : ""} ${item.label}: ${item.detail}`);
+			if (item.hint) lines.push(`  ${t("建议: {hint}", { hint: item.hint })}`);
 		}
 	}
 	return lines.join("\n");
@@ -254,11 +254,11 @@ export function EnvironmentPanel({
 		try {
 			await navigator.clipboard.writeText(text);
 			setFallback(null);
-			setCopyNote("已复制");
+			setCopyNote(t("已复制"));
 		} catch {
 			// Clipboard access needs a secure context; a LAN address over http is not one.
 			setFallback(text);
-			setCopyNote("复制失败，请手动选择下面的文本");
+			setCopyNote(t("复制失败，请手动选择下面的文本"));
 		}
 		window.setTimeout(() => setCopyNote(null), 4000);
 	};
@@ -266,7 +266,7 @@ export function EnvironmentPanel({
 	if (!report) {
 		return (
 			<div className="env">
-				<p className="settings-hint">正在检查 Docker 环境…</p>
+				<p className="settings-hint">{t("正在检查 Docker 环境…")}</p>
 			</div>
 		);
 	}
@@ -277,27 +277,27 @@ export function EnvironmentPanel({
 	return (
 		<div className="env">
 			<div className="env-head">
-				<span className={`env-verdict ${report.ok ? "ok" : "fail"}`}>{report.ok ? "环境可用" : "环境不可用"}</span>
+				<span className={`env-verdict ${report.ok ? "ok" : "fail"}`}>{report.ok ? t("环境可用") : t("环境不可用")}</span>
 				<span className="env-meta">
-					检查于 {new Date(report.at).toLocaleString("zh-CN")} · {report.url}
+					{t("检查于")} {new Date(report.at).toLocaleString("zh-CN")} · {report.url}
 				</span>
 				<span className="composer-spacer" />
 				{copyNote ? <span className="env-note">{copyNote}</span> : null}
-				<button type="button" className="ghost small" onClick={copyDiagnostics} title="复制全部检查项，便于排障">
-					复制诊断
+				<button type="button" className="ghost small" onClick={copyDiagnostics} title={t("复制全部检查项，便于排障")}>
+					{t("复制诊断")}
 				</button>
-				<button type="button" className="ghost small" onClick={onRefresh} disabled={building} title="重新检查">
+				<button type="button" className="ghost small" onClick={onRefresh} disabled={building} title={t("重新检查")}>
 					<RefreshIcon />
-					复检
+					{t("复检")}
 				</button>
 				{building ? (
 					<button type="button" className="ghost small danger" onClick={onAbortBuild}>
-						中止构建
+						{t("中止构建")}
 					</button>
 				) : confirming ? (
 					<>
 						<button type="button" className="ghost small" onClick={() => setConfirming(false)}>
-							取消
+							{t("取消")}
 						</button>
 						<button
 							type="button"
@@ -307,7 +307,7 @@ export function EnvironmentPanel({
 								onBuild();
 							}}
 						>
-							确认构建
+							{t("确认构建")}
 						</button>
 					</>
 				) : (
@@ -315,23 +315,23 @@ export function EnvironmentPanel({
 						type="button"
 						className="primary"
 						onClick={() => setConfirming(true)}
-						title="用内置的 Dockerfile 构建 sentinel:latest"
+						title={t("用内置的 Dockerfile 构建 sentinel:latest")}
 					>
-						构建镜像
+						{t("构建镜像")}
 					</button>
 				)}
 			</div>
 
 			{report.ok ? (
 				<p className="settings-hint">
-					Docker 环境正常，工具调用会在项目容器内执行。镜像更新、切换机器或修改 Dockerfile 后回来复检即可。
+					{t("Docker 环境正常，工具调用会在项目容器内执行。镜像更新、切换机器或修改 Dockerfile 后回来复检即可。")}
 				</p>
 			) : (
 				<div className="env-blocked">
-					<strong>对话已锁定：</strong>
-					{`${failures.length} 项阻断检查未通过，Agent 无法执行任何工具。`}
+					<strong>{t("对话已锁定：")}</strong>
+					{t("{count} 项阻断检查未通过，Agent 无法执行任何工具。", { count: failures.length })}
 					{failures.some((entry) => entry.id === "image-present") ? (
-						<span> 镜像不存在时点右上角「构建镜像」，首次构建约 5–15 分钟并需要网络。</span>
+						<span> {t("镜像不存在时点右上角「构建镜像」，首次构建约 5–15 分钟并需要网络。")}</span>
 					) : null}
 				</div>
 			)}
@@ -354,23 +354,23 @@ export function EnvironmentPanel({
 
 			{building || buildLog.length > 0 ? (
 				<section className="env-build">
-					<h3>{building ? "正在构建工具镜像…" : "上次构建输出"}</h3>
+					<h3>{building ? t("正在构建工具镜像…") : t("上次构建输出")}</h3>
 					<pre className="env-build-log" ref={logRef}>
-						{buildLog.length > 0 ? buildLog.join("\n") : "等待 docker build 输出…"}
+						{buildLog.length > 0 ? buildLog.join("\n") : t("等待 docker build 输出…")}
 					</pre>
 				</section>
 			) : null}
 
 			{grouped(report.items).map(({ group, items }) => (
 				<section key={group} className="env-group">
-					<h3>{group}</h3>
+					<h3>{t(group)}</h3>
 					{items.map((item) => (
 						<div key={item.id} className={`env-row status-${item.status}`}>
 							<span className={`env-chip status-${item.status}`}>{STATUS_LABEL[item.status]}</span>
 							<span className="env-body">
 								<span className="env-label">
 									{item.label}
-									{item.blocking ? <span className="env-blocking">阻断</span> : null}
+									{item.blocking ? <span className="env-blocking">{t("阻断")}</span> : null}
 								</span>
 								<span className="env-detail">{item.detail}</span>
 								{item.hint ? <span className="env-hint">{item.hint}</span> : null}
@@ -381,12 +381,12 @@ export function EnvironmentPanel({
 			))}
 
 			{warnings.length > 0 ? (
-				<p className="settings-hint">警告项不影响运行，但可能让工具变慢或缺少能力，建议一并处理。</p>
+				<p className="settings-hint">{t("警告项不影响运行，但可能让工具变慢或缺少能力，建议一并处理。")}</p>
 			) : null}
 
 			{fallback ? (
 				<>
-					<p className="settings-hint">诊断信息（手动复制）：</p>
+					<p className="settings-hint">{t("诊断信息（手动复制）：")}</p>
 					<textarea className="env-diag" readOnly value={fallback} rows={12} />
 				</>
 			) : null}

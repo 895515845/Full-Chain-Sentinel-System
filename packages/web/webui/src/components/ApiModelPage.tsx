@@ -20,22 +20,23 @@ import swaggerUiCss from "swagger-ui-dist/swagger-ui.css?url";
 import swaggerUiBundle from "swagger-ui-dist/swagger-ui-bundle.js?url";
 import type { SentinelApiModel, SentinelApiModelEntity, SentinelApiModelEvent, SentinelApiModelStatus, SentinelApiModelSummary } from "../types.ts";
 import { SENTINEL_API_MODEL_STATUS_LABELS } from "../types.ts";
+import { t } from "../i18n.ts";
 
 const STATUS_FILTERS: { value: SentinelApiModelStatus | ""; label: string }[] = [
-	{ value: "", label: "全部" },
-	{ value: "modeling", label: "建模中" },
-	{ value: "done", label: "已完成" },
-	{ value: "manual", label: "人工结束" },
-	{ value: "failed", label: "失败" },
+	{ value: "", label: t("全部") },
+	{ value: "modeling", label: t("建模中") },
+	{ value: "done", label: t("已完成") },
+	{ value: "manual", label: t("人工结束") },
+	{ value: "failed", label: t("失败") },
 ];
 
 /** The three panes of a drill-down. The document is the default: it is the deliverable. */
 type DetailPane = "doc" | "entities" | "timeline";
 
 const DETAIL_PANES: { value: DetailPane; label: string }[] = [
-	{ value: "doc", label: "接口文档" },
-	{ value: "entities", label: "业务实体" },
-	{ value: "timeline", label: "时间线" },
+	{ value: "doc", label: t("接口文档") },
+	{ value: "entities", label: t("业务实体") },
+	{ value: "timeline", label: t("时间线") },
 ];
 
 /**
@@ -71,15 +72,18 @@ function formatTime(iso: string | null): string {
 function eventLabel(event: SentinelApiModelEvent): string {
 	switch (event.kind) {
 		case "created":
-			return "建模开始";
+			return t("建模开始");
 		case "submitted":
-			return `提交（${event.pathCount ?? 0} 路径 / ${event.operationCount ?? 0} 操作）`;
+			return t("提交（{paths} 路径 / {ops} 操作）", {
+				paths: event.pathCount ?? 0,
+				ops: event.operationCount ?? 0,
+			});
 		case "done":
-			return "Agent 声明完成";
+			return t("Agent 声明完成");
 		case "manual":
-			return "操作员结束";
+			return t("操作员结束");
 		case "failed":
-			return "失败";
+			return t("失败");
 	}
 }
 
@@ -98,9 +102,9 @@ function EntityCard({ entity }: { entity: SentinelApiModelEntity }) {
 				<table className="api-model-fields">
 					<thead>
 						<tr>
-							<th>字段</th>
-							<th>类型</th>
-							<th>说明</th>
+							<th>{t("字段")}</th>
+							<th>{t("类型")}</th>
+							<th>{t("说明")}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -179,10 +183,10 @@ export function ApiModelPage({
 		return (
 			<div className="page-card">
 				<div className="ws-panel__head">
-					<div className="ws-panel__title">业务建模</div>
+					<div className="ws-panel__title">{t("业务建模")}</div>
 				</div>
 				<div className="ws-panel__body">
-					<div className="ws-empty">请先在侧栏顶部创建或选择一个项目：业务建模的成果按项目归档。</div>
+					<div className="ws-empty">{t("请先在侧栏顶部创建或选择一个项目：业务建模的成果按项目归档。")}</div>
 				</div>
 			</div>
 		);
@@ -195,22 +199,22 @@ export function ApiModelPage({
 			<div className="page-card api-model-detail">
 				<div className="ws-panel__head">
 					<div className="ws-panel__title">
-						业务建模
+						{t("业务建模")}
 						<span className="ws-panel__sub">{detail.title}</span>
 					</div>
 					<div className="ws-panel__actions">
 						<button type="button" className="ghost small" onClick={onClose}>
-							返回列表
+							{t("返回列表")}
 						</button>
 						<button type="button" className="ghost small" onClick={() => onExport(detail.id, "json")}>
-							导出 JSON
+							{t("导出 JSON")}
 						</button>
 						<button type="button" className="ghost small" onClick={() => onExport(detail.id, "yaml")}>
-							导出 YAML
+							{t("导出 YAML")}
 						</button>
 						{detail.status === "modeling" ? (
 							<button type="button" className="ghost small" onClick={() => onEnd(detail.id)}>
-								标记已结束
+								{t("标记已结束")}
 							</button>
 						) : null}
 						<button
@@ -221,36 +225,36 @@ export function ApiModelPage({
 								onClose();
 							}}
 						>
-							删除
+							{t("删除")}
 						</button>
 					</div>
 				</div>
 				<div className="api-model-meta">
 					<StatusChip status={detail.status} />
 					<span>
-						目标 <b>{detail.target || "未记录目标"}</b>
+						{t("目标")} <b>{detail.target || t("未记录目标")}</b>
 					</span>
 					<span>
-						路径 <b>{detail.pathCount}</b>
+						{t("路径")} <b>{detail.pathCount}</b>
 					</span>
 					<span>
-						操作 <b>{detail.operationCount}</b>
+						{t("操作")} <b>{detail.operationCount}</b>
 					</span>
 					<span>
-						实体 <b>{detail.entities.length}</b>
+						{t("实体")} <b>{detail.entities.length}</b>
 					</span>
 					<span>
-						提交 <b>{detail.submissions}</b> 次
+						{t("提交")} <b>{detail.submissions}</b> {t("次")}
 					</span>
-					<span>开始 {formatTime(detail.createdAt)}</span>
-					<span>更新 {formatTime(detail.updatedAt)}</span>
+					<span>{t("开始 {time}", { time: formatTime(detail.createdAt) })}</span>
+					<span>{t("更新 {time}", { time: formatTime(detail.updatedAt) })}</span>
 					{detail.sessionPath ? (
 						<button
 							type="button"
 							className="link-button"
 							onClick={() => onOpenSession(detail.sessionPath as string)}
 						>
-							打开发起它的会话
+							{t("打开发起它的会话")}
 						</button>
 					) : null}
 					{detail.error ? <span className="api-model-error">{detail.error}</span> : null}
@@ -279,7 +283,7 @@ export function ApiModelPage({
 				<div className="api-model-stage">
 					<div className={`api-model-pane ${pane === "doc" ? "on" : ""}`}>
 						{detail.pathCount === 0 ? (
-							<div className="ws-empty">文档里还没有接口：Agent 提交后这里就是 Swagger UI。</div>
+							<div className="ws-empty">{t("文档里还没有接口：Agent 提交后这里就是 Swagger UI。")}</div>
 						) : (
 							<iframe
 								className="api-model-doc"
@@ -292,7 +296,7 @@ export function ApiModelPage({
 					<div className={`api-model-pane ${pane === "entities" ? "on" : ""}`}>
 						<div className="api-model-pane__pad">
 							{detail.entities.length === 0 ? (
-								<div className="ws-empty">这次建模没有整理业务实体。</div>
+								<div className="ws-empty">{t("这次建模没有整理业务实体。")}</div>
 							) : (
 								<div className="api-model-entities">
 									{detail.entities.map((entity) => (
@@ -324,15 +328,17 @@ export function ApiModelPage({
 		<div className="page-card">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
-					业务建模
+					{t("业务建模")}
 					<span className="ws-panel__sub">
-						{projectName ? `${projectName} · 共 ${items.length} 份` : `共 ${items.length} 份`}
+						{projectName
+							? `${projectName} · ${t("共 {n} 份", { n: items.length })}`
+							: t("共 {n} 份", { n: items.length })}
 					</span>
 				</div>
 				<div className="ws-panel__actions">
 					<input
 						className="inline-input"
-						placeholder="搜索名称或目标"
+						placeholder={t("搜索名称或目标")}
 						value={search}
 						onChange={(event) => setSearch(event.target.value)}
 					/>
@@ -348,31 +354,34 @@ export function ApiModelPage({
 						))}
 					</select>
 					<button type="button" className="ghost small" onClick={onRefresh}>
-						刷新
+						{t("刷新")}
 					</button>
 				</div>
 			</div>
 			<div className="ws-panel__body">
 				<p className="ws-panel__hint">
-					在对话页输入框上方点「业务建模」即可开始：Agent
-					会在当前会话里临时拿到两个建模工具，把还原出来的接口与业务实体提交到这里。平时它看不到这两个工具。
+					{t(
+						"在对话页输入框上方点「业务建模」即可开始：Agent 会在当前会话里临时拿到两个建模工具，把还原出来的接口与业务实体提交到这里。平时它看不到这两个工具。",
+					)}
 				</p>
 				{visible.length === 0 ? (
 					<div className="ws-empty">
 						{items.length === 0
-							? "还没有业务建模记录。"
-							: `没有符合当前筛选的记录（共 ${items.length} 份${search.trim() ? "，当前有关键字" : ""}）。`}
+							? t("还没有业务建模记录。")
+							: search.trim()
+								? t("没有符合当前筛选的记录（共 {n} 份，当前有关键字）。", { n: items.length })
+								: t("没有符合当前筛选的记录（共 {n} 份）。", { n: items.length })}
 					</div>
 				) : (
 					<table className="api-model-table api-model-list">
 						<thead>
 							<tr>
-								<th>名称</th>
-								<th>状态</th>
-								<th>目标</th>
-								<th>接口</th>
-								<th>实体</th>
-								<th>时间</th>
+								<th>{t("名称")}</th>
+								<th>{t("状态")}</th>
+								<th>{t("目标")}</th>
+								<th>{t("接口")}</th>
+								<th>{t("实体")}</th>
+								<th>{t("时间")}</th>
 								<th />
 							</tr>
 						</thead>
@@ -385,13 +394,16 @@ export function ApiModelPage({
 									</td>
 									<td className="api-model-target">{item.target || "—"}</td>
 									<td>
-										{item.pathCount} 路径 / {item.operationCount} 操作
+										{t("{paths} 路径 / {ops} 操作", {
+											paths: item.pathCount,
+											ops: item.operationCount,
+										})}
 									</td>
 									<td>{item.entityCount}</td>
 									<td>{formatTime(item.createdAt)}</td>
 									<td>
 										<button type="button" className="ghost small" onClick={() => onOpen(item.id)}>
-											查看
+											{t("查看")}
 										</button>
 									</td>
 								</tr>

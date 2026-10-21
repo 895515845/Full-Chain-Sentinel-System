@@ -6,7 +6,9 @@
  * from `packages/web/package.json` at build time (see `vite.config.ts`).
  */
 
-export const PROJECT_NAME = "全链哨兵";
+import { t } from "./i18n.ts";
+
+export const PROJECT_NAME = t("全链哨兵");
 export const PROJECT_REPOSITORY = "https://github.com/zgsfsec/Full-Chain-Sentinel-System";
 export const PROJECT_LICENSE = "MIT";
 export const PROJECT_LICENSE_URL = `${PROJECT_REPOSITORY}/blob/main/LICENSE`;

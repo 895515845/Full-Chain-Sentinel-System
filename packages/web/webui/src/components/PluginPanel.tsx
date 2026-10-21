@@ -17,13 +17,14 @@ import type {
 	SentinelPluginView,
 	SentinelPluginsView,
 } from "../types.ts";
+import { t } from "../i18n.ts";
 
 const STATE_LABELS: Record<SentinelPluginState, string> = {
-	running: "运行中",
-	starting: "启动中",
-	stopped: "已停止",
-	failed: "失败",
-	missing: "缺失",
+	running: t("运行中"),
+	starting: t("启动中"),
+	stopped: t("已停止"),
+	failed: t("失败"),
+	missing: t("缺失"),
 };
 
 const STATE_TONES: Record<SentinelPluginState, "ok" | "warn" | "bad" | "off"> = {
@@ -35,15 +36,15 @@ const STATE_TONES: Record<SentinelPluginState, "ok" | "warn" | "bad" | "off"> = 
 };
 
 const LOCALITY_LABELS: Record<SentinelPluginLocality, string> = {
-	"local-only": "仅本地",
-	"remote-only": "仅远端",
-	any: "不限",
+	"local-only": t("仅本地"),
+	"remote-only": t("仅远端"),
+	any: t("不限"),
 };
 
 const NETWORK_LABELS: Record<SentinelPluginNetwork, string> = {
-	none: "无网络",
-	bridge: "bridge（NAT）",
-	host: "host（宿主网络栈）",
+	none: t("无网络"),
+	bridge: t("bridge（NAT）"),
+	host: t("host（宿主网络栈）"),
 };
 
 const MAX_PLUGIN_PACKAGE_BYTES = 8 * 1024 * 1024;
@@ -61,7 +62,7 @@ const EMPTY_HOST_DRAFT: HostDraft = { name: "", url: "", token: "" };
 type DrawerTab = "config" | "logs" | "artifacts";
 
 function formatWhen(at: number | null): string {
-	if (at === null) return "尚未连接";
+	if (at === null) return t("尚未连接");
 	const date = new Date(at);
 	const pad = (value: number): string => String(value).padStart(2, "0");
 	return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -364,7 +365,7 @@ export function PluginPanel({
 		if (!file) return;
 		setPackageError(null);
 		if (file.size > MAX_PLUGIN_PACKAGE_BYTES) {
-			setPackageError(`插件包最大 ${MAX_PLUGIN_PACKAGE_BYTES / (1024 * 1024)}MB`);
+			setPackageError(t("插件包最大 {size}MB", { size: MAX_PLUGIN_PACKAGE_BYTES / (1024 * 1024) }));
 			return;
 		}
 		void readFileBase64(file)
@@ -394,11 +395,11 @@ export function PluginPanel({
 	};
 
 	const uninstall = (plugin: SentinelPluginView): void => {
-		if (!window.confirm(`卸载插件「${plugin.manifest.name}」？`)) return;
+		if (!window.confirm(t("卸载插件「{name}」？", { name: plugin.manifest.name }))) return;
 		// A second question is the purge decision: keeping the data directory is
 		// the safer default, so it is the "cancel" branch of the dialog.
 		const purge = window.confirm(
-			"是否同时删除该插件的数据？\n确定 = 删除容器配置与产物；取消 = 保留数据目录。",
+			t("是否同时删除该插件的数据？\n确定 = 删除容器配置与产物；取消 = 保留数据目录。"),
 		);
 		onUninstall(plugin.hostId, plugin.manifest.id, purge);
 		closeDrawer();
@@ -410,7 +411,7 @@ export function PluginPanel({
 		set: (next: string) => void,
 		secretHint: string,
 	): React.ReactElement => {
-		const hint = [field.description, field.required ? "必填" : ""].filter(Boolean).join(" · ");
+		const hint = [field.description, field.required ? t("必填") : ""].filter(Boolean).join(" · ");
 
 		if (field.type === "boolean") {
 			return (
@@ -434,7 +435,7 @@ export function PluginPanel({
 				<label key={field.key}>
 					{field.label}
 					<select value={value} disabled={busy} onChange={(event) => set(event.target.value)}>
-						<option value="">{field.required ? "请选择" : "（不设置）"}</option>
+						<option value="">{field.required ? t("请选择") : t("（不设置）")}</option>
 						{field.options.map((option) => (
 							<option value={option} key={option}>
 								{option}
@@ -469,7 +470,7 @@ export function PluginPanel({
 			field,
 			configValues[field.key] ?? "",
 			(next) => setConfigValues((prev) => ({ ...prev, [field.key]: next })),
-			"不会回显已保存的值",
+			t("不会回显已保存的值"),
 		);
 
 	const openConfig = (plugin: SentinelPluginView): void => {
@@ -518,7 +519,7 @@ export function PluginPanel({
 	return (
 		<div className="mcp-page plugin-page">
 			<div className="plugin-head">
-				<div className="plugin-switch" role="tablist" aria-label="插件视图">
+				<div className="plugin-switch" role="tablist" aria-label={t("插件视图")}>
 					<button
 						type="button"
 						role="tab"
@@ -526,7 +527,7 @@ export function PluginPanel({
 						className={activeTab === "plugins" ? "active" : undefined}
 						onClick={() => setActiveTab("plugins")}
 					>
-						已安装<span className="n">{view.plugins.length}</span>
+						{t("已安装")}<span className="n">{view.plugins.length}</span>
 					</button>
 					<button
 						type="button"
@@ -538,7 +539,7 @@ export function PluginPanel({
 							closeDrawer();
 						}}
 					>
-						官方插件<span className="n">{officialPlugins.length}</span>
+						{t("官方插件")}<span className="n">{officialPlugins.length}</span>
 					</button>
 					<button
 						type="button"
@@ -550,12 +551,12 @@ export function PluginPanel({
 							closeDrawer();
 						}}
 					>
-						开发文档
+						{t("开发文档")}
 					</button>
 				</div>
 				<div className="actions">
 					<button type="button" disabled={busy} onClick={onRefresh}>
-						刷新
+						{t("刷新")}
 					</button>
 					<button
 						type="button"
@@ -563,7 +564,7 @@ export function PluginPanel({
 						disabled={busy}
 						onClick={() => fileInput.current?.click()}
 					>
-						＋ 上传插件包
+						{t("＋ 上传插件包")}
 					</button>
 					<input
 						ref={fileInput}
@@ -571,7 +572,7 @@ export function PluginPanel({
 						accept=".zip"
 						hidden
 						onChange={choosePackage}
-						aria-label="插件包文件"
+						aria-label={t("插件包文件")}
 					/>
 				</div>
 			</div>
@@ -592,10 +593,11 @@ export function PluginPanel({
 
 			{permissionOn === false ? (
 				<div className="mcp-notice is-warn">
-					<b>权限未开启</b>
-					「设置 → 权限」里的 <code>MCP</code> 开关是关的，本页的插件都不会挂载。
+					<b>{t("权限未开启")}</b>
+					{t("「设置 → 权限」里的")} <code>MCP</code>{" "}
+					{t("开关是关的，本页的插件都不会挂载。")}
 					<button type="button" className="link" onClick={onOpenPermissions}>
-						去打开
+						{t("去打开")}
 					</button>
 				</div>
 			) : null}
@@ -620,20 +622,20 @@ export function PluginPanel({
 						/>
 						<b>{host.name}</b>
 						<span className="mono muted">{host.url.replace(/^https?:\/\//, "")}</span>
-						{host.local ? <span className="chip">自动发现</span> : null}
+						{host.local ? <span className="chip">{t("自动发现")}</span> : null}
 						<span className="plugin-host-chip__state">
 							{host.status.at === null
-								? "未测试"
+								? t("未测试")
 								: host.status.ok
-									? `已连接 · ${formatWhen(host.status.at)}`
-									: host.status.error || "连接失败"}
+									? t("已连接 · {when}", { when: formatWhen(host.status.at) })
+									: host.status.error || t("连接失败")}
 						</span>
 						<button type="button" className="link" disabled={busy} onClick={() => onTestHost(host.id)}>
-							测试
+							{t("测试")}
 						</button>
 						{!host.local ? (
 							<button type="button" className="link" disabled={busy} onClick={() => startEditHost(host)}>
-								编辑
+								{t("编辑")}
 							</button>
 						) : null}
 						{!host.local ? (
@@ -642,25 +644,26 @@ export function PluginPanel({
 								className="link danger"
 								disabled={busy}
 								onClick={() => {
-									if (window.confirm(`删除插件主机「${host.name}」？它上面的插件将从控制台消失。`)) {
+									if (window.confirm(t("删除插件主机「{name}」？它上面的插件将从控制台消失。", { name: host.name }))) {
 										onDeleteHost(host.id);
 									}
 								}}
 							>
-								删除
+								{t("删除")}
 							</button>
 						) : null}
 					</div>
 				))}
 				<button type="button" className="link" disabled={busy} onClick={startAddHost}>
-					＋ 添加主机
+					{t("＋ 添加主机")}
 				</button>
 			</div>
 
 			{localHostDown ? (
 				<p className="plugin-host-hint">
-					本机还没有可用的插件主机。在终端运行 <code>sentinel-web plugin-host --local</code>，或
-					<code>npm run plugin-host -- --local</code>，控制台会自动发现它。
+					{t("本机还没有可用的插件主机。在终端运行")} <code>sentinel-web plugin-host --local</code>{t("，或")}
+					<code>npm run plugin-host -- --local</code>
+					{t("，控制台会自动发现它。")}
 				</p>
 			) : null}
 
@@ -669,12 +672,12 @@ export function PluginPanel({
 					className="plugin-search"
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
-					placeholder="搜索插件名、id、工具名"
+					placeholder={t("搜索插件名、id、工具名")}
 					spellCheck={false}
-					aria-label="搜索插件"
+					aria-label={t("搜索插件")}
 				/>
 				<select value={hostFilter} onChange={(event) => setHostFilter(event.target.value)}>
-					<option value="all">全部主机</option>
+					<option value="all">{t("全部主机")}</option>
 					{view.hosts.map((host) => (
 						<option value={host.id} key={host.id}>
 							{host.name}
@@ -682,29 +685,29 @@ export function PluginPanel({
 					))}
 				</select>
 				<select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
-					<option value="all">全部状态</option>
-					<option value="running">运行中</option>
-					<option value="stopped">已停止</option>
-					<option value="failed">失败</option>
+					<option value="all">{t("全部状态")}</option>
+					<option value="running">{t("运行中")}</option>
+					<option value="stopped">{t("已停止")}</option>
+					<option value="failed">{t("失败")}</option>
 				</select>
 				<div className="plugin-toolbar__spacer" />
-				<span className="chip ok">{running} 运行</span>
-				{failed > 0 ? <span className="chip bad">{failed} 失败</span> : null}
+				<span className="chip ok">{running} {t("运行")}</span>
+				{failed > 0 ? <span className="chip bad">{failed} {t("失败")}</span> : null}
 			</div>
 
 			<div className="plugin-table-wrap">
 				<table className="plugin-table">
 					<thead>
 						<tr>
-							<th aria-label="状态" />
-							<th>插件</th>
-							<th>版本</th>
-							<th>主机</th>
-							<th>网络</th>
-							<th className="num">工具</th>
-							<th>状态</th>
-							<th>安装时间</th>
-							<th aria-label="操作" />
+							<th aria-label={t("状态")} />
+							<th>{t("插件")}</th>
+							<th>{t("版本")}</th>
+							<th>{t("主机")}</th>
+							<th>{t("网络")}</th>
+							<th className="num">{t("工具")}</th>
+							<th>{t("状态")}</th>
+							<th>{t("安装时间")}</th>
+							<th aria-label={t("操作")} />
 						</tr>
 					</thead>
 					<tbody>
@@ -733,7 +736,7 @@ export function PluginPanel({
 									<td className="mono">v{plugin.manifest.version}</td>
 									<td>
 										{plugin.hostName}
-										{plugin.hostLocal ? "（本机）" : ""}
+										{plugin.hostLocal ? t("（本机）") : ""}
 									</td>
 									<td>
 										<span className="chip">{plugin.manifest.permissions.network}</span>
@@ -743,7 +746,7 @@ export function PluginPanel({
 										<StateChip state={plugin.state} />
 										{plugin.lastError ? (
 											<span className="plugin-table__error" title={plugin.lastError}>
-												有错误
+												{t("有错误")}
 											</span>
 										) : null}
 									</td>
@@ -759,10 +762,10 @@ export function PluginPanel({
 													: onStart(plugin.hostId, plugin.manifest.id)
 											}
 										>
-											{plugin.state === "running" ? "停止" : "启动"}
+											{plugin.state === "running" ? t("停止") : t("启动")}
 										</button>
 										<button type="button" className="link" onClick={() => openPlugin(plugin)}>
-											详情
+											{t("详情")}
 										</button>
 									</td>
 								</tr>
@@ -773,8 +776,8 @@ export function PluginPanel({
 				{filtered.length === 0 ? (
 					<div className="plugin-empty">
 						{view.plugins.length === 0
-							? "还没有安装插件。点右上角「上传插件包」开始。"
-							: "没有匹配的插件，换个关键字或筛选条件。"}
+							? t("还没有安装插件。点右上角「上传插件包」开始。")
+							: t("没有匹配的插件，换个关键字或筛选条件。")}
 					</div>
 				) : null}
 			</div>
@@ -782,7 +785,7 @@ export function PluginPanel({
 		
 
 			<p className="mcp-footnote">
-				工具调用不逐条拦截，只记审计；管理操作写入 <code>plugin-audit.jsonl</code>。启用开关只影响挂载，不会停止容器；卸载默认保留数据目录。
+				{t("工具调用不逐条拦截，只记审计；管理操作写入")} <code>plugin-audit.jsonl</code>{t("。启用开关只影响挂载，不会停止容器；卸载默认保留数据目录。")}
 			</p>
 				</>
 			)}
@@ -796,7 +799,7 @@ export function PluginPanel({
 								<div className="plugin-drawer__head">
 									<div>
 										<div className="plugin-drawer__title">
-											{pendingManifest.source.startsWith("官方") ? "安装官方插件" : "安装插件包"}
+											{/^(官方|Official)/.test(pendingManifest.source) ? t("安装官方插件") : t("安装插件包")}
 										</div>
 										<div className="plugin-drawer__sub">
 											{pendingManifest.source}
@@ -822,11 +825,11 @@ export function PluginPanel({
 
 									<div className="drawer-kv">
 										<div>
-											<span>构建</span>
+											<span>{t("构建")}</span>
 											<code>{manifest?.build.dockerfile}</code>
 										</div>
 										<div>
-											<span>上下文</span>
+											<span>{t("上下文")}</span>
 											<code>{manifest?.build.context}</code>
 										</div>
 										<div>
@@ -841,14 +844,14 @@ export function PluginPanel({
 											</code>
 										</div>
 										<div>
-											<span>源码</span>
+											<span>{t("源码")}</span>
 											<a href={manifest?.source} target="_blank" rel="noreferrer">
 												{manifest?.source}
 											</a>
 										</div>
 									</div>
 
-									<div className="drawer-section">权限</div>
+									<div className="drawer-section">{t("权限")}</div>
 									<div className="drawer-chips">
 										<span className="chip info">
 											network {manifest ? NETWORK_LABELS[manifest.permissions.network] : ""}
@@ -859,7 +862,7 @@ export function PluginPanel({
 											</span>
 										))}
 										<span className={`chip ${manifest?.permissions.privileged ? "bad" : ""}`}>
-											privileged {manifest?.permissions.privileged ? "是" : "否"}
+											privileged {manifest?.permissions.privileged ? t("是") : t("否")}
 										</span>
 									</div>
 
@@ -870,8 +873,7 @@ export function PluginPanel({
 											disabled={busy}
 											onChange={(event) => setAllowBuild(event.target.checked)}
 										/>
-										允许在插件主机上执行插件包里的 Dockerfile：构建阶段可以运行任意命令，并以宿主机 Docker
-										守护进程的权限访问网络。
+										{t("允许在插件主机上执行插件包里的 Dockerfile：构建阶段可以运行任意命令，并以宿主机 Docker 守护进程的权限访问网络。")}
 									</label>
 									{manifest?.permissions.network === "host" ? (
 										<label className="mcp-editor__ack">
@@ -881,7 +883,7 @@ export function PluginPanel({
 												disabled={busy}
 												onChange={(event) => setAllowHostNetwork(event.target.checked)}
 											/>
-											允许 host 网络：插件容器直接使用宿主网络栈，能访问本机所有监听端口。
+											{t("允许 host 网络：插件容器直接使用宿主网络栈，能访问本机所有监听端口。")}
 										</label>
 									) : null}
 									{manifest?.permissions.privileged ? (
@@ -892,20 +894,20 @@ export function PluginPanel({
 												disabled={busy}
 												onChange={(event) => setAllowPrivileged(event.target.checked)}
 											/>
-											允许 privileged：容器获得全部 Linux 能力，隔离性显著降低。
+											{t("允许 privileged：容器获得全部 Linux 能力，隔离性显著降低。")}
 										</label>
 									) : null}
 
 									{manifest && manifest.config.length > 0 ? (
 										<>
-											<div className="drawer-section">配置</div>
+											<div className="drawer-section">{t("配置")}</div>
 											<div className="mcp-editor__grid">
 												{manifest.config.map((field) => configInput(field))}
 											</div>
 										</>
 									) : null}
 
-									<div className="drawer-section">目标 host</div>
+									<div className="drawer-section">{t("目标 host")}</div>
 									<select
 										className="drawer-select"
 										value={installHostId}
@@ -915,40 +917,40 @@ export function PluginPanel({
 										{view.hosts.map((host) => (
 											<option value={host.id} key={host.id}>
 												{host.name}
-												{host.local ? "（本机）" : ""}
+												{host.local ? t("（本机）") : ""}
 											</option>
 										))}
 									</select>
-									{view.hosts.length === 0 ? <p className="hint">先添加一个插件主机。</p> : null}
+									{view.hosts.length === 0 ? <p className="hint">{t("先添加一个插件主机。")}</p> : null}
 
-									{!configComplete ? <p className="hint">还有必填配置没有填写。</p> : null}
+									{!configComplete ? <p className="hint">{t("还有必填配置没有填写。")}</p> : null}
 									{!permissionsAllowed ? (
-										<p className="hint">需要先勾选上面声明的权限才能安装。</p>
+										<p className="hint">{t("需要先勾选上面声明的权限才能安装。")}</p>
 									) : null}
 									{installPending && busy ? (
 										<p className="plugin-install__progress">
-											正在构建镜像并等待健康检查，可能需要几分钟。
+											{t("正在构建镜像并等待健康检查，可能需要几分钟。")}
 										</p>
 									) : null}
 									{installPending || (buildLog && buildLog.pluginId === manifest?.id) ? (
 										<div className="plugin-install-log">
 											<div className="plugin-install-log__head">
-												<span>安装日志</span>
+												<span>{t("安装日志")}</span>
 												<span className="muted">
-													{busy ? "实时" : "已结束"}
+													{busy ? t("实时") : t("已结束")}
 												</span>
 											</div>
 											<pre ref={installLogRef}>
 												{buildLog && buildLog.pluginId === manifest?.id && buildLog.log
 													? buildLog.log
-													: "等待 Docker 构建输出…"}
+													: t("等待 Docker 构建输出…")}
 											</pre>
 										</div>
 									) : null}
 								</div>
 								<div className="plugin-drawer__foot">
 									<button type="button" onClick={closeDrawer}>
-										取消
+										{t("取消")}
 									</button>
 									<button
 										type="button"
@@ -956,7 +958,7 @@ export function PluginPanel({
 										disabled={busy || !installReady}
 										onClick={install}
 									>
-										{installPending && busy ? "安装中…" : "安装"}
+										{installPending && busy ? t("安装中…") : t("安装")}
 									</button>
 								</div>
 							</>
@@ -967,10 +969,10 @@ export function PluginPanel({
 								<div className="plugin-drawer__head">
 									<div>
 										<div className="plugin-drawer__title">
-											{hostDraft.original ? "编辑插件主机" : "添加插件主机"}
+											{hostDraft.original ? t("编辑插件主机") : t("添加插件主机")}
 										</div>
 										<div className="plugin-drawer__sub">
-											host 是运行插件容器的机器；本机 host 由 plugin-host --local 自动发现。
+											{t("host 是运行插件容器的机器；本机 host 由 plugin-host --local 自动发现。")}
 										</div>
 									</div>
 									<button type="button" className="plugin-drawer__close" onClick={() => setHostDraft(null)}>
@@ -980,14 +982,14 @@ export function PluginPanel({
 								<div className="plugin-drawer__body">
 									<div className="mcp-editor__grid">
 										<label>
-											名称
+											{t("名称")}
 											<input
 												value={hostDraft.name}
 												disabled={busy}
 												onChange={(event) =>
 													setHostDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))
 												}
-												placeholder="本机 / vps-hk"
+												placeholder={t("本机 / vps-hk")}
 											/>
 										</label>
 										<label>
@@ -1001,7 +1003,7 @@ export function PluginPanel({
 												placeholder="https://sentinel.example.com"
 												spellCheck={false}
 											/>
-											<span className="hint">非回环地址必须 HTTPS，且证书要受信任。</span>
+											<span className="hint">{t("非回环地址必须 HTTPS，且证书要受信任。")}</span>
 										</label>
 										<label>
 											token
@@ -1012,22 +1014,22 @@ export function PluginPanel({
 												onChange={(event) =>
 													setHostDraft((prev) => (prev ? { ...prev, token: event.target.value } : prev))
 												}
-												placeholder={hostDraft.original ? "留空保持已保存的 token" : "plugin-host 启动时打印的 token"}
+												placeholder={hostDraft.original ? t("留空保持已保存的 token") : t("plugin-host 启动时打印的 token")}
 												autoComplete="off"
 											/>
 										</label>
 									</div>
 									<p className="hint">
-										本机 host 只需要运行 <code>sentinel-web plugin-host --local</code>，不用手填地址与
-										token。
+										{t("本机 host 只需要运行")} <code>sentinel-web plugin-host --local</code>
+										{t("，不用手填地址与 token。")}
 									</p>
 								</div>
 								<div className="plugin-drawer__foot">
 									<button type="button" onClick={() => setHostDraft(null)}>
-										取消
+										{t("取消")}
 									</button>
 									<button type="button" className="primary" disabled={busy || !hostValid} onClick={submitHost}>
-										保存
+										{t("保存")}
 									</button>
 								</div>
 							</>
@@ -1043,7 +1045,7 @@ export function PluginPanel({
 										</div>
 										<div className="plugin-drawer__sub mono">
 											{selected.manifest.id} · {selected.hostName}
-											{selected.hostLocal ? "（本机）" : ""}
+											{selected.hostLocal ? t("（本机）") : ""}
 										</div>
 									</div>
 									<button type="button" className="plugin-drawer__close" onClick={closeDrawer}>
@@ -1056,23 +1058,23 @@ export function PluginPanel({
 										<span className="muted">
 											{selected.state === "running"
 												? selected.healthy
-													? "健康"
-													: "不健康"
+													? t("健康")
+													: t("不健康")
 												: formatWhen(selected.installedAt)}
 										</span>
-										<label className="mcp-switch" title={selected.enabled ? "停用该插件" : "启用该插件"}>
+										<label className="mcp-switch" title={selected.enabled ? t("停用该插件") : t("启用该插件")}>
 											<input
 												type="checkbox"
 												checked={selected.enabled}
 												disabled={busy}
-												aria-label={`启用 ${selected.manifest.name}`}
+												aria-label={t("启用 {name}", { name: selected.manifest.name })}
 												onChange={(event) =>
 													onSetEnabled(selected.hostId, selected.manifest.id, event.target.checked)
 												}
 											/>
 											<span />
 										</label>
-										<span className="muted">{selected.enabled ? "已挂载" : "已停用"}</span>
+										<span className="muted">{selected.enabled ? t("已挂载") : t("已停用")}</span>
 									</div>
 
 									{selected.manifest.description ? (
@@ -1081,21 +1083,21 @@ export function PluginPanel({
 
 									<div className="drawer-kv">
 										<div>
-											<span>构建</span>
+											<span>{t("构建")}</span>
 											<code>
 												{selected.manifest.build.dockerfile} · {selected.manifest.build.context}
 											</code>
 										</div>
 										<div>
-											<span>端口</span>
-											<code>{selected.hostPort === null ? "未分配" : `127.0.0.1:${selected.hostPort}`}</code>
+											<span>{t("端口")}</span>
+											<code>{selected.hostPort === null ? t("未分配") : `127.0.0.1:${selected.hostPort}`}</code>
 										</div>
 										<div>
 											<span>locality</span>
 											<b>{LOCALITY_LABELS[selected.manifest.locality]}</b>
 										</div>
 										<div>
-											<span>安装时间</span>
+											<span>{t("安装时间")}</span>
 											<b>{formatWhen(selected.installedAt)}</b>
 										</div>
 									</div>
@@ -1104,7 +1106,7 @@ export function PluginPanel({
 										<div className="drawer-error">{selected.lastError}</div>
 									) : null}
 
-									<div className="drawer-section">权限</div>
+									<div className="drawer-section">{t("权限")}</div>
 									<div className="drawer-chips">
 										<span className="chip info">network {selected.manifest.permissions.network}</span>
 										{selected.manifest.permissions.capAdd.map((cap) => (
@@ -1113,33 +1115,33 @@ export function PluginPanel({
 											</span>
 										))}
 										<span className={`chip ${selected.manifest.permissions.privileged ? "bad" : ""}`}>
-											privileged {selected.manifest.permissions.privileged ? "是" : "否"}
+											privileged {selected.manifest.permissions.privileged ? t("是") : t("否")}
 										</span>
 									</div>
 
-									<div className="drawer-section">工具</div>
+									<div className="drawer-section">{t("工具")}</div>
 									<div className="drawer-chips">
 										{selected.manifest.tools.length > 0 ? (
 											selected.manifest.tools.map((tool) => <code key={tool.name}>{tool.name}</code>)
 										) : (
-											<span className="muted">manifest 未声明工具</span>
+											<span className="muted">{t("manifest 未声明工具")}</span>
 										)}
 									</div>
 
 									{selected.manifest.ui?.sidebar ? (
 										<>
-											<div className="drawer-section">界面</div>
+											<div className="drawer-section">{t("界面")}</div>
 											<div className="plugin-ui-pref">
 												<div className="plugin-ui-pref__text">
-													<b>显示在侧边栏</b>
-													<span className="muted">在主内容区打开，和对话、工程并列</span>
+													<b>{t("显示在侧边栏")}</b>
+													<span className="muted">{t("在主内容区打开，和对话、工程并列")}</span>
 												</div>
-												<label className="mcp-switch" title={selected.pinned ? "从侧栏移除" : "固定到侧栏"}>
+												<label className="mcp-switch" title={selected.pinned ? t("从侧栏移除") : t("固定到侧栏")}>
 													<input
 														type="checkbox"
 														checked={selected.pinned}
 														disabled={busy}
-														aria-label="显示在侧边栏"
+														aria-label={t("显示在侧边栏")}
 														onChange={(event) =>
 															onSetSidebar(selected.hostId, selected.manifest.id, event.target.checked)
 														}
@@ -1156,28 +1158,28 @@ export function PluginPanel({
 											className={drawerTab === "config" ? "active" : undefined}
 											onClick={() => setDrawerTab("config")}
 										>
-											配置
+											{t("配置")}
 										</button>
 										<button
 											type="button"
 											className={drawerTab === "logs" ? "active" : undefined}
 											onClick={() => setDrawerTab("logs")}
 										>
-											日志
+											{t("日志")}
 										</button>
 										<button
 											type="button"
 											className={drawerTab === "artifacts" ? "active" : undefined}
 											onClick={() => setDrawerTab("artifacts")}
 										>
-											产物
+											{t("产物")}
 										</button>
 									</div>
 
 									{drawerTab === "config" ? (
 										<div className="drawer-tab">
 											{selected.manifest.config.length === 0 ? (
-												<p className="muted">这个插件没有配置项。</p>
+												<p className="muted">{t("这个插件没有配置项。")}</p>
 											) : editingPlugin === pluginKeyOf(selected) ? (
 												<>
 													<div className="mcp-editor__grid">
@@ -1187,17 +1189,17 @@ export function PluginPanel({
 																editValues[field.key] ?? "",
 																(next) => setEditValues((prev) => ({ ...prev, [field.key]: next })),
 																selected.configured.includes(field.key)
-																	? "已保存，留空保持不变"
-																	: "尚未设置",
+																	? t("已保存，留空保持不变")
+																	: t("尚未设置"),
 															),
 														)}
 													</div>
 													<p className="hint">
-														保存会重建容器使新环境变量生效；密钥留空表示保持已保存的值。
+														{t("保存会重建容器使新环境变量生效；密钥留空表示保持已保存的值。")}
 													</p>
 													<div className="drawer-actions">
 														<button type="button" disabled={busy} onClick={() => setEditingPlugin(null)}>
-															取消
+															{t("取消")}
 														</button>
 														<button
 															type="button"
@@ -1208,7 +1210,7 @@ export function PluginPanel({
 																setEditingPlugin(null);
 															}}
 														>
-															保存并重启
+															{t("保存并重启")}
 														</button>
 													</div>
 												</>
@@ -1220,15 +1222,15 @@ export function PluginPanel({
 															<span className="muted">
 																{selected.configured.includes(field.key)
 																	? field.type === "secret"
-																		? "已设置，不回显"
-																		: selected.values[field.key] || "已设置"
-																	: "未设置"}
+																		? t("已设置，不回显")
+																		: selected.values[field.key] || t("已设置")
+																	: t("未设置")}
 															</span>
 														</div>
 													))}
 													<div className="drawer-actions">
 														<button type="button" disabled={busy} onClick={() => openConfig(selected)}>
-															改配置
+															{t("改配置")}
 														</button>
 													</div>
 												</>
@@ -1244,10 +1246,10 @@ export function PluginPanel({
 													disabled={busy}
 													onClick={() => onLoadLogs(selected.hostId, selected.manifest.id)}
 												>
-													{selectedLogs ? "刷新日志" : "加载日志"}
+													{selectedLogs ? t("刷新日志") : t("加载日志")}
 												</button>
 											</div>
-											<pre className="plugin-logs">{selectedLogs?.logs || "还没有加载日志。"}</pre>
+											<pre className="plugin-logs">{selectedLogs?.logs || t("还没有加载日志。")}</pre>
 										</div>
 									) : null}
 
@@ -1258,7 +1260,7 @@ export function PluginPanel({
 													type="search"
 													className="plugin-search"
 													value={artifactQuery}
-													placeholder="筛选产物路径"
+													placeholder={t("筛选产物路径")}
 													onChange={(event) => {
 														setArtifactQuery(event.target.value);
 														setArtifactPage(0);
@@ -1272,20 +1274,20 @@ export function PluginPanel({
 														onListArtifacts(selected.hostId, selected.manifest.id);
 													}}
 												>
-													{selectedArtifacts ? "刷新产物" : "加载产物"}
+													{selectedArtifacts ? t("刷新产物") : t("加载产物")}
 												</button>
 											</div>
 											{selectedArtifacts ? (
 												allArtifacts.length === 0 ? (
-													<p className="muted">还没有产物。</p>
+													<p className="muted">{t("还没有产物。")}</p>
 												) : filteredArtifacts.length === 0 ? (
-													<p className="muted">没有匹配「{artifactQuery}」的产物。</p>
+													<p className="muted">{t("没有匹配「{query}」的产物。", { query: artifactQuery })}</p>
 												) : (
 													<>
 														<div className="drawer-artifacts__pager">
 															<span className="muted">
-																共 {filteredArtifacts.length} 个
-																{artifactQuery ? `（全部 ${allArtifacts.length} 个）` : ""}
+																{t("共 {count} 个", { count: filteredArtifacts.length })}
+																{artifactQuery ? t("（全部 {count} 个）", { count: allArtifacts.length }) : ""}
 															</span>
 															<div className="drawer-pager">
 																<button
@@ -1293,7 +1295,7 @@ export function PluginPanel({
 																	disabled={artifactPageIndex === 0}
 																	onClick={() => setArtifactPage(artifactPageIndex - 1)}
 																>
-																	上一页
+																	{t("上一页")}
 																</button>
 																<span className="muted">
 																	{artifactPageIndex + 1} / {artifactPageCount}
@@ -1303,7 +1305,7 @@ export function PluginPanel({
 																	disabled={artifactPageIndex >= artifactPageCount - 1}
 																	onClick={() => setArtifactPage(artifactPageIndex + 1)}
 																>
-																	下一页
+																	{t("下一页")}
 																</button>
 															</div>
 														</div>
@@ -1319,19 +1321,19 @@ export function PluginPanel({
 																		onFetchArtifact(selected.hostId, selected.manifest.id, artifact.path)
 																	}
 																>
-																	拉取
+																	{t("拉取")}
 																</button>
 															</div>
 														))}
 														{allArtifacts.length >= 2000 ? (
-															<p className="hint">最多列出 2000 个产物，更早的文件请先清理。</p>
+															<p className="hint">{t("最多列出 2000 个产物，更早的文件请先清理。")}</p>
 														) : null}
 													</>
 												)
 											) : (
-												<p className="muted">点上面的按钮读取产物列表。</p>
+												<p className="muted">{t("点上面的按钮读取产物列表。")}</p>
 											)}
-											<p className="hint">拉取的文件保存到当前项目的 <code>evidence/plugin/</code> 下。</p>
+											<p className="hint">{t("拉取的文件保存到当前项目的")} <code>evidence/plugin/</code>{t("下。")}</p>
 										</div>
 									) : null}
 								</div>
@@ -1345,7 +1347,7 @@ export function PluginPanel({
 												: onStart(selected.hostId, selected.manifest.id)
 										}
 									>
-										{selected.state === "running" ? "停止" : "启动"}
+										{selected.state === "running" ? t("停止") : t("启动")}
 									</button>
 									<button
 										type="button"
@@ -1355,7 +1357,7 @@ export function PluginPanel({
 											onLoadLogs(selected.hostId, selected.manifest.id);
 										}}
 									>
-										日志
+										{t("日志")}
 									</button>
 									<button
 										type="button"
@@ -1365,17 +1367,17 @@ export function PluginPanel({
 											onListArtifacts(selected.hostId, selected.manifest.id);
 										}}
 									>
-										产物
+										{t("产物")}
 									</button>
 									{selected.manifest.ui ? (
 										<button
 											type="button"
 											className="primary"
 											disabled={busy || selected.state !== "running"}
-											title={selected.state === "running" ? "在沙箱里打开插件界面" : "插件未运行，先启动再打开界面"}
+											title={selected.state === "running" ? t("在沙箱里打开插件界面") : t("插件未运行，先启动再打开界面")}
 											onClick={() => onOpenUi(selected)}
 										>
-											打开界面
+											{t("打开界面")}
 										</button>
 									) : null}
 									<button
@@ -1384,7 +1386,7 @@ export function PluginPanel({
 										disabled={busy}
 										onClick={() => uninstall(selected)}
 									>
-										卸载
+										{t("卸载")}
 									</button>
 								</div>
 							</>

@@ -16,7 +16,9 @@ import {
 	PROJECT_NAME,
 	PROJECT_REPOSITORY,
 } from "../branding.ts";
+import { t } from "../i18n.ts";
 import { GitHubIcon, SentinelMark } from "./icons.tsx";
+import { LanguageSwitch } from "./LanguageSwitch.tsx";
 import { LoginBackdrop } from "./LoginBackdrop.tsx";
 
 export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: () => void }) {
@@ -31,7 +33,7 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 		event.preventDefault();
 		if (busy) return;
 		if (mode === "setup" && password !== confirm) {
-			setError("两次输入的密码不一致");
+			setError(t("两次输入的密码不一致"));
 			return;
 		}
 		setBusy(true);
@@ -44,12 +46,12 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 			});
 			const data = (await response.json().catch(() => ({}))) as { error?: unknown };
 			if (!response.ok) {
-				setError(typeof data.error === "string" ? data.error : "操作失败，请重试");
+				setError(typeof data.error === "string" ? data.error : t("操作失败，请重试"));
 				return;
 			}
 			onDone();
 		} catch {
-			setError("无法连接服务，请确认服务在运行");
+			setError(t("无法连接服务，请确认服务在运行"));
 		} finally {
 			setBusy(false);
 		}
@@ -57,24 +59,25 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 
 	return (
 		<div className="auth">
+			<LanguageSwitch className="auth-language" />
 			<div className="auth-visual">
 				<LoginBackdrop />
 				<div className="auth-brand">
 					<span className="auth-brand-badge">
 						<SentinelMark size={26} />
 					</span>
-					<span className="auth-brand-name">全链哨兵</span>
+					<span className="auth-brand-name">{t("全链哨兵")}</span>
 				</div>
-				<div className="auth-tagline">授权渗透测试工作台</div>
+				<div className="auth-tagline">{t("授权渗透测试工作台")}</div>
 			</div>
 			<div className="auth-panel">
 				<form className="auth-form" onSubmit={submit}>
-					<h1>{mode === "setup" ? "创建管理员账号" : "登录到工作台"}</h1>
+					<h1>{mode === "setup" ? t("创建管理员账号") : t("登录到工作台")}</h1>
 					<p className="auth-hint">
-						{mode === "setup" ? "首次使用：设置管理员用户名与密码，之后用它登录。" : "输入你的凭据以继续。"}
+						{mode === "setup" ? t("首次使用：设置管理员用户名与密码，之后用它登录。") : t("输入你的凭据以继续。")}
 					</p>
 					<label className="auth-field">
-						用户名
+						{t("用户名")}
 						<input
 							value={username}
 							autoComplete="username"
@@ -84,7 +87,7 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 						/>
 					</label>
 					<label className="auth-field">
-						密码
+						{t("密码")}
 						<input
 							type="password"
 							value={password}
@@ -94,7 +97,7 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 					</label>
 					{mode === "setup" ? (
 						<label className="auth-field">
-							确认密码
+							{t("确认密码")}
 							<input
 								type="password"
 								value={confirm}
@@ -110,12 +113,12 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 								checked={remember}
 								onChange={(event) => setRemember(event.target.checked)}
 							/>
-							记住登录 30 天
+							{t("记住登录 30 天")}
 						</label>
 					) : null}
 					{error ? <div className="auth-error">{error}</div> : null}
 					<button type="submit" className="auth-submit" disabled={busy || !username.trim() || !password}>
-						{busy ? "请稍候…" : mode === "setup" ? "创建并登录" : "登录"}
+						{busy ? t("请稍候…") : mode === "setup" ? t("创建并登录") : t("登录")}
 					</button>
 					<div className="auth-foot">
 						<span>
@@ -130,7 +133,7 @@ export function AuthGate({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 								{PROJECT_LICENSE}
 							</a>
 						</span>
-						<span className="auth-foot__note">密码只以哈希存在本机</span>
+						<span className="auth-foot__note">{t("密码只以哈希存在本机")}</span>
 					</div>
 				</form>
 			</div>

@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { t } from "../i18n.ts";
 import { SUPERVISOR_STRATEGY_OPTIONS } from "../supervisor-strategy.ts";
 import type {
 	SentinelSupervisorCustomStrategy,
@@ -17,9 +18,9 @@ import type { PresetMenuAnchor } from "./PresetMenu.tsx";
 export type SupervisorLaunchMode = "observe" | "auto" | "confirm";
 
 const MODES: Array<{ value: SupervisorLaunchMode; label: string; description: string }> = [
-	{ value: "observe", label: "观察", description: "只记录和总结，不改主 Agent" },
-	{ value: "auto", label: "自动发送", description: "判断停滞或循环时直接给建议" },
-	{ value: "confirm", label: "确认后发送", description: "建议先到悬浮窗，由你决定是否发送" },
+	{ value: "observe", label: t("观察"), description: t("只记录和总结，不改主 Agent") },
+	{ value: "auto", label: t("自动发送"), description: t("判断停滞或循环时直接给建议") },
+	{ value: "confirm", label: t("确认后发送"), description: t("建议先到悬浮窗，由你决定是否发送") },
 ];
 
 export function SupervisorStartMenu({
@@ -79,16 +80,18 @@ export function SupervisorStartMenu({
 		const option = SUPERVISOR_STRATEGY_OPTIONS.find((entry) => entry.id === ref.strategy);
 		return {
 			key: ref.customStrategyId ? `custom:${ref.customStrategyId}` : `preset:${ref.strategy}`,
-			name: custom?.name ?? option?.label ?? "监督策略",
+			name: custom?.name ?? option?.label ?? t("监督策略"),
 			description: custom?.description ?? option?.hint ?? "",
 			instructions: custom?.instructions ?? "",
 		};
 	});
 	const title =
-		selected.length > 1 ? `${selected.length} 个监督策略` : (selected[0]?.name ?? "监督策略");
+		selected.length > 1
+			? t("{count} 个监督策略", { count: selected.length })
+			: (selected[0]?.name ?? t("监督策略"));
 	const description =
 		selected.length > 1
-			? "多个策略会合并到同一份监督判断中；冲突时以安全规则和补充说明为准。"
+			? t("多个策略会合并到同一份监督判断中；冲突时以安全规则和补充说明为准。")
 			: (selected[0]?.description ?? "");
 	const selectedMode = MODES.find((entry) => entry.value === mode) ?? MODES[0];
 
@@ -104,8 +107,8 @@ export function SupervisorStartMenu({
 			onClick={(event) => event.stopPropagation()}
 		>
 			<div className="preset-menu-title composer-supervisor-title">
-				开启监督
-				<span>方式 · 策略 · 说明</span>
+				{t("开启监督")}
+				<span>{t("方式 · 策略 · 说明")}</span>
 			</div>
 			<div className="composer-supervisor-modes">
 				{MODES.map((entry) => (
@@ -140,7 +143,7 @@ export function SupervisorStartMenu({
 						);
 					})}
 					{customStrategies.length > 0 ? (
-						<div className="composer-supervisor-nav-label">自定义</div>
+						<div className="composer-supervisor-nav-label">{t("自定义")}</div>
 					) : null}
 					{customStrategies.map((custom) => {
 						const ref: SentinelSupervisorStrategyRef = {
@@ -173,20 +176,20 @@ export function SupervisorStartMenu({
 						</div>
 					) : null}
 					<label className="composer-supervisor-note">
-						补充说明 · 可选
+						{t("补充说明 · 可选")}
 						<textarea
 							value={note}
 							maxLength={200}
 							onChange={(event) => onNoteChange(event.target.value)}
-							placeholder="例如：只允许测试 10.0.0.5，禁止删除业务数据"
+							placeholder={t("例如：只允许测试 10.0.0.5，禁止删除业务数据")}
 						/>
 					</label>
 				</div>
 			</div>
 			<div className="composer-supervisor-foot">
-				<span>可多选，至少保留一个；策略不会放宽安全规则</span>
+				<span>{t("可多选，至少保留一个；策略不会放宽安全规则")}</span>
 				<button type="button" className="primary small" onClick={onStart} disabled={strategies.length === 0}>
-					{strategies.length === 0 ? "至少选择一个策略" : "开始监督"}
+					{strategies.length === 0 ? t("至少选择一个策略") : t("开始监督")}
 				</button>
 			</div>
 		</div>,

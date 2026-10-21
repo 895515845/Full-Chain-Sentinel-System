@@ -10,6 +10,7 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
 import type {
 	SentinelSupervisorAdvice,
 	SentinelSupervisorAuditItem,
@@ -246,7 +247,7 @@ function episodeRecord(raw: string): { episode: SentinelSupervisorEpisode; calls
 		if (!parsed.episode) throw new Error("missing episode");
 		return { episode: parsed.episode, calls: Array.isArray(parsed.calls) ? parsed.calls : [] };
 	} catch {
-		throw new Error("监督 episode 数据损坏");
+		throw new Error(t("监督 episode 数据损坏"));
 	}
 }
 

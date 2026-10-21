@@ -26,6 +26,7 @@ import {
 	parseCvssMetrics,
 	type ReviewCapabilities,
 } from "./cvss.ts";
+import { t } from "./i18n.ts";
 import { readModelLibrary, resolveLibraryRole } from "./model-library.ts";
 import type { SentinelVulnerability } from "./protocol.ts";
 import { severityForCvss, type VulnerabilityStore } from "./vulnerabilities.ts";
@@ -197,7 +198,7 @@ function parseCapabilities(parsed: Record<string, unknown>): ReviewCapabilities 
 export function parseVerdict(raw: string): ReviewVerdict {
 	const start = raw.indexOf("{");
 	const end = raw.lastIndexOf("}");
-	if (start === -1 || end <= start) throw new Error("回复中没有 JSON 对象");
+	if (start === -1 || end <= start) throw new Error(t("回复中没有 JSON 对象"));
 	const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
 	// Some models nest the metrics one level down, under their own key.
 	const nested = parsed.metrics;
@@ -206,9 +207,10 @@ export function parseVerdict(raw: string): ReviewVerdict {
 			? { ...parsed, ...(nested as Record<string, unknown>) }
 			: parsed;
 	const metrics = parseCvssMetrics(source);
-	if (typeof parsed.dubious !== "boolean") throw new Error(`dubious 无效：${String(parsed.dubious)}`);
+	if (typeof parsed.dubious !== "boolean")
+		throw new Error(t("dubious 无效：{value}", { value: String(parsed.dubious) }));
 	const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : "";
-	if (!reason) throw new Error("reason 为空");
+	if (!reason) throw new Error(t("reason 为空"));
 	const capabilities = parseCapabilities(parsed);
 	return { metrics, ...(capabilities ? { capabilities } : {}), dubious: parsed.dubious, reason };
 }
@@ -239,14 +241,16 @@ async function callReviewer(
 		});
 		if (!response.ok) {
 			const body = await response.text().catch(() => "");
-			throw new Error(`端点返回 ${response.status}${body ? `：${body.slice(0, 200)}` : ""}`);
+			throw new Error(
+				`${t("端点返回 {status}", { status: response.status })}${body ? `：${body.slice(0, 200)}` : ""}`,
+			);
 		}
 		const data = (await response.json()) as {
 			choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
 		};
 		const content = data.choices?.[0]?.message?.content;
 		const text = Array.isArray(content) ? content.map((part) => part.text ?? "").join("") : (content ?? "");
-		if (!text.trim()) throw new Error("端点返回了空回复");
+		if (!text.trim()) throw new Error(t("端点返回了空回复"));
 		return parseVerdict(text);
 	} finally {
 		clearTimeout(timer);
@@ -301,7 +305,7 @@ export class VulnReviewer {
 	/** Manual retry from the hub page: a failed review requeues. */
 	retry(vulnId: string): { ok: boolean; error?: string } {
 		if (!this.store.requeueReview(vulnId)) {
-			return { ok: false, error: "该记录无法重试（未评审失败、正在评审中，或已被操作员处理）" };
+			return { ok: false, error: t("该记录无法重试（未评审失败、正在评审中，或已被操作员处理）") };
 		}
 		this.enqueue(vulnId);
 		return { ok: true };
@@ -314,7 +318,7 @@ export class VulnReviewer {
 	 */
 	requeue(vulnId: string): { ok: boolean; error?: string } {
 		if (!this.store.requeueReview(vulnId, true)) {
-			return { ok: false, error: "该记录正在评审中" };
+			return { ok: false, error: t("该记录正在评审中") };
 		}
 		this.enqueue(vulnId, true);
 		return { ok: true };
@@ -353,7 +357,7 @@ export class VulnReviewer {
 		// while the record sat in the queue.
 		if (!vuln || vuln.review.state !== "queued" || (vuln.status !== "pending" && !force)) return;
 		if (!config) {
-			this.store.markReviewFailed(id, "未配置模型端点，无法评审");
+			this.store.markReviewFailed(id, t("未配置模型端点，无法评审"));
 			this.hooks.onSettled(this.store.get(id));
 			return;
 		}
@@ -386,11 +390,13 @@ export class VulnReviewer {
 						axes.push(`${axis.toUpperCase()}:${verdict.metrics[axis]}→${limited[axis]}`);
 					}
 				}
-				notes.push(`影响指标已按实际能力下调（${axes.join("，")}）`);
+				notes.push(t("影响指标已按实际能力下调（{axes}）", { axes: axes.join(t("，")) }));
 			}
-			if (dubiousCapped) notes.push("证据不足，影响指标已按中危上限下调");
+			if (dubiousCapped) notes.push(t("证据不足，影响指标已按中危上限下调"));
 			const reason =
-				notes.length > 0 ? `${verdict.reason}（${notes.join("；")}，最终 ${cvss.toFixed(1)} 分）` : verdict.reason;
+				notes.length > 0
+					? `${verdict.reason}${t("（{notes}，最终 {score} 分）", { notes: notes.join(t("；")), score: cvss.toFixed(1) })}`
+					: verdict.reason;
 			const updated = this.store.applyReview(
 				id,
 				{

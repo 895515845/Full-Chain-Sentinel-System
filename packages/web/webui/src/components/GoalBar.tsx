@@ -11,25 +11,26 @@
  */
 
 import { useEffect, useState } from "react";
+import { t } from "../i18n.ts";
 import { formatTokens } from "../transcript.ts";
 import type { SentinelGoalRound, SentinelGoalView } from "../types.ts";
 
 /** Status chip text. Mirrors the server's labels, including the pause reason. */
 function statusLabel(goal: SentinelGoalView): string {
-	if (goal.status === "active") return goal.running ? "运行中" : "进行中";
-	if (goal.status === "completed") return "已完成";
-	if (goal.status === "blocked") return "已阻塞";
+	if (goal.status === "active") return goal.running ? t("运行中") : t("进行中");
+	if (goal.status === "completed") return t("已完成");
+	if (goal.status === "blocked") return t("已阻塞");
 	switch (goal.pauseReason) {
 		case "limit":
-			return "已暂停 · 轮数上限";
+			return t("已暂停 · 轮数上限");
 		case "no-progress":
-			return "已暂停 · 空转熔断";
+			return t("已暂停 · 空转熔断");
 		case "interrupted":
-			return "已暂停 · 会话重建";
+			return t("已暂停 · 会话重建");
 		case "loop-guard":
-			return "已暂停 · 输出重复";
+			return t("已暂停 · 输出重复");
 		default:
-			return "已暂停";
+			return t("已暂停");
 	}
 }
 
@@ -43,27 +44,27 @@ function formatElapsed(ms: number): string {
 }
 
 function roundLabel(round: SentinelGoalRound): string {
-	const kind = round.kind === "initial" ? "初始运行" : "自动续跑";
+	const kind = round.kind === "initial" ? t("初始运行") : t("自动续跑");
 	const outcome =
 		round.outcome === "completed"
-			? " · 已完成"
+			? t(" · 已完成")
 			: round.outcome === "blocked"
-				? " · 已阻塞"
+				? t(" · 已阻塞")
 				: round.outcome === "aborted"
-					? " · 被中止"
+					? t(" · 被中止")
 					: round.outcome === "error"
-						? " · 失败"
+						? t(" · 失败")
 						: round.outcome === "paused"
-							? " · 已暂停"
+							? t(" · 已暂停")
 							: "";
-	return `第 ${round.index} 轮 · ${kind}${outcome}`;
+	return t("第 {index} 轮 · {kind}{outcome}", { index: round.index, kind, outcome });
 }
 
 function RoundEntry({ round }: { round: SentinelGoalRound }) {
 	const duration =
 		typeof round.endedAt === "number" && round.endedAt > round.startedAt
 			? formatElapsed(round.endedAt - round.startedAt)
-			: "进行中";
+			: t("进行中");
 	const tokens = round.usage && round.usage.total > 0 ? ` · ${formatTokens(round.usage.total)} tokens` : "";
 	return (
 		<div className="goal-round">
@@ -71,11 +72,14 @@ function RoundEntry({ round }: { round: SentinelGoalRound }) {
 				<span>{roundLabel(round)}</span>
 				<span className="goal-round__meta">
 					{new Date(round.startedAt).toLocaleTimeString("zh-CN", { hour12: false })} · {duration} ·{" "}
-					{round.toolCalls} 次工具调用{tokens}
+					{t("{count} 次工具调用", { count: round.toolCalls })}
+					{tokens}
 				</span>
 			</div>
 			{round.summary ? <pre className="goal-round__summary">{round.summary}</pre> : null}
-			{round.blockerReason ? <div className="goal-round__blocker">报告阻塞：{round.blockerReason}</div> : null}
+			{round.blockerReason ? (
+				<div className="goal-round__blocker">{t("报告阻塞：{reason}", { reason: round.blockerReason })}</div>
+			) : null}
 		</div>
 	);
 }
@@ -120,78 +124,89 @@ function GoalDetail({
 	return (
 		<>
 			<div className="goal-drawer__scrim" onClick={onClose} />
-			<aside className="goal-drawer" role="dialog" aria-label="目标详情">
+			<aside className="goal-drawer" role="dialog" aria-label={t("目标详情")}>
 				<div className="goal-drawer__head">
-					<span className="goal-drawer__title">目标详情</span>
+					<span className="goal-drawer__title">{t("目标详情")}</span>
 					<span className={`goal-strip__state goal-strip__state--${goal.status}`}>{statusLabel(goal)}</span>
 					<button type="button" className="ghost small goal-drawer__close" onClick={onClose}>
-						关闭
+						{t("关闭")}
 					</button>
 				</div>
 				<div className="goal-drawer__body">
 					<div className="goal-drawer__objective">{goal.objective}</div>
 					<dl className="goal-kv">
-						<dt>轮次</dt>
+						<dt>{t("轮次")}</dt>
 						<dd>
-							{goal.roundsUsed}/{goal.roundLimit}（初始运行不计入）
+							{goal.roundsUsed}/{goal.roundLimit}
+							{t("（初始运行不计入）")}
 						</dd>
-						<dt>耗时</dt>
+						<dt>{t("耗时")}</dt>
 						<dd>{formatElapsed(elapsed)}</dd>
 						<dt>Token</dt>
 						<dd>{formatTokens(goal.usage.total)}</dd>
-						<dt>子代理</dt>
-						<dd>
-							{goal.subagent.runs} 次 · {goal.subagent.turns} 轮
-						</dd>
-						<dt>中枢</dt>
-						<dd>{goal.submitted} 条</dd>
-						<dt>模式</dt>
-						<dd>自动模式 · 全放行</dd>
-						<dt>目标 ID</dt>
+						<dt>{t("子代理")}</dt>
+						<dd>{t("{runs} 次 · {turns} 轮", { runs: goal.subagent.runs, turns: goal.subagent.turns })}</dd>
+						<dt>{t("中枢")}</dt>
+						<dd>{t("{count} 条", { count: goal.submitted })}</dd>
+						<dt>{t("模式")}</dt>
+						<dd>{t("自动模式 · 全放行")}</dd>
+						<dt>{t("目标 ID")}</dt>
 						<dd className="goal-kv__mono">{goal.id}</dd>
 					</dl>
 					{goal.status === "paused" && goal.pauseNote ? (
-						<div className="goal-drawer__note">暂停说明：{goal.pauseNote}</div>
+						<div className="goal-drawer__note">{t("暂停说明：{note}", { note: goal.pauseNote })}</div>
 					) : null}
 					{goal.blocked ? (
 						<div className="goal-drawer__note">
-							阻塞原因：{goal.blocked.reason}（同一阻塞连续 {goal.blocked.streak} 轮）
+							{t("阻塞原因：{reason}（同一阻塞连续 {count} 轮）", {
+								reason: goal.blocked.reason,
+								count: goal.blocked.streak,
+							})}
 						</div>
 					) : null}
 					{goal.criteria.length > 0 ? (
-						<GoalList label="验收标准" items={goal.criteria.map((item, index) => `${index + 1}. ${item}`)} />
+						<GoalList
+							label={t("验收标准")}
+							items={goal.criteria.map((item, index) => `${index + 1}. ${item}`)}
+						/>
 					) : null}
 					<div className="goal-drawer__group">
-						<div className="goal-drawer__label">进度</div>
+						<div className="goal-drawer__label">{t("进度")}</div>
 						{progress.done.length === 0 && progress.todo.length === 0 && progress.blockers.length === 0 ? (
-							<div className="goal-empty">还没有进度记录。</div>
+							<div className="goal-empty">{t("还没有进度记录。")}</div>
 						) : null}
-						<GoalList label="已完成" items={progress.done} />
-						<GoalList label="待办" items={progress.todo} />
-						<GoalList label="阻塞" items={progress.blockers} />
+						<GoalList label={t("已完成")} items={progress.done} />
+						<GoalList label={t("待办")} items={progress.todo} />
+						<GoalList label={t("阻塞")} items={progress.blockers} />
 					</div>
-					<div className="goal-drawer__label">执行记录 · {goal.rounds.length} 轮</div>
-					{goal.rounds.length === 0 ? <div className="goal-empty">还没有轮次记录。</div> : null}
+					<div className="goal-drawer__label">
+						{t("执行记录 · {count} 轮", { count: goal.rounds.length })}
+					</div>
+					{goal.rounds.length === 0 ? <div className="goal-empty">{t("还没有轮次记录。")}</div> : null}
 					{goal.rounds.map((round) => (
 						<RoundEntry key={round.index} round={round} />
 					))}
 					{goal.completion ? (
 						<div className="goal-completion">
-							<div className="goal-completion__title">完成结论</div>
+							<div className="goal-completion__title">{t("完成结论")}</div>
 							<pre className="goal-round__summary">{goal.completion.summary}</pre>
 							{goal.completion.criteria.length > 0 ? (
 								<GoalList
-									label="逐条判定"
-									items={goal.completion.criteria.map(
-										(item) => `${item.met ? "满足" : "未满足"}：${item.criterion} —— ${item.evidence}`,
+									label={t("逐条判定")}
+									items={goal.completion.criteria.map((item) =>
+										t("{state}：{criterion} —— {evidence}", {
+											state: item.met ? t("满足") : t("未满足"),
+											criterion: item.criterion,
+											evidence: item.evidence,
+										}),
 									)}
 								/>
 							) : null}
 							{goal.completion.evidence.length > 0 ? (
-								<GoalList label="证据" items={goal.completion.evidence} />
+								<GoalList label={t("证据")} items={goal.completion.evidence} />
 							) : null}
 							<div className="goal-completion__meta">
-								中枢记录 {goal.completion.submitted} 条
+								{t("中枢记录 {count} 条", { count: goal.completion.submitted })}
 								{goal.completion.findingsNote ? ` · ${goal.completion.findingsNote}` : ""}
 							</div>
 						</div>
@@ -199,16 +214,16 @@ function GoalDetail({
 				</div>
 				<div className="goal-drawer__foot">
 					{active ? (
-						<button type="button" onClick={onPause} title="停止当前运行并暂停目标">
-							暂停
+						<button type="button" onClick={onPause} title={t("停止当前运行并暂停目标")}>
+							{t("暂停")}
 						</button>
 					) : goal.status === "completed" ? null : (
-						<button type="button" onClick={onResume} title="再给 3 轮自动续跑并立即开始">
-							继续 +3 轮
+						<button type="button" onClick={onResume} title={t("再给 3 轮自动续跑并立即开始")}>
+							{t("继续 +3 轮")}
 						</button>
 					)}
-					<button type="button" onClick={onClear} title="清除目标（正在运行时会先中止）">
-						清除
+					<button type="button" onClick={onClear} title={t("清除目标（正在运行时会先中止）")}>
+						{t("清除")}
 					</button>
 				</div>
 			</aside>
@@ -262,27 +277,27 @@ export function GoalBar({
 					{goal.objective}
 				</span>
 				<span className="goal-strip__stats">
-					<span title="自动续跑已用轮数 / 上限；初始运行不计入">
-						轮次{" "}
+					<span title={t("自动续跑已用轮数 / 上限；初始运行不计入")}>
+						{t("轮次")}{" "}
 						<b>
 							{goal.roundsUsed}/{goal.roundLimit}
 						</b>
 					</span>
 					<span>
-						耗时 <b>{formatElapsed(elapsed)}</b>
+						{t("耗时")} <b>{formatElapsed(elapsed)}</b>
 					</span>
-					<span title="本目标开始以来的主代理用量">
+					<span title={t("本目标开始以来的主代理用量")}>
 						Token <b>{formatTokens(goal.usage.total)}</b>
 					</span>
-					<span className="goal-strip__stat--secondary" title="本目标期间提交到漏洞中枢的记录数">
-						中枢 <b>{goal.submitted}</b> 条
+					<span className="goal-strip__stat--secondary" title={t("本目标期间提交到漏洞中枢的记录数")}>
+						{t("中枢")} <b>{goal.submitted}</b> {t("条")}
 					</span>
 					{goal.subagent.runs > 0 ? (
-						<span className="goal-strip__stat--secondary" title="子代理用量只作展示，不消耗续跑轮数">
-							子代理 <b>{goal.subagent.runs}</b> 次
+						<span className="goal-strip__stat--secondary" title={t("子代理用量只作展示，不消耗续跑轮数")}>
+							{t("子代理")} <b>{goal.subagent.runs}</b> {t("次")}
 						</span>
 					) : null}
-					{streaming && !active ? <span className="goal-strip__flag">后台仍在运行</span> : null}
+					{streaming && !active ? <span className="goal-strip__flag">{t("后台仍在运行")}</span> : null}
 				</span>
 				<span className="goal-strip__ops">
 					<button
@@ -290,23 +305,25 @@ export function GoalBar({
 						onClick={() => setDetailOpen(true)}
 						title={
 							lastRound?.summary
-								? `详情：验收标准、进度与执行记录；最近一轮：${lastRound.summary.split("\n")[0]}`
-								: "详情：验收标准、进度与执行记录"
+								? t("详情：验收标准、进度与执行记录；最近一轮：{summary}", {
+										summary: lastRound.summary.split("\n")[0],
+									})
+								: t("详情：验收标准、进度与执行记录")
 						}
 					>
-						详情
+						{t("详情")}
 					</button>
 					{active ? (
-						<button type="button" onClick={onPause} title="停止当前运行并暂停目标">
-							暂停
+						<button type="button" onClick={onPause} title={t("停止当前运行并暂停目标")}>
+							{t("暂停")}
 						</button>
 					) : goal.status === "completed" ? null : (
-						<button type="button" onClick={onResume} title="再给 3 轮自动续跑并立即开始">
-							继续 +3 轮
+						<button type="button" onClick={onResume} title={t("再给 3 轮自动续跑并立即开始")}>
+							{t("继续 +3 轮")}
 						</button>
 					)}
-					<button type="button" onClick={onClear} title="清除目标（正在运行时会先中止）">
-						清除
+					<button type="button" onClick={onClear} title={t("清除目标（正在运行时会先中止）")}>
+						{t("清除")}
 					</button>
 				</span>
 			</div>

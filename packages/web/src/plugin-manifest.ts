@@ -20,6 +20,8 @@
  * explicit approval before the build starts.
  */
 
+import { t } from "./i18n.ts";
+
 /** Bump only when a field changes meaning; the parser accepts older versions. */
 export const PLUGIN_SCHEMA_VERSION = 1;
 
@@ -433,35 +435,41 @@ function isHttpUrl(text: string): boolean {
  */
 export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 	const raw = asRecord(input);
-	if (!raw) return { ok: false, errors: ["plugin.json 必须是 JSON 对象"] };
+	if (!raw) return { ok: false, errors: [t("plugin.json 必须是 JSON 对象")] };
 	const manifest = normalize(raw);
 	const errors: string[] = [];
 
 	if (manifest.schema !== PLUGIN_SCHEMA_VERSION) {
-		errors.push(`schema 必须是 ${PLUGIN_SCHEMA_VERSION}，收到 ${String(raw.schema ?? "空")}`);
+		errors.push(
+			t("schema 必须是 {expected}，收到 {actual}", {
+				expected: PLUGIN_SCHEMA_VERSION,
+				actual: String(raw.schema ?? t("空")),
+			}),
+		);
 	}
-	if (!manifest.id) errors.push("缺少 id");
-	else if (!PLUGIN_ID_PATTERN.test(manifest.id)) errors.push("id 必须是反向域名写法，例如 com.example.recon");
-	else if (manifest.id.length > PLUGIN_LIMITS.maxIdChars)
-		errors.push(`id 不能超过 ${PLUGIN_LIMITS.maxIdChars} 个字符`);
+	if (!manifest.id) errors.push(t("缺少 id"));
+	else if (!PLUGIN_ID_PATTERN.test(manifest.id)) errors.push(t("id 必须是反向域名写法，例如 com.example.recon"));
+	else if (manifest.id.length > PLUGIN_LIMITS.maxIdChars) {
+		errors.push(t("id 不能超过 {max} 个字符", { max: PLUGIN_LIMITS.maxIdChars }));
+	}
 
-	if (!manifest.name) errors.push("缺少 name");
+	if (!manifest.name) errors.push(t("缺少 name"));
 	else if (manifest.name.length > PLUGIN_LIMITS.maxNameChars) {
-		errors.push(`name 不能超过 ${PLUGIN_LIMITS.maxNameChars} 个字符`);
+		errors.push(t("name 不能超过 {max} 个字符", { max: PLUGIN_LIMITS.maxNameChars }));
 	}
-	if (!manifest.version) errors.push("缺少 version");
-	else if (!SEMVER_PATTERN.test(manifest.version)) errors.push("version 必须是语义化版本，例如 0.1.0");
+	if (!manifest.version) errors.push(t("缺少 version"));
+	else if (!SEMVER_PATTERN.test(manifest.version)) errors.push(t("version 必须是语义化版本，例如 0.1.0"));
 
-	if (!manifest.description) errors.push("缺少 description");
+	if (!manifest.description) errors.push(t("缺少 description"));
 	else if (manifest.description.length > PLUGIN_LIMITS.maxDescriptionChars) {
-		errors.push(`description 不能超过 ${PLUGIN_LIMITS.maxDescriptionChars} 个字符`);
+		errors.push(t("description 不能超过 {max} 个字符", { max: PLUGIN_LIMITS.maxDescriptionChars }));
 	}
-	if (!manifest.author) errors.push("缺少 author，写成 github:<用户名>");
-	if (!manifest.source) errors.push("缺少 source：本项目只分发带源码链接的开源插件");
-	else if (!isHttpUrl(manifest.source)) errors.push("source 必须是 http(s) 链接");
-	if (!manifest.license) errors.push("缺少 license");
+	if (!manifest.author) errors.push(t("缺少 author，写成 github:<用户名>"));
+	if (!manifest.source) errors.push(t("缺少 source：本项目只分发带源码链接的开源插件"));
+	else if (!isHttpUrl(manifest.source)) errors.push(t("source 必须是 http(s) 链接"));
+	if (!manifest.license) errors.push(t("缺少 license"));
 	if (raw.image !== undefined) {
-		errors.push("不再支持 image：插件包现在包含 Dockerfile，由插件主机本地构建");
+		errors.push(t("不再支持 image：插件包现在包含 Dockerfile，由插件主机本地构建"));
 	}
 	const buildPaths: Array<[string, string]> = [
 		["build.dockerfile", manifest.build.dockerfile],
@@ -469,34 +477,38 @@ export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 	];
 	for (const [label, value] of buildPaths) {
 		if (!value) {
-			errors.push(`${label} 不能为空`);
+			errors.push(t("{label} 不能为空", { label }));
 			continue;
 		}
 		if (value.startsWith("/") || value.split("/").includes("..") || !BUILD_PATH_PATTERN.test(value)) {
-			errors.push(`${label} 必须是插件包内的相对路径，不能以 / 开头或包含 ..`);
+			errors.push(t("{label} 必须是插件包内的相对路径，不能以 / 开头或包含 ..", { label }));
 			continue;
 		}
 		if (value.length > PLUGIN_LIMITS.maxBuildPathChars) {
-			errors.push(`${label} 不能超过 ${PLUGIN_LIMITS.maxBuildPathChars} 个字符`);
+			errors.push(t("{label} 不能超过 {max} 个字符", { label, max: PLUGIN_LIMITS.maxBuildPathChars }));
 		}
 	}
 	if (manifest.build.dockerfile === "." || manifest.build.dockerfile.endsWith("/")) {
-		errors.push("build.dockerfile 必须指向一个文件");
+		errors.push(t("build.dockerfile 必须指向一个文件"));
 	}
 	const buildArgEntries = Object.entries(manifest.build.args);
-	if (buildArgEntries.length > MAX_BUILD_ARGS) errors.push(`build.args 不能超过 ${MAX_BUILD_ARGS} 项`);
+	if (buildArgEntries.length > MAX_BUILD_ARGS) {
+		errors.push(t("build.args 不能超过 {max} 项", { max: MAX_BUILD_ARGS }));
+	}
 	for (const [key, value] of buildArgEntries) {
-		if (!BUILD_ARG_KEY_PATTERN.test(key)) errors.push(`build.args 的键 ${key} 必须匹配 ^[A-Z][A-Z0-9_]*$`);
+		if (!BUILD_ARG_KEY_PATTERN.test(key)) {
+			errors.push(t("build.args 的键 {key} 必须匹配 ^[A-Z][A-Z0-9_]*$", { key }));
+		}
 		if (typeof value !== "string" || value.length > MAX_BUILD_ARG_CHARS || value.includes("\n")) {
-			errors.push(`build.args.${key} 必须是 ${MAX_BUILD_ARG_CHARS} 字符以内的单行字符串`);
+			errors.push(t("build.args.{key} 必须是 {max} 字符以内的单行字符串", { key, max: MAX_BUILD_ARG_CHARS }));
 		}
 	}
 
-	if (!manifest.mcp.path.startsWith("/")) errors.push("mcp.path 必须以 / 开头");
-	if (/\s/.test(manifest.mcp.path)) errors.push("mcp.path 不能包含空白字符");
+	if (!manifest.mcp.path.startsWith("/")) errors.push(t("mcp.path 必须以 / 开头"));
+	if (/\s/.test(manifest.mcp.path)) errors.push(t("mcp.path 不能包含空白字符"));
 	const rawMcp = asRecord(raw.mcp);
 	if (rawMcp?.transport !== undefined && rawMcp.transport !== "http") {
-		errors.push('mcp.transport 只支持 "http"（streamable HTTP）；stdio 和 SSE 需要插件作者自行转换');
+		errors.push(t('mcp.transport 只支持 "http"（streamable HTTP）；stdio 和 SSE 需要插件作者自行转换'));
 	}
 	if (rawMcp?.requestTimeoutMs !== undefined) {
 		const timeout = rawMcp.requestTimeoutMs;
@@ -507,78 +519,85 @@ export function parsePluginManifest(input: unknown): SentinelPluginParseResult {
 			timeout > PLUGIN_LIMITS.maxRequestTimeoutMs
 		) {
 			errors.push(
-				`mcp.requestTimeoutMs 必须是 ${PLUGIN_LIMITS.minRequestTimeoutMs}–${PLUGIN_LIMITS.maxRequestTimeoutMs} 之间的毫秒数`,
+				t("mcp.requestTimeoutMs 必须是 {min}–{max} 之间的毫秒数", {
+					min: PLUGIN_LIMITS.minRequestTimeoutMs,
+					max: PLUGIN_LIMITS.maxRequestTimeoutMs,
+				}),
 			);
 		}
 	}
 
 	for (const cap of manifest.permissions.capAdd) {
-		if (!CAP_PATTERN.test(cap)) errors.push(`permissions.capAdd 含非法能力名 "${cap}"`);
+		if (!CAP_PATTERN.test(cap)) {
+			errors.push(t('permissions.capAdd 含非法能力名 "{cap}"', { cap }));
+		}
 	}
 
 	if (!Number.isFinite(manifest.resources.cpus) || manifest.resources.cpus < PLUGIN_LIMITS.minCpus) {
-		errors.push(`resources.cpus 不能小于 ${PLUGIN_LIMITS.minCpus}`);
+		errors.push(t("resources.cpus 不能小于 {min}", { min: PLUGIN_LIMITS.minCpus }));
 	} else if (manifest.resources.cpus > PLUGIN_LIMITS.maxCpus) {
-		errors.push(`resources.cpus 不能超过 ${PLUGIN_LIMITS.maxCpus}`);
+		errors.push(t("resources.cpus 不能超过 {max}", { max: PLUGIN_LIMITS.maxCpus }));
 	}
 	const rawResources = asRecord(raw.resources);
 	if (typeof rawResources?.memory === "string" && pluginMemoryBytes(rawResources.memory) === null) {
-		errors.push("resources.memory 必须是类似 512m、1g 的 Docker 尺寸");
+		errors.push(t("resources.memory 必须是类似 512m、1g 的 Docker 尺寸"));
 	}
 
-	if (!manifest.healthcheck.path.startsWith("/")) errors.push("healthcheck.path 必须以 / 开头");
-	if (!manifest.artifacts.path.startsWith("/")) errors.push("artifacts.path 必须是容器内的绝对路径");
+	if (!manifest.healthcheck.path.startsWith("/")) errors.push(t("healthcheck.path 必须以 / 开头"));
+	if (!manifest.artifacts.path.startsWith("/")) errors.push(t("artifacts.path 必须是容器内的绝对路径"));
 
 	const configKeys = new Set<string>();
 	for (const field of manifest.config) {
 		if (!CONFIG_KEY_PATTERN.test(field.key)) {
-			errors.push(`config.key "${field.key}" 必须是大写字母、数字和下划线，且以字母开头`);
+			errors.push(t('config.key "{key}" 必须是大写字母、数字和下划线，且以字母开头', { key: field.key }));
 		}
-		if (configKeys.has(field.key)) errors.push(`config.key "${field.key}" 重复`);
+		if (configKeys.has(field.key)) errors.push(t('config.key "{key}" 重复', { key: field.key }));
 		configKeys.add(field.key);
 		if (field.type === "enum") {
-			if (field.options.length === 0) errors.push(`config "${field.key}" 是 enum，但没有 options`);
+			if (field.options.length === 0) errors.push(t('config "{key}" 是 enum，但没有 options', { key: field.key }));
 			else if (typeof field.default === "string" && !field.options.includes(field.default)) {
-				errors.push(`config "${field.key}" 的默认值不在 options 里`);
+				errors.push(t('config "{key}" 的默认值不在 options 里', { key: field.key }));
 			}
 		}
 		if (field.required && field.default !== null && field.type !== "boolean") {
-			errors.push(`config "${field.key}" 必填时不应给默认值`);
+			errors.push(t('config "{key}" 必填时不应给默认值', { key: field.key }));
 		}
 	}
 
 	for (const hint of manifest.tools) {
-		if (!TOOL_NAME_PATTERN.test(hint.name)) errors.push(`tools 里的工具名 "${hint.name}" 非法`);
+		if (!TOOL_NAME_PATTERN.test(hint.name)) {
+			errors.push(t('tools 里的工具名 "{name}" 非法', { name: hint.name }));
+		}
 	}
 
 	if (manifest.ui) {
 		if (manifest.ui.sidebar) {
 			if (manifest.ui.sidebar.label.length > PLUGIN_LIMITS.maxNameChars) {
-				errors.push(`ui.sidebar.label 不能超过 ${PLUGIN_LIMITS.maxNameChars} 个字符`);
+				errors.push(t("ui.sidebar.label 不能超过 {max} 个字符", { max: PLUGIN_LIMITS.maxNameChars }));
 			}
 			const icon = manifest.ui.sidebar.icon;
 			if (icon) {
 				if (!/^\/ui\/[A-Za-z0-9._-]+\.(svg|png)$/.test(icon) || icon.split("/").includes("..")) {
-					errors.push("ui.sidebar.icon 必须是 /ui/ 下的 .svg 或 .png 路径");
+					errors.push(t("ui.sidebar.icon 必须是 /ui/ 下的 .svg 或 .png 路径"));
 				}
 			}
 		}
 		if (!manifest.ui.title) manifest.ui.title = manifest.name;
 		const entry = manifest.ui.entry;
-		if (!entry) errors.push("ui.entry 不能为空");
+		if (!entry) errors.push(t("ui.entry 不能为空"));
 		else if (!entry.startsWith("/") || !entry.endsWith(".html")) {
-			errors.push("ui.entry 必须是容器内的绝对路径，并以 .html 结尾");
+			errors.push(t("ui.entry 必须是容器内的绝对路径，并以 .html 结尾"));
 		} else if (entry.length > PLUGIN_LIMITS.maxUiEntryChars) {
-			errors.push(`ui.entry 不能超过 ${PLUGIN_LIMITS.maxUiEntryChars} 个字符`);
+			errors.push(t("ui.entry 不能超过 {max} 个字符", { max: PLUGIN_LIMITS.maxUiEntryChars }));
 		} else if (/\s/.test(entry) || entry.split("/").includes("..")) {
-			errors.push("ui.entry 不能包含空白或 .. 路径段");
+			errors.push(t("ui.entry 不能包含空白或 .. 路径段"));
 		}
 		if (manifest.ui.protocol !== PLUGIN_UI_PROTOCOL) {
-			errors.push(`ui.protocol 只支持 ${PLUGIN_UI_PROTOCOL}`);
+			errors.push(t("ui.protocol 只支持 {version}", { version: PLUGIN_UI_PROTOCOL }));
 		}
 		const uiRaw = asRecord(raw.ui);
 		if (uiRaw?.network === true) {
-			errors.push("v1 不支持插件界面直接访问外网；需要外网时由插件容器自己请求");
+			errors.push(t("v1 不支持插件界面直接访问外网；需要外网时由插件容器自己请求"));
 		}
 	}
 
@@ -632,29 +651,32 @@ export function validatePluginConfig(
 ): string | undefined {
 	const known = new Set(fields.map((field) => field.key));
 	for (const key of Object.keys(values)) {
-		if (!known.has(key)) return `未知的配置项 "${key}"`;
+		if (!known.has(key)) return t('未知的配置项 "{key}"', { key });
 	}
 	for (const field of fields) {
 		const value = values[field.key];
 		if (value === undefined || value === "") {
 			if (field.required && !(field.type === "secret" && options.keepSecrets?.has(field.key))) {
-				return `配置项 "${field.label}" 不能为空`;
+				return t('配置项 "{label}" 不能为空', { label: field.label });
 			}
 			continue;
 		}
 		if (field.type === "number") {
 			const parsed = typeof value === "number" ? value : Number(value);
-			if (!Number.isFinite(parsed)) return `配置项 "${field.label}" 必须是数字`;
+			if (!Number.isFinite(parsed)) return t('配置项 "{label}" 必须是数字', { label: field.label });
 		} else if (field.type === "boolean") {
 			if (typeof value !== "boolean" && value !== "true" && value !== "false") {
-				return `配置项 "${field.label}" 必须是布尔值`;
+				return t('配置项 "{label}" 必须是布尔值', { label: field.label });
 			}
 		} else if (field.type === "enum") {
 			if (typeof value !== "string" || !field.options.includes(value)) {
-				return `配置项 "${field.label}" 必须从 ${field.options.join(" / ")} 中选择`;
+				return t('配置项 "{label}" 必须从 {options} 中选择', {
+					label: field.label,
+					options: field.options.join(" / "),
+				});
 			}
 		} else if (typeof value !== "string") {
-			return `配置项 "${field.label}" 必须是字符串`;
+			return t('配置项 "{label}" 必须是字符串', { label: field.label });
 		}
 	}
 	return undefined;

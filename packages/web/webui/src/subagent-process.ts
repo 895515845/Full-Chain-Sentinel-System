@@ -8,13 +8,14 @@
  * (and testable without a DOM).
  */
 
+import { t } from "./i18n.ts";
 import type { SentinelSubagentEvent, SentinelSubagentRun, SentinelSubagentStatus } from "./types.ts";
 
 export const STATUS_LABELS: Record<SentinelSubagentStatus, string> = {
-	running: "运行中",
-	done: "已完成",
-	error: "失败",
-	aborted: "已中止",
+	running: t("运行中"),
+	done: t("已完成"),
+	error: t("失败"),
+	aborted: t("已中止"),
 };
 
 export type ToolStatus = "running" | "done" | "error";
@@ -218,8 +219,9 @@ export function buildTurns(events: SentinelSubagentEvent[]): TurnGroup[] {
 
 	for (const event of events) {
 		if (event.kind === "turn") {
-			const marker = /第\s*(\d+)\s*轮/.exec(event.text ?? "")?.[1];
-			flush(marker === undefined ? undefined : Number(marker), event.at);
+			const marker = /第\s*(\d+)\s*轮|Turn\s+(\d+)/.exec(event.text ?? "");
+			const turn = marker?.[1] ?? marker?.[2];
+			flush(turn === undefined ? undefined : Number(turn), event.at);
 			continue;
 		}
 		if (event.kind === "text") {

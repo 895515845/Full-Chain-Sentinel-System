@@ -14,6 +14,7 @@
  * quota — the 4xx quota codes and 5xx are retryable on another key.
  */
 
+import { t } from "./i18n.ts";
 import type { SentinelTestResult } from "./protocol.ts";
 
 /** Per-request ceiling. A search under load can take several seconds. */
@@ -107,9 +108,12 @@ async function request(
 	try {
 		response = await fetchImpl(url, { ...init, signal: combined });
 	} catch (error) {
-		if (signal?.aborted) throw new TavilyError("已取消", false);
-		const reason = timeout.aborted ? `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒）` : "网络错误";
-		throw new TavilyError(`${reason}：${error instanceof Error ? error.message : String(error)}`, true);
+		if (signal?.aborted) throw new TavilyError(t("已取消"), false);
+		const reason = timeout.aborted
+			? t("请求超时（{seconds} 秒）", { seconds: REQUEST_TIMEOUT_MS / 1000 })
+			: t("网络错误");
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new TavilyError(t("{reason}：{detail}", { reason, detail }), true);
 	}
 	const body = await response.text().catch(() => "");
 	return { status: response.status, body };
@@ -117,7 +121,7 @@ async function request(
 
 function parseJson(body: string, status: number): Record<string, unknown> {
 	if (!body.trim()) {
-		throw new TavilyError(`接口返回空响应（HTTP ${status}）`, status >= 500 || status === 429);
+		throw new TavilyError(t("接口返回空响应（HTTP {status}）", { status }), status >= 500 || status === 429);
 	}
 	try {
 		const parsed = JSON.parse(body) as unknown;
@@ -125,16 +129,19 @@ function parseJson(body: string, status: number): Record<string, unknown> {
 	} catch {
 		// fall through to the status-based message
 	}
-	throw new TavilyError(`接口返回的不是 JSON（HTTP ${status}）：${body.slice(0, 120)}`, status >= 500);
+	throw new TavilyError(
+		t("接口返回的不是 JSON（HTTP {status}）：{body}", { status, body: body.slice(0, 120) }),
+		status >= 500,
+	);
 }
 
 /** Map an HTTP failure to a Chinese message; quota codes retry on another key. */
 function httpError(status: number): TavilyError {
-	if (status === 401 || status === 403) return new TavilyError("API Key 无效或已过期（HTTP 401）", false);
-	if (status === 429) return new TavilyError("请求过于频繁（HTTP 429）", true);
-	if (status === 432) return new TavilyError("套餐额度已用尽（HTTP 432）", true);
-	if (status === 433) return new TavilyError("该 Key 的搜索额度已用尽（HTTP 433）", true);
-	return new TavilyError(`接口错误（HTTP ${status}）`, status >= 500);
+	if (status === 401 || status === 403) return new TavilyError(t("API Key 无效或已过期（HTTP 401）"), false);
+	if (status === 429) return new TavilyError(t("请求过于频繁（HTTP 429）"), true);
+	if (status === 432) return new TavilyError(t("套餐额度已用尽（HTTP 432）"), true);
+	if (status === 433) return new TavilyError(t("该 Key 的搜索额度已用尽（HTTP 433）"), true);
+	return new TavilyError(t("接口错误（HTTP {status}）", { status }), status >= 500);
 }
 
 function clampMaxResults(value: number | undefined): number {
@@ -199,7 +206,7 @@ export async function extractWeb(options: WebExtractOptions): Promise<WebExtract
 		.map((url) => url.trim())
 		.filter((url) => /^https?:\/\//i.test(url))
 		.slice(0, 10);
-	if (urls.length === 0) throw new TavilyError("urls 必须是 1-10 个 http(s) 地址", false);
+	if (urls.length === 0) throw new TavilyError(t("urls 必须是 1-10 个 http(s) 地址"), false);
 	const started = Date.now();
 	const { status, body } = await request(
 		options.fetchImpl ?? fetch,
@@ -224,7 +231,7 @@ export async function extractWeb(options: WebExtractOptions): Promise<WebExtract
 	for (const row of Array.isArray(data.failed_results) ? data.failed_results : []) {
 		const hit = (row ?? {}) as Record<string, unknown>;
 		const url = text(hit.url);
-		if (url) failed.push({ url, error: text(hit.error) || "抓取失败" });
+		if (url) failed.push({ url, error: text(hit.error) || t("抓取失败") });
 	}
 	return { urls, pages, failed, raw: data, latencyMs: Date.now() - started, keyId: options.keyId };
 }
@@ -261,7 +268,7 @@ export async function tavilyUsage(options: TavilyUsageOptions): Promise<TavilyKe
 	const asLimit = (value: unknown): number | null =>
 		typeof value === "number" && Number.isFinite(value) ? value : null;
 	return {
-		plan: text(account.current_plan) || "未知套餐",
+		plan: text(account.current_plan) || t("未知套餐"),
 		keyUsed: asNumber(key.usage),
 		keyLimit: asLimit(key.limit),
 		planUsed: asNumber(account.plan_usage),
@@ -289,8 +296,8 @@ export async function probeTavilyKey(
 ): Promise<SentinelTestResult & { usage?: TavilyKeyUsage }> {
 	const usage = await tavilyUsage(options);
 	const left = usageRemaining(usage);
-	const quota = `套餐 ${usage.plan} · 本套餐已用 ${usage.planUsed}${usage.planLimit === null ? "" : ` / ${usage.planLimit}`}${
-		left === null ? "" : ` · 剩余 ${left}`
-	}`;
-	return { ok: true, message: `Tavily 连接正常（${quota}）`, usage };
+	const quota = `${t("套餐 {plan} · 本套餐已用 {used}", { plan: usage.plan, used: usage.planUsed })}${
+		usage.planLimit === null ? "" : ` / ${usage.planLimit}`
+	}${left === null ? "" : t(" · 剩余 {left}", { left })}`;
+	return { ok: true, message: t("Tavily 连接正常（{quota}）", { quota }), usage };
 }

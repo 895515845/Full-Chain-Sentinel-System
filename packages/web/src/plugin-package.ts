@@ -8,6 +8,7 @@
  */
 
 import { basename } from "node:path";
+import { t } from "./i18n.ts";
 import { parsePluginManifest, type SentinelPluginManifest } from "./plugin-manifest.ts";
 import { readZip } from "./poc-zip.ts";
 
@@ -31,11 +32,11 @@ function decodePackage(name: string, base64: string): Buffer {
 	try {
 		buffer = Buffer.from(cleaned, "base64");
 	} catch {
-		throw new Error(`插件包「${name}」不是合法的 base64`);
+		throw new Error(t("插件包「{name}」不是合法的 base64", { name }));
 	}
-	if (buffer.length === 0) throw new Error(`插件包「${name}」为空`);
+	if (buffer.length === 0) throw new Error(t("插件包「{name}」为空", { name }));
 	if (buffer.length > MAX_PLUGIN_PACKAGE_BYTES) {
-		throw new Error(`插件包超过 ${MAX_PLUGIN_PACKAGE_BYTES / (1024 * 1024)}MB 上限`);
+		throw new Error(t("插件包超过 {size}MB 上限", { size: MAX_PLUGIN_PACKAGE_BYTES / (1024 * 1024) }));
 	}
 	return buffer;
 }
@@ -45,7 +46,7 @@ function parseManifestJson(text: string, name: string): SentinelPluginManifest {
 	try {
 		raw = JSON.parse(text);
 	} catch {
-		throw new Error(`插件包「${name}」里的 plugin.json 不是合法 JSON`);
+		throw new Error(t("插件包「{name}」里的 plugin.json 不是合法 JSON", { name }));
 	}
 	const parsed = parsePluginManifest(raw);
 	if (!parsed.ok) throw new Error(parsed.errors.join("；"));
@@ -77,28 +78,28 @@ export function readPluginPackage(name: string, base64: string): PluginPackageCo
 	const lower = displayName.toLowerCase();
 
 	if (!lower.endsWith(".zip")) {
-		throw new Error("只支持 .zip：插件包必须包含 Dockerfile 和构建上下文");
+		throw new Error(t("只支持 .zip：插件包必须包含 Dockerfile 和构建上下文"));
 	}
 
 	const { entries } = readZip(buffer);
 	const files = entries.map((entry) => entry.name).filter((entry) => !isJunk(entry));
 	if (files.length > MAX_PLUGIN_PACKAGE_FILES) {
-		throw new Error(`插件包里的文件超过 ${MAX_PLUGIN_PACKAGE_FILES} 个，这不像是插件包`);
+		throw new Error(t("插件包里的文件超过 {count} 个，这不像是插件包", { count: MAX_PLUGIN_PACKAGE_FILES }));
 	}
 	const manifests = entries
 		.filter((entry) => !isJunk(entry.name) && basename(entry.name) === "plugin.json")
 		.sort((left, right) => depthOf(left.name) - depthOf(right.name));
 	const found = manifests[0];
-	if (!found) throw new Error("插件包的根目录（或一层子目录）里没有 plugin.json");
+	if (!found) throw new Error(t("插件包的根目录（或一层子目录）里没有 plugin.json"));
 	const manifest = parseManifestJson(found.data.toString("utf-8"), displayName);
 	const root = found.name.includes("/") ? found.name.slice(0, found.name.lastIndexOf("/") + 1) : "";
 	const dockerfile = `${root}${manifest.build.dockerfile}`;
 	if (!files.includes(dockerfile)) {
-		throw new Error(`插件包里没有 Dockerfile：${dockerfile}`);
+		throw new Error(t("插件包里没有 Dockerfile：{file}", { file: dockerfile }));
 	}
 	const context = `${root}${manifest.build.context === "." ? "" : `${manifest.build.context}/`}`;
 	if (context && !files.some((entry) => entry.startsWith(context))) {
-		throw new Error(`插件包里没有构建上下文目录：${manifest.build.context}`);
+		throw new Error(t("插件包里没有构建上下文目录：{path}", { path: manifest.build.context }));
 	}
 	return {
 		manifest,

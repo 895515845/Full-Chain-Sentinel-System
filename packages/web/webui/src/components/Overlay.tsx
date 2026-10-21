@@ -6,6 +6,7 @@
  * shell is the same panel pattern the pages use, only floating.
  */
 
+import { t } from "../i18n.ts";
 import { CloseIcon } from "./icons.tsx";
 
 export function Overlay({
@@ -37,7 +38,7 @@ export function Overlay({
 					</div>
 					<div className="ws-panel__actions">
 						{actions}
-						<button type="button" className="ghost small" title="关闭" onClick={onClose}>
+						<button type="button" className="ghost small" title={t("关闭")} onClick={onClose}>
 							<CloseIcon />
 						</button>
 					</div>

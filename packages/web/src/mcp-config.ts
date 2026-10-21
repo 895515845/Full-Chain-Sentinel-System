@@ -30,6 +30,7 @@ import {
 	mcpNamespace,
 	validateMcpServerConfig,
 } from "@earendil-works/pi-coding-agent";
+import { t } from "./i18n.ts";
 import { readPermissionsConfig } from "./permissions.ts";
 import { pluginMountEntries, pluginStatePath } from "./plugin-store.ts";
 import type {
@@ -285,15 +286,15 @@ function missingFieldProblem(server: SentinelMcpServerRecord): string | undefine
  */
 export function validateMcpServerInput(input: SentinelMcpServerInput): string | undefined {
 	const name = input.name.trim();
-	if (!name) return "请填写服务器名称";
-	if (!/^[A-Za-z0-9_-]+$/.test(name)) return "名称只能用字母、数字、下划线和短横线";
+	if (!name) return t("请填写服务器名称");
+	if (!/^[A-Za-z0-9_-]+$/.test(name)) return t("名称只能用字母、数字、下划线和短横线");
 	if (input.transport === "stdio") {
-		if (!input.command.trim()) return "stdio 服务器需要填写命令";
+		if (!input.command.trim()) return t("stdio 服务器需要填写命令");
 		if (!input.hostExecAcknowledged) {
-			return "stdio 命令在控制台宿主机上直接执行（不在容器内，也不经过 bash 审批），请先勾选风险确认";
+			return t("stdio 命令在控制台宿主机上直接执行（不在容器内，也不经过 bash 审批），请先勾选风险确认");
 		}
 	} else if (!input.url.trim()) {
-		return `${input.transport === "sse" ? "SSE" : "HTTP"} 服务器需要填写 URL`;
+		return t("{type} 服务器需要填写 URL", { type: input.transport === "sse" ? "SSE" : "HTTP" });
 	}
 	const validated = validateMcpServerConfig(name, toMcpServerConfig(normalizeMcpServer(input)));
 	if (typeof validated === "string") return validated;
@@ -372,7 +373,12 @@ export function loadSentinelMcpConfig(agentDir: string, allowPlugin?: (key: stri
 		// registered and nothing can load them back.
 		if (allowPlugin && !allowPlugin(plugin.key)) continue;
 		if (used.has(mcpNamespace(plugin.serverName))) {
-			errors.push(`${pluginStatePath(agentDir)}: 插件服务器 ${plugin.serverName} 与已有 MCP 服务器同名，已跳过`);
+			errors.push(
+				t("{path}: 插件服务器 {server} 与已有 MCP 服务器同名，已跳过", {
+					path: pluginStatePath(agentDir),
+					server: plugin.serverName,
+				}),
+			);
 			continue;
 		}
 		const pluginConfig = {
@@ -415,7 +421,7 @@ export function saveMcpServer(agentDir: string, input: SentinelMcpServerInput): 
 	const failure = validateMcpServerInput(input);
 	if (failure) throw new Error(failure);
 	const file = readMcpServersForUpdate(agentDir);
-	if (!file) throw new Error(`${mcpServersJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!file) throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: mcpServersJsonPath(agentDir) }));
 	const server = normalizeMcpServer(input);
 	const index = file.servers.findIndex((entry) => mcpNamespace(entry.name) === mcpNamespace(server.name));
 	if (index >= 0) {
@@ -432,7 +438,7 @@ export function saveMcpServer(agentDir: string, input: SentinelMcpServerInput): 
 /** Remove one server. Removing a name that is not stored is not an error. */
 export function deleteMcpServer(agentDir: string, name: string): SentinelMcpConfigView {
 	const file = readMcpServersForUpdate(agentDir);
-	if (!file) throw new Error(`${mcpServersJsonPath(agentDir)} 无法解析，请先修复或删除该文件再删除`);
+	if (!file) throw new Error(t("{path} 无法解析，请先修复或删除该文件再删除", { path: mcpServersJsonPath(agentDir) }));
 	const namespace = mcpNamespace(name.trim());
 	file.servers = file.servers.filter((entry) => mcpNamespace(entry.name) !== namespace);
 	writeMcpServers(agentDir, file);
@@ -464,10 +470,10 @@ export function updateMcpServerRecord(
 	patch: { enabled?: boolean; exposure?: McpExposure },
 ): void {
 	const file = readMcpServersForUpdate(agentDir);
-	if (!file) throw new Error(`${mcpServersJsonPath(agentDir)} 无法解析，请先修复或删除该文件再修改`);
+	if (!file) throw new Error(t("{path} 无法解析，请先修复或删除该文件再修改", { path: mcpServersJsonPath(agentDir) }));
 	const namespace = mcpNamespace(name.trim());
 	const server = file.servers.find((entry) => mcpNamespace(entry.name) === namespace);
-	if (!server) throw new Error(`${mcpServersJsonPath(agentDir)} 未定义 MCP 服务器 "${name}"`);
+	if (!server) throw new Error(t('{path} 未定义 MCP 服务器 "{name}"', { path: mcpServersJsonPath(agentDir), name }));
 	if (patch.enabled !== undefined) server.enabled = patch.enabled;
 	if (patch.exposure !== undefined) server.exposure = patch.exposure;
 	writeMcpServers(agentDir, file);

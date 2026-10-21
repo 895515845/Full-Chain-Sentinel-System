@@ -13,6 +13,7 @@ import {
 	PROJECT_NAME,
 	PROJECT_REPOSITORY,
 } from "../branding.ts";
+import { t } from "../i18n.ts";
 import type { SentinelProjectInfo, SentinelResolvedModelView, SentinelStateSnapshot, SentinelStatsView } from "../types.ts";
 import { SENTINEL_MODE_LABELS } from "../types.ts";
 import { GitHubIcon, SentinelMark } from "./icons.tsx";
@@ -32,26 +33,44 @@ export function AboutPage({
 	connected: boolean;
 }) {
 	const rows: { label: string; value: string }[] = [
-		{ label: "控制台", value: `${PROJECT_NAME} Web 控制台` },
-		{ label: "连接状态", value: connected ? "已连接" : "已断开" },
-		{ label: "主模型", value: main ? `${main.entryName}（${main.modelId}）` : "未配置" },
-		{ label: "模型", value: snapshot?.model ? `${snapshot.model.provider} / ${snapshot.model.id}` : "未配置" },
-		{ label: "执行模式", value: snapshot ? SENTINEL_MODE_LABELS[snapshot.mode] : "—" },
-		{ label: "思考等级", value: snapshot?.thinkingLevel ?? "—" },
-		{ label: "当前项目", value: project ? `${project.name}（${project.container ?? "无容器"}）` : "未选择" },
-		{ label: "工作目录", value: snapshot?.cwd ?? "—" },
-		{ label: "当前会话", value: snapshot?.activeSessionId ?? "—" },
-		{ label: "累计 Token", value: stats ? `输入 ${stats.tokens.input} / 输出 ${stats.tokens.output}` : "—" },
-		{ label: "Token 合计", value: stats ? String(stats.tokens.total) : "—" },
-		{ label: "累计花费", value: stats ? `$${stats.cost.toFixed(4)}` : "—" },
+		{ label: t("控制台"), value: t("{name} Web 控制台", { name: PROJECT_NAME }) },
+		{ label: t("连接状态"), value: connected ? t("已连接") : t("已断开") },
+		{
+			label: t("主模型"),
+			value: main
+				? t("{entry}（{model}）", { entry: main.entryName, model: main.modelId })
+				: t("未配置"),
+		},
+		{
+			label: t("模型"),
+			value: snapshot?.model ? `${snapshot.model.provider} / ${snapshot.model.id}` : t("未配置"),
+		},
+		{ label: t("执行模式"), value: snapshot ? SENTINEL_MODE_LABELS[snapshot.mode] : "—" },
+		{ label: t("思考等级"), value: snapshot?.thinkingLevel ?? "—" },
+		{
+			label: t("当前项目"),
+			value: project
+				? t("{name}（{container}）", { name: project.name, container: project.container ?? t("无容器") })
+				: t("未选择"),
+		},
+		{ label: t("工作目录"), value: snapshot?.cwd ?? "—" },
+		{ label: t("当前会话"), value: snapshot?.activeSessionId ?? "—" },
+		{
+			label: t("累计 Token"),
+			value: stats
+				? t("输入 {input} / 输出 {output}", { input: stats.tokens.input, output: stats.tokens.output })
+				: "—",
+		},
+		{ label: t("Token 合计"), value: stats ? String(stats.tokens.total) : "—" },
+		{ label: t("累计花费"), value: stats ? `$${stats.cost.toFixed(4)}` : "—" },
 	];
 
 	return (
 		<div className="page-card">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
-					关于
-					<span className="ws-panel__sub">当前运行环境与端点</span>
+					{t("关于")}
+					<span className="ws-panel__sub">{t("当前运行环境与端点")}</span>
 				</div>
 			</div>
 			<div className="ws-panel__body">
@@ -64,8 +83,7 @@ export function AboutPage({
 					))}
 				</div>
 				<p className="ws-panel__hint">
-					所有命令都在项目容器内以 root 执行，bash 命令在审批模式下逐条确认。工具输出与文件面板内容来自容器，
-					请仅在已授权的目标上使用。
+					{t("所有命令都在项目容器内以 root 执行，bash 命令在审批模式下逐条确认。工具输出与文件面板内容来自容器，请仅在已授权的目标上使用。")}
 				</p>
 				<div className="about-brand">
 					<SentinelMark size={16} className="about-brand__mark" />

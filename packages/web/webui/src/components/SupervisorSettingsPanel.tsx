@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t } from "../i18n.ts";
 import type {
 	SentinelModelLibraryView,
 	SentinelSupervisorConfig,
@@ -133,17 +134,17 @@ export function SupervisorSettingsPanel({
 	return (
 		<div className="settings settings--wide cockpit">
 			<div className="cockpit-sec cockpit-sec--first">
-				<h3>监督模型</h3>
-				<span className="cockpit-sec__meta">观察模式总结与介入判断使用的端点</span>
+				<h3>{t("监督模型")}</h3>
+				<span className="cockpit-sec__meta">{t("观察模式总结与介入判断使用的端点")}</span>
 			</div>
 			<div className="cockpit-sup">
 				<div className="cockpit-sup__main">
 					<div className="cockpit-sup__name">
-						{entry?.name ?? "未选择监督模型"}
-						{resolved?.followedMain ? <span className="cockpit-tag is-accent">跟随主模型</span> : null}
+						{entry?.name ?? t("未选择监督模型")}
+						{resolved?.followedMain ? <span className="cockpit-tag is-accent">{t("跟随主模型")}</span> : null}
 					</div>
 					<div className="cockpit-sup__sub">
-						{entry ? `${entry.modelId} · ${hostOf(entry.baseUrl)}` : "尚未解析到可用端点"}
+						{entry ? `${entry.modelId} · ${hostOf(entry.baseUrl)}` : t("尚未解析到可用端点")}
 					</div>
 					<div className="cockpit-chips">
 						{entry ? (
@@ -156,19 +157,23 @@ export function SupervisorSettingsPanel({
 					</div>
 				</div>
 				<button type="button" className="cockpit-mini-btn" onClick={() => setPickerOpen(true)}>
-					更换模型
+					{t("更换模型")}
 				</button>
 			</div>
 			<p className="cockpit-hint">
-				建议使用低成本的独立模型，避免和监督对象共用同一端点。监督模型在「设置 → 模型」的模型库里维护。
+				{t(
+					"建议使用低成本的独立模型，避免和监督对象共用同一端点。监督模型在「设置 → 模型」的模型库里维护。",
+				)}
 			</p>
 
 			<div className="cockpit-sec">
-				<h3>监督策略</h3>
-				<span className="cockpit-sec__meta">全局阈值与新会话的默认值</span>
+				<h3>{t("监督策略")}</h3>
+				<span className="cockpit-sec__meta">{t("全局阈值与新会话的默认值")}</span>
 			</div>
 			<p className="settings-hint">
-				监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里配置全局阈值、批大小、新会话的默认策略（可多选）和自定义策略；模式、策略和补充说明在对话里选。
+				{t(
+					"监督是会话级功能：开始对话前在输入框上方点「监督」才会生效。这里配置全局阈值、批大小、新会话的默认策略（可多选）和自定义策略；模式、策略和补充说明在对话里选。",
+				)}
 			</p>
 			<div className="supervisor-settings">
 				<label className="cockpit-check">
@@ -177,12 +182,12 @@ export function SupervisorSettingsPanel({
 						checked={supervisorDraft.enabled}
 						onChange={(event) => updateSupervisor({ enabled: event.target.checked })}
 					/>
-					<span>允许在对话中开启监督</span>
+					<span>{t("允许在对话中开启监督")}</span>
 				</label>
 				<div className="supervisor-settings__strategy">
 					<div className="supervisor-settings__strategy-head">
-						<span>默认监督策略</span>
-						<span>可多选 · {defaultStrategies.length} 个</span>
+						<span>{t("默认监督策略")}</span>
+						<span>{t("可多选 · {count} 个", { count: defaultStrategies.length })}</span>
 					</div>
 					<div className="supervisor-strategy-grid">
 						{SUPERVISOR_STRATEGY_OPTIONS.map((option) => {
@@ -237,13 +242,15 @@ export function SupervisorSettingsPanel({
 						})}
 					</div>
 					<span className="hint">
-						可同时选择多个策略，开启监督时会合并生效；至少保留一个。这里只决定新会话的默认值，对话里仍可调整。
+						{t(
+							"可同时选择多个策略，开启监督时会合并生效；至少保留一个。这里只决定新会话的默认值，对话里仍可调整。",
+						)}
 					</span>
 				</div>
 				<div className="supervisor-custom">
 					<div className="supervisor-custom__head">
 						<div>
-							<strong>自定义策略</strong>
+							<strong>{t("自定义策略")}</strong>
 							<span>{customStrategies.length} / 12</span>
 						</div>
 						<button
@@ -253,11 +260,13 @@ export function SupervisorSettingsPanel({
 							}
 							disabled={customStrategies.length >= 12 || customStrategyDraft !== null}
 						>
-							+ 新建
+							{t("+ 新建")}
 						</button>
 					</div>
 					{customStrategies.length === 0 && !customStrategyDraft ? (
-						<p className="supervisor-custom__empty">还没有自定义策略。可以基于五种预设，追加自己的关注点。</p>
+						<p className="supervisor-custom__empty">
+							{t("还没有自定义策略。可以基于五种预设，追加自己的关注点。")}
+						</p>
 					) : null}
 					{customStrategies.map((custom) => (
 						<div className="supervisor-custom__row" key={custom.id}>
@@ -282,10 +291,10 @@ export function SupervisorSettingsPanel({
 										})
 									}
 								>
-									编辑
+									{t("编辑")}
 								</button>
 								<button type="button" className="danger" onClick={() => removeCustomStrategy(custom.id)}>
-									删除
+									{t("删除")}
 								</button>
 							</div>
 						</div>
@@ -293,21 +302,21 @@ export function SupervisorSettingsPanel({
 					{customStrategyDraft ? (
 						<div className="supervisor-custom__editor">
 							<div className="supervisor-custom__editor-title">
-								{customStrategyDraft.id ? "编辑自定义策略" : "新建自定义策略"}
+								{customStrategyDraft.id ? t("编辑自定义策略") : t("新建自定义策略")}
 							</div>
 							<label>
-								名称
+								{t("名称")}
 								<input
 									value={customStrategyDraft.name}
 									maxLength={30}
 									onChange={(event) =>
 										setCustomStrategyDraft({ ...customStrategyDraft, name: event.target.value })
 									}
-									placeholder="例如：支付网关专用"
+									placeholder={t("例如：支付网关专用")}
 								/>
 							</label>
 							<label>
-								基础预设
+								{t("基础预设")}
 								<select
 									value={customStrategyDraft.base}
 									onChange={(event) =>
@@ -325,7 +334,7 @@ export function SupervisorSettingsPanel({
 								</select>
 							</label>
 							<label>
-								一句话说明
+								{t("一句话说明")}
 								<input
 									value={customStrategyDraft.description}
 									maxLength={80}
@@ -335,11 +344,11 @@ export function SupervisorSettingsPanel({
 											description: event.target.value,
 										})
 									}
-									placeholder="例如：先看授权边界，再验证越权"
+									placeholder={t("例如：先看授权边界，再验证越权")}
 								/>
 							</label>
 							<label>
-								关注点与建议风格
+								{t("关注点与建议风格")}
 								<textarea
 									value={customStrategyDraft.instructions}
 									maxLength={500}
@@ -349,13 +358,15 @@ export function SupervisorSettingsPanel({
 											instructions: event.target.value,
 										})
 									}
-									placeholder="例如：优先验证 IDOR；不做目录爆破；建议必须给出对照请求。"
+									placeholder={t("例如：优先验证 IDOR；不做目录爆破；建议必须给出对照请求。")}
 								/>
 							</label>
-							<p className="hint">自定义说明只改变监督关注点和建议风格，不能放宽授权范围或安全规则。</p>
+							<p className="hint">
+								{t("自定义说明只改变监督关注点和建议风格，不能放宽授权范围或安全规则。")}
+							</p>
 							<div className="supervisor-custom__editor-actions">
 								<button type="button" onClick={() => setCustomStrategyDraft(null)}>
-									取消
+									{t("取消")}
 								</button>
 								<button
 									type="button"
@@ -363,16 +374,18 @@ export function SupervisorSettingsPanel({
 									disabled={!customStrategyDraft.name.trim() || !customStrategyDraft.instructions.trim()}
 									onClick={commitCustomStrategy}
 								>
-									保存到列表
+									{t("保存到列表")}
 								</button>
 							</div>
 						</div>
 					) : null}
-					<p className="hint">先保存到列表，再点下方「保存监督设置」写入配置。</p>
+					<p className="hint">
+						{t("先保存到列表，再点下方「保存监督设置」写入配置。")}
+					</p>
 				</div>
 				<div className="supervisor-settings__grid">
 					<label>
-						每批调用数
+						{t("每批调用数")}
 						<input
 							type="number"
 							min={5}
@@ -382,7 +395,7 @@ export function SupervisorSettingsPanel({
 						/>
 					</label>
 					<label>
-						重复阈值
+						{t("重复阈值")}
 						<input
 							type="number"
 							min={2}
@@ -394,7 +407,7 @@ export function SupervisorSettingsPanel({
 						/>
 					</label>
 					<label>
-						无新证据阈值
+						{t("无新证据阈值")}
 						<input
 							type="number"
 							min={2}
@@ -404,7 +417,7 @@ export function SupervisorSettingsPanel({
 						/>
 					</label>
 					<label>
-						连续报错阈值
+						{t("连续报错阈值")}
 						<input
 							type="number"
 							min={2}
@@ -414,7 +427,7 @@ export function SupervisorSettingsPanel({
 						/>
 					</label>
 					<label>
-						超时（秒）
+						{t("超时（秒）")}
 						<input
 							type="number"
 							min={5}
@@ -435,7 +448,7 @@ export function SupervisorSettingsPanel({
 							setSupervisorDirty(false);
 						}}
 					>
-						保存监督设置
+						{t("保存监督设置")}
 					</button>
 					<button
 						type="button"
@@ -450,7 +463,7 @@ export function SupervisorSettingsPanel({
 							}
 						}}
 					>
-						{supervisorTesting ? "测试中…" : "测试监督模型"}
+						{supervisorTesting ? t("测试中…") : t("测试监督模型")}
 					</button>
 					{supervisorTest ? (
 						<span className={supervisorTest.ok ? "tag tag-ok" : "tag tag-bad"}>

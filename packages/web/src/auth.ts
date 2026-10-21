@@ -16,6 +16,8 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { t } from "./i18n.ts";
+
 /** The cookie survives 30 days when 记住登录 is on; otherwise it is a session cookie. */
 const REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -81,8 +83,8 @@ const USERNAME_RE = /^[\w.-]{1,40}$/u;
 
 /** The first-run validation, shared by the setup and change-password paths. */
 export function validateCredentials(username: string, password: string): string | null {
-	if (!USERNAME_RE.test(username)) return "用户名只能是字母、数字、点、下划线或连字符，最长 40 字符";
-	if (password.length < MIN_PASSWORD_CHARS) return `密码至少 ${MIN_PASSWORD_CHARS} 个字符`;
+	if (!USERNAME_RE.test(username)) return t("用户名只能是字母、数字、点、下划线或连字符，最长 40 字符");
+	if (password.length < MIN_PASSWORD_CHARS) return t("密码至少 {n} 个字符", { n: MIN_PASSWORD_CHARS });
 	return null;
 }
 
@@ -121,7 +123,7 @@ function safeEqual(a: string, b: string): boolean {
 
 /** Change the password: new hash, new signing secret, so other sessions die. */
 export function changePassword(agentDir: string, stored: StoredAuth, password: string): StoredAuth {
-	if (password.length < MIN_PASSWORD_CHARS) throw new Error(`密码至少 ${MIN_PASSWORD_CHARS} 个字符`);
+	if (password.length < MIN_PASSWORD_CHARS) throw new Error(t("密码至少 {n} 个字符", { n: MIN_PASSWORD_CHARS }));
 	const next: StoredAuth = {
 		...stored,
 		salt: randomBytes(16).toString("hex"),

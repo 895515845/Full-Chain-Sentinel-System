@@ -28,6 +28,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { t } from "../i18n.ts";
 import {
 	PLUGIN_ID_PATTERN,
 	parsePluginManifest,
@@ -176,7 +177,7 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
 		request.on("data", (chunk: Buffer) => {
 			size += chunk.length;
 			if (size > MAX_BODY_BYTES) {
-				reject(new HttpError(413, "请求体过大"));
+				reject(new HttpError(413, t("请求体过大")));
 				request.destroy();
 				return;
 			}
@@ -191,10 +192,10 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
 			try {
 				resolveBody(JSON.parse(text));
 			} catch {
-				reject(new HttpError(400, "请求体不是合法 JSON"));
+				reject(new HttpError(400, t("请求体不是合法 JSON")));
 			}
 		});
-		request.on("error", () => reject(new HttpError(400, "读取请求体失败")));
+		request.on("error", () => reject(new HttpError(400, t("读取请求体失败"))));
 	});
 }
 
@@ -273,9 +274,9 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 	const log = options.log ?? ((line: string) => console.error(`[plugin-host] ${line}`));
 
 	function loadRecord(id: string): StoredPluginRecord {
-		if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
+		if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, t("插件 id 非法"));
 		const record = readPluginRecord(options.dataDir, id);
-		if (!record) throw new HttpError(404, `未安装插件 ${id}`);
+		if (!record) throw new HttpError(404, t("未安装插件 {id}", { id }));
 		return record;
 	}
 
@@ -312,7 +313,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 	 */
 	async function deploy(record: StoredPluginRecord, values: Record<string, string>): Promise<void> {
 		const { manifest } = record;
-		if (!record.imageTag) throw new HttpError(409, "插件还没有构建，请重新安装");
+		if (!record.imageTag) throw new HttpError(409, t("插件还没有构建，请重新安装"));
 		const containerName = record.containerName;
 		const candidateName = `${containerName}-next`;
 		// A leftover candidate from an interrupted run must not block this one.
@@ -345,12 +346,15 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			// port. Surface its output instead of the misleading "started" error.
 			const logs = await containerLogs(docker, candidateName, 20);
 			await removeContainer(docker, candidateName);
-			throw new HttpError(502, `容器启动后退出，未发布 127.0.0.1 端口。${logs ? `\n${logs}` : ""}`);
+			throw new HttpError(
+				502,
+				t("容器启动后退出，未发布 127.0.0.1 端口。{logs}", { logs: logs ? `\n${logs}` : "" }),
+			);
 		}
 		const health = await waitHealthy(docker, candidate, hostPort);
 		if (!health.ok) {
 			await removeContainer(docker, candidateName);
-			throw new HttpError(502, health.error ?? "健康检查未通过");
+			throw new HttpError(502, health.error ?? t("健康检查未通过"));
 		}
 		await removeContainer(docker, containerName);
 		const renamed = await renameContainer(docker, candidateName, containerName);
@@ -364,28 +368,28 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		if (manifest.permissions.network === "none") {
 			// A plugin that cannot serve HTTP cannot serve MCP; accepting the install would only
 			// produce a container nobody can reach.
-			throw new HttpError(400, "network: none 的插件无法提供 MCP 端点");
+			throw new HttpError(400, t("network: none 的插件无法提供 MCP 端点"));
 		}
 		if (options.mode === "local" && manifest.locality === "remote-only") {
-			throw new HttpError(409, "该插件需要公网出口，只能装在远端 host 上");
+			throw new HttpError(409, t("该插件需要公网出口，只能装在远端 host 上"));
 		}
 		if (options.mode === "remote" && manifest.locality === "local-only") {
-			throw new HttpError(409, "该插件需要本地网络视角，只能装在本地 host 上");
+			throw new HttpError(409, t("该插件需要本地网络视角，只能装在本地 host 上"));
 		}
 		for (const cap of manifest.permissions.capAdd) {
-			if (!ALLOWED_CAPS.includes(cap)) throw new HttpError(400, `不允许的能力：${cap}`);
+			if (!ALLOWED_CAPS.includes(cap)) throw new HttpError(400, t("不允许的能力：{cap}", { cap }));
 		}
 		if (manifest.permissions.network === "host" && body.allowHostNetwork !== true) {
-			throw new HttpError(403, "host 网络需要在安装时明确同意");
+			throw new HttpError(403, t("host 网络需要在安装时明确同意"));
 		}
 		if (manifest.permissions.privileged && body.allowPrivileged !== true) {
-			throw new HttpError(403, "privileged 需要在安装时明确同意");
+			throw new HttpError(403, t("privileged 需要在安装时明确同意"));
 		}
 		if (body.allowBuild !== true) {
-			throw new HttpError(403, "构建会在插件主机上执行插件包里的 Dockerfile，需要明确同意");
+			throw new HttpError(403, t("构建会在插件主机上执行插件包里的 Dockerfile，需要明确同意"));
 		}
 		const others = records().filter((record) => record.manifest.id !== manifest.id).length;
-		if (others >= MAX_PLUGINS) throw new HttpError(409, `插件数量已达上限 ${MAX_PLUGINS}`);
+		if (others >= MAX_PLUGINS) throw new HttpError(409, t("插件数量已达上限 {max}", { max: MAX_PLUGINS }));
 	}
 
 	function records(): StoredPluginRecord[] {
@@ -415,7 +419,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		if (failure) throw new HttpError(400, failure);
 
 		const packageInput = typeof body.package === "string" ? body.package : "";
-		if (!packageInput) throw new HttpError(400, "缺少插件包；安装需要包含 Dockerfile 的 zip");
+		if (!packageInput) throw new HttpError(400, t("缺少插件包；安装需要包含 Dockerfile 的 zip"));
 		const buffer = Buffer.from(packageInput, "base64");
 		const packageDir = join(options.dataDir, "packages", manifest.id);
 		let extracted: ReturnType<typeof extractPluginPackage>;
@@ -425,7 +429,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			throw new HttpError(400, error instanceof Error ? error.message : String(error));
 		}
 		if (extracted.manifest.id !== manifest.id || extracted.manifest.version !== manifest.version) {
-			throw new HttpError(400, "插件包里的 plugin.json 与安装请求不一致");
+			throw new HttpError(400, t("插件包里的 plugin.json 与安装请求不一致"));
 		}
 
 		const imageTag = imageTagFor(manifest);
@@ -453,7 +457,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			appendFileSync(buildLog, `${build.ok ? "\n# build complete\n" : "\n# build failed\n"}`);
 			if (!build.ok) {
 				if (build.error) appendFileSync(buildLog, `${build.error}\n`);
-				throw new HttpError(502, build.error ?? "镜像构建失败");
+				throw new HttpError(502, build.error ?? t("镜像构建失败"));
 			}
 		}
 
@@ -543,9 +547,9 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const port = await containerHostPort(docker, record.containerName, record.manifest.mcp.port);
 		const health = await waitHealthy(docker, record, port);
 		record.hostPort = port;
-		record.lastError = health.ok ? null : (health.error ?? "健康检查未通过");
+		record.lastError = health.ok ? null : (health.error ?? t("健康检查未通过"));
 		writePluginRecord(options.dataDir, record);
-		if (!health.ok) throw new HttpError(502, record.lastError ?? "启动失败");
+		if (!health.ok) throw new HttpError(502, record.lastError ?? t("启动失败"));
 		sendJson(response, 200, { plugin: await viewOf(record) });
 	}
 
@@ -565,7 +569,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 	async function handleBuildLog(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const id = url.pathname.split("/")[3] ?? "";
-		if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
+		if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, t("插件 id 非法"));
 		const file = join(pluginDir(options.dataDir, id), "build.log");
 		let log = "";
 		try {
@@ -595,11 +599,11 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			return;
 		}
 		const target = resolveArtifact(root, requested);
-		if (!target) throw new HttpError(404, "产物不存在");
+		if (!target) throw new HttpError(404, t("产物不存在"));
 		const info = statSync(target);
-		if (!info.isFile()) throw new HttpError(404, "产物不是文件");
+		if (!info.isFile()) throw new HttpError(404, t("产物不是文件"));
 		if (info.size > record.manifest.artifacts.maxFileBytes) {
-			throw new HttpError(413, `产物超过 ${record.manifest.artifacts.maxFileBytes} 字节上限`);
+			throw new HttpError(413, t("产物超过 {bytes} 字节上限", { bytes: record.manifest.artifacts.maxFileBytes }));
 		}
 		response.writeHead(200, {
 			"content-type": "application/octet-stream",
@@ -616,12 +620,12 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const record = loadRecord(id);
 		const body = asRecord(await readJsonBody(request));
 		const name = typeof body.name === "string" ? body.name.trim() : "";
-		if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new HttpError(400, "工具名非法");
+		if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new HttpError(400, t("工具名非法"));
 		const args = asRecord(body.arguments);
 		const state = await inspectContainer(docker, record.containerName);
-		if (!state?.running) throw new HttpError(503, "插件未运行");
+		if (!state?.running) throw new HttpError(503, t("插件未运行"));
 		const port = record.hostPort ?? (await containerHostPort(docker, record.containerName, record.manifest.mcp.port));
-		if (port === null) throw new HttpError(503, "插件没有可用的端口");
+		if (port === null) throw new HttpError(503, t("插件没有可用的端口"));
 		let outcome: Awaited<ReturnType<typeof callPluginTool>>;
 		try {
 			outcome = await callPluginTool(
@@ -649,13 +653,13 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const values = readUiStorage(options.dataDir, record.manifest.id);
 		if (request.method === "GET") {
 			const key = url.searchParams.get("key") ?? "";
-			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, t("storage key 非法"));
 			sendJson(response, 200, { value: values[key] ?? null });
 			return;
 		}
 		if (request.method === "DELETE") {
 			const key = url.searchParams.get("key") ?? "";
-			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, t("storage key 非法"));
 			delete values[key];
 			writeUiStorage(options.dataDir, record.manifest.id, values);
 			sendJson(response, 200, { ok: true });
@@ -665,24 +669,24 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 			const body = asRecord(await readJsonBody(request));
 			const key = typeof body.key === "string" ? body.key : "";
 			const value = typeof body.value === "string" ? body.value : null;
-			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, "storage key 非法");
-			if (value === null) throw new HttpError(400, "storage value 必须是字符串");
+			if (!UI_STORAGE_KEY.test(key)) throw new HttpError(400, t("storage key 非法"));
+			if (value === null) throw new HttpError(400, t("storage value 必须是字符串"));
 			if (Buffer.byteLength(value, "utf-8") > MAX_UI_STORAGE_VALUE_BYTES) {
-				throw new HttpError(413, "单个 storage 值超过 32KB");
+				throw new HttpError(413, t("单个 storage 值超过 32KB"));
 			}
 			if (!(key in values) && Object.keys(values).length >= MAX_UI_STORAGE_KEYS) {
-				throw new HttpError(409, `storage 最多 ${MAX_UI_STORAGE_KEYS} 个键`);
+				throw new HttpError(409, t("storage 最多 {count} 个键", { count: MAX_UI_STORAGE_KEYS }));
 			}
 			values[key] = value;
 			const serialized = JSON.stringify({ values });
 			if (Buffer.byteLength(serialized, "utf-8") > MAX_UI_STORAGE_BYTES) {
-				throw new HttpError(413, "storage 总量超过 256KB");
+				throw new HttpError(413, t("storage 总量超过 256KB"));
 			}
 			writeUiStorage(options.dataDir, record.manifest.id, values);
 			sendJson(response, 200, { ok: true });
 			return;
 		}
-		throw new HttpError(405, "不支持的方法");
+		throw new HttpError(405, t("不支持的方法"));
 	}
 
 	async function handleHostInfo(response: ServerResponse): Promise<void> {
@@ -713,7 +717,7 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		const match = /^Bearer\s+(.+)$/i.exec(header.trim());
 		const provided = match?.[1] ?? "";
 		if (!provided || !tokenMatches(provided, options.token)) {
-			sendJson(response, 401, { error: "token 无效" });
+			sendJson(response, 401, { error: t("token 无效") });
 			return;
 		}
 
@@ -775,32 +779,35 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		// The plugin's static frontend, served from the container's /ui directory.
 		if (parts[0] === "plugins" && parts[1] && parts[2] === "ui") {
 			const id = parts[1];
-			if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
-			if (request.method !== "GET" && request.method !== "HEAD") throw new HttpError(405, "只支持 GET");
+			if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, t("插件 id 非法"));
+			if (request.method !== "GET" && request.method !== "HEAD") throw new HttpError(405, t("只支持 GET"));
 			const record = readPluginRecord(options.dataDir, id);
-			if (!record) throw new HttpError(404, "未安装插件");
-			if (!record.manifest.ui) throw new HttpError(404, "该插件没有界面");
+			if (!record) throw new HttpError(404, t("未安装插件"));
+			if (!record.manifest.ui) throw new HttpError(404, t("该插件没有界面"));
 			const state = await inspectContainer(docker, record.containerName);
-			if (!state?.running) throw new HttpError(503, "插件未运行");
+			if (!state?.running) throw new HttpError(503, t("插件未运行"));
 			const port =
 				record.hostPort ?? (await containerHostPort(docker, record.containerName, record.manifest.mcp.port));
-			if (port === null) throw new HttpError(503, "插件没有可用的端口");
+			if (port === null) throw new HttpError(503, t("插件没有可用的端口"));
 			const segments = uiPathSegments(parts.slice(3));
-			if (!segments) throw new HttpError(400, "界面路径非法");
+			if (!segments) throw new HttpError(400, t("界面路径非法"));
 			const base = dirname(record.manifest.ui.entry);
 			const target = segments.length > 0 ? `${base}/${segments.join("/")}` : record.manifest.ui.entry;
 			const upstream = await fetch(`http://127.0.0.1:${port}${target}${url.search}`, {
 				method: request.method,
 				signal: AbortSignal.timeout(15000),
 			}).catch((error: unknown) => {
-				throw new HttpError(502, `读取界面文件失败：${error instanceof Error ? error.message : String(error)}`);
+				throw new HttpError(
+					502,
+					t("读取界面文件失败：{error}", { error: error instanceof Error ? error.message : String(error) }),
+				);
 			});
 			const declared = Number(upstream.headers.get("content-length") ?? "0");
 			if (Number.isFinite(declared) && declared > MAX_UI_FILE_BYTES) {
-				throw new HttpError(413, "界面文件超过 20MB 上限");
+				throw new HttpError(413, t("界面文件超过 20MB 上限"));
 			}
 			const body = request.method === "HEAD" ? null : Buffer.from(await upstream.arrayBuffer());
-			if (body && body.length > MAX_UI_FILE_BYTES) throw new HttpError(413, "界面文件超过 20MB 上限");
+			if (body && body.length > MAX_UI_FILE_BYTES) throw new HttpError(413, t("界面文件超过 20MB 上限"));
 			response.writeHead(upstream.status, {
 				"content-type": uiContentType(target),
 				"content-length": String(body?.length ?? declared),
@@ -815,19 +822,19 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Runni
 		// The MCP endpoint. Only streamable HTTP is part of the plugin contract.
 		if (parts[0] === "plugins" && parts[1] && parts[2] === "mcp" && parts.length === 3) {
 			const id = parts[1];
-			if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, "插件 id 非法");
+			if (!PLUGIN_ID_PATTERN.test(id)) throw new HttpError(400, t("插件 id 非法"));
 			const record = readPluginRecord(options.dataDir, id);
-			if (!record) throw new HttpError(404, "未安装插件");
+			if (!record) throw new HttpError(404, t("未安装插件"));
 			const state = await inspectContainer(docker, record.containerName);
-			if (!state?.running) throw new HttpError(503, "插件未运行");
+			if (!state?.running) throw new HttpError(503, t("插件未运行"));
 			const port =
 				record.hostPort ?? (await containerHostPort(docker, record.containerName, record.manifest.mcp.port));
-			if (port === null) throw new HttpError(503, "插件没有可用的端口");
+			if (port === null) throw new HttpError(503, t("插件没有可用的端口"));
 			proxyToPlugin({ request, response, port, path: record.manifest.mcp.path + url.search });
 			return;
 		}
 
-		throw new HttpError(404, "没有这个接口");
+		throw new HttpError(404, t("没有这个接口"));
 	}
 
 	const handler = (request: IncomingMessage, response: ServerResponse): void => {

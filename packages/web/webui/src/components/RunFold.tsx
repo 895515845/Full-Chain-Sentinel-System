@@ -1,3 +1,4 @@
+import { t } from "../i18n.ts";
 import { CaretDownIcon, CaretRightIcon } from "./icons.tsx";
 
 /**
@@ -18,7 +19,7 @@ export function RunFold({ digest, open, onToggle }: { digest: string; open: bool
 			}}
 		>
 			<span className="run-fold-caret">{open ? <CaretDownIcon size={11} /> : <CaretRightIcon size={11} />}</span>
-			<span className="run-fold-label">{open ? "收起过程" : "过程"}</span>
+			<span className="run-fold-label">{open ? t("收起过程") : t("过程")}</span>
 			{digest ? <span className="run-fold-digest">{digest}</span> : null}
 		</div>
 	);

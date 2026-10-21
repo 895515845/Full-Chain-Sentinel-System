@@ -28,6 +28,7 @@ import {
 	type DroidRequestInput,
 	type DroidResult,
 } from "./droid-protocol.ts";
+import { t } from "./i18n.ts";
 
 /**
  * A device that stops sending anything is almost never a closed socket: Android
@@ -44,7 +45,10 @@ const DROID_WATCHDOG_TICK_MS = 5_000;
 
 function unresponsiveMessage(idleMs: number): string {
 	const seconds = Math.round(idleMs / 1000);
-	return `设备无响应：已 ${seconds}s 未收到心跳（DroidBridge 进程可能被系统或模拟器冻结：socket 还在，但 app 不再执行任何代码）。请在设备上唤醒或重开 DroidBridge，等心跳恢复后重试`;
+	return t(
+		"设备无响应：已 {seconds}s 未收到心跳（DroidBridge 进程可能被系统或模拟器冻结：socket 还在，但 app 不再执行任何代码）。请在设备上唤醒或重开 DroidBridge，等心跳恢复后重试",
+		{ seconds },
+	);
 }
 
 export interface DroidGatewayOptions {
@@ -276,7 +280,7 @@ export class DroidGateway {
 				tunnel.server.close();
 				this.tunnels.delete(tunnelId);
 			}
-			this.failPendingOf(device.id, "设备连接已断开");
+			this.failPendingOf(device.id, t("设备连接已断开"));
 			this.hooks.log(`设备离线：${device.name}`);
 			this.hooks.onDeviceChange();
 		});
@@ -356,7 +360,7 @@ export class DroidGateway {
 			conn.streams.set(reqId, stream);
 		}
 		if (seq !== stream.nextSeq) {
-			this.fail(reqId, `流分片乱序：期望 ${stream.nextSeq}，收到 ${seq}`);
+			this.fail(reqId, t("流分片乱序：期望 {expected}，收到 {actual}", { expected: stream.nextSeq, actual: seq }));
 			conn.streams.delete(reqId);
 			return;
 		}
@@ -364,7 +368,7 @@ export class DroidGateway {
 		const chunk = Buffer.from(b64, "base64");
 		stream.bytes += chunk.length;
 		if (stream.bytes > DROID_MAX_STREAM_BYTES) {
-			this.fail(reqId, "流超过大小上限");
+			this.fail(reqId, t("流超过大小上限"));
 			conn.streams.delete(reqId);
 			return;
 		}
@@ -460,7 +464,7 @@ export class DroidGateway {
 		const result = new Promise<{ ok: boolean; port?: number; error?: string }>((resolve) => {
 			server.once("error", (error: Error) => {
 				if (this.listener?.server === server) this.listener = undefined;
-				resolve({ ok: false, error: `监听失败：${error.message}` });
+				resolve({ ok: false, error: t("监听失败：{error}", { error: error.message }) });
 			});
 			server.listen(port, host === "0.0.0.0" || host === "::" ? undefined : host, () => {
 				const boundPort = (server.address() as AddressInfo).port;
@@ -508,7 +512,7 @@ export class DroidGateway {
 		targetPort: number,
 	): Promise<{ ok: boolean; port?: number; tunnelId?: string; error?: string }> {
 		const conn = this.connections.get(deviceId);
-		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (!conn) return Promise.resolve({ ok: false, error: t("设备不在线") });
 		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
 		for (const [tunnelId, tunnel] of this.tunnels.entries()) {
 			if (tunnel.deviceId === deviceId && tunnel.targetHost === targetHost && tunnel.targetPort === targetPort) {
@@ -576,7 +580,7 @@ export class DroidGateway {
 			});
 			tunnel.server.on("error", (error: Error) => {
 				this.tunnels.delete(tunnelId);
-				resolve({ ok: false, error: `隧道监听失败：${error.message}` });
+				resolve({ ok: false, error: t("隧道监听失败：{error}", { error: error.message }) });
 			});
 			tunnel.server.listen(0, "127.0.0.1", () => {
 				tunnel.port = (tunnel.server.address() as AddressInfo).port;
@@ -606,7 +610,7 @@ export class DroidGateway {
 		options: { timeoutMs?: number; onData?: (chunk: Buffer) => void } = {},
 	): Promise<DroidResult> {
 		const conn = this.connections.get(deviceId);
-		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (!conn) return Promise.resolve({ ok: false, error: t("设备不在线") });
 		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
 		this.counter += 1;
 		const reqId = `d${Date.now().toString(36)}${this.counter.toString(36)}${randomUUID().slice(0, 8)}`;
@@ -618,7 +622,10 @@ export class DroidGateway {
 				this.pending.delete(reqId);
 				this.pendingDevices.delete(reqId);
 				conn.streams.delete(reqId);
-				resolve({ ok: false, error: `设备响应超时（${Math.round((options.timeoutMs ?? 30000) / 1000)}s）` });
+				resolve({
+					ok: false,
+					error: t("设备响应超时（{seconds}s）", { seconds: Math.round((options.timeoutMs ?? 30000) / 1000) }),
+				});
 			}, options.timeoutMs ?? 30000);
 			this.pending.set(reqId, { resolve, timer, onData: options.onData });
 			this.sendFrame(conn, frame).catch((error: Error) => {
@@ -626,7 +633,7 @@ export class DroidGateway {
 				this.pending.delete(reqId);
 				this.pendingDevices.delete(reqId);
 				clearTimeout(timer);
-				resolve({ ok: false, error: `发送失败：${error.message}` });
+				resolve({ ok: false, error: t("发送失败：{error}", { error: error.message }) });
 			});
 		});
 	}
@@ -646,12 +653,12 @@ export class DroidGateway {
 		options: { mode?: string; timeoutMs?: number } = {},
 	): Promise<DroidResult> {
 		const conn = this.connections.get(deviceId);
-		if (!conn) return Promise.resolve({ ok: false, error: "设备不在线" });
+		if (!conn) return Promise.resolve({ ok: false, error: t("设备不在线") });
 		if (this.isStale(conn)) return Promise.resolve(this.staleFailure(conn));
 		if (bytes.length > DROID_MAX_STREAM_BYTES) {
 			return Promise.resolve({
 				ok: false,
-				error: `文件 ${bytes.length} 字节超过上限 ${DROID_MAX_STREAM_BYTES}`,
+				error: t("文件 {bytes} 字节超过上限 {limit}", { bytes: bytes.length, limit: DROID_MAX_STREAM_BYTES }),
 			});
 		}
 		this.counter += 1;
@@ -665,7 +672,7 @@ export class DroidGateway {
 				this.pending.delete(reqId);
 				this.pendingDevices.delete(reqId);
 				conn.streams.delete(reqId);
-				resolve({ ok: false, error: `设备响应超时（${Math.round(timeoutMs / 1000)}s）` });
+				resolve({ ok: false, error: t("设备响应超时（{seconds}s）", { seconds: Math.round(timeoutMs / 1000) }) });
 			}, timeoutMs);
 			this.pending.set(reqId, { resolve, timer });
 			void this.sendPushChunks(conn, deviceId, reqId, path, bytes, options.mode);
@@ -687,7 +694,7 @@ export class DroidGateway {
 				// The push may have already failed (timeout, disconnect): stop sending.
 				if (!this.pending.has(reqId)) return;
 				if (this.connections.get(deviceId) !== conn) {
-					this.fail(reqId, "设备连接已断开");
+					this.fail(reqId, t("设备连接已断开"));
 					return;
 				}
 				const chunk = bytes.subarray(seq * DROID_PUSH_CHUNK_BYTES, (seq + 1) * DROID_PUSH_CHUNK_BYTES);
@@ -706,7 +713,7 @@ export class DroidGateway {
 				);
 			}
 		} catch (error) {
-			this.fail(reqId, `发送失败：${error instanceof Error ? error.message : String(error)}`);
+			this.fail(reqId, t("发送失败：{error}", { error: error instanceof Error ? error.message : String(error) }));
 		}
 	}
 
@@ -724,7 +731,12 @@ export class DroidGateway {
 		const size = Buffer.byteLength(text);
 		if (size > DROID_MAX_FRAME_BYTES) {
 			return Promise.reject(
-				new Error(`单帧 ${size} 字节超过 ${DROID_MAX_FRAME_BYTES} 上限，请分片发送（DROID_PUSH_CHUNK_BYTES）`),
+				new Error(
+					t("单帧 {size} 字节超过 {limit} 上限，请分片发送（DROID_PUSH_CHUNK_BYTES）", {
+						size,
+						limit: DROID_MAX_FRAME_BYTES,
+					}),
+				),
 			);
 		}
 		return new Promise((resolve, reject) => {

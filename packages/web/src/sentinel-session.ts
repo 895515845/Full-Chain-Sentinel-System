@@ -114,6 +114,7 @@ import {
 	startRound,
 } from "./goal.ts";
 import { createGoalTools, type GoalPort } from "./goal-tool.ts";
+import { t } from "./i18n.ts";
 import {
 	loadSentinelMcpConfig,
 	mcpConfigView,
@@ -846,7 +847,7 @@ export class SentinelRuntime {
 		const sessionProject = task
 			? { id: task.project.id, name: task.project.name }
 			: this.activeProjectId
-				? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
+				? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") }
 				: undefined;
 		// Asset mapping is an operator-configured capability: a platform that is
 		// switched off, unkeyed or unverified contributes no tool at all, so the
@@ -910,7 +911,7 @@ export class SentinelRuntime {
 						workDir: () => this.cwd,
 						project: () =>
 							this.activeProjectId
-								? { id: this.activeProjectId, name: this.activeProjectName ?? "未命名项目" }
+								? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") }
 								: null,
 						store: () => this.captures,
 					})),
@@ -1106,10 +1107,10 @@ export class SentinelRuntime {
 		let manager: SessionManager;
 		let rebuilt = false;
 		if (options.reopen) {
-			if (!options.taskSessionId) throw new Error("任务没有可恢复的会话，无法在原会话上继续");
+			if (!options.taskSessionId) throw new Error(t("任务没有可恢复的会话，无法在原会话上继续"));
 			const existing = this.sessions.get(options.taskSessionId);
 			if (existing) {
-				if (existing.session.isStreaming) throw new Error("任务会话仍在运行，请先中止再续跑");
+				if (existing.session.isStreaming) throw new Error(t("任务会话仍在运行，请先中止再续跑"));
 				existing.unsubscribe();
 				existing.session.dispose();
 				this.sessions.delete(existing.key);
@@ -1117,7 +1118,7 @@ export class SentinelRuntime {
 				rebuilt = true;
 			} else {
 				const file = SessionManager.findById(options.project.cwd, options.taskSessionId, sessionDir);
-				if (!file) throw new Error("任务会话文件不存在，无法在原会话上继续；请重新派发任务");
+				if (!file) throw new Error(t("任务会话文件不存在，无法在原会话上继续；请重新派发任务"));
 				manager = SessionManager.open(file, sessionDir || undefined, options.project.cwd);
 			}
 		} else {
@@ -1132,7 +1133,7 @@ export class SentinelRuntime {
 		}
 		const key = await this.createSessionInto(manager, options);
 		const managed = this.sessions.get(key);
-		if (!managed) throw new Error("任务会话创建失败");
+		if (!managed) throw new Error(t("任务会话创建失败"));
 		if (rebuilt) this.hooks.onStateChange();
 		return {
 			session: managed.session,
@@ -1208,7 +1209,7 @@ export class SentinelRuntime {
 							command: outcome.command ?? command,
 							cwd: workCwd,
 							approval: "human",
-							...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? "已拒绝" }),
+							...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
 							context,
 						});
 						return outcome.approved && outcome.command !== undefined
@@ -1245,7 +1246,7 @@ export class SentinelRuntime {
 	}
 
 	private requireContainer(): string {
-		if (!this.activeContainer) throw new Error("没有可用的项目容器，请先创建或选择一个项目");
+		if (!this.activeContainer) throw new Error(t("没有可用的项目容器，请先创建或选择一个项目"));
 		return this.activeContainer;
 	}
 
@@ -1337,7 +1338,7 @@ export class SentinelRuntime {
 			managedGoal.goal = pauseGoal(
 				goal,
 				"interrupted",
-				"控制台重启或会话重建，目标已暂停；点「继续」恢复自动续跑",
+				t("控制台重启或会话重建，目标已暂停；点「继续」恢复自动续跑"),
 				Date.now(),
 			);
 			this.persistGoal(managed, managedGoal.goal);
@@ -1548,9 +1549,9 @@ export class SentinelRuntime {
 	/** Remove the attachment at the operator's request; the read tool goes with it. */
 	async detachModeling(): Promise<void> {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		if (!active.modelingAttach) throw new Error("当前会话没有带入业务建模数据");
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再移除");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
+		if (!active.modelingAttach) throw new Error(t("当前会话没有带入业务建模数据"));
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止再移除"));
 		active.modelingAttach = undefined;
 		active.manager.appendCustomEntry(MODELING_ATTACH_CUSTOM_TYPE, null);
 		this.applyModelingTools(active);
@@ -1586,10 +1587,10 @@ export class SentinelRuntime {
 	 */
 	async startModeling(): Promise<void> {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		if (active.taskSession) throw new Error("工程任务的会话不能做业务建模");
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止或等本轮结束再开始业务建模");
-		if (active.modeling) throw new Error("当前会话已经在业务建模中");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
+		if (active.taskSession) throw new Error(t("工程任务的会话不能做业务建模"));
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止或等本轮结束再开始业务建模"));
+		if (active.modeling) throw new Error(t("当前会话已经在业务建模中"));
 		const sessionFile = active.manager.getSessionFile();
 		const record = this.apiModels.beginRun({
 			projectId: this.activeProjectId ?? null,
@@ -1624,7 +1625,7 @@ export class SentinelRuntime {
 				void this.finishModeling(
 					active,
 					"failed",
-					`建模指令注入失败：${error instanceof Error ? error.message : String(error)}`,
+					t("建模指令注入失败：{error}", { error: error instanceof Error ? error.message : String(error) }),
 				);
 			});
 	}
@@ -1636,9 +1637,9 @@ export class SentinelRuntime {
 	 */
 	async endModeling(): Promise<void> {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		if (!active.modeling) throw new Error("当前会话没有进行中的业务建模");
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再结束业务建模");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
+		if (!active.modeling) throw new Error(t("当前会话没有进行中的业务建模"));
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止再结束业务建模"));
 		await this.finishModeling(active, "manual");
 	}
 
@@ -1741,7 +1742,7 @@ export class SentinelRuntime {
 	 */
 	deleteApiModel(id: string): boolean {
 		for (const managed of this.sessions.values()) {
-			if (managed.modeling?.runId === id) void this.finishModeling(managed, "manual", "记录已被操作员删除");
+			if (managed.modeling?.runId === id) void this.finishModeling(managed, "manual", t("记录已被操作员删除"));
 			if (managed.modelingAttach?.ids.includes(id)) {
 				managed.modelingAttach = {
 					ids: managed.modelingAttach.ids.filter((attached) => attached !== id),
@@ -1815,7 +1816,7 @@ export class SentinelRuntime {
 
 	/** Add or update one pool key, probe it, and rebuild so the tool set follows. */
 	async saveWebSearchKey(input: SentinelWebSearchKeyInput): Promise<SentinelWebSearchConfigView> {
-		this.assertNoRunningSession("Web 搜索配置");
+		this.assertNoRunningSession(t("Web 搜索配置"));
 		const config = saveWebSearchKey(this.agentDir, input);
 		const entry = config.keys.find((candidate) => candidate.id === input.id);
 		const target = entry ?? config.keys[config.keys.length - 1];
@@ -1834,7 +1835,7 @@ export class SentinelRuntime {
 
 	/** Remove one pool key and rebuild. */
 	async deleteWebSearchKey(id: string): Promise<SentinelWebSearchConfigView> {
-		this.assertNoRunningSession("Web 搜索配置");
+		this.assertNoRunningSession(t("Web 搜索配置"));
 		deleteStoredWebSearchKey(this.agentDir, id);
 		this.webUsageCache.clear();
 		await this.rebuildSessions();
@@ -1843,7 +1844,7 @@ export class SentinelRuntime {
 
 	/** Change the per-session search budget and rebuild. */
 	async setWebSearchQueryLimit(limit: number): Promise<SentinelWebSearchConfigView> {
-		this.assertNoRunningSession("Web 搜索配置");
+		this.assertNoRunningSession(t("Web 搜索配置"));
 		writeWebSearchQueryLimit(this.agentDir, limit);
 		await this.rebuildSessions();
 		return this.getWebSearchConfig();
@@ -1857,8 +1858,8 @@ export class SentinelRuntime {
 		const config = readWebSearchConfig(this.agentDir);
 		const entry = id ? config.keys.find((candidate) => candidate.id === id) : undefined;
 		const effective = key?.trim() ? key.trim() : entry?.key;
-		if (!effective) return { ok: false, message: "未提供 API Key" };
-		const label = entry?.label ?? "草稿 Key";
+		if (!effective) return { ok: false, message: t("未提供 API Key") };
+		const label = entry?.label ?? t("草稿 Key");
 		try {
 			const probe = await probeTavilyKey({ key: effective });
 			if (entry && !key?.trim()) {
@@ -1868,7 +1869,14 @@ export class SentinelRuntime {
 					ok: true,
 					...(usage
 						? {
-								quota: `套餐 ${usage.plan} · 已用 ${usage.planUsed}${usage.planLimit === null ? "" : ` / ${usage.planLimit}`}`,
+								quota:
+									usage.planLimit === null
+										? t("套餐 {plan} · 已用 {used}", { plan: usage.plan, used: usage.planUsed })
+										: t("套餐 {plan} · 已用 {used} / {limit}", {
+												plan: usage.plan,
+												used: usage.planUsed,
+												limit: usage.planLimit,
+											}),
 							}
 						: {}),
 				});
@@ -1920,8 +1928,8 @@ export class SentinelRuntime {
 				const candidates = usablePoolKeys(this.agentDir).filter((entry) => !exclude.includes(entry.id));
 				if (candidates.length === 0) {
 					return exclude.length > 0
-						? "号池中的 Key 额度已全部耗尽"
-						: "没有可用的 Tavily Key：先在「设置 - Web 搜索」添加并验证";
+						? t("号池中的 Key 额度已全部耗尽")
+						: t("没有可用的 Tavily Key：先在「设置 - Web 搜索」添加并验证");
 				}
 				let best: { id: string; label: string; key: string; remaining: number } | undefined;
 				for (const entry of candidates) {
@@ -1931,7 +1939,7 @@ export class SentinelRuntime {
 						best = { id: entry.id, label: entry.label, key: entry.key, remaining };
 					}
 				}
-				if (!best) return "没有可用的 Tavily Key";
+				if (!best) return t("没有可用的 Tavily Key");
 				return { id: best.id, label: best.label, key: best.key };
 			},
 			remaining: () => {
@@ -1969,7 +1977,14 @@ export class SentinelRuntime {
 					recordWebSearchKeyStatus(this.agentDir, entry.id, {
 						at: Date.now(),
 						ok: true,
-						quota: `套餐 ${usage.plan} · 已用 ${usage.planUsed}${usage.planLimit === null ? "" : ` / ${usage.planLimit}`}`,
+						quota:
+							usage.planLimit === null
+								? t("套餐 {plan} · 已用 {used}", { plan: usage.plan, used: usage.planUsed })
+								: t("套餐 {plan} · 已用 {used} / {limit}", {
+										plan: usage.plan,
+										used: usage.planUsed,
+										limit: usage.planLimit,
+									}),
 					});
 				} catch (error) {
 					// A key that stopped answering drops out of the pick until its status
@@ -2024,7 +2039,7 @@ export class SentinelRuntime {
 	 * one round trip — switch, key and verification all settle here.
 	 */
 	async saveAssetPlatform(input: SentinelAssetPlatformInput): Promise<SentinelAssetConfigView> {
-		this.assertNoRunningSession("资产测绘配置");
+		this.assertNoRunningSession(t("资产测绘配置"));
 		const view = writeAssetPlatform(this.agentDir, input);
 		const entry = view.platforms.find((platform) => platform.id === input.id);
 		if (entry?.enabled && entry.hasKey) await this.probeAssetPlatform(input.id);
@@ -2034,7 +2049,7 @@ export class SentinelRuntime {
 
 	/** Change the per-session query budget and rebuild, so live sessions get it. */
 	async setAssetQueryLimit(limit: number): Promise<SentinelAssetConfigView> {
-		this.assertNoRunningSession("资产测绘配置");
+		this.assertNoRunningSession(t("资产测绘配置"));
 		writeAssetQueryLimit(this.agentDir, limit);
 		await this.rebuildSessions();
 		return this.getAssetConfig();
@@ -2067,7 +2082,10 @@ export class SentinelRuntime {
 		const stored = readAssetConfig(this.agentDir).platforms[platform].key;
 		const effective = key?.trim() ? key.trim() : stored;
 		if (!effective) {
-			return { ok: false, message: `尚未填写 ${ASSET_PLATFORM_LABELS[platform]} 的 API Key` };
+			return {
+				ok: false,
+				message: t("尚未填写 {platform} 的 API Key", { platform: ASSET_PLATFORM_LABELS[platform] }),
+			};
 		}
 		try {
 			const result = await probeAssetPlatform({ platform, key: effective });
@@ -2081,7 +2099,7 @@ export class SentinelRuntime {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			recordAssetStatus(this.agentDir, platform, { at: Date.now(), ok: false, error: message });
-			return { ok: false, message: `连接失败：${message}`, detail: message };
+			return { ok: false, message: t("连接失败：{message}", { message }), detail: message };
 		}
 	}
 
@@ -2106,7 +2124,7 @@ export class SentinelRuntime {
 	 * 测试连接 is the explicit way to run one.
 	 */
 	async saveMcpServer(input: SentinelMcpServerInput): Promise<SentinelMcpConfigView> {
-		this.assertNoRunningSession("MCP 配置");
+		this.assertNoRunningSession(t("MCP 配置"));
 		const view = writeMcpServer(this.agentDir, input);
 		await this.rebuildSessions();
 		return view;
@@ -2114,7 +2132,7 @@ export class SentinelRuntime {
 
 	/** Remove one server and rebuild, so its tools stop being registered. */
 	async deleteMcpServer(name: string): Promise<SentinelMcpConfigView> {
-		this.assertNoRunningSession("MCP 配置");
+		this.assertNoRunningSession(t("MCP 配置"));
 		const view = removeMcpServer(this.agentDir, name);
 		await this.rebuildSessions();
 		return view;
@@ -2130,7 +2148,7 @@ export class SentinelRuntime {
 	 * typed on the other page.
 	 */
 	async setMcpServerEnabled(name: string, enabled: boolean): Promise<SentinelMcpConfigView> {
-		this.assertNoRunningSession("MCP 配置");
+		this.assertNoRunningSession(t("MCP 配置"));
 		updateMcpServerRecord(this.agentDir, name, { enabled });
 		await this.rebuildSessions();
 		return this.getMcpServers();
@@ -2153,7 +2171,13 @@ export class SentinelRuntime {
 			const namespace = mcpNamespace(name.trim());
 			const stored = readMcpServers(this.agentDir).servers.find((entry) => mcpNamespace(entry.name) === namespace);
 			if (!stored) {
-				return { ok: false, state: "failed", message: `未找到 MCP 服务器 "${name}"`, tools: [], resources: 0 };
+				return {
+					ok: false,
+					state: "failed",
+					message: t('未找到 MCP 服务器 "{name}"', { name }),
+					tools: [],
+					resources: 0,
+				};
 			}
 			server = stored;
 		}
@@ -2198,7 +2222,7 @@ export class SentinelRuntime {
 
 	/** Removing a host removes its plugins from the next session; it does not touch the host itself. */
 	async deletePluginHost(id: string): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件主机");
+		this.assertNoRunningSession(t("插件主机"));
 		pluginService.deleteHost(this.agentDir, id);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
@@ -2218,28 +2242,28 @@ export class SentinelRuntime {
 	}
 
 	async installPlugin(input: pluginService.InstallPluginInput): Promise<SentinelPluginView> {
-		this.assertNoRunningSession("插件");
+		this.assertNoRunningSession(t("插件"));
 		const plugin = await pluginService.installPlugin(this.agentDir, input);
 		await this.rebuildSessions();
 		return plugin;
 	}
 
 	async uninstallPlugin(hostId: string, pluginId: string, purge: boolean): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件");
+		this.assertNoRunningSession(t("插件"));
 		await pluginService.uninstallPlugin(this.agentDir, hostId, pluginId, purge);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
 	}
 
 	async startPlugin(hostId: string, pluginId: string): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件");
+		this.assertNoRunningSession(t("插件"));
 		await pluginService.startPlugin(this.agentDir, hostId, pluginId);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
 	}
 
 	async stopPlugin(hostId: string, pluginId: string): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件");
+		this.assertNoRunningSession(t("插件"));
 		await pluginService.stopPlugin(this.agentDir, hostId, pluginId);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
@@ -2267,7 +2291,7 @@ export class SentinelRuntime {
 				if (!path) throw new Error("artifact.read 需要 path");
 				const data = await pluginService.downloadPluginArtifact(this.agentDir, hostId, pluginId, path);
 				if (data.length > MAX_UI_ARTIFACT_BYTES) {
-					throw new Error("单个产物超过 1MB，请在插件页下载");
+					throw new Error(t("单个产物超过 1MB，请在插件页下载"));
 				}
 				appendPluginAudit(this.agentDir, {
 					action: "ui-artifact",
@@ -2299,7 +2323,7 @@ export class SentinelRuntime {
 					if (typeof value === "string") normalized[key] = value;
 					else if (typeof value === "number" || typeof value === "boolean") normalized[key] = String(value);
 				}
-				this.assertNoRunningSession("插件配置");
+				this.assertNoRunningSession(t("插件配置"));
 				await pluginService.updatePluginConfig(this.agentDir, hostId, pluginId, normalized);
 				await this.rebuildSessions();
 				return { ok: true };
@@ -2336,7 +2360,7 @@ export class SentinelRuntime {
 
 	/** The console-side switch: off unmounts the tools but leaves the container running. */
 	async setPluginEnabled(hostId: string, pluginId: string, enabled: boolean): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件");
+		this.assertNoRunningSession(t("插件"));
 		pluginService.setPluginEnabled(this.agentDir, hostId, pluginId, enabled);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
@@ -2348,7 +2372,7 @@ export class SentinelRuntime {
 		pluginId: string,
 		values: Record<string, string>,
 	): Promise<SentinelPluginsView> {
-		this.assertNoRunningSession("插件配置");
+		this.assertNoRunningSession(t("插件配置"));
 		await pluginService.updatePluginConfig(this.agentDir, hostId, pluginId, values);
 		await this.rebuildSessions();
 		return pluginService.listPlugins(this.agentDir);
@@ -2370,13 +2394,13 @@ export class SentinelRuntime {
 	 */
 	async fetchPluginArtifact(hostId: string, pluginId: string, path: string): Promise<string> {
 		const project = this.snapshot().project;
-		if (!project) throw new Error("请先创建或选择一个项目，再把插件产物落进证据目录");
+		if (!project) throw new Error(t("请先创建或选择一个项目，再把插件产物落进证据目录"));
 		const data = await pluginService.downloadPluginArtifact(this.agentDir, hostId, pluginId, path);
 		const safeSegments = path
 			.split("/")
 			.filter((segment) => segment && segment !== "." && segment !== "..")
 			.map((segment) => segment.replace(/[^A-Za-z0-9._-]/g, "_"));
-		if (safeSegments.length === 0) throw new Error("产物路径为空");
+		if (safeSegments.length === 0) throw new Error(t("产物路径为空"));
 		const savedTo = join("evidence", "plugin", hostId.replace(/[^A-Za-z0-9._-]/g, "_"), pluginId, ...safeSegments);
 		const target = join(this.cwd, savedTo);
 		mkdirSync(dirname(target), { recursive: true });
@@ -2419,7 +2443,7 @@ export class SentinelRuntime {
 			recordAssetStatus(this.agentDir, report.platform, {
 				at: Date.now(),
 				ok: report.ok,
-				...(report.ok ? {} : { error: report.error ?? "查询失败" }),
+				...(report.ok ? {} : { error: report.error ?? t("查询失败") }),
 				...(report.quota ? { quota: report.quota } : {}),
 			});
 		} catch {
@@ -2457,7 +2481,7 @@ export class SentinelRuntime {
 	 */
 	private assertNoRunningSession(what: string): void {
 		if ([...this.sessions.values()].some((managed) => managed.session.isStreaming)) {
-			throw new Error(`有会话正在运行，请先中止再修改${what}`);
+			throw new Error(t("有会话正在运行，请先中止再修改{what}", { what }));
 		}
 	}
 
@@ -2522,13 +2546,13 @@ export class SentinelRuntime {
 	/** Persist and (re)bind the dedicated reverse-connection listener. */
 	async droidSetListen(host: string, port: number): Promise<void> {
 		const trimmed = host.trim();
-		if (!trimmed) throw new Error("监听地址不能为空");
-		if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("端口必须在 1-65535 之间");
+		if (!trimmed) throw new Error(t("监听地址不能为空"));
+		if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(t("端口必须在 1-65535 之间"));
 		this.droids.setMeta("listenHost", trimmed);
 		this.droids.setMeta("listenPort", String(port));
-		if (!this.droidGateway) throw new Error("设备网关未启动");
+		if (!this.droidGateway) throw new Error(t("设备网关未启动"));
 		const result = await this.droidGateway.listen(trimmed, port);
-		if (!result.ok) throw new Error(result.error ?? "监听失败");
+		if (!result.ok) throw new Error(result.error ?? t("监听失败"));
 		this.hooks.onDroidChange();
 	}
 
@@ -2547,7 +2571,7 @@ export class SentinelRuntime {
 
 	/** 删除一条 token（设备页的「删除」），并断开用它反连的设备。 */
 	async droidDeleteToken(id: string): Promise<void> {
-		if (!this.droids.deleteToken(id)) throw new Error("该 token 不存在");
+		if (!this.droids.deleteToken(id)) throw new Error(t("该 token 不存在"));
 		for (const device of this.droids.listDevices()) {
 			if (device.tokenId === id) this.droidGateway?.disconnect(device.id);
 		}
@@ -2555,13 +2579,13 @@ export class SentinelRuntime {
 	}
 
 	async droidRenameDevice(id: string, name: string): Promise<void> {
-		if (!this.droids.renameDevice(id, name)) throw new Error("设备不存在或名称为空");
+		if (!this.droids.renameDevice(id, name)) throw new Error(t("设备不存在或名称为空"));
 		this.hooks.onDroidChange();
 	}
 
 	async droidRemoveDevice(id: string): Promise<void> {
 		this.droidGateway?.disconnect(id);
-		if (!this.droids.removeDevice(id)) throw new Error("设备不存在");
+		if (!this.droids.removeDevice(id)) throw new Error(t("设备不存在"));
 		this.hooks.onDroidChange();
 	}
 
@@ -2582,7 +2606,7 @@ export class SentinelRuntime {
 	 */
 	private guardDroidCommand(deviceName: string, command: string): Promise<string> {
 		const mode = this.effectiveMode(this.active);
-		const label = `设备「${deviceName}」`;
+		const label = t("设备「{name}」", { name: deviceName });
 		const auditContext = {
 			label: () => label,
 			projectId: this.activeProjectId ?? null,
@@ -2612,11 +2636,11 @@ export class SentinelRuntime {
 						command: outcome.command ?? command,
 						cwd: "/work",
 						approval: "human",
-						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? "已拒绝" }),
+						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
 						context: auditContext,
 					});
 					if (outcome.approved && outcome.command !== undefined) return outcome.command;
-					throw new Error(outcome.reason ?? "已拒绝");
+					throw new Error(outcome.reason ?? t("已拒绝"));
 				});
 		}
 		return this.gatekeeper
@@ -2630,7 +2654,7 @@ export class SentinelRuntime {
 			})
 			.then((outcome) => {
 				if (outcome.kind === "allow" || outcome.kind === "failed") return command;
-				throw new Error(outcome.kind === "block" ? outcome.message : "已中止");
+				throw new Error(outcome.kind === "block" ? outcome.message : t("已中止"));
 			});
 	}
 
@@ -2703,7 +2727,12 @@ export class SentinelRuntime {
 				this.persistGoal(managed, goal);
 			}
 			if (goal.status === "active" && managedGoal.stutterStreak >= STUTTER_PAUSE_LIMIT) {
-				goal = pauseGoal(goal, "loop-guard", `连续 ${managedGoal.stutterStreak} 次输出重复中止`, at);
+				goal = pauseGoal(
+					goal,
+					"loop-guard",
+					t("连续 {count} 次输出重复中止", { count: managedGoal.stutterStreak }),
+					at,
+				);
 				managedGoal.goal = goal;
 				this.persistGoal(managed, goal);
 				this.notifyGoal(managed, managedGoal);
@@ -2747,7 +2776,7 @@ export class SentinelRuntime {
 			// An abort is an intervention: the goal waits for the operator rather
 			// than counting a half-finished round as progress.
 			if (aborted && goal.status === "active") {
-				goal = pauseGoal(goal, "manual", "运行被中止，目标已暂停", at);
+				goal = pauseGoal(goal, "manual", t("运行被中止，目标已暂停"), at);
 			}
 			managedGoal.goal = goal;
 			this.persistGoal(managed, goal);
@@ -2848,7 +2877,7 @@ export class SentinelRuntime {
 				this.pauseGoalOf(
 					managed,
 					"manual",
-					`续跑启动失败：${error instanceof Error ? error.message : String(error)}`,
+					t("续跑启动失败：{error}", { error: error instanceof Error ? error.message : String(error) }),
 				);
 			});
 	}
@@ -2877,18 +2906,18 @@ export class SentinelRuntime {
 	 * `ai` qualifies because the gatekeeper answers instead of the operator.
 	 */
 	async startGoal(objective: string, criteria: string[], roundLimit: number): Promise<void> {
-		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
+		if (!this.activeProjectId) throw new Error(t("请先创建或选择一个项目"));
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		if (this.effectiveMode(active) === "review") {
-			throw new Error("持续目标只在自动执行或 AI 审批模式下可用：审批模式下命令要等人放行");
+			throw new Error(t("持续目标只在自动执行或 AI 审批模式下可用：审批模式下命令要等人放行"));
 		}
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止或等本轮结束再启动目标");
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止或等本轮结束再启动目标"));
 		const text = objective.trim();
-		if (!text) throw new Error("目标不能为空");
+		if (!text) throw new Error(t("目标不能为空"));
 		const existing = active.goal;
 		if (existing && existing.goal.status !== "completed") {
-			throw new Error("当前会话已有未结束的目标，请先在目标条上继续或清除它");
+			throw new Error(t("当前会话已有未结束的目标，请先在目标条上继续或清除它"));
 		}
 		const at = Date.now();
 		const baseline = usageOf(active.session.getSessionStats());
@@ -2927,7 +2956,11 @@ export class SentinelRuntime {
 			await active.session.prompt(text, {});
 		} catch (error) {
 			// The run never started, so the goal cannot be left looking active.
-			this.pauseGoalOf(active, "manual", `启动失败：${error instanceof Error ? error.message : String(error)}`);
+			this.pauseGoalOf(
+				active,
+				"manual",
+				t("启动失败：{error}", { error: error instanceof Error ? error.message : String(error) }),
+			);
 			throw error;
 		}
 		this.hooks.onStateChange();
@@ -2935,7 +2968,7 @@ export class SentinelRuntime {
 
 	/** Operator pause: stop the run in flight and keep the goal for later. */
 	async pauseGoal(): Promise<void> {
-		this.pauseActiveGoal("manual", "操作员在目标条上暂停");
+		this.pauseActiveGoal("manual", t("操作员在目标条上暂停"));
 		await this.active?.session.abort();
 	}
 
@@ -2947,12 +2980,12 @@ export class SentinelRuntime {
 	resumeGoal(extraRounds?: number): void {
 		const active = this.active;
 		const managedGoal = active?.goal;
-		if (!active || !managedGoal) throw new Error("当前会话没有持续目标");
-		if (managedGoal.goal.status === "completed") throw new Error("目标已完成，请清除后新建目标");
+		if (!active || !managedGoal) throw new Error(t("当前会话没有持续目标"));
+		if (managedGoal.goal.status === "completed") throw new Error(t("目标已完成，请清除后新建目标"));
 		if (this.effectiveMode(active) === "review") {
-			throw new Error("持续目标只在自动执行或 AI 审批模式下可用：请先切到非审批模式");
+			throw new Error(t("持续目标只在自动执行或 AI 审批模式下可用：请先切到非审批模式"));
 		}
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再继续目标");
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止再继续目标"));
 		if (managedGoal.goal.status === "active") return;
 		const at = Date.now();
 		const resumed = resumeGoal(managedGoal.goal, extraRounds ?? DEFAULT_ROUND_LIMIT, at);
@@ -3047,9 +3080,9 @@ export class SentinelRuntime {
 		notify?: boolean,
 		attachModelIds?: string[],
 	): Promise<void> {
-		if (!this.activeProjectId) throw new Error("请先创建或选择一个项目");
+		if (!this.activeProjectId) throw new Error(t("请先创建或选择一个项目"));
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		// pi's built-in slash commands only exist in interactive mode, so the console
 		// honors the one its own context-overflow hint references.
 		if (text.trim() === "/compact") {
@@ -3059,7 +3092,7 @@ export class SentinelRuntime {
 		// pi refuses this in English; the operator is looking at a console that has
 		// no other hint about why the prompt went nowhere.
 		if (active.session.isCompacting) {
-			throw new Error("正在压缩上下文，暂时不能发送；可等待压缩完成，或点「中止压缩」放弃这次压缩");
+			throw new Error(t("正在压缩上下文，暂时不能发送；可等待压缩完成，或点「中止压缩」放弃这次压缩"));
 		}
 		// 主模型 changes take effect here rather than at save time, so a live session
 		// is never rebuilt behind the operator's back.
@@ -3179,15 +3212,15 @@ export class SentinelRuntime {
 	async compact(): Promise<void> {
 		const active = this.active;
 		if (!active) throw new Error("Session not initialized");
-		if (active.session.isStreaming) throw new Error("Agent 正在运行，请先中止再压缩上下文");
+		if (active.session.isStreaming) throw new Error(t("Agent 正在运行，请先中止再压缩上下文"));
 		try {
 			await active.session.compact();
 		} catch (error) {
 			// pi reports these two cases in English; the console is Chinese-first.
 			// Anything else is rethrown unchanged.
 			const message = error instanceof Error ? error.message : String(error);
-			if (message.includes("too small")) throw new Error("当前会话内容太少，无需压缩");
-			if (message.includes("Already compacted")) throw new Error("该会话已经压缩过，无需重复压缩");
+			if (message.includes("too small")) throw new Error(t("当前会话内容太少，无需压缩"));
+			if (message.includes("Already compacted")) throw new Error(t("该会话已经压缩过，无需重复压缩"));
 			// The operator cancelled it: pi reports that as a cancelled or aborted
 			// summarization, and it is not a failure worth a toast.
 			if (/cancel|abort/i.test(message)) return;
@@ -3214,7 +3247,7 @@ export class SentinelRuntime {
 		const active = this.active;
 		if (!active) throw new Error("Session not initialized");
 		if (!active.session.getAvailableThinkingLevels().includes(level)) {
-			throw new Error(`当前模型不支持思考等级「${level}」`);
+			throw new Error(t("当前模型不支持思考等级「{level}」", { level }));
 		}
 		active.session.setThinkingLevel(level);
 		this.hooks.onStateChange();
@@ -3223,7 +3256,7 @@ export class SentinelRuntime {
 	async abort(): Promise<void> {
 		// Aborting a goal's run pauses the goal: the run is the goal's work, and an
 		// abort is an intervention, not a reason to throw the objective away.
-		this.pauseActiveGoal("manual", "运行被中止，目标已暂停");
+		this.pauseActiveGoal("manual", t("运行被中止，目标已暂停"));
 		await this.active?.session.abort();
 	}
 
@@ -3237,7 +3270,7 @@ export class SentinelRuntime {
 	 */
 	setMode(mode: SentinelMode | null): void {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		if (active.modeOverride === mode) return;
 		if (mode === "ai") this.requireJudgeEndpoint();
 		active.modeOverride = mode;
@@ -3258,11 +3291,11 @@ export class SentinelRuntime {
 
 	private applyModeConsequences(managed: ManagedSession): void {
 		if (this.effectiveMode(managed) === "review") {
-			this.pauseGoalOf(managed, "manual", "已切回审批模式，目标自动暂停");
+			this.pauseGoalOf(managed, "manual", t("已切回审批模式，目标自动暂停"));
 			return;
 		}
 		// Nothing may still be waiting for a human once the mode stops asking one.
-		this.approvals.rejectAll("已切到非审批模式");
+		this.approvals.rejectAll(t("已切到非审批模式"));
 	}
 
 	/**
@@ -3273,7 +3306,7 @@ export class SentinelRuntime {
 	private requireJudgeEndpoint(): void {
 		if (!this.gatekeeper.resolve().config) {
 			throw new Error(
-				"未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再切到 AI 审批",
+				t("未配置守门模型：请在 设置 → 模型 给「守门模型」选一条模型（或让它跟随主模型）后再切到 AI 审批"),
 			);
 		}
 	}
@@ -3321,7 +3354,7 @@ export class SentinelRuntime {
 		for (const selection of requested) {
 			const customId = selection.customStrategyId;
 			const custom = customId ? config.customStrategies.find((entry) => entry.id === customId) : undefined;
-			if (customId && !custom) throw new Error("自定义监督策略不存在或已被删除");
+			if (customId && !custom) throw new Error(t("自定义监督策略不存在或已被删除"));
 			const strategy =
 				custom?.base ?? (isSupervisorStrategy(selection.strategy) ? selection.strategy : config.defaultStrategy);
 			const key = custom ? `custom:${custom.id}` : `preset:${strategy}`;
@@ -3334,7 +3367,7 @@ export class SentinelRuntime {
 				instructions: custom?.instructions ?? "",
 			});
 		}
-		if (result.length === 0) throw new Error("请至少选择一个监督策略");
+		if (result.length === 0) throw new Error(t("请至少选择一个监督策略"));
 		return result;
 	}
 
@@ -3348,10 +3381,10 @@ export class SentinelRuntime {
 		strategies?: SentinelSupervisorStrategyRef[],
 	): SentinelSupervisorView {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
-		if (active.taskSession) throw new Error("工程任务的会话不能单独开启监督");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
+		if (active.taskSession) throw new Error(t("工程任务的会话不能单独开启监督"));
 		const config = readSupervisorConfig(this.agentDir);
-		if (!config.enabled) throw new Error("监督功能已在 设置 → 模型 中关闭");
+		if (!config.enabled) throw new Error(t("监督功能已在 设置 → 模型 中关闭"));
 		const selected = this.resolveSupervisorStrategies(strategies, strategy, customStrategyId);
 		const primary = selected[0] as SentinelSupervisorStrategyEntry;
 		return this.supervisor.arm(active.key, mode, delivery, primary.strategy, note ?? "", null, selected);
@@ -3365,7 +3398,7 @@ export class SentinelRuntime {
 
 	setSupervisorMode(mode: SentinelSupervisorMode, delivery: "auto" | "confirm"): SentinelSupervisorView {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		return this.supervisor.setMode(active.key, mode, delivery);
 	}
 
@@ -3376,7 +3409,7 @@ export class SentinelRuntime {
 		strategies?: SentinelSupervisorStrategyRef[],
 	): SentinelSupervisorView {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		const selected = this.resolveSupervisorStrategies(strategies, strategy, customStrategyId);
 		const primary = selected[0] as SentinelSupervisorStrategyEntry;
 		return this.supervisor.setStrategy(active.key, primary.strategy, note, null, selected);
@@ -3384,13 +3417,13 @@ export class SentinelRuntime {
 
 	runSupervisorNow(): void {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		this.supervisor.runNow(active.key);
 	}
 
 	getSupervisorCallOutput(callId: string): { text: string; truncated: boolean } {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		return this.supervisor.getCallOutput(active.key, callId);
 	}
 
@@ -3413,13 +3446,13 @@ export class SentinelRuntime {
 
 	sendSupervisorAdvice(id: string): SentinelSupervisorAdvice {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		return this.supervisor.sendAdvice(active.key, id);
 	}
 
 	ignoreSupervisorAdvice(id: string): SentinelSupervisorAdvice {
 		const active = this.active;
-		if (!active) throw new Error("会话尚未就绪，请重新选择项目");
+		if (!active) throw new Error(t("会话尚未就绪，请重新选择项目"));
 		return this.supervisor.ignoreAdvice(active.key, id);
 	}
 
@@ -3499,8 +3532,8 @@ export class SentinelRuntime {
 			return {
 				result: {
 					ok: false,
-					message: "没有可用的守门模型",
-					detail: "在 设置 → 模型 里给「守门模型」选一条模型，或让它跟随主模型",
+					message: t("没有可用的守门模型"),
+					detail: t("在 设置 → 模型 里给「守门模型」选一条模型，或让它跟随主模型"),
 				},
 			};
 		}
@@ -3518,22 +3551,28 @@ export class SentinelRuntime {
 				buildJudgeInput({ command: GATEKEEPER_SAMPLE_COMMAND, source: "设置页测试" }),
 				controller.signal,
 			);
-			const verdict = out.verdict.decision === "allow" ? "放行 ALLOW" : `拦截 BLOCK（${out.verdict.reason}）`;
+			const verdict =
+				out.verdict.decision === "allow"
+					? t("放行 ALLOW")
+					: t("拦截 BLOCK（{reason}）", { reason: out.verdict.reason });
 			return {
 				result: {
 					ok: true,
-					message: `守门模型可用（${Date.now() - started}ms，来源：${resolved.from}）`,
-					detail: `样例命令「${GATEKEEPER_SAMPLE_COMMAND}」判定为 ${verdict}`,
+					message: t("守门模型可用（{ms}ms，来源：{source}）", {
+						ms: Date.now() - started,
+						source: String(resolved.from),
+					}),
+					detail: t("样例命令「{command}」判定为 {verdict}", { command: GATEKEEPER_SAMPLE_COMMAND, verdict }),
 				},
 				raw: out.raw,
 			};
 		} catch (error) {
 			const text = timedOut
-				? `守门判定超时（${settings.timeoutMs}ms）`
+				? t("守门判定超时（{ms}ms）", { ms: settings.timeoutMs })
 				: error instanceof Error
 					? error.message
 					: String(error);
-			return { result: { ok: false, message: "守门模型调用失败", detail: text } };
+			return { result: { ok: false, message: t("守门模型调用失败"), detail: text } };
 		} finally {
 			clearTimeout(timer);
 		}
@@ -3569,8 +3608,8 @@ export class SentinelRuntime {
 			// browser left open across a change can still ask for a disabled or deleted
 			// one, and silently starting the default agent would look like it worked.
 			const preset = findPreset(this.agentDir, presetId);
-			if (!preset) throw new Error("该预设不存在");
-			if (!preset.enabled) throw new Error("该预设已停用");
+			if (!preset) throw new Error(t("该预设不存在"));
+			if (!preset.enabled) throw new Error(t("该预设已停用"));
 			manager.appendCustomEntry(SESSION_PRESET_CUSTOM_TYPE, { id: presetId, at: Date.now() });
 		}
 		this.activeKey = await this.createSessionInto(manager);
@@ -3589,13 +3628,13 @@ export class SentinelRuntime {
 	 */
 	async setSessionPreset(presetId: string | null): Promise<void> {
 		const active = this.active;
-		if (!active) throw new Error("还没有会话，无法设置预设");
-		if (active.taskSession) throw new Error("工程任务的会话跟随它的任务，不能单独换预设");
-		if (active.session.isStreaming) throw new Error("会话正在运行，请先中止再更换预设");
+		if (!active) throw new Error(t("还没有会话，无法设置预设"));
+		if (active.taskSession) throw new Error(t("工程任务的会话跟随它的任务，不能单独换预设"));
+		if (active.session.isStreaming) throw new Error(t("会话正在运行，请先中止再更换预设"));
 		if (presetId !== null) {
 			const preset = findPreset(this.agentDir, presetId);
-			if (!preset) throw new Error("该预设不存在");
-			if (!preset.enabled) throw new Error("该预设已停用");
+			if (!preset) throw new Error(t("该预设不存在"));
+			if (!preset.enabled) throw new Error(t("该预设已停用"));
 		}
 		// Re-picking the same preset is allowed on purpose: editing a preset's body
 		// and re-picking it is the only way to apply the edit to an existing session.
@@ -3669,7 +3708,7 @@ export class SentinelRuntime {
 			const file = managed.manager.getSessionFile();
 			if (file && resolveFsPath(file) === normalized) {
 				if (managed.session.isStreaming) {
-					throw new Error("该会话正在运行，请先中止再删除");
+					throw new Error(t("该会话正在运行，请先中止再删除"));
 				}
 				managed.unsubscribe();
 				managed.session.dispose();
@@ -3680,7 +3719,7 @@ export class SentinelRuntime {
 			}
 		}
 		if (!existsSync(normalized)) {
-			throw new Error("会话文件不存在（可能已被删除）");
+			throw new Error(t("会话文件不存在（可能已被删除）"));
 		}
 		unlinkSync(normalized);
 		// An unloaded session has no ManagedSession to carry its id; the file name
@@ -3695,7 +3734,7 @@ export class SentinelRuntime {
 		const normalized = resolveFsPath(path);
 		const dir = resolveFsPath(this.sessionDir);
 		if (!normalized.startsWith(`${dir}/`) || !normalized.endsWith(".jsonl")) {
-			throw new Error("路径不在受管的会话目录内，已拒绝该操作");
+			throw new Error(t("路径不在受管的会话目录内，已拒绝该操作"));
 		}
 		return normalized;
 	}
@@ -3727,7 +3766,7 @@ export class SentinelRuntime {
 	renameBranch(entryId: string, label: string): void {
 		const active = this.active;
 		if (!active) throw new Error("Session not initialized");
-		if (!label.trim()) throw new Error("分支名称不能为空");
+		if (!label.trim()) throw new Error(t("分支名称不能为空"));
 		active.manager.appendLabelChange(entryId, label.trim());
 	}
 
@@ -3885,7 +3924,7 @@ export class SentinelRuntime {
 	 * disposed: the operator aborts it first, so no work is lost silently.
 	 */
 	async savePermissions(config: SentinelPermissionsConfig): Promise<void> {
-		this.assertNoRunningSession("权限");
+		this.assertNoRunningSession(t("权限"));
 		writePermissionsConfig(this.agentDir, config);
 		await this.rebuildSessions();
 	}
@@ -4098,7 +4137,7 @@ export class SentinelRuntime {
 			.map((vuln) => evidencePathsToContainer(vuln, this.cwd));
 		return buildVulnReport({
 			projectId: projectId ?? "",
-			projectName: this.activeProjectName ?? "未命名项目",
+			projectName: this.activeProjectName ?? t("未命名项目"),
 			vulns,
 		});
 	}

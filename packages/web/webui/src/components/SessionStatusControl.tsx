@@ -15,15 +15,16 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n.ts";
 import type { SentinelSessionStatus } from "../types.ts";
 
 export const SESSION_STATUSES: readonly SentinelSessionStatus[] = ["todo", "active", "done", "ignored"];
 
 export const SESSION_STATUS_LABELS: Record<SentinelSessionStatus, string> = {
-	todo: "待跟进",
-	active: "进行中",
-	done: "已完成",
-	ignored: "已忽略",
+	todo: t("待跟进"),
+	active: t("进行中"),
+	done: t("已完成"),
+	ignored: t("已忽略"),
 };
 
 const PICKER_WIDTH = 168;
@@ -42,7 +43,7 @@ function chipClass(status: SentinelSessionStatus | null | undefined): string {
 
 /** The status as a small colored label, or a muted one when it is unset. */
 export function SessionStatusChip({ status }: { status?: SentinelSessionStatus }) {
-	return <span className={chipClass(status)}>{status ? SESSION_STATUS_LABELS[status] : "无状态"}</span>;
+	return <span className={chipClass(status)}>{status ? SESSION_STATUS_LABELS[status] : t("无状态")}</span>;
 }
 
 /**
@@ -60,7 +61,7 @@ export function SessionStatusRail({ status }: { status?: SentinelSessionStatus |
 	const terminal = status === "done" || status === "ignored";
 	return (
 		<>
-			<span className={`status-rail rail-${status}`} title={`人工标记：${SESSION_STATUS_LABELS[status]}`} />
+			<span className={`status-rail rail-${status}`} title={t("人工标记：{status}", { status: SESSION_STATUS_LABELS[status] })} />
 			{terminal ? <span className={`session-row-status row-${status}`}>{SESSION_STATUS_LABELS[status]}</span> : null}
 		</>
 	);
@@ -140,7 +141,7 @@ export function SessionStatusControl({
 				ref={trigger}
 				type="button"
 				className={variant === "toolbar" ? `session-status-trigger ${status ?? "none"}` : chipClass(status)}
-				title="人工标记这个会话的状态：只影响控制台显示与过滤，不会告诉模型"
+				title={t("人工标记这个会话的状态：只影响控制台显示与过滤，不会告诉模型")}
 				onClick={(event) => {
 					// The session row behind the chip switches sessions on click.
 					event.stopPropagation();
@@ -151,12 +152,12 @@ export function SessionStatusControl({
 				{variant === "toolbar" ? (
 					<>
 						<span className={`session-status-dot ${status ?? "none"}`} />
-						{status ? SESSION_STATUS_LABELS[status] : "无状态"}
+						{status ? SESSION_STATUS_LABELS[status] : t("无状态")}
 						<span className="session-status-caret">▾</span>
 					</>
 				) : (
 					<>
-						{status ? SESSION_STATUS_LABELS[status] : "无状态"}
+						{status ? SESSION_STATUS_LABELS[status] : t("无状态")}
 						<span className="session-status-caret">▾</span>
 					</>
 				)}
@@ -172,7 +173,7 @@ export function SessionStatusControl({
 				>
 					<button type="button" className={status ? "" : "on"} onClick={() => pick(null)}>
 						<span className="session-status-dot none" />
-						无状态
+						{t("无状态")}
 						{status ? null : <span className="session-status-tick">✓</span>}
 					</button>
 					{SESSION_STATUSES.map((value) => (

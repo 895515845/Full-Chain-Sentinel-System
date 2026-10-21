@@ -17,6 +17,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import type {
 	SentinelAssetConfigView,
 	SentinelAssetPlatform,
@@ -223,7 +224,7 @@ export function assetConfigView(agentDir: string): SentinelAssetConfigView {
  */
 export function saveAssetPlatform(agentDir: string, input: SentinelAssetPlatformInput): SentinelAssetConfigView {
 	const config = readAssetConfigForUpdate(agentDir);
-	if (!config) throw new Error(`${assetsJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!config) throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: assetsJsonPath(agentDir) }));
 	const entry = config.platforms[input.id];
 	const key = input.key === null ? entry.key : asKey(input.key);
 	config.platforms[input.id] = { enabled: input.enabled, key, status: entry.status };
@@ -233,7 +234,7 @@ export function saveAssetPlatform(agentDir: string, input: SentinelAssetPlatform
 
 export function setAssetQueryLimit(agentDir: string, limit: number): SentinelAssetConfigView {
 	const config = readAssetConfigForUpdate(agentDir);
-	if (!config) throw new Error(`${assetsJsonPath(agentDir)} 无法解析，请先修复或删除该文件再保存`);
+	if (!config) throw new Error(t("{path} 无法解析，请先修复或删除该文件再保存", { path: assetsJsonPath(agentDir) }));
 	config.sessionQueryLimit = asLimit(limit);
 	writeAssetConfig(agentDir, config);
 	return assetConfigView(agentDir);

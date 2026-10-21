@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { t } from "../i18n.ts";
 import { CloseIcon } from "./icons.tsx";
 
 export const DEFAULT_GOAL_ROUNDS = 3;
@@ -49,38 +50,38 @@ export function GoalStartDialog({
 		<div className="modal-backdrop" onClick={onClose}>
 			<div className="modal goal-dialog" onClick={(event) => event.stopPropagation()}>
 				<h2>
-					持续目标
+					{t("持续目标")}
 					<button type="button" className="ghost small" style={{ float: "right" }} onClick={onClose}>
 						<CloseIcon />
 					</button>
 				</h2>
 				<p className="modal-hint">
-					一轮结束后自动继续，直到模型调用 goal_complete 证明达成目标，或达到轮数上限。只在自动模式下可用：
-					运行期间所有命令无人拦截直接执行。
+					{t("一轮结束后自动继续，直到模型调用 goal_complete 证明达成目标，或达到轮数上限。只在自动模式下可用：")}{" "}
+					{t("运行期间所有命令无人拦截直接执行。")}
 				</p>
 
 				<label className="goal-field">
-					<span>目标（必填）</span>
+					<span>{t("目标（必填）")}</span>
 					<textarea
 						value={objective}
 						rows={4}
-						placeholder="例如：对 10.10.10.5 完成全端口侦察，确认服务与版本，并把确认的问题提交到漏洞中枢"
+						placeholder={t("例如：对 10.10.10.5 完成全端口侦察，确认服务与版本，并把确认的问题提交到漏洞中枢")}
 						onChange={(event) => setObjective(event.target.value)}
 					/>
 				</label>
 
 				<label className="goal-field">
-					<span>验收标准（选填，一行一条；填了就必须在完成时逐条给出证据）</span>
+					<span>{t("验收标准（选填，一行一条；填了就必须在完成时逐条给出证据）")}</span>
 					<textarea
 						value={criteria}
 						rows={3}
-						placeholder={"例如：\n开放端口已全部确认服务与版本\n发现的问题已提交漏洞中枢"}
+						placeholder={t("例如：\n开放端口已全部确认服务与版本\n发现的问题已提交漏洞中枢")}
 						onChange={(event) => setCriteria(event.target.value)}
 					/>
 				</label>
 
 				<label className="goal-field goal-field--inline">
-					<span>自动续跑轮数上限</span>
+					<span>{t("自动续跑轮数上限")}</span>
 					<input
 						type="number"
 						min={1}
@@ -88,12 +89,14 @@ export function GoalStartDialog({
 						value={rounds}
 						onChange={(event) => setRounds(event.target.value)}
 					/>
-					<span className="goal-field__hint">初始运行不计入；到上限后暂停，可在目标条上点「继续 +3 轮」。</span>
+					<span className="goal-field__hint">
+						{t("初始运行不计入；到上限后暂停，可在目标条上点「继续 +3 轮」。")}
+					</span>
 				</label>
 
 				<div className="modal-actions">
 					<button type="button" onClick={onClose}>
-						取消
+						{t("取消")}
 					</button>
 					<button
 						type="button"
@@ -104,7 +107,7 @@ export function GoalStartDialog({
 							onClose();
 						}}
 					>
-						提交并启动
+						{t("提交并启动")}
 					</button>
 				</div>
 			</div>

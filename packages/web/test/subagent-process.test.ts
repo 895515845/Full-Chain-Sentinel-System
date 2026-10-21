@@ -127,3 +127,12 @@ test("durations read in the unit that fits, and a running run has none", () => {
 	expect(durationOf(run)).toBe("");
 	expect(durationOf({ ...run, endedAt: "2026-01-01T00:01:23.000Z" })).toBe("1m23s");
 });
+
+test("turn markers work in English as well as Chinese", () => {
+	const turns = buildTurns([
+		step(1, 1000, "tool_start", { toolName: "bash", toolCallId: "a", args: { command: "id" } }),
+		step(2, 2000, "turn", { text: "Turn 2" }),
+	]);
+	expect(turns).toHaveLength(1);
+	expect(turns[0]?.index).toBe(2);
+});

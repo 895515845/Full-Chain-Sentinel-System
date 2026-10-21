@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../i18n.ts";
 import type { SentinelProjectInfo } from "../types.ts";
 
 /**
@@ -38,16 +39,17 @@ export function ProjectGate({
 	return (
 		<div className="project-gate">
 			<div className="project-gate-card">
-				<h2>先创建一个项目</h2>
+				<h2>{t("先创建一个项目")}</h2>
 				<p className="project-gate-lead">
-					全链哨兵 的每条命令都在项目专属的 Docker
-					容器里执行，文件写入该项目的工作目录。没有项目就没有可执行的环境，因此不提供默认目录。
+					{t(
+						"全链哨兵 的每条命令都在项目专属的 Docker 容器里执行，文件写入该项目的工作目录。没有项目就没有可执行的环境，因此不提供默认目录。",
+					)}
 				</p>
 				<div className="project-gate-form">
 					<input
 						autoFocus
 						value={name}
-						placeholder="项目名称，如 靶场-01"
+						placeholder={t("项目名称，如 靶场-01")}
 						spellCheck={false}
 						disabled={submitting || busy}
 						onChange={(event) => setName(event.target.value)}
@@ -61,17 +63,19 @@ export function ProjectGate({
 						disabled={submitting || busy || !name.trim()}
 						onClick={() => void submit()}
 					>
-						{submitting || busy ? "创建中…" : "创建并进入"}
+						{submitting || busy ? t("创建中…") : t("创建并进入")}
 					</button>
 				</div>
 				{error ? <div className="project-gate-error">{error}</div> : null}
 				<div className="project-gate-note">
-					需要先构建工具镜像（<code>docker build -t sentinel:latest docker/</code>），否则创建会失败。
+					{t("需要先构建工具镜像（")}
+					<code>docker build -t sentinel:latest docker/</code>
+					{t("），否则创建会失败。")}
 				</div>
 
 				{projects.length > 0 ? (
 					<div className="project-gate-list">
-						<div className="project-gate-list-title">或进入已有项目</div>
+						<div className="project-gate-list-title">{t("或进入已有项目")}</div>
 						{projects.map((project) => (
 							<button
 								key={project.id}
@@ -90,7 +94,7 @@ export function ProjectGate({
 				) : null}
 
 				<button type="button" className="ghost small" onClick={onOpenSettings}>
-					先去配置模型端点
+					{t("先去配置模型端点")}
 				</button>
 			</div>
 		</div>

@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
 import type {
 	SentinelVulnEvidence,
 	SentinelVulnerability,
@@ -352,10 +353,10 @@ export class VulnerabilityStore {
 		}
 		this.appendNote(id, {
 			author: "agent",
-			text: `由 ${input.source} 提交`,
+			text: t("由 {source} 提交", { source: input.source }),
 		});
 		const created = this.get(id);
-		if (!created) throw new Error("漏洞记录写入失败");
+		if (!created) throw new Error(t("漏洞记录写入失败"));
 		return created;
 	}
 
@@ -442,12 +443,19 @@ export class VulnerabilityStore {
 				id,
 			);
 		const changes = [
-			`等级 ${SENTINEL_VULN_SEVERITY_LABELS[existing.severity]} → ${SENTINEL_VULN_SEVERITY_LABELS[verdict.severity]}`,
+			t("等级 {from} → {to}", {
+				from: t(SENTINEL_VULN_SEVERITY_LABELS[existing.severity]),
+				to: t(SENTINEL_VULN_SEVERITY_LABELS[verdict.severity]),
+			}),
 			`CVSS ${existing.cvss.toFixed(1)} → ${verdict.cvss.toFixed(1)}`,
 		];
 		this.appendNote(id, {
 			author: "system",
-			text: `${force ? "人工重新评审" : "LLM 评审"}${verdict.dubious ? "（存疑）" : ""}：${changes.join("，")}。${verdict.reason}`,
+			text: t("{mode}：{changes}。{reason}", {
+				mode: `${force ? t("人工重新评审") : t("LLM 评审")}${verdict.dubious ? t("（存疑）") : ""}`,
+				changes: changes.join(t("，")),
+				reason: verdict.reason,
+			}),
 		});
 		return this.get(id);
 	}
@@ -590,10 +598,20 @@ export class VulnerabilityStore {
 		const status = patch.status ?? existing.status;
 		const changes: string[] = [];
 		if (status !== existing.status) {
-			changes.push(`状态 ${SENTINEL_VULN_STATUS_LABELS[existing.status]} → ${SENTINEL_VULN_STATUS_LABELS[status]}`);
+			changes.push(
+				t("状态 {from} → {to}", {
+					from: t(SENTINEL_VULN_STATUS_LABELS[existing.status]),
+					to: t(SENTINEL_VULN_STATUS_LABELS[status]),
+				}),
+			);
 		}
 		if (severity !== existing.severity) {
-			changes.push(`等级 ${existing.severity} → ${severity}`);
+			changes.push(
+				t("等级 {from} → {to}", {
+					from: t(SENTINEL_VULN_SEVERITY_LABELS[existing.severity]),
+					to: t(SENTINEL_VULN_SEVERITY_LABELS[severity]),
+				}),
+			);
 		}
 		if (cvss !== existing.cvss) {
 			changes.push(`CVSS ${existing.cvss} → ${cvss}`);
@@ -620,7 +638,7 @@ export class VulnerabilityStore {
 			);
 		this.appendNote(id, {
 			author: "operator",
-			text: changes.join("；"),
+			text: changes.join(t("；")),
 			...(status !== existing.status ? { statusFrom: existing.status, statusTo: status } : {}),
 		});
 		return this.get(id);

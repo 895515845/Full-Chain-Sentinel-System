@@ -26,6 +26,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { t } from "./i18n.ts";
 import { excludeToolsFor, type SentinelPermissionSet } from "./permissions.ts";
 import type { SubagentRegistry } from "./subagents.ts";
 
@@ -108,7 +109,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				};
 			}
 
-			const log: string[] = [`子代理启动：${params.task.slice(0, 120)}`];
+			const log: string[] = [t("子代理启动：{task}", { task: params.task.slice(0, 120) })];
 			const pushLog = (line: string): void => {
 				log.push(line);
 				onUpdate?.({ content: [{ type: "text", text: log.join("\n") }], details: undefined });
@@ -165,7 +166,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 				session,
 			});
 			runRef.id = handle.id;
-			handle.push({ kind: "status", status: "running", note: "子代理启动" });
+			handle.push({ kind: "status", status: "running", note: t("子代理启动") });
 
 			let turns = 0;
 			let aborted = false;
@@ -190,7 +191,7 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 						toolCallId: event.toolCallId,
 						args: event.args,
 					});
-					pushLog(`执行 ${event.toolName} …`);
+					pushLog(t("执行 {tool} …", { tool: event.toolName }));
 				} else if (event.type === "tool_execution_end") {
 					const startedAt = toolStartedAt.get(event.toolCallId);
 					toolStartedAt.delete(event.toolCallId);
@@ -204,13 +205,17 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 					});
 				} else if (event.type === "turn_end") {
 					turns += 1;
-					handle.push({ kind: "turn", text: `第 ${turns} 轮` });
+					handle.push({ kind: "turn", text: t("第 {turn} 轮", { turn: turns }) });
 					const text = textHead(event.message);
-					if (text) pushLog(`第 ${turns} 轮：${text.slice(0, 160)}`);
+					if (text) pushLog(t("第 {turn} 轮：{text}", { turn: turns, text: text.slice(0, 160) }));
 					if (turns >= maxTurns) {
 						aborted = true;
-						pushLog(`已达轮次上限（${maxTurns}），中止子代理。`);
-						handle.push({ kind: "status", status: "running", note: `已达轮次上限（${maxTurns}），中止子代理` });
+						pushLog(t("已达轮次上限（{limit}），中止子代理。", { limit: maxTurns }));
+						handle.push({
+							kind: "status",
+							status: "running",
+							note: t("已达轮次上限（{limit}），中止子代理", { limit: maxTurns }),
+						});
 						void session.abort();
 					}
 				}
@@ -243,12 +248,12 @@ export function createSubagentTool(options: SubagentToolOptions): ToolDefinition
 
 			const outcome =
 				status === "error"
-					? `（子代理失败：${failure}）`
+					? t("（子代理失败：{error}）", { error: String(failure) })
 					: status === "aborted" && !resultText
-						? "（子代理被中止，未产出结果）"
+						? t("（子代理被中止，未产出结果）")
 						: resultText;
 			return {
-				content: [{ type: "text", text: outcome || "（子代理结束但没有输出文本）" }],
+				content: [{ type: "text", text: outcome || t("（子代理结束但没有输出文本）") }],
 				details: { runId: handle.id, turns, log },
 				...(status === "done" ? {} : { isError: true }),
 			};

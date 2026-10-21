@@ -21,6 +21,7 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { t } from "./i18n.ts";
 import type { SentinelPreset, SentinelPresetView } from "./protocol.ts";
 
 /** Metadata file, next to the other console config. */
@@ -383,30 +384,33 @@ export interface SavePresetInput {
 
 export function savePreset(agentDir: string, input: SavePresetInput): { preset?: SentinelPreset; error?: string } {
 	const name = input.name.trim();
-	if (!name) return { error: "预设名称不能为空" };
+	if (!name) return { error: t("预设名称不能为空") };
 	if (name.length > MAX_PRESET_NAME_CHARS) {
-		return { error: `预设名称过长（最多 ${MAX_PRESET_NAME_CHARS} 字）` };
+		return { error: t("预设名称过长（最多 {max} 字）", { max: MAX_PRESET_NAME_CHARS }) };
 	}
 	const description = (input.description ?? "").trim();
 	if (description.length > MAX_PRESET_DESCRIPTION_CHARS) {
-		return { error: `预设描述过长（最多 ${MAX_PRESET_DESCRIPTION_CHARS} 字）` };
+		return { error: t("预设描述过长（最多 {max} 字）", { max: MAX_PRESET_DESCRIPTION_CHARS }) };
 	}
 	const placeholder = (input.placeholder ?? "").trim();
 	if (placeholder.length > MAX_PRESET_PLACEHOLDER_CHARS) {
-		return { error: `输入框提示过长（最多 ${MAX_PRESET_PLACEHOLDER_CHARS} 字）` };
+		return { error: t("输入框提示过长（最多 {max} 字）", { max: MAX_PRESET_PLACEHOLDER_CHARS }) };
 	}
 	const tags = normalizeTags(input.tags ?? []);
-	if (tags.length > MAX_PRESET_TAGS) return { error: `标签过多（最多 ${MAX_PRESET_TAGS} 个）` };
+	if (tags.length > MAX_PRESET_TAGS) return { error: t("标签过多（最多 {max} 个）", { max: MAX_PRESET_TAGS }) };
 	const longTag = tags.find((tag) => tag.length > MAX_PRESET_TAG_CHARS);
-	if (longTag) return { error: `标签过长（最多 ${MAX_PRESET_TAG_CHARS} 字）：${longTag}` };
+	if (longTag)
+		return {
+			error: t("标签过长（最多 {max} 字）：{tag}", { max: MAX_PRESET_TAG_CHARS, tag: longTag }),
+		};
 	// The body may be any length — the settings screen shows its token cost
 	// instead of refusing it — but an empty body is a preset that does nothing.
 	const text = input.text.trim();
-	if (!text) return { error: "预设内容不能为空" };
+	if (!text) return { error: t("预设内容不能为空") };
 
 	const presets = readStored(agentDir);
 	const existing = input.id ? presets.find((preset) => preset.id === input.id) : undefined;
-	if (input.id && !existing) return { error: "该预设不存在" };
+	if (input.id && !existing) return { error: t("该预设不存在") };
 
 	const now = Date.now();
 	const preset: SentinelPreset = existing
@@ -446,7 +450,7 @@ export function setPresetEnabled(
 ): { preset?: SentinelPreset; error?: string } {
 	const presets = readStored(agentDir);
 	const existing = presets.find((preset) => preset.id === id);
-	if (!existing) return { error: "该预设不存在" };
+	if (!existing) return { error: t("该预设不存在") };
 	const preset: SentinelPreset = { ...existing, enabled, updatedAt: Date.now() };
 	writeStored(
 		agentDir,
@@ -463,7 +467,7 @@ export function setPresetEnabled(
  */
 export function deletePreset(agentDir: string, id: string): { ok: boolean; error?: string } {
 	const presets = readStored(agentDir);
-	if (!presets.some((preset) => preset.id === id)) return { ok: false, error: "该预设不存在" };
+	if (!presets.some((preset) => preset.id === id)) return { ok: false, error: t("该预设不存在") };
 	writeStored(
 		agentDir,
 		presets.filter((preset) => preset.id !== id),
@@ -507,25 +511,25 @@ export function exportFileName(now: Date): string {
 export function importPresets(agentDir: string, payload: unknown): SentinelPresetImportResult {
 	const skipped: SentinelPresetImportResult["skipped"] = [];
 	if (typeof payload !== "object" || payload === null) {
-		return { imported: [], skipped, error: "文件内容不是合法的 JSON 对象" };
+		return { imported: [], skipped, error: t("文件内容不是合法的 JSON 对象") };
 	}
 	const file = payload as Partial<SentinelPresetExport>;
 	if (file.format !== PRESETS_EXPORT_FORMAT) {
-		return { imported: [], skipped, error: "不是 全链哨兵 预设导出文件" };
+		return { imported: [], skipped, error: t("不是 全链哨兵 预设导出文件") };
 	}
 	if (file.version !== PRESETS_EXPORT_VERSION) {
-		return { imported: [], skipped, error: `不支持的导出版本：${String(file.version)}` };
+		return { imported: [], skipped, error: t("不支持的导出版本：{version}", { version: String(file.version) }) };
 	}
-	if (!Array.isArray(file.presets)) return { imported: [], skipped, error: "文件里没有预设列表" };
+	if (!Array.isArray(file.presets)) return { imported: [], skipped, error: t("文件里没有预设列表") };
 
 	const imported: SentinelPreset[] = [];
 	for (const raw of file.presets) {
 		if (typeof raw !== "object" || raw === null) {
-			skipped.push({ name: "（未命名）", reason: "条目不是对象" });
+			skipped.push({ name: t("（未命名）"), reason: t("条目不是对象") });
 			continue;
 		}
 		const entry = raw as Partial<SentinelPresetExportEntry>;
-		const label = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "（未命名）";
+		const label = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : t("（未命名）");
 		const result = savePreset(agentDir, {
 			name: typeof entry.name === "string" ? entry.name : "",
 			description: typeof entry.description === "string" ? entry.description : "",
@@ -535,7 +539,7 @@ export function importPresets(agentDir: string, payload: unknown): SentinelPrese
 			enabled: entry.enabled !== false,
 		});
 		if (result.preset) imported.push(result.preset);
-		else skipped.push({ name: label, reason: result.error ?? "无法导入" });
+		else skipped.push({ name: label, reason: result.error ?? t("无法导入") });
 	}
 	return { imported, skipped };
 }
