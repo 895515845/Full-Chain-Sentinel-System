@@ -43,6 +43,17 @@ do {
 	FileHandle.standardError.write(Data("控制页未启动：\(error)\n".utf8))
 }
 
+// The watchdog LaunchDaemon uses this file to distinguish a live control loop
+// from a suspended process whose socket is still open.
+let heartbeatPath = setupContext.stateDir + "/watchdog-heartbeat"
+let heartbeatTimer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.zgsfsec.sentinelbridge.heartbeat"))
+heartbeatTimer.schedule(deadline: .now(), repeating: 5)
+heartbeatTimer.setEventHandler {
+	let value = "\(Date().timeIntervalSince1970)\n"
+	try? Data(value.utf8).write(to: URL(fileURLWithPath: heartbeatPath), options: .atomic)
+}
+heartbeatTimer.resume()
+
 signal(SIGPIPE, SIG_IGN)
 // Dispatch sources are cancelled when released; keep them alive for the process
 // lifetime or launchd's SIGTERM would be ignored and the daemon would linger.

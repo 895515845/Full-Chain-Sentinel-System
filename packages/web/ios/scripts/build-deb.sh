@@ -12,10 +12,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${VERSION:-0.1.4}"
+VERSION="${VERSION:-0.1.6}"
 BIN="${BIN:-$ROOT/build/sentinelbridged}"
 OUT="${OUT:-$ROOT/build}"
 LABEL="com.zgsfsec.sentinelbridged"
+WATCH_LABEL="com.zgsfsec.sentinelbridgewatchdog"
 
 if [ ! -f "$BIN" ]; then
 	echo "error: 找不到 $BIN；先运行 scripts/build-ios.sh" >&2
@@ -46,6 +47,7 @@ for FORM in "${FORMS[@]}"; do
 		PLIST_DIR="Library/LaunchDaemons"
 		CONFIG_DIR="etc"
 		SHARE_DIR="usr/share/sentinelbridge"
+		STATE_DIR="/var/lib/sentinelbridge"
 		PREFIX=""
 		;;
 	rootless)
@@ -55,6 +57,7 @@ for FORM in "${FORMS[@]}"; do
 		PLIST_DIR="var/jb/Library/LaunchDaemons"
 		CONFIG_DIR="var/jb/etc"
 		SHARE_DIR="var/jb/usr/share/sentinelbridge"
+		STATE_DIR="/var/jb/var/lib/sentinelbridge"
 		PREFIX="/var/jb"
 		;;
 	*)
@@ -70,17 +73,25 @@ for FORM in "${FORMS[@]}"; do
 	install -m 644 debian/config.example.json "$STAGE/$SHARE_DIR/config.example.json"
 
 	PLIST="$PREFIX/Library/LaunchDaemons/$LABEL.plist"
+	WATCH_PLIST="$PREFIX/Library/LaunchDaemons/$WATCH_LABEL.plist"
 	CONFIG="$PREFIX/etc/sentinelbridge.json"
 	EXAMPLE="$PREFIX/usr/share/sentinelbridge/config.example.json"
 	BIN_PATH="$PREFIX/usr/bin/sentinelbridged"
+	WATCHDOG_PATH="$PREFIX/usr/bin/sentinelbridge-watchdog"
 	LOG="/var/log/sentinelbridge.log"
+	WATCH_LOG="/var/log/sentinelbridge-watchdog.log"
 
 	sed -e "s|@BIN@|$BIN_PATH|g" -e "s|@CONFIG@|$CONFIG|g" -e "s|@LOG@|$LOG|g" \
 		debian/launchd.plist.in > "$STAGE/$PLIST_DIR/$LABEL.plist"
+	sed -e "1s|^#!/bin/sh|#!$PREFIX/bin/sh|" -e "s|@HEARTBEAT@|$STATE_DIR/watchdog-heartbeat|g" \
+		debian/watchdog.sh.in > "$STAGE/$BIN_DIR/sentinelbridge-watchdog"
+	chmod 755 "$STAGE/$BIN_DIR/sentinelbridge-watchdog"
+	sed -e "s|@WATCHDOG@|$WATCHDOG_PATH|g" -e "s|@WLOG@|$WATCH_LOG|g" \
+		debian/launchd-watchdog.plist.in > "$STAGE/$PLIST_DIR/$WATCH_LABEL.plist"
 
-	sed -e "s|@PLIST@|$PLIST|g" -e "s|@CONFIG@|$CONFIG|g" -e "s|@EXAMPLE@|$EXAMPLE|g" \
+	sed -e "s|@PLIST@|$PLIST|g" -e "s|@WATCH_PLIST@|$WATCH_PLIST|g" -e "s|@CONFIG@|$CONFIG|g" -e "s|@EXAMPLE@|$EXAMPLE|g" \
 		debian/postinst.in > "$STAGE/DEBIAN/postinst"
-	sed -e "s|@PLIST@|$PLIST|g" debian/prerm.in > "$STAGE/DEBIAN/prerm"
+	sed -e "s|@PLIST@|$PLIST|g" -e "s|@WATCH_PLIST@|$WATCH_PLIST|g" debian/prerm.in > "$STAGE/DEBIAN/prerm"
 	chmod 755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 
 	SIZE="$(du -sk "$STAGE" | awk '{print $1}')"

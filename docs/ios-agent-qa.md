@@ -648,8 +648,8 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 
 | 文件 | 用途 |
 | --- | --- |
-| `com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
-| `com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
 
 构建：`scripts/build-ios.sh` + `scripts/build-deb.sh <rootful|rootless>`；`scripts/build-repo.sh` 生成 `docs/repo/` 的 Sileo 静态源（`Packages`、`Release`、`pool/*.deb`），由 `.github/workflows/ios-repo.yml` 发布到 GitHub Pages。
 
@@ -658,6 +658,10 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 签名：没有 `ldid` 时用 `SKIP_SIGN=1` 编译，再用 macOS `codesign --force --sign - --entitlements entitlements.plist` 做 ad-hoc 签名；deb 依赖越狱的 AMFI 补丁。真机安装前需确认 `launchctl` 能加载 LaunchDaemon。
 
 ## 21. 反连监听、断线诊断与一键安装（2026-10-22）
+
+### 21.1.1 挂起 watchdog
+
+deb 现在同时安装 `com.zgsfsec.sentinelbridgewatchdog`。主 daemon 每 5s 写 `/var/…/sentinelbridge/watchdog-heartbeat`，看门狗每 10s 检查文件 mtime；超过 45s 未更新就 `launchctl kickstart -k system/com.zgsfsec.sentinelbridged`。这解决的是 launchd `KeepAlive` 无法处理的场景：进程被 iOS 挂起（SIGSTOP）、socket 仍 ESTABLISHED、心跳不再发送，但进程没有退出，launchd 不会重启。看门狗是独立 LaunchDaemon；整机睡眠时也会被挂起，这种情况只能等设备唤醒。
 
 ### 21.1 iOS 独立反连监听
 
@@ -826,4 +830,4 @@ SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url wss://... --token 
 
 - macOS 主机端到端：起测试控制台（自签 TLS）→ 创建 token → 启动 setup 模式 daemon → probe 得到指纹 → pair 写入 config；错误 token/错误指纹返回 400。
 - 单元测试：token 创建/查找/删除/正常化；iOS 状态与 UI 类型检查通过。
-- 8P 真机（2026-10-22）：通过。安装 0.1.4 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，用 `wss://192.168.1.2:9970/ws/ios` + token + 自签证书指纹写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后改为真实控制台 `wss://192.168.1.2:7777/ws/ios`，`last_seen` 正常更新；控制页常驻，`/api/control/stop` 后设备离线、`/api/control/start` 后重新在线。
+- 8P 真机（2026-10-22）：通过。安装 0.1.6 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，用 `wss://192.168.1.2:9970/ws/ios` + token + 自签证书指纹写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后改为真实控制台 `wss://192.168.1.2:7777/ws/ios`，`last_seen` 正常更新；控制页常驻，`/api/control/stop` 后设备离线、`/api/control/start` 后重新在线。另用 SIGSTOP 暂停主 daemon，watchdog 在约 60s 内发现心跳过期并 `launchctl kickstart` 拉起，日志显示 `heartbeat stale (61s)`。

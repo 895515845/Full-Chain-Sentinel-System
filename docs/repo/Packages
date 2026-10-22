@@ -1,33 +1,33 @@
 Package: com.zgsfsec.sentinelbridge
 Name: SentinelBridge
-Version: 0.1.4
+Version: 0.1.6
 Architecture: iphoneos-arm64
 Section: Development
 Priority: optional
 Maintainer: zgsfsec
 Author: zgsfsec
 Depends: firmware (>= 15.0)
-Installed-Size: 160
-Filename: ./pool/com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm64.deb
-Size: 164460
-MD5sum: ab1d868af4df3ad889c2bcfb2a94b059
-SHA1: d185c7a55d230cf54c450ba76712771bff521260
-SHA256: 57ef5b0df97a6199c48bd7c32780e0b27fd998103f8689af460fe54ab2f7299c
+Installed-Size: 162
+Filename: ./pool/com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm64.deb
+Size: 166428
+MD5sum: 9d3fc6d86969204e6662c07255d16abe
+SHA1: b28238e7755b28649d3fcc0523d4ec60b85e8304
+SHA256: 8e9ba5d185c015e7ad53d8cfa0cf54dd82fd8cf72ef31c9826a7d1d59f4a3984
 Description: Root daemon for Full Chain Sentinel iOS testing
 
 Package: com.zgsfsec.sentinelbridge
 Name: SentinelBridge
-Version: 0.1.4
+Version: 0.1.6
 Architecture: iphoneos-arm
 Section: Development
 Priority: optional
 Maintainer: zgsfsec
 Author: zgsfsec
 Depends: firmware (>= 14.0)
-Installed-Size: 162
-Filename: ./pool/com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm.deb
-Size: 166172
-MD5sum: 960c37ddc8aa0183e5eb0e104273890d
-SHA1: 09e50c96e1193e0bb9a246e3575d6fa5e78ca045
-SHA256: 671c0a77a47267f440ba87291e8b9023666b8b03f1472e438b416b35d842f104
+Installed-Size: 164
+Filename: ./pool/com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm.deb
+Size: 168158
+MD5sum: c00955e1a2609d064dc93bf5eb7d2c24
+SHA1: 69ae705315b677467fb45e3937cd1409007af90c
+SHA256: 07c949fa91ea204fa429a0b5accb403ebf3626b544f58a372f4af25c8004afe8
 Description: Root daemon for Full Chain Sentinel iOS testing

@@ -215,7 +215,7 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 				"version": config.jailbreakVersion ?? "unknown",
 			],
 			"hasRoot": Platform.isRoot,
-			"appVersion": "0.1.4",
+			"appVersion": "0.1.6",
 			"capabilities": capabilities(),
 		]
 		sendAsync(hello)
