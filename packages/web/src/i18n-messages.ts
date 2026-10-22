@@ -141,7 +141,7 @@ export const EN_MESSAGES: Record<string, string> = {
 		"The agent is running; abort it or wait for this round to end before starting API modeling",
 	"Agent 白名单": "Agent allowlist",
 	"Agent 的工具列表里能看到 {tool}。": "The Agent's tool list shows {tool}.",
-	"Agent 运行中，暂不能切换项目": "Agent is running; cannot switch projects right now",
+	"Agent 运行中：切换后它会在后台继续运行": "Agent is running; it keeps running in the background after the switch",
 	"Anthropic 兼容端点的 Base URL 通常是根地址，请求路径固定为 /v1/messages。":
 		"For an Anthropic-compatible endpoint the Base URL is usually the root address, and the request path is always /v1/messages.",
 	"BLOCK: 理由": "BLOCK: reason",

@@ -73,10 +73,9 @@ export function ProjectPicker({
 				type="button"
 				className="project-current"
 				onClick={() => setOpen((prev) => !prev)}
-				disabled={streaming}
 				title={
 					streaming
-						? t("Agent 运行中，暂不能切换项目")
+						? t("Agent 运行中：切换后它会在后台继续运行")
 						: (activeProject?.cwd ?? t("未选择项目，请先新建项目"))
 				}
 			>
