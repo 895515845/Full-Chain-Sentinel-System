@@ -71,6 +71,7 @@ interface FakeSession {
 	readonly prompts: string[];
 	messages: unknown[];
 	isStreaming: boolean;
+	isIdle: boolean;
 	prompt(text: string, options?: unknown): Promise<void>;
 	sendCustomMessage(message: unknown, options?: unknown): Promise<void>;
 	abort(): Promise<void>;
@@ -86,6 +87,7 @@ function fakeSession(): FakeSession {
 		prompts: [],
 		messages: [],
 		isStreaming: false,
+		isIdle: true,
 		async prompt(text) {
 			this.prompts.push(text);
 		},

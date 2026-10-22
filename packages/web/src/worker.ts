@@ -50,6 +50,8 @@ export interface WorkerSession {
 	abort(): Promise<unknown>;
 	subscribe(handler: (event: AgentSessionEvent) => void): () => void;
 	isStreaming: boolean;
+	/** Not running and not compacting: an abort would have nothing to stop. */
+	isIdle: boolean;
 	messages: readonly unknown[];
 	getSessionStats(): { tokens: { input: number; output: number; total: number }; cost?: number } | undefined;
 }
@@ -103,6 +105,12 @@ export class EngineWorker {
 	private roundToolCalls = 0;
 	private submitted = 0;
 	private settled = false;
+	/**
+	 * Set by `abort()` and `dispose()`. The session may not exist yet when a pause
+	 * lands (it is still being acquired), so settling alone cannot stop the work:
+	 * every path that would start or continue a round checks this first.
+	 */
+	private cancelled = false;
 	private timeLimitTimer: NodeJS.Timeout | undefined;
 	/** Per-task fuses the engine derived from its limits. */
 	private readonly limits: { tokenLimit: number | null; timeLimitMin: number | null };
@@ -127,6 +135,11 @@ export class EngineWorker {
 		return this.session !== undefined && !this.settled;
 	}
 
+	/** The engine uses this to keep a paused/aborted state from being overwritten. */
+	get isCancelled(): boolean {
+		return this.cancelled;
+	}
+
 	/** Usage of the worker session so far, relative to the task goal baseline when present. */
 	currentUsage(): SentinelGoalUsage {
 		if (!this.session) return this.task.usage ?? emptyUsage();
@@ -141,7 +154,15 @@ export class EngineWorker {
 			: null;
 	}
 
-	/** Acquire (or reattach to) the session and start the first round. */
+	/**
+	 * Acquire (or reattach to) the session and start the first round.
+	 *
+	 * Acquisition is slow (session creation, extensions, MCP), and a pause can
+	 * land inside it. In that case the worker was already cancelled before it had
+	 * a session to abort; it must record the conversation for a later resume and
+	 * then stop without prompting, or the task would run a whole untracked round
+	 * under a paused engine.
+	 */
 	async start(): Promise<void> {
 		const continuation = this.task.pendingContinue;
 		const { session, manager } = await this.acquire({
@@ -155,8 +176,9 @@ export class EngineWorker {
 		});
 		this.session = session;
 		this.manager = manager;
-		this.unsubscribeWorker = session.subscribe((event) => this.onEvent(event));
 		this.hooks.onStarted(manager.getSessionId());
+		if (this.stopped()) return;
+		this.unsubscribeWorker = session.subscribe((event) => this.onEvent(event));
 
 		if (continuation) {
 			await this.continueGoal(continuation);
@@ -172,6 +194,7 @@ export class EngineWorker {
 	/** Fresh task: create the goal, write the contract, run the objective. */
 	private async startFreshGoal(): Promise<void> {
 		const session = this.requireSession();
+		if (this.stopped()) return;
 		const baseline = usageOf(session.getSessionStats());
 		this.goal = startRound(
 			createGoal({
@@ -193,6 +216,10 @@ export class EngineWorker {
 			{ customType: GOAL_MESSAGE_CUSTOM_TYPE, content: buildGoalContract(this.goal, "initial"), display: true },
 			{ triggerTurn: false },
 		);
+		// The contract write is an await: a pause can land here, after the session
+		// exists but before the run has started. The goal state stays in the file
+		// so a later continuation still resumes it.
+		if (this.stopped()) return;
 		this.armTimeLimit();
 		this.hooks.onProgress();
 		try {
@@ -204,6 +231,7 @@ export class EngineWorker {
 
 	/** Resumed task: bring the goal back from the session file and continue. */
 	private resumeGoal(): void {
+		if (this.stopped()) return;
 		const session = this.requireSession();
 		const restored = readGoalState(this.manager?.getBranch() ?? []);
 		if (!restored || restored.status === "completed") {
@@ -239,6 +267,7 @@ export class EngineWorker {
 	 * context; only the goal counters are extended.
 	 */
 	private async continueGoal(continuation: SentinelEngineTaskContinue): Promise<void> {
+		if (this.stopped()) return;
 		const session = this.requireSession();
 		const restored = readGoalState(this.manager?.getBranch() ?? []);
 		const criteria = continuation.criteria.map((item) => item.trim()).filter(Boolean);
@@ -283,24 +312,35 @@ export class EngineWorker {
 
 	/** Stop the run in flight; settles as aborted unless already terminal. */
 	async abort(reason: string): Promise<void> {
+		// Marked before the settled check: a worker that already settled still has
+		// to refuse any continuation the SDK may have queued for it.
+		this.cancelled = true;
 		if (this.settled) return;
 		if (this.timeLimitTimer) clearTimeout(this.timeLimitTimer);
-		if (this.session?.isStreaming) await this.session.abort();
+		// Not just the visible streaming case: a session that is compacting has no
+		// active run but must be aborted all the same, or the run resumes after it.
+		if (this.session && !this.session.isIdle) await this.session.abort();
 		this.settle("aborted", reason, this.currentUsage());
 	}
 
 	/** Queue an instruction into the running worker (steer / intel injection). */
 	async steer(text: string): Promise<boolean> {
 		const session = this.session;
-		if (!session || this.settled || !session.isStreaming) return false;
+		if (!session || this.settled || this.cancelled || !session.isStreaming) return false;
 		await session.prompt(text, { streamingBehavior: "steer" });
 		return true;
 	}
 
 	/** The worker stops driving; the session itself stays with the runtime. */
 	dispose(): void {
+		this.cancelled = true;
 		if (this.timeLimitTimer) clearTimeout(this.timeLimitTimer);
 		this.unsubscribeWorker();
+	}
+
+	/** No round may start or continue once the worker was stopped. */
+	private stopped(): boolean {
+		return this.cancelled || this.settled;
 	}
 
 	// --- goal port ---------------------------------------------------------
@@ -372,7 +412,7 @@ export class EngineWorker {
 	 * one continuation carries the recorded progress.
 	 */
 	private afterRoundSettled(aborted: boolean): void {
-		if (this.settled || !this.goal || !this.session) return;
+		if (this.stopped() || !this.goal || !this.session) return;
 		const session = this.session;
 		const at = Date.now();
 		const usage = diffUsage(usageOf(session.getSessionStats()), this.roundUsageStart);

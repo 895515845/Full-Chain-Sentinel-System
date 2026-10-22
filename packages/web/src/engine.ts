@@ -355,6 +355,7 @@ export class EngineManager {
 		if (!entry) throw new Error(t("工程不存在"));
 		this.disableActiveSchedule(entry, "manual");
 		await this.stopWorkers(entry, "aborted", t("工程已终止"));
+		await this.stopCommander(entry);
 		this.store.setEngineStatus(id, "stopped", t("操作员终止"), Date.now());
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
@@ -418,6 +419,10 @@ export class EngineManager {
 		this.store.setEngineStatus(id, "paused", note, null);
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		await this.stopWorkers(entry, "paused", note, autoResume);
+		// The commander is not a worker and pause does not dispose it (resume rebuilds
+		// it), so it has to be stopped explicitly: otherwise its turn in flight keeps
+		// writing to the log and its queued prompts keep being delivered.
+		await this.stopCommander(entry);
 		entry.engine = this.store.getEngine(id) ?? entry.engine;
 		this.hooks.onChange(entry.engine);
 	}
@@ -705,6 +710,9 @@ export class EngineManager {
 		if (entry.engine.status === "running" || entry.engine.status === "paused") {
 			if (entry.engine.status === "running") await this.stopWorkers(entry, "aborted", t("工程已删除"));
 		}
+		// Dispose alone only requests an agent abort and drops the listeners; awaiting
+		// the commander first makes sure its turn is actually over before the row goes.
+		await this.stopCommander(entry);
 		entry.commanderUnsubscribe();
 		entry.commander?.dispose();
 		entry.debriefUnsubscribe();
@@ -1185,6 +1193,9 @@ export class EngineManager {
 				const next = entry.pendingCommanderPrompts.join("\n\n");
 				entry.pendingCommanderPrompts = [];
 				if (!entry.commander || entry.reportSettled) break;
+				// A pause/abort between two prompts ends the run instead of delivering
+				// the rest of the queue: the operator stopped the engine as a whole.
+				if (entry.engine.status !== "running") break;
 				await entry.commander.prompt(next, {});
 			}
 		} catch (error) {
@@ -1432,6 +1443,10 @@ export class EngineManager {
 		} catch (error) {
 			entry.workers.delete(taskId);
 			worker.dispose();
+			// A pause/abort that landed while the session was being acquired already
+			// wrote the real state; a startup failure must not overwrite it with
+			// "failed", which would offer a retry for work the operator just stopped.
+			if (entry.engine.status !== "running" || worker.isCancelled) return;
 			this.store.updateTask(taskId, {
 				status: "failed",
 				endedAt: Date.now(),
@@ -1488,6 +1503,28 @@ export class EngineManager {
 			});
 		}
 		entry.engine = this.store.getEngine(entry.engine.id) ?? entry.engine;
+	}
+
+	/**
+	 * Freeze the commander: drop what is queued for it and abort the turn in
+	 * flight. Pause keeps the commander session for resume to rebuild, so without
+	 * this the engine would be paused while its commander kept talking, kept
+	 * mirroring events into the log, and delivered every prompt that was already
+	 * queued when the operator stopped it.
+	 */
+	private async stopCommander(entry: EngineLive): Promise<void> {
+		entry.pendingCommanderPrompts = [];
+		const commander = entry.commander;
+		if (!commander) return;
+		try {
+			await commander.abort();
+		} catch (error) {
+			this.pushCommanderEvent(entry, {
+				kind: "status",
+				status: "error",
+				note: t("指挥官中止失败：{error}", { error: errorText(error) }),
+			});
+		}
 	}
 
 	// --- helpers -----------------------------------------------------------
