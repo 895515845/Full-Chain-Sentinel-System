@@ -827,4 +827,4 @@ SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url ... --token ...`�
 
 - macOS 主机端到端：起测试控制台（自签 TLS）→ 生成配对码 → 启动 setup 模式 daemon → probe 得到指纹 → pair 写入 config；重放已用码和错误码均返回 400。
 - 单元测试：配对码格式/一次性/过期、删除 token 清理配对码；iOS 状态与 UI 类型检查通过。
-- 8P 真机：待设备重新联网后执行安装/配对验收；本轮此前已验证 deb、反连、exec/pull/push、抓包与砸壳主二进制。
+- 8P 真机（2026-10-22）：通过。安装 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，probe 得到自签证书指纹，提交 6 位配对码后写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后恢复原控制台配置并 kickstart，真实控制台 `last_seen` 正常更新。

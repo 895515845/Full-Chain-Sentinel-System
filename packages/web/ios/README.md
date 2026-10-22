@@ -92,7 +92,7 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 ## 已验证范围
 
 - macOS 主机契约测试：`test/ios-daemon.test.ts` 用同一份 Swift 源码连真实 Node 网关，覆盖 hello、exec、1.5MB 分片 pull/push、TCP echo 隧道、SIGTERM 退出。
-- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制。
+- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup 配对已通过（6 位码 + 自签证书指纹 + 配置写入 + launchd 重启）。
 - 未验证：rootful 真机、roothide、第二台设备 `verifyDevice`、`ldid` 重签、`bfdecrypt` 回退。
 
 ## 故障排查
