@@ -196,6 +196,7 @@ import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
 import { LIST_CAP, type PocImportOptions, PocStore, pocsDbPath } from "./pocs.ts";
 import { ensureBuiltinPresets, findPreset, readPresetText } from "./presets.ts";
+import { listProjects, type SentinelProject } from "./projects.ts";
 import type {
 	SentinelApiModel,
 	SentinelApiModelEvent,
@@ -380,6 +381,22 @@ interface ManagedSession {
 	session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	manager: SessionManager;
 	unsubscribe: () => void;
+	/**
+	 * The project this conversation belongs to, fixed when the session is
+	 * created: an engine task uses its engine's project, a console session the
+	 * project whose work directory it lives under. Every tool context reads the
+	 * project from here, never from the runtime's active project — a session that
+	 * keeps running after the operator switched away must still write evidence,
+	 * records, and audit rows to its own project.
+	 */
+	projectId: string | null;
+	projectName: string | null;
+	/** Container executing this session's tools, captured with the project. */
+	container: string;
+	/** Host work directory of this session, not the active project's. */
+	cwd: string;
+	/** This session's command mode: its own override, or the console default. */
+	modeOf: () => SentinelMode;
 	/**
 	 * The run in flight for THIS session. It lives here, not on the runtime,
 	 * because a run settles whether or not the operator is still looking at it:
@@ -772,7 +789,13 @@ export class SentinelRuntime {
 		// on screen) and its bash follows the engine's own choice: `auto` runs
 		// straight through, because engineering mode never stops at an approval
 		// queue nobody is watching, while `ai` sends every command to the judge.
+		const cwd = manager.getCwd();
 		const container = task ? task.project.container : this.requireContainer();
+		// The session's project is fixed here, once, and every tool context below
+		// reads it from `managed` instead of the runtime's active project. A
+		// background session from another project would otherwise write evidence
+		// and records into whichever project the operator happens to be viewing.
+		const project = task ? { id: task.project.id, name: task.project.name } : this.projectOfWorkDir(cwd);
 		await this.ensureModelRuntime();
 
 		const model = this.resolveModel();
@@ -787,6 +810,13 @@ export class SentinelRuntime {
 			session: undefined as unknown as ManagedSession["session"],
 			manager,
 			unsubscribe: () => {},
+			projectId: project?.id ?? null,
+			projectName: project?.name ?? null,
+			container,
+			cwd,
+			// A console session follows its own override or the console-wide default;
+			// a task session follows its engine's gate, never the console's.
+			modeOf: task ? () => (task.gateMode === "ai" ? "ai" : "auto") : () => this.effectiveMode(managed),
 			// A reopened conversation keeps the mode it was left in.
 			modeOverride: readSessionMode(manager.getBranch()),
 			droidOn: task ? false : readSessionDroid(manager.getBranch()),
@@ -804,14 +834,11 @@ export class SentinelRuntime {
 		// An engineering task's mode comes from its engine, never from the console:
 		// a worker that waited for the operator would defeat the engine's purpose,
 		// and the console's mode may be `review` while the engine runs unattended.
-		const modeOf: () => SentinelMode = task
-			? () => (task.gateMode === "ai" ? "ai" : "auto")
-			: () => this.effectiveMode(managed);
 		const gateContext: Omit<BashGateContext, "label"> = {
-			modeOf,
-			hostWorkDir: manager.getCwd(),
-			projectId: task ? task.project.id : (this.activeProjectId ?? null),
-			projectName: task ? task.project.name : (this.activeProjectName ?? null),
+			modeOf: managed.modeOf,
+			hostWorkDir: cwd,
+			projectId: managed.projectId,
+			projectName: managed.projectName,
 			sessionId: () => manager.getSessionId(),
 		};
 		const bash = this.createGatedBash(
@@ -869,11 +896,9 @@ export class SentinelRuntime {
 		};
 		// The hub tools are mounted here as well, so a session that may not delegate
 		// can still report what it found.
-		const sessionProject = task
-			? { id: task.project.id, name: task.project.name }
-			: this.activeProjectId
-				? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") }
-				: undefined;
+		const sessionProject = managed.projectId
+			? { id: managed.projectId, name: managed.projectName ?? t("未命名项目") }
+			: undefined;
 		// Asset mapping is an operator-configured capability: a platform that is
 		// switched off, unkeyed or unverified contributes no tool at all, so the
 		// model never sees a search engine it cannot use. Task sessions are left
@@ -937,12 +962,10 @@ export class SentinelRuntime {
 				? []
 				: createCaptureTools({
 						gateway: () => this.droidGateway,
-						container: () => this.requireContainer(),
-						workDir: () => this.cwd,
+						container: () => managed.container,
+						workDir: () => managed.cwd,
 						project: () =>
-							this.activeProjectId
-								? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") }
-								: null,
+							managed.projectId ? { id: managed.projectId, name: managed.projectName ?? t("未命名项目") } : null,
 						store: () => this.captures,
 					})),
 			...(permissions.spawn_agent
@@ -955,7 +978,7 @@ export class SentinelRuntime {
 							getModelRuntime: () => this.modelRuntime,
 							registry: this.subagents,
 							getParentSessionId: () => manager.getSessionId(),
-							getProjectId: () => this.activeProjectId,
+							getProjectId: () => managed.projectId ?? undefined,
 							permissions: subagentPermissions,
 							// A sub-agent inherits the parent session's gate: the same mode,
 							// the same project, the same audit attribution except the label.
@@ -1030,8 +1053,8 @@ export class SentinelRuntime {
 			this.supervisor.attach({
 				sessionId: managed.key,
 				manager,
-				projectId: this.activeProjectId ?? null,
-				projectName: this.activeProjectName ?? null,
+				projectId: managed.projectId,
+				projectName: managed.projectName,
 			});
 		}
 		// The modeling tools are declared in every console session (see
@@ -1227,26 +1250,30 @@ export class SentinelRuntime {
 				}
 				if (mode === "review") {
 					// Prefix-allowed commands skip the queue; everything else waits for a decision.
-					if (this.approvals.isAutoAllowed(command)) {
+					if (this.approvals.isAutoAllowed(command, context.projectId)) {
 						this.recordUnjudged({ tool: "bash", command, cwd: workCwd, approval: "auto", context });
 						return operations.exec(command, commandCwd, options);
 					}
-					return this.approvals.request(command, commandCwd, options?.signal, context.label()).then((outcome) => {
-						// Recorded after the operator answered: before that there is no
-						// verdict to write down, and a row guessed now would be a lie
-						// for every rejected command.
-						this.recordUnjudged({
-							tool: "bash",
-							command: outcome.command ?? command,
-							cwd: workCwd,
-							approval: "human",
-							...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
-							context,
+					return this.approvals
+						.request(command, commandCwd, options?.signal, context.label(), context.projectId)
+						.then((outcome) => {
+							// Recorded after the operator answered: before that there is no
+							// verdict to write down, and a row guessed now would be a lie
+							// for every rejected command.
+							this.recordUnjudged({
+								tool: "bash",
+								command: outcome.command ?? command,
+								cwd: workCwd,
+								approval: "human",
+								...(outcome.approved
+									? {}
+									: { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
+								context,
+							});
+							return outcome.approved && outcome.command !== undefined
+								? operations.exec(outcome.command, commandCwd, options)
+								: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`));
 						});
-						return outcome.approved && outcome.command !== undefined
-							? operations.exec(outcome.command, commandCwd, options)
-							: Promise.reject(new Error(`Command not executed: ${outcome.reason ?? "rejected"}`));
-					});
 				}
 				// ai: the operator's prefix allow-list does not apply. Every command is
 				// judged, so "this prefix is fine" can never widen the judge's answer.
@@ -1279,6 +1306,17 @@ export class SentinelRuntime {
 	private requireContainer(): string {
 		if (!this.activeContainer) throw new Error(t("没有可用的项目容器，请先创建或选择一个项目"));
 		return this.activeContainer;
+	}
+
+	/**
+	 * The registered project a session belongs to, resolved from the directory the
+	 * session manager reports. Sessions are created under their project's work
+	 * directory, so this binds a reopened conversation to its project without a
+	 * new session-file entry; a project that was deleted resolves to undefined and
+	 * its sessions lose hub attribution instead of borrowing another project's.
+	 */
+	private projectOfWorkDir(cwd: string): { id: string; name: string } | undefined {
+		return resolveSessionProject(listProjects(this.agentDir).projects, cwd);
 	}
 
 	/**
@@ -1342,7 +1380,9 @@ export class SentinelRuntime {
 		// every submitted high with a second, identical notification.
 		if (this.notifiedVulns.has(vuln.id)) return;
 		this.notifiedVulns.add(vuln.id);
-		const report = buildVulnNotification(vuln, this.activeProjectName ?? vuln.projectName, config.summaryLimit);
+		// The record's own project, not the one on screen: a finding submitted by a
+		// background session must not be announced under another project's name.
+		const report = buildVulnNotification(vuln, vuln.projectName, config.summaryLimit);
 		void sendNotifications(config, report.title, report.markdown).then((result) => {
 			this.notifyStatus = { ...result, subject: report.title };
 			this.hooks.onNotifyStatus(this.notifyStatus);
@@ -1460,7 +1500,7 @@ export class SentinelRuntime {
 		if (existing) return { runId: existing.runId, target: existing.target };
 		const sessionFile = managed.manager.getSessionFile();
 		const record = this.apiModels.beginRun({
-			projectId: this.activeProjectId ?? null,
+			projectId: managed.projectId,
 			sessionId: managed.manager.getSessionId(),
 			sessionPath: sessionFile ? resolveFsPath(sessionFile) : null,
 			title: managed.manager.getSessionName() ?? undefined,
@@ -1624,7 +1664,7 @@ export class SentinelRuntime {
 		if (active.modeling) throw new Error(t("当前会话已经在业务建模中"));
 		const sessionFile = active.manager.getSessionFile();
 		const record = this.apiModels.beginRun({
-			projectId: this.activeProjectId ?? null,
+			projectId: active.projectId,
 			sessionId: active.manager.getSessionId(),
 			sessionPath: sessionFile ? resolveFsPath(sessionFile) : null,
 			title: active.manager.getSessionName() ?? undefined,
@@ -1645,7 +1685,7 @@ export class SentinelRuntime {
 					customType: MODELING_MESSAGE_CUSTOM_TYPE,
 					content: buildModelingBrief(
 						run.target,
-						this.activeProjectName ?? null,
+						active.projectName,
 						this.attachedRecordsOf(active).map((model) => ({ title: model.title, pathCount: model.pathCount })),
 					),
 					display: true,
@@ -1983,7 +2023,7 @@ export class SentinelRuntime {
 				managed.webQueries += 1;
 				return true;
 			},
-			saveEvidence: (name, raw) => writeWebSearchEvidence(this.cwd, name, raw),
+			saveEvidence: (name, raw) => writeWebSearchEvidence(managed.cwd, name, raw),
 			report: (report) => this.recordWebSearchQuery(managed, source(), report),
 		};
 	}
@@ -2037,7 +2077,7 @@ export class SentinelRuntime {
 	 */
 	private recordWebSearchQuery(managed: ManagedSession, source: string, report: WebSearchQueryReport): void {
 		void source;
-		const projectId = this.activeProjectId;
+		const projectId = managed.projectId;
 		if (!projectId) return;
 		const sessionId = managed.manager.getSessionId();
 		try {
@@ -2477,7 +2517,7 @@ export class SentinelRuntime {
 				managed.assetQueries += 1;
 				return true;
 			},
-			saveEvidence: (name, raw) => writeAssetEvidence(this.cwd, name, raw),
+			saveEvidence: (name, raw) => writeAssetEvidence(managed.cwd, name, raw),
 			report: (report) => this.recordAssetQuery(managed, source(), report),
 		};
 	}
@@ -2498,7 +2538,7 @@ export class SentinelRuntime {
 		} catch {
 			// The settings screen loses one status line, nothing else.
 		}
-		const projectId = this.activeProjectId;
+		const projectId = managed.projectId;
 		if (!projectId) return;
 		const sessionId = managed.manager.getSessionId();
 		try {
@@ -2653,32 +2693,34 @@ export class SentinelRuntime {
 		return {
 			gateway: () => this.droidGateway,
 			enabled: () => managed.droidOn,
-			container: () => this.requireContainer(),
-			workDir: () => this.cwd,
-			guard: (deviceName, command) => this.guardDroidCommand(deviceName, command),
+			container: () => managed.container,
+			workDir: () => managed.cwd,
+			guard: (deviceName, command) => this.guardDroidCommand(managed, deviceName, command),
 		};
 	}
 
 	/**
 	 * The approval chain for device commands, the same three modes container bash
 	 * goes through. The judge sees the device as the source, and an edited command
-	 * from the approval card is the one that runs.
+	 * from the approval card is the one that runs. Mode, project and session come
+	 * from the session that issued the command: a background conversation must not
+	 * be judged by whichever session the operator happens to be viewing.
 	 */
-	private guardDroidCommand(deviceName: string, command: string): Promise<string> {
-		const mode = this.effectiveMode(this.active);
+	private guardDroidCommand(managed: ManagedSession, deviceName: string, command: string): Promise<string> {
+		const mode = managed.modeOf();
 		const label = t("设备「{name}」", { name: deviceName });
 		const auditContext = {
 			label: () => label,
-			projectId: this.activeProjectId ?? null,
-			projectName: this.activeProjectName ?? null,
-			sessionId: () => this.active?.manager.getSessionId() ?? null,
+			projectId: managed.projectId,
+			projectName: managed.projectName,
+			sessionId: () => managed.manager.getSessionId(),
 		};
 		if (mode === "auto") {
 			this.recordUnjudged({ tool: "droid_shell", command, cwd: "/work", approval: "auto", context: auditContext });
 			return Promise.resolve(command);
 		}
 		if (mode === "review") {
-			if (this.approvals.isAutoAllowed(command)) {
+			if (this.approvals.isAutoAllowed(command, managed.projectId)) {
 				this.recordUnjudged({
 					tool: "droid_shell",
 					command,
@@ -2688,29 +2730,27 @@ export class SentinelRuntime {
 				});
 				return Promise.resolve(command);
 			}
-			return this.approvals
-				.request(command, this.activeContainer ? "/work" : "/", undefined, label)
-				.then((outcome) => {
-					this.recordUnjudged({
-						tool: "droid_shell",
-						command: outcome.command ?? command,
-						cwd: "/work",
-						approval: "human",
-						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
-						context: auditContext,
-					});
-					if (outcome.approved && outcome.command !== undefined) return outcome.command;
-					throw new Error(outcome.reason ?? t("已拒绝"));
+			return this.approvals.request(command, "/work", undefined, label, managed.projectId).then((outcome) => {
+				this.recordUnjudged({
+					tool: "droid_shell",
+					command: outcome.command ?? command,
+					cwd: "/work",
+					approval: "human",
+					...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
+					context: auditContext,
 				});
+				if (outcome.approved && outcome.command !== undefined) return outcome.command;
+				throw new Error(outcome.reason ?? t("已拒绝"));
+			});
 		}
 		return this.gatekeeper
 			.guard({
 				command,
 				cwd: "/work",
 				source: label,
-				projectId: this.activeProjectId ?? null,
-				projectName: this.activeProjectName ?? null,
-				sessionId: this.active?.manager.getSessionId() ?? null,
+				projectId: managed.projectId,
+				projectName: managed.projectName,
+				sessionId: managed.manager.getSessionId(),
 			})
 			.then((outcome) => {
 				if (outcome.kind === "allow" || outcome.kind === "failed") return command;
@@ -2826,11 +2866,11 @@ export class SentinelRuntime {
 		return {
 			gateway: () => this.iosGateway,
 			enabled: () => managed.iosOn,
-			workDir: () => this.cwd,
-			container: () => this.requireContainer(),
-			guard: (deviceName, command) => this.guardIosCommand(deviceName, command),
+			workDir: () => managed.cwd,
+			container: () => managed.container,
+			guard: (deviceName, command) => this.guardIosCommand(managed, deviceName, command),
 			project: () =>
-				this.activeProjectId ? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") } : null,
+				managed.projectId ? { id: managed.projectId, name: managed.projectName ?? t("未命名项目") } : null,
 			store: () => this.captures,
 		};
 	}
@@ -2838,49 +2878,48 @@ export class SentinelRuntime {
 	/**
 	 * The approval chain for iOS commands, the same three modes container bash
 	 * goes through. The judge sees the device as the source, and an edited command
-	 * from the approval card is the one that runs.
+	 * from the approval card is the one that runs. Like Android, everything comes
+	 * from the issuing session, not from whichever one is on screen.
 	 */
-	private guardIosCommand(deviceName: string, command: string): Promise<string> {
-		const mode = this.effectiveMode(this.active);
+	private guardIosCommand(managed: ManagedSession, deviceName: string, command: string): Promise<string> {
+		const mode = managed.modeOf();
 		const label = t("设备「{name}」", { name: deviceName });
 		const auditContext = {
 			label: () => label,
-			projectId: this.activeProjectId ?? null,
-			projectName: this.activeProjectName ?? null,
-			sessionId: () => this.active?.manager.getSessionId() ?? null,
+			projectId: managed.projectId,
+			projectName: managed.projectName,
+			sessionId: () => managed.manager.getSessionId(),
 		};
 		if (mode === "auto") {
 			this.recordUnjudged({ tool: "ios_shell", command, cwd: "/work", approval: "auto", context: auditContext });
 			return Promise.resolve(command);
 		}
 		if (mode === "review") {
-			if (this.approvals.isAutoAllowed(command)) {
+			if (this.approvals.isAutoAllowed(command, managed.projectId)) {
 				this.recordUnjudged({ tool: "ios_shell", command, cwd: "/work", approval: "auto", context: auditContext });
 				return Promise.resolve(command);
 			}
-			return this.approvals
-				.request(command, this.activeContainer ? "/work" : "/", undefined, label)
-				.then((outcome) => {
-					this.recordUnjudged({
-						tool: "ios_shell",
-						command: outcome.command ?? command,
-						cwd: "/work",
-						approval: "human",
-						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
-						context: auditContext,
-					});
-					if (outcome.approved && outcome.command !== undefined) return outcome.command;
-					throw new Error(outcome.reason ?? t("已拒绝"));
+			return this.approvals.request(command, "/work", undefined, label, managed.projectId).then((outcome) => {
+				this.recordUnjudged({
+					tool: "ios_shell",
+					command: outcome.command ?? command,
+					cwd: "/work",
+					approval: "human",
+					...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
+					context: auditContext,
 				});
+				if (outcome.approved && outcome.command !== undefined) return outcome.command;
+				throw new Error(outcome.reason ?? t("已拒绝"));
+			});
 		}
 		return this.gatekeeper
 			.guard({
 				command,
 				cwd: "/work",
 				source: label,
-				projectId: this.activeProjectId ?? null,
-				projectName: this.activeProjectName ?? null,
-				sessionId: this.active?.manager.getSessionId() ?? null,
+				projectId: managed.projectId,
+				projectName: managed.projectName,
+				sessionId: managed.manager.getSessionId(),
 			})
 			.then((outcome) => {
 				if (outcome.kind === "allow" || outcome.kind === "failed") return command;
@@ -3049,7 +3088,7 @@ export class SentinelRuntime {
 		const report = buildGoalNotification(
 			{
 				label: goalStatusLabel(goal),
-				projectName: this.activeProjectName ?? "",
+				projectName: managed.projectName ?? "",
 				sessionTitle: managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? goal.objective,
 				sessionStatus: readSessionStatus(managed.manager.getBranch()),
 				objective: goal.objective,
@@ -3387,7 +3426,7 @@ export class SentinelRuntime {
 		const report = buildRunNotification(
 			{
 				status,
-				projectName: this.activeProjectName ?? "",
+				projectName: managed.projectName ?? "",
 				sessionTitle:
 					managed.manager.getSessionName() ?? firstUserText(managed.session.messages) ?? run.instruction,
 				sessionStatus: readSessionStatus(managed.manager.getBranch()),
@@ -3822,11 +3861,12 @@ export class SentinelRuntime {
 	}
 
 	allowPrefix(prefix: string): void {
-		this.approvals.allowPrefix(prefix);
+		// The console page acts on the project it is showing.
+		this.approvals.allowPrefix(prefix, this.activeProjectId ?? null);
 	}
 
 	removeAllowedPrefix(prefix: string): void {
-		this.approvals.removeAllowedPrefix(prefix);
+		this.approvals.removeAllowedPrefix(prefix, this.activeProjectId ?? null);
 	}
 
 	/**
@@ -4225,7 +4265,7 @@ export class SentinelRuntime {
 				? safeClone(withSystemPrompt(branchTranscript(active.manager.getBranch()), active.session.messages))
 				: [],
 			pendingApprovals: this.approvals.listPending(),
-			allowedPrefixes: this.approvals.getAllowedPrefixes(),
+			allowedPrefixes: this.approvals.getAllowedPrefixes(this.activeProjectId ?? null),
 			runningSessions: [...this.sessions.values()]
 				.filter((managed) => managed.session.isStreaming)
 				.map((managed) => managed.key),
@@ -4557,6 +4597,20 @@ const STUTTER_PAUSE_LIMIT = 3;
 /** Whether the run that just settled was cut by the loop-guard's stutter guard. */
 function isStutterAbort(managed: ManagedSession): boolean {
 	return lastAssistantText(managed.session.messages)?.includes(LOOP_GUARD_STUTTER_MARKER) === true;
+}
+
+/**
+ * The project whose work directory is `cwd`, or undefined when no registered
+ * project owns it. Exported for tests: this is what binds a reopened
+ * conversation to the project it was created in.
+ */
+export function resolveSessionProject(
+	projects: readonly SentinelProject[],
+	cwd: string,
+): { id: string; name: string } | undefined {
+	const resolved = resolveFsPath(cwd);
+	const project = projects.find((item) => resolveFsPath(item.workDir) === resolved);
+	return project ? { id: project.id, name: project.name } : undefined;
 }
 
 /** Closing prose of the last assistant message, for the round summary fallback. */

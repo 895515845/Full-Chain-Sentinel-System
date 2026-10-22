@@ -20,6 +20,8 @@ export interface ApprovalOutcome {
 
 interface PendingEntry {
 	request: SentinelApprovalRequest;
+	/** The project the command was issued in, so an allow-list entry lands there. */
+	projectId: string | null;
 	finalize: (outcome: ApprovalOutcome) => void;
 	abortListener: () => void;
 	signal: AbortSignal | undefined;
@@ -42,33 +44,54 @@ function isCompound(command: string): boolean {
 export class ApprovalGate {
 	private pending = new Map<string, PendingEntry>();
 	private counter = 0;
-	private allowedPrefixes: string[] = [];
+	/**
+	 * Auto-allowed prefixes, bucketed by project. Projects are separate
+	 * engagements: "this prefix is fine" said while working in one must not
+	 * silently cover the same command in another, and a background session must
+	 * not inherit an allowance granted for whatever project is on screen.
+	 */
+	private allowedPrefixes = new Map<string, string[]>();
 	private readonly onChange: () => void;
 
 	constructor(onChange: () => void) {
 		this.onChange = onChange;
 	}
 
-	/** True when the command may run without approval under the current prefix rules. */
-	isAutoAllowed(command: string): boolean {
-		if (this.allowedPrefixes.length === 0 || isCompound(command)) return false;
-		return this.allowedPrefixes.includes(commandPrefix(command));
+	/** Bucket key; sessions without a project share one, which matches their scope. */
+	private bucketOf(projectId: string | null): string {
+		return projectId ?? "";
 	}
 
-	allowPrefix(prefix: string): void {
+	/** True when the command may run without approval under the project's prefix rules. */
+	isAutoAllowed(command: string, projectId: string | null): boolean {
+		const prefixes = this.allowedPrefixes.get(this.bucketOf(projectId));
+		if (!prefixes || prefixes.length === 0 || isCompound(command)) return false;
+		return prefixes.includes(commandPrefix(command));
+	}
+
+	allowPrefix(prefix: string, projectId: string | null): void {
 		const normalized = prefix.trim();
-		if (!normalized || this.allowedPrefixes.includes(normalized)) return;
-		this.allowedPrefixes.push(normalized);
+		if (!normalized) return;
+		const key = this.bucketOf(projectId);
+		const prefixes = this.allowedPrefixes.get(key) ?? [];
+		if (prefixes.includes(normalized)) return;
+		this.allowedPrefixes.set(key, [...prefixes, normalized]);
 		this.onChange();
 	}
 
-	removeAllowedPrefix(prefix: string): void {
-		this.allowedPrefixes = this.allowedPrefixes.filter((item) => item !== prefix);
+	removeAllowedPrefix(prefix: string, projectId: string | null): void {
+		const key = this.bucketOf(projectId);
+		const prefixes = this.allowedPrefixes.get(key);
+		if (!prefixes) return;
+		const next = prefixes.filter((item) => item !== prefix);
+		if (next.length === prefixes.length) return;
+		if (next.length === 0) this.allowedPrefixes.delete(key);
+		else this.allowedPrefixes.set(key, next);
 		this.onChange();
 	}
 
-	getAllowedPrefixes(): string[] {
-		return [...this.allowedPrefixes];
+	getAllowedPrefixes(projectId: string | null): string[] {
+		return [...(this.allowedPrefixes.get(this.bucketOf(projectId)) ?? [])];
 	}
 
 	/** Wait for an operator decision on `command`. Prefix hits and aborts resolve immediately. */
@@ -77,13 +100,15 @@ export class ApprovalGate {
 		cwd: string,
 		signal: AbortSignal | undefined,
 		source = "主代理",
+		projectId: string | null = null,
 	): Promise<ApprovalOutcome> {
-		if (this.isAutoAllowed(command)) return { approved: true, command };
+		if (this.isAutoAllowed(command, projectId)) return { approved: true, command };
 		return new Promise<ApprovalOutcome>((resolve) => {
 			const id = `approval-${Date.now().toString(36)}-${++this.counter}`;
 			const settle = (outcome: ApprovalOutcome): void => resolve(outcome);
 			const entry: PendingEntry = {
 				request: { id, command, cwd, source },
+				projectId,
 				signal,
 				abortListener: () => settle({ approved: false, reason: "aborted" }),
 				finalize: settle,
@@ -105,7 +130,7 @@ export class ApprovalGate {
 		this.pending.delete(id);
 		entry.signal?.removeEventListener("abort", entry.abortListener);
 		const command = approved ? (editedCommand?.trim() ? editedCommand : entry.request.command) : undefined;
-		if (approved && alwaysAllowPrefix && command) this.allowPrefix(commandPrefix(command));
+		if (approved && alwaysAllowPrefix && command) this.allowPrefix(commandPrefix(command), entry.projectId);
 		this.onChange();
 		entry.finalize(approved ? { approved: true, command } : { approved: false, reason: "rejected by operator" });
 		return true;
