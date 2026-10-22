@@ -19,6 +19,11 @@ VERSION="${VERSION:-0.1.0}"
 OUT="${OUT:-$REPO_ROOT/docs/repo}"
 BUILD=0
 
+hash_of() {
+	# openssl exists on both macOS and the Ubuntu runners; -r prints "<hash> *file".
+	openssl dgst -"$1" -r "$2" | awk '{print $1}'
+}
+
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--build)
@@ -58,7 +63,9 @@ for arch_glob in iphoneos-arm64 iphoneos-arm; do
 		cp "$deb" "$OUT/pool/$name"
 		size="$(wc -c <"$deb" | tr -d ' ')"
 		size_kb=$((size / 1024))
-		sha="$(shasum -a 256 "$deb" | awk '{print $1}')"
+		sha="$(hash_of sha256 "$deb")"
+		sha1="$(hash_of sha1 "$deb")"
+		md5="$(hash_of md5 "$deb")"
 		if [ "$arch_glob" = "iphoneos-arm64" ]; then min="15.0"; else min="14.0"; fi
 		cat >>"$OUT/Packages" <<CONTROL
 Package: com.zgsfsec.sentinelbridge
@@ -71,8 +78,10 @@ Maintainer: zgsfsec
 Author: zgsfsec
 Depends: firmware (>= $min)
 Installed-Size: $size_kb
-Filename: pool/$name
+Filename: ./pool/$name
 Size: $size
+MD5sum: $md5
+SHA1: $sha1
 SHA256: $sha
 Description: Root daemon for Full Chain Sentinel iOS testing
 CONTROL
@@ -84,6 +93,17 @@ if [ "$found" = "0" ]; then
 	exit 1
 fi
 
+# Trim the final separator, then checksum what Sileo will actually fetch.
+perl -0pi -e 's/\n+\z/\n/' "$OUT/Packages"
+gzip -9 -c "$OUT/Packages" >"$OUT/Packages.gz"
+packages_size="$(wc -c <"$OUT/Packages" | tr -d ' ')"
+packages_gz_size="$(wc -c <"$OUT/Packages.gz" | tr -d ' ')"
+packages_md5="$(hash_of md5 "$OUT/Packages")"
+packages_gz_md5="$(hash_of md5 "$OUT/Packages.gz")"
+packages_sha1="$(hash_of sha1 "$OUT/Packages")"
+packages_gz_sha1="$(hash_of sha1 "$OUT/Packages.gz")"
+packages_sha256="$(hash_of sha256 "$OUT/Packages")"
+packages_gz_sha256="$(hash_of sha256 "$OUT/Packages.gz")"
 cat >"$OUT/Release" <<RELEASE
 Origin: Full Chain Sentinel
 Label: Full Chain Sentinel
@@ -93,10 +113,17 @@ Codename: ios
 Architectures: iphoneos-arm iphoneos-arm64
 Components: main
 Description: SentinelBridge packages for Full Chain Sentinel
+Date: $(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")
+MD5Sum:
+ $packages_md5 $packages_size Packages
+ $packages_gz_md5 $packages_gz_size Packages.gz
+SHA1:
+ $packages_sha1 $packages_size Packages
+ $packages_gz_sha1 $packages_gz_size Packages.gz
+SHA256:
+ $packages_sha256 $packages_size Packages
+ $packages_gz_sha256 $packages_gz_size Packages.gz
 RELEASE
-# Drop the final blank separator; parsers accept it, but keep the file tidy.
-perl -0pi -e 's/\n+\z/\n/' "$OUT/Packages"
-gzip -9 -c "$OUT/Packages" >"$OUT/Packages.gz"
 : >"$OUT/.nojekyll"
 cat >"$OUT/index.html" <<HTML
 <!doctype html><meta charset="utf-8"><title>Full Chain Sentinel iOS repo</title>
