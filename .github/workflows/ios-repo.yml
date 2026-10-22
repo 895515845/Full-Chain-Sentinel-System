@@ -21,12 +21,18 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v6
+        with:
+          # `enablement` requires a PAT (GITHUB_TOKEN cannot create a Pages
+          # site). If the operator adds PAGES_TOKEN, the workflow can enable
+          # Pages itself; otherwise the repo must be enabled once manually.
+          token: ${{ secrets.PAGES_TOKEN || github.token }}
+          enablement: ${{ secrets.PAGES_TOKEN != '' }}
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: docs/repo
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

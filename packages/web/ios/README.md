@@ -52,6 +52,7 @@ docs/repo/{Packages,Release,pool/*.deb}
 
 1. Sileo 添加源 `https://zgsfsec.github.io/Full-Chain-Sentinel-System/`，安装 `SentinelBridge`。
    如果仓库 Pages 仍配置为从 `docs/` 目录发布，而不是使用 `.github/workflows/ios-repo.yml` 的 GitHub Actions，源地址改为 `https://zgsfsec.github.io/Full-Chain-Sentinel-System/repo/`。
+   Actions 首次部署前需要在 Settings → Pages → Build and deployment 把 Source 设为 GitHub Actions；也可以在仓库 Secrets 添加 `PAGES_TOKEN`（fine-grained PAT 给 Pages write + 仓库 read，或 classic PAT 的 `repo` scope），workflow 会用它自动启用 Pages。`GITHUB_TOKEN` 本身没有创建 Pages 站点的权限。
 2. 控制台「iOS 设备」页生成 6 位配对码。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
 4. 填控制台地址（如 `https://console.example.com`）和配对码；点「检测证书」，确认指纹与控制台显示一致，再点「配对」。
