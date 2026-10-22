@@ -216,7 +216,7 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 				"version": config.jailbreakVersion ?? "unknown",
 			],
 			"hasRoot": Platform.isRoot,
-			"appVersion": "0.1.7",
+			"appVersion": "0.1.8",
 			"capabilities": capabilities(),
 		]
 		sendAsync(hello)
@@ -341,12 +341,14 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 		uploads[reqId] = uploader
 		uploader.upload(filePath: path, url: url, token: config.token) { [weak self] result in
 			guard let self else { return }
-			self.uploads.removeValue(forKey: reqId)
-			switch result {
-			case .success(let bytes):
-				self.sendResult(reqId, ok: true, stdout: "上传 \(bytes) 字节")
-			case .failure(let error):
-				self.sendResult(reqId, ok: false, error: String(describing: error))
+			self.ioQueue.async {
+				self.uploads.removeValue(forKey: reqId)
+				switch result {
+				case .success(let bytes):
+					self.sendResult(reqId, ok: true, stdout: "上传 \(bytes) 字节")
+				case .failure(let error):
+					self.sendResult(reqId, ok: false, error: String(describing: error))
+				}
 			}
 		}
 	}

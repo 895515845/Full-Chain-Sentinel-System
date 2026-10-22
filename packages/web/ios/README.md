@@ -46,8 +46,8 @@ scripts/build-repo.sh
 
 ```
 build/sentinelbridged
-build/com.zgsfsec.sentinelbridge_0.1.7_iphoneos-arm.deb
-build/com.zgsfsec.sentinelbridge_0.1.7_iphoneos-arm64.deb
+build/com.zgsfsec.sentinelbridge_0.1.8_iphoneos-arm.deb
+build/com.zgsfsec.sentinelbridge_0.1.8_iphoneos-arm64.deb
 docs/repo/{Packages,Release,pool/*.deb}
 ```
 
