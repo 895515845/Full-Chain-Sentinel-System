@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.1}"
 BIN="${BIN:-$ROOT/build/sentinelbridged}"
 OUT="${OUT:-$ROOT/build}"
 LABEL="com.zgsfsec.sentinelbridged"

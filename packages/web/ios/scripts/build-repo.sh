@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/../../.." && pwd)"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.1}"
 OUT="${OUT:-$REPO_ROOT/docs/repo}"
 BUILD=0
 
@@ -50,6 +50,7 @@ if [ "$BUILD" = "1" ]; then
 	(cd "$ROOT" && IOS_MIN=14.0 scripts/build-ios.sh && scripts/build-deb.sh rootful)
 fi
 
+rm -rf "$OUT/pool"
 mkdir -p "$OUT/pool"
 rm -f "$OUT/Packages" "$OUT/Packages.gz" "$OUT/Release"
 : >"$OUT/Packages"
