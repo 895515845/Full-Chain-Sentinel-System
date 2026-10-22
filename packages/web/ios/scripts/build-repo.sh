@@ -50,7 +50,6 @@ if [ "$BUILD" = "1" ]; then
 	(cd "$ROOT" && IOS_MIN=14.0 scripts/build-ios.sh && scripts/build-deb.sh rootful)
 fi
 
-rm -rf "$OUT/pool"
 mkdir -p "$OUT/pool"
 rm -f "$OUT/Packages" "$OUT/Packages.gz" "$OUT/Release"
 : >"$OUT/Packages"
