@@ -94,6 +94,16 @@ export interface IosPullRequest {
 	maxBytes: number;
 }
 
+/** Server → device: stream one file over HTTPS instead of WebSocket frames. */
+export interface IosUploadRequest {
+	t: "upload";
+	reqId: string;
+	path: string;
+	/** Console-side session created by the tool. */
+	uploadId: string;
+	maxBytes: number;
+}
+
 /**
  * Server → device: write a file, one chunk at a time.
  *
@@ -200,6 +210,7 @@ export interface IosUninstallRequest {
 
 export type IosRequest =
 	| IosExecRequest
+	| IosUploadRequest
 	| IosPullRequest
 	| IosPushRequest
 	| IosScreencapRequest

@@ -10,7 +10,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { IosDevice } from "../src/ios.ts";
 import type { IosRequestInput, IosResult } from "../src/ios-protocol.ts";
-import { createIosTools, IOS_TOOL_NAMES, type IosGatewayPort, type IosToolContext } from "../src/ios-tool.ts";
+import {
+	createIosTools,
+	IOS_TOOL_NAMES,
+	type IosGatewayPort,
+	type IosToolContext,
+	pullToFile,
+} from "../src/ios-tool.ts";
 
 let dir: string;
 
@@ -289,6 +295,30 @@ test("IOS_TOOL_NAMES matches the registered tools", () => {
 		.map((tool) => tool.name)
 		.sort();
 	expect([...IOS_TOOL_NAMES].sort()).toEqual(registered);
+});
+
+test("pullToFile uses the HTTP upload path when the gateway provides it", async () => {
+	const uploaded = join(dir, "uploaded.bin");
+	writeFileSync(uploaded, "streamed-over-http");
+	const requests: IosRequestInput[] = [];
+	const gateway: IosGatewayPort = {
+		onlineDevices: () => [deviceOf()],
+		request: async (_deviceId, req) => {
+			requests.push(req);
+			return { ok: true, stdout: "uploaded" };
+		},
+		openUpload: () => ({ id: "upload-1" }),
+		takeUpload: () => uploaded,
+		discardUpload: () => undefined,
+		pushFile: async () => ({ ok: true }),
+		openTunnel: async () => ({ ok: false }),
+	};
+	const target = join(dir, "pulled.bin");
+	await pullToFile(gateway, "dvc-1", "/tmp/big.bin", target, 60_000);
+	expect(readFileSync(target, "utf8")).toBe("streamed-over-http");
+	expect(requests).toHaveLength(1);
+	expect(requests[0]?.t).toBe("upload");
+	if (requests[0]?.t === "upload") expect(requests[0].uploadId).toBe("upload-1");
 });
 
 test("ipa_strings refuses a path outside the project", async () => {

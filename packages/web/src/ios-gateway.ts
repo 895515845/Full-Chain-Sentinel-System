@@ -18,7 +18,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage } from "node:http";
+import { createWriteStream } from "node:fs";
+import {
+	createServer as createHttpServer,
+	type Server as HttpServer,
+	type IncomingMessage,
+	type ServerResponse,
+} from "node:http";
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import {
 	type AddressInfo,
@@ -44,6 +50,7 @@ import {
 	type IosRequestInput,
 	type IosResult,
 } from "./ios-protocol.ts";
+import { IosUploads } from "./ios-uploads.ts";
 
 /**
  * A device that stops sending anything is almost never a closed socket: iOS can
@@ -73,6 +80,8 @@ export interface IosGatewayOptions {
 	watchdogTickMs?: number;
 	/** TLS material for the dedicated listener; iOS only accepts wss. */
 	tls?: { cert: string | Buffer; key: string | Buffer };
+	/** Sessions for out-of-band bulk uploads (see ios-uploads.ts). */
+	uploads?: IosUploads;
 }
 
 export interface IosGatewayHooks {
@@ -125,6 +134,7 @@ export class IosGateway {
 	private readonly staleMs: number;
 	private readonly watchdogTickMs: number;
 	private readonly tls: { cert: string | Buffer; key: string | Buffer } | undefined;
+	private readonly uploads: IosUploads;
 
 	constructor(store: IosStore, hooks: IosGatewayHooks, options: IosGatewayOptions = {}) {
 		this.store = store;
@@ -132,6 +142,7 @@ export class IosGateway {
 		this.staleMs = options.staleMs ?? IOS_STALE_MS;
 		this.watchdogTickMs = options.watchdogTickMs ?? IOS_WATCHDOG_TICK_MS;
 		this.tls = options.tls;
+		this.uploads = options.uploads ?? new IosUploads();
 	}
 
 	/** HTTP upgrade dispatch: only this path, only a valid token. */
@@ -445,7 +456,12 @@ export class IosGateway {
 		const server = this.tls ? createHttpsServer(this.tls) : createHttpServer();
 		// A plain GET here is an operator probing the port from a phone browser:
 		// answer immediately instead of leaving the request hanging.
-		server.on("request", (_request, response) => {
+		server.on("request", (request, response) => {
+			const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+			if (pathname.startsWith("/api/ios/upload/")) {
+				void this.handleUpload(request, response, pathname);
+				return;
+			}
 			response.writeHead(426, { "Content-Type": "text/plain; charset=utf-8" });
 			response.end("SentinelBridge iOS listener: WebSocket upgrade required (path /ws/ios?token=...)\n");
 		});
@@ -726,6 +742,80 @@ export class IosGateway {
 				else resolve();
 			});
 		});
+	}
+
+	/** Create a destination for one HTTP upload; the tool consumes it after. */
+	openUpload(maxBytes: number): { id: string } {
+		return { id: this.uploads.create(maxBytes).id };
+	}
+
+	/** Take the completed upload file; ownership moves to the caller. */
+	takeUpload(id: string): string | undefined {
+		return this.uploads.take(id);
+	}
+
+	discardUpload(id: string): void {
+		this.uploads.discard(id);
+	}
+
+	/**
+	 * HTTP endpoint used by the device for bulk pulls. It is mounted on both the
+	 * console server and the dedicated listener so a device can use either URL.
+	 * The body is streamed to disk; it never becomes a WebSocket frame.
+	 */
+	async handleUpload(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<boolean> {
+		const prefix = "/api/ios/upload/";
+		if (!pathname.startsWith(prefix)) return false;
+		if (request.method !== "POST") {
+			this.sendUpload(response, 405, { error: "POST required" });
+			return true;
+		}
+		const id = decodeURIComponent(pathname.slice(prefix.length));
+		const upload = this.uploads.get(id);
+		if (!upload) {
+			this.sendUpload(response, 404, { error: "unknown upload" });
+			return true;
+		}
+		const header = request.headers.authorization ?? "";
+		const token = header.startsWith("Bearer ")
+			? header.slice(7)
+			: (new URL(request.url ?? "/", "http://localhost").searchParams.get("token") ?? "");
+		if (!this.store.findToken(token)) {
+			this.sendUpload(response, 401, { error: "invalid device token" });
+			return true;
+		}
+		const stream = createWriteStream(upload.partPath, { mode: 0o600, flags: "w" });
+		let bytes = 0;
+		try {
+			for await (const chunk of request) {
+				const data = chunk as Buffer;
+				bytes += data.length;
+				if (bytes > upload.maxBytes) throw new Error("upload exceeds maxBytes");
+				if (!stream.write(data)) await new Promise<void>((resolve) => stream.once("drain", resolve));
+			}
+			await new Promise<void>((resolve, reject) => {
+				stream.end(() => resolve());
+				stream.once("error", reject);
+			});
+			if (!this.uploads.finish(id)) throw new Error("cannot finalize upload");
+			this.sendUpload(response, 200, { ok: true, bytes });
+		} catch (error) {
+			stream.destroy();
+			this.uploads.discard(id);
+			this.hooks.log(`iOS 上传失败：${error instanceof Error ? error.message : String(error)}`);
+			this.sendUpload(response, 400, { error: error instanceof Error ? error.message : "upload failed" });
+		}
+		return true;
+	}
+
+	private sendUpload(response: ServerResponse, status: number, object: Record<string, unknown>): void {
+		const body = JSON.stringify(object);
+		response.writeHead(status, {
+			"content-type": "application/json; charset=utf-8",
+			"content-length": Buffer.byteLength(body),
+			"cache-control": "no-store",
+		});
+		response.end(body);
 	}
 
 	/** Close every device connection, tunnel and pending request. */

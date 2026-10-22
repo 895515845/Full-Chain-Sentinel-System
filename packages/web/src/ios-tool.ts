@@ -81,6 +81,10 @@ export interface IosGatewayPort {
 		targetHost: string,
 		targetPort: number,
 	): Promise<{ ok: boolean; port?: number; tunnelId?: string; error?: string }>;
+	/** Present on the real gateway; tests may omit it and use the WS fallback. */
+	openUpload?(maxBytes: number): { id: string };
+	takeUpload?(id: string): string | undefined;
+	discardUpload?(id: string): void;
 }
 
 export interface IosToolContext {
@@ -196,6 +200,27 @@ export async function pullToFile(
 	let fd: number | undefined;
 	let bytes = 0;
 	try {
+		// Preferred path: the device uploads the file over HTTPS and the console
+		// streams it to a temp file. No WebSocket data frames, no base64, and the
+		// iOS process never holds the file in memory (jetsam per-process limit).
+		if (gateway.openUpload && gateway.takeUpload) {
+			const upload = gateway.openUpload(IOS_MAX_STREAM_BYTES);
+			try {
+				const result = await gateway.request(
+					deviceId,
+					{ t: "upload", path: remotePath, uploadId: upload.id, maxBytes: IOS_MAX_STREAM_BYTES },
+					{ timeoutMs },
+				);
+				if (!result.ok) throw new Error(result.error ?? "未知错误");
+				const uploaded = gateway.takeUpload(upload.id);
+				if (!uploaded) throw new Error("上传文件未落到控制台");
+				renameSync(uploaded, target);
+				return statSync(target).size;
+			} catch (error) {
+				gateway.discardUpload?.(upload.id);
+				throw error;
+			}
+		}
 		fd = openSync(part, "w");
 		const result = await gateway.request(
 			deviceId,

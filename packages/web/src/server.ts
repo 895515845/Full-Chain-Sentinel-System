@@ -916,6 +916,12 @@ export async function startSentinelServer(
 	const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
+		// Bulk iOS pulls upload raw bytes here, before the browser gate: the device
+		// authenticates with its own token, exactly like the WebSocket upgrade.
+		if (path.startsWith("/api/ios/upload/")) {
+			void iosGateway.handleUpload(request, response, path);
+			return;
+		}
 		// Swagger UI is rendered inside a sandboxed srcdoc iframe (opaque origin), so
 		// that iframe cannot present the gate/session cookies. These two paths are
 		// the generic reader library only — no console data — and must stay reachable

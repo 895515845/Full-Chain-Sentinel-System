@@ -46,8 +46,8 @@ scripts/build-repo.sh
 
 ```
 build/sentinelbridged
-build/com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm.deb
-build/com.zgsfsec.sentinelbridge_0.1.6_iphoneos-arm64.deb
+build/com.zgsfsec.sentinelbridge_0.1.7_iphoneos-arm.deb
+build/com.zgsfsec.sentinelbridge_0.1.7_iphoneos-arm64.deb
 docs/repo/{Packages,Release,pool/*.deb}
 ```
 
@@ -86,12 +86,13 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 - 设备 ID 首次启动时生成，保存在 `/var/lib/sentinelbridge/device-id`（rootless 在 `/var/jb/var/lib/sentinelbridge/`）。
 - 删除该文件等于换一台新设备，控制台会多出一条记录。
 - 心跳 15s；控制台 45s 没收到心跳标为 stale，但 socket 仍在。独立 watchdog 会检查主 daemon 每 5s 写的心跳文件，超过 45s 未更新就 `launchctl kickstart` 重启主服务。
+- 大文件 pull 走 HTTPS 流式上传（`InputStream` + `URLSession.uploadTask(withStreamedRequest:)`），不再走 WebSocket `data` 帧/base64，避免 iOS jetsam `per-process-limit`。
 - 日志：`/var/log/sentinelbridge.log`。
 
 ## 已验证范围
 
 - macOS 主机契约测试：`test/ios-daemon.test.ts` 用同一份 Swift 源码连真实 Node 网关，覆盖 hello、exec、1.5MB 分片 pull/push、TCP echo 隧道、SIGTERM 退出。
-- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup token 配对已通过（wss + 自签证书指纹 + 配置写入）；本地控制页常驻，停止/启动/重载已实测；SIGSTOP 主 daemon 后 watchdog 约 60s 内 kickstart 恢复。
+- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup token 配对已通过（wss + 自签证书指纹 + 配置写入）；本地控制页常驻，停止/启动/重载已实测；SIGSTOP 主 daemon 后 watchdog 约 60s 内 kickstart 恢复；100MB 文件通过 HTTP 流式上传成功（约 42s）。
 - 未验证：rootful 真机、roothide、第二台设备 `verifyDevice`、`ldid` 重签、`bfdecrypt` 回退。
 
 ## 故障排查

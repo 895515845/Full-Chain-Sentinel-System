@@ -30,6 +30,7 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 	private var reconnectAttempt = 0
 	private var stopping = false
 	private var tunnels: [String: Tunnel] = [:]
+	private var uploads: [String: BridgeUploader] = [:]
 
 	init(config: BridgeConfig, deviceId: String) {
 		self.config = config
@@ -215,7 +216,7 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 				"version": config.jailbreakVersion ?? "unknown",
 			],
 			"hasRoot": Platform.isRoot,
-			"appVersion": "0.1.6",
+			"appVersion": "0.1.7",
 			"capabilities": capabilities(),
 		]
 		sendAsync(hello)
@@ -267,6 +268,8 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 			handleExec(frame)
 		case "pull":
 			handlePull(frame)
+		case "upload":
+			handleUpload(frame)
 		case "push":
 			handlePush(frame)
 		case "screencap":
@@ -321,6 +324,46 @@ final class GatewayClient: NSObject, URLSessionWebSocketDelegate, URLSessionTask
 		} catch {
 			sendResult(reqId, ok: false, error: String(describing: error))
 		}
+	}
+
+	private func handleUpload(_ frame: [String: Any]) {
+		guard let reqId = frame["reqId"] as? String,
+		      let path = frame["path"] as? String,
+		      let uploadId = frame["uploadId"] as? String,
+		      let url = uploadURL(uploadId)
+		else {
+			if let reqId = frame["reqId"] as? String {
+				sendResult(reqId, ok: false, error: "上传参数不完整")
+			}
+			return
+		}
+		let uploader = BridgeUploader(expectedPin: config.pinnedCertSha256)
+		uploads[reqId] = uploader
+		uploader.upload(filePath: path, url: url, token: config.token) { [weak self] result in
+			guard let self else { return }
+			self.uploads.removeValue(forKey: reqId)
+			switch result {
+			case .success(let bytes):
+				self.sendResult(reqId, ok: true, stdout: "上传 \(bytes) 字节")
+			case .failure(let error):
+				self.sendResult(reqId, ok: false, error: String(describing: error))
+			}
+		}
+	}
+
+	/// The upload endpoint lives next to the WebSocket origin on the same server.
+	private func uploadURL(_ uploadId: String) -> URL? {
+		guard var components = URLComponents(string: config.url),
+		      let host = components.host, !host.isEmpty
+		else { return nil }
+		components.scheme = "https"
+		components.query = nil
+		components.fragment = nil
+		var path = components.path
+		if path.hasSuffix("/ws/ios") { path = String(path.dropLast("/ws/ios".count)) }
+		if path.hasSuffix("/") { path = String(path.dropLast()) }
+		components.path = path + "/api/ios/upload/" + uploadId
+		return components.url
 	}
 
 	private func handlePush(_ frame: [String: Any]) {
