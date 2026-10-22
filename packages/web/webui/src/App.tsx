@@ -9,6 +9,7 @@ import { BranchModal } from "./components/BranchModal.tsx";
 import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { DroidPage } from "./components/DroidPage.tsx";
+import { IosPage } from "./components/IosPage.tsx";
 import { EnginePage } from "./components/EnginePage.tsx";
 import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
 import { FilePanel, type FilePanelState, saveDownload } from "./components/FilePanel.tsx";
@@ -45,6 +46,9 @@ import type {
 	AgentMessageView,
 	DroidDevice,
 	DroidToken,
+	IosDevice,
+	IosPairing,
+	IosToken,
 	SessionEventView,
 	SessionInfoView,
 	SessionTreeNodeView,
@@ -392,6 +396,7 @@ export function App() {
 		listen: { host: string; port: number } | null;
 		listenConfig: { host: string; port: number } | null;
 		lanIps: string[];
+		certPin: string | null;
 	}>({
 		enabled: false,
 		devices: [],
@@ -399,6 +404,27 @@ export function App() {
 		listen: null,
 		listenConfig: null,
 		lanIps: [],
+		certPin: null,
+	});
+	/** iOS devices: tokens and the reverse gateway's device list. */
+	const [iosState, setIosState] = useState<{
+		enabled: boolean;
+		devices: IosDevice[];
+		tokens: IosToken[];
+		pairing: IosPairing | null;
+		listen: { host: string; port: number } | null;
+		listenConfig: { host: string; port: number } | null;
+		lanIps: string[];
+		certPin: string | null;
+	}>({
+		enabled: false,
+		devices: [],
+		tokens: [],
+		pairing: null,
+		listen: null,
+		listenConfig: null,
+		lanIps: [],
+		certPin: null,
 	});
 	/** Business modeling: the runs of the active project, and the open drill-down. */
 	const [apiModels, setApiModels] = useState<SentinelApiModelSummary[]>([]);
@@ -1094,6 +1120,19 @@ export function App() {
 						listen: message.listen,
 						listenConfig: message.listenConfig,
 						lanIps: message.lanIps,
+						certPin: message.certPin,
+					});
+					break;
+				case "ios_state":
+					setIosState({
+						enabled: message.enabled,
+						devices: message.devices,
+						tokens: message.tokens,
+						pairing: message.pairing,
+						listen: message.listen,
+						listenConfig: message.listenConfig,
+						lanIps: message.lanIps,
+						certPin: message.certPin,
 					});
 					break;
 				case "api_model":
@@ -1631,6 +1670,9 @@ export function App() {
 				break;
 			case "droid":
 				send({ type: "droid_state" });
+				break;
+			case "ios":
+				send({ type: "ios_state" });
 				break;
 			case "settings.model":
 				send({ type: "get_model_library" });
@@ -2371,6 +2413,8 @@ export function App() {
 									modelingAttached={snapshot?.modelingAttached ?? []}
 									droidEnabled={snapshot?.droidEnabled ?? false}
 									onToggleDroid={(next) => send({ type: "droid_set_enabled", enabled: next })}
+									iosEnabled={snapshot?.iosEnabled ?? false}
+									onToggleIos={(next) => send({ type: "ios_set_enabled", enabled: next })}
 									apiModels={
 										snapshot?.project
 											? apiModels.filter((item) => item.projectId === snapshot.project?.id)
@@ -2516,6 +2560,19 @@ export function App() {
 							listen={droidState.listen}
 							listenConfig={droidState.listenConfig}
 							lanIps={droidState.lanIps}
+							consoleUrl={location.origin}
+							send={send}
+						/>
+					) : page === "ios" ? (
+						<IosPage
+							connected={connected}
+							devices={iosState.devices}
+							tokens={iosState.tokens}
+							pairing={iosState.pairing}
+							listen={iosState.listen}
+							listenConfig={iosState.listenConfig}
+							lanIps={iosState.lanIps}
+							certPin={iosState.certPin}
 							consoleUrl={location.origin}
 							send={send}
 						/>

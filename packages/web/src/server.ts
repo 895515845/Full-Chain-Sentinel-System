@@ -6,7 +6,7 @@
  * local operator; every connected console receives the same event stream.
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, X509Certificate } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createSecureServer } from "node:https";
 import { networkInterfaces } from "node:os";
@@ -37,6 +37,7 @@ import { EngineManager } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
 import { getServerLanguage, setServerLanguage, t } from "./i18n.ts";
+import { IosGateway } from "./ios-gateway.ts";
 import { readProviderModelConfig } from "./model-config.ts";
 import {
 	deletePreset,
@@ -425,6 +426,7 @@ export async function startSentinelServer(
 			// of records, so the whole list is what goes out.
 			onApiModelChange: () => broadcastApiModels(),
 			onDroidChange: () => broadcastDroidDevices(),
+			onIosChange: () => broadcastIosDevices(),
 			onSupervisorState: (view) => broadcast({ type: "supervisor_state", supervisor: view }),
 			onSupervisorEpisode: (episode, calls) => broadcast({ type: "supervisor_episode", episode, calls }),
 			onSupervisorLog: (sessionId, log) => broadcast({ type: "supervisor_log", sessionId, log }),
@@ -609,6 +611,22 @@ export async function startSentinelServer(
 			listen: droidGateway.listenInfo() ?? null,
 			listenConfig: runtime.droidListenConfig(),
 			lanIps: lanIps(),
+		});
+	}
+
+	/** iOS device page state, pushed whenever a device or token changes. */
+	function broadcastIosDevices(): void {
+		const state = runtime.iosState();
+		broadcast({
+			type: "ios_state",
+			enabled: state.enabled,
+			devices: state.devices,
+			tokens: state.tokens,
+			pairing: state.pairing,
+			listen: iosGateway.listenInfo() ?? null,
+			listenConfig: runtime.iosListenConfig(),
+			lanIps: lanIps(),
+			certPin,
 		});
 	}
 
@@ -871,10 +889,61 @@ export async function startSentinelServer(
 		log: (line: string) => console.error(`[sentinel-droid] ${line}`),
 	});
 	runtime.setDroidGateway(droidGateway);
+	// The iOS side is deliberately its own store and gateway (M0 decision). The
+	// store lives on the runtime like the Android one, so the tools and the page
+	// read the same registry the gateway authenticates against.
+	const iosGateway = new IosGateway(runtime.iosRegistry, {
+		onDeviceChange: () => broadcastIosDevices(),
+		log: (line: string) => console.error(`[sentinel-ios] ${line}`),
+	});
+	runtime.setIosGateway(iosGateway);
 	// Restore the persisted reverse-connection listener (address the operator
 	// picked on the device page). Binding 0.0.0.0 is what lets a LAN phone dial in.
 	const listenConfig = runtime.droidListenConfig();
 	if (listenConfig) await droidGateway.listen(listenConfig.host, listenConfig.port);
+	const iosListenConfig = runtime.iosListenConfig();
+	if (iosListenConfig) await iosGateway.listen(iosListenConfig.host, iosListenConfig.port);
+
+	// Public pairing claim: the device's setup page posts a six-digit code and
+	// receives the token it maps to. This is the one device-facing route that runs
+	// before the gate/session checks, so it must never return console data or
+	// distinguish a wrong code from an expired one.
+	const pairWindows = new Map<string, { count: number; resetAt: number }>();
+	function pairRateLimited(ip: string): boolean {
+		const at = Date.now();
+		const window = pairWindows.get(ip);
+		if (!window || window.resetAt <= at) {
+			pairWindows.set(ip, { count: 1, resetAt: at + 60_000 });
+			return false;
+		}
+		window.count += 1;
+		return window.count > 30;
+	}
+
+	async function handleIosPairClaim(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const ip = request.socket.remoteAddress ?? "unknown";
+		if (pairRateLimited(ip)) {
+			response.setHeader("cache-control", "no-store");
+			sendJson(response, { error: "尝试过于频繁，请稍后再试" }, 429);
+			return;
+		}
+		const body = await readJsonBody(request);
+		const code = body ? textField(body, "code") : "";
+		if (!/^\d{6}$/.test(code)) {
+			response.setHeader("cache-control", "no-store");
+			sendJson(response, { error: "配对码无效或已过期" }, 400);
+			return;
+		}
+		const token = runtime.iosClaimPairing(code);
+		response.setHeader("cache-control", "no-store");
+		if (!token) {
+			sendJson(response, { error: "配对码无效或已过期" }, 400);
+			return;
+		}
+		sendJson(response, { ok: true, token });
+		// The code is consumed: refresh the page so it disappears for the operator.
+		broadcastIosDevices();
+	}
 
 	const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
 		const url = new URL(request.url ?? "/", "http://localhost");
@@ -885,6 +954,10 @@ export async function startSentinelServer(
 		// or the API document pane renders blank.
 		if (path.startsWith("/assets/swagger-ui-")) {
 			serveStatic(webuiDistDir(), path, response);
+			return;
+		}
+		if (path === "/api/ios/pair/claim" && request.method === "POST") {
+			void handleIosPairClaim(request, response);
 			return;
 		}
 		// The gate answers before anything else — before the auth endpoints too, so a
@@ -1019,6 +1092,16 @@ export async function startSentinelServer(
 		}
 		serveStatic(webuiDistDir(), path, response);
 	};
+	// SHA-256 of the served leaf certificate, so a self-signed console can be
+	// pinned by SentinelBridge instead of asking the operator to trust it.
+	const certPin = (() => {
+		if (!options.tls) return null;
+		try {
+			return new X509Certificate(options.tls.cert).fingerprint256.replace(/:/g, "").toLowerCase();
+		} catch {
+			return null;
+		}
+	})();
 	const server = options.tls
 		? createSecureServer({ cert: options.tls.cert, key: options.tls.key }, requestHandler)
 		: createServer(requestHandler);
@@ -1030,6 +1113,9 @@ export async function startSentinelServer(
 		// The DroidBridge APK authenticates with its own device token, not the
 		// console session, and must reach the gateway before the console's checks.
 		if (droidGateway.handleUpgrade(request, socket, head)) return;
+		// Same rule for SentinelBridge: the device token is its credential, and the
+		// App cannot present a browser cookie. Bad tokens are refused inside.
+		if (iosGateway.handleUpgrade(request, socket, head)) return;
 		// The console's own socket sits behind the same gate as its page: without the
 		// entry cookie there is nothing here to talk to. The device gateway above is
 		// exempt on purpose — the APK carries its own token and its URL is fixed in
@@ -2241,6 +2327,69 @@ export async function startSentinelServer(
 					}
 					return;
 				}
+				case "ios_set_listen": {
+					try {
+						await runtime.iosSetListen(message.host, message.port);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "ios_state": {
+					const state = runtime.iosState();
+					sendTo(socket, {
+						type: "ios_state",
+						enabled: state.enabled,
+						devices: state.devices,
+						tokens: state.tokens,
+						pairing: state.pairing,
+						listen: iosGateway.listenInfo() ?? null,
+						listenConfig: runtime.iosListenConfig(),
+						lanIps: lanIps(),
+						certPin,
+					});
+					return;
+				}
+				case "ios_token_create": {
+					await runtime.iosCreateToken(message.label);
+					return;
+				}
+				case "ios_pairing_create": {
+					try {
+						await runtime.iosCreatePairing(message.label);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "ios_token_delete": {
+					try {
+						await runtime.iosDeleteToken(message.id);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "ios_device_rename": {
+					try {
+						await runtime.iosRenameDevice(message.id, message.name);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "ios_device_remove": {
+					try {
+						await runtime.iosRemoveDevice(message.id);
+					} catch (error) {
+						sendError(socket, error instanceof Error ? error.message : String(error));
+					}
+					return;
+				}
+				case "ios_set_enabled": {
+					await runtime.setIosEnabled(message.enabled);
+					return;
+				}
 				case "export_api_model": {
 					const file = runtime.exportApiModel(message.id, message.format);
 					if (!file) {
@@ -2765,6 +2914,7 @@ export async function startSentinelServer(
 				environment,
 				close: () => {
 					pocImports.close();
+					iosGateway.close();
 					engines?.dispose();
 					runtime.dispose();
 					for (const client of clients) client.terminate();

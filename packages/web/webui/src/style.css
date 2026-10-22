@@ -13808,6 +13808,23 @@ button.link {
 	line-height: 1.55;
 }
 
+.droid-hint--warn {
+	color: #e6a23c;
+}
+
+/* The iOS page shows one reverse-connection URL; long hostnames must wrap. */
+.droid-url {
+	margin: 8px 0;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--raised);
+	color: var(--text);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	word-break: break-all;
+}
+
 .droid-token-list {
 	display: flex;
 	flex-direction: column;

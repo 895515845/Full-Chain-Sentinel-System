@@ -18,6 +18,7 @@ import {
 	ApiModelIcon,
 	BellIcon,
 	DroidIcon,
+	IosIcon,
 	FilesIcon,
 	ImageIcon,
 	SubagentIcon,
@@ -104,6 +105,8 @@ export function Composer({
 	modelingAttached,
 	droidEnabled,
 	onToggleDroid,
+	iosEnabled,
+	onToggleIos,
 	apiModels,
 	freshConversation,
 	presets,
@@ -149,6 +152,9 @@ export function Composer({
 	 */
 	droidEnabled: boolean;
 	onToggleDroid: (next: boolean) => void;
+	/** The iOS toolset switch, independent of Android for this conversation. */
+	iosEnabled: boolean;
+	onToggleIos: (next: boolean) => void;
 	/**
 	 * The modeling records already attached to this conversation (带建模数据).
 	 * While set, `api_model_read` is mounted and the picker shows them instead of
@@ -499,6 +505,24 @@ export function Composer({
 						<DroidIcon />
 						{t("安卓")}
 						{droidEnabled ? <span className="modeling-trigger__count on">✓</span> : null}
+					</button>
+					{/* iOS tools: the same per-conversation opt-in, independent of Android. */}
+					<button
+						type="button"
+						className={`composer-tool modeling-trigger ${iosEnabled ? "on" : ""}`}
+						disabled={!hasProject}
+						onClick={() => onToggleIos(!iosEnabled)}
+						title={
+							!hasProject
+								? t("请先创建或选择一个项目")
+								: iosEnabled
+									? t("当前对话已挂载 iOS 工具（ios_*）。点击摘除；其他对话不受影响")
+									: t("为当前对话挂载 iOS 工具（ios_*）：需要先在「iOS 设备」页创建 token，并有一台越狱设备在线")
+						}
+					>
+						<IosIcon />
+						{t("iOS")}
+						{iosEnabled ? <span className="modeling-trigger__count on">✓</span> : null}
 					</button>
 					{goalDisabledReason ? <span className="composer-goal-hint">{goalDisabledReason}</span> : null}
 				</div>

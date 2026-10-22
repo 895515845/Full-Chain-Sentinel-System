@@ -49,6 +49,17 @@ export interface CaptureImportResult {
 	source: string;
 }
 
+/** One request/response pair before it is assigned an id and a project. */
+export interface HttpEntryInput {
+	method: string;
+	url: string;
+	status: number | null;
+	requestHeaders: string;
+	requestBody: string;
+	responseHeaders: string;
+	responseBody: string;
+}
+
 /** One entry body cap: a 50MB response has no business in a searchable store. */
 const MAX_BODY = 256 * 1024;
 
@@ -295,6 +306,38 @@ export class CaptureStore {
 				requestBody: "",
 				responseHeaders: "",
 				responseBody: "",
+			});
+			imported += 1;
+		}
+		return { imported, skipped, source };
+	}
+
+	/**
+	 * Insert entries produced by a parser (tshark HTTP JSON, the iOS NSURLSession
+	 * logger) instead of a HAR/Burp export. Bodies are capped per row, the same
+	 * way the importers clip them.
+	 */
+	importEntries(projectId: string, source: string, entries: HttpEntryInput[]): CaptureImportResult {
+		let imported = 0;
+		let skipped = 0;
+		for (const entry of entries) {
+			if (!entry.url) {
+				skipped += 1;
+				continue;
+			}
+			const { host, path } = hostAndPath(entry.url);
+			this.insert({
+				projectId,
+				source,
+				method: entry.method || "GET",
+				url: entry.url,
+				host,
+				path,
+				status: entry.status,
+				requestHeaders: entry.requestHeaders ?? "",
+				requestBody: clip(entry.requestBody),
+				responseHeaders: entry.responseHeaders ?? "",
+				responseBody: clip(entry.responseBody),
 			});
 			imported += 1;
 		}

@@ -25,6 +25,7 @@ export type SentinelPageId =
 	| "pocs"
 	| "apimodels"
 	| "droid"
+	| "ios"
 	| "engine"
 	| "gates"
 	| "supervisor"
@@ -787,6 +788,50 @@ export interface DroidToken {
 }
 
 // ---------------------------------------------------------------------------
+// iOS 设备（SentinelBridge）
+// ---------------------------------------------------------------------------
+
+/** One iPhone the SentinelBridge daemon registered. */
+export interface IosDevice {
+	id: string;
+	name: string;
+	model: string;
+	osVersion: string;
+	build: string;
+	/** arm64 / arm64e. */
+	arch: string;
+	jailbreakForm: "rootful" | "rootless" | "roothide" | "unknown";
+	jailbreakName: string;
+	jailbreakVersion: string;
+	hasRoot: boolean;
+	online: boolean;
+	tokenId: string;
+	firstSeen: string;
+	lastSeen: string;
+	/** Socket open but no frame for 45s: the process may be suspended. */
+	stale?: boolean;
+	idleMs?: number;
+}
+
+/** One iOS reverse-connection token; typed into SentinelBridge once. */
+export interface IosToken {
+	id: string;
+	label: string;
+	token: string;
+	createdAt: string;
+	lastUsedAt: string | null;
+}
+
+/** A six-digit code shown on the console and typed into the device setup page. */
+export interface IosPairing {
+	code: string;
+	tokenId: string;
+	label: string;
+	createdAt: string;
+	expiresAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // 监督（观察 / 介入）
 // ---------------------------------------------------------------------------
 
@@ -1063,6 +1108,8 @@ export interface SentinelStateSnapshot {
 	compactionStartedAt: number | null;
 	/** Whether the viewed conversation mounts the Android toolset (per session). */
 	droidEnabled: boolean;
+	/** Whether the viewed conversation mounts the iOS toolset (per session). */
+	iosEnabled: boolean;
 	/** Supervision of the viewed conversation; null when it was never armed. */
 	supervisor: SentinelSupervisorView | null;
 	/** Global supervision settings shown under 设置 → 模型. */
@@ -1485,6 +1532,15 @@ export type SentinelClientMessage =
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
 	| { type: "droid_set_listen"; host: string; port: number }
+	/** The iOS device page: tokens and devices (no dedicated listener). */
+	| { type: "ios_state" }
+	| { type: "ios_token_create"; label: string }
+	| { type: "ios_pairing_create"; label: string }
+	| { type: "ios_token_delete"; id: string }
+	| { type: "ios_device_rename"; id: string; name: string }
+	| { type: "ios_device_remove"; id: string }
+	| { type: "ios_set_enabled"; enabled: boolean }
+	| { type: "ios_set_listen"; host: string; port: number }
 	| { type: "list_api_models"; filters?: SentinelApiModelFilters }
 	| { type: "get_api_model"; id: string }
 	| { type: "delete_api_model"; id: string }
@@ -1609,6 +1665,18 @@ export type SentinelServerMessage =
 			listen: { host: string; port: number } | null;
 			listenConfig: { host: string; port: number } | null;
 			lanIps: string[];
+			certPin: string | null;
+	  }
+	| {
+			type: "ios_state";
+			enabled: boolean;
+			devices: IosDevice[];
+			tokens: IosToken[];
+			pairing: IosPairing | null;
+			listen: { host: string; port: number } | null;
+			listenConfig: { host: string; port: number } | null;
+			lanIps: string[];
+			certPin: string | null;
 	  }
 	| { type: "supervisor_state"; supervisor: SentinelSupervisorView | null }
 	| { type: "supervisor_episode"; episode: SentinelSupervisorEpisode; calls: SentinelSupervisorCall[] }

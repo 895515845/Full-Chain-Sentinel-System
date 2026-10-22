@@ -115,6 +115,12 @@ import {
 } from "./goal.ts";
 import { createGoalTools, type GoalPort } from "./goal-tool.ts";
 import { t } from "./i18n.ts";
+import { IosStore, iosDbPath } from "./ios.ts";
+import { createIosCaptureTools, IOS_CAPTURE_TOOL_NAMES } from "./ios-capture-tool.ts";
+import { createIosDecryptTools, IOS_DECRYPT_TOOL_NAMES } from "./ios-decrypt-tool.ts";
+import { createIosFridaTools, IOS_FRIDA_TOOL_NAMES } from "./ios-frida-tool.ts";
+import type { IosGateway } from "./ios-gateway.ts";
+import { createIosTools, IOS_TOOL_NAMES, type IosToolContext } from "./ios-tool.ts";
 import {
 	loadSentinelMcpConfig,
 	mcpConfigView,
@@ -269,6 +275,7 @@ import type {
 	SentinelWebSearchKeyInput,
 } from "./protocol.ts";
 import { readSessionDroid, SESSION_DROID_CUSTOM_TYPE } from "./session-droid.ts";
+import { readSessionIos, SESSION_IOS_CUSTOM_TYPE } from "./session-ios.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
 import { readSessionPreset, SESSION_PRESET_CUSTOM_TYPE } from "./session-preset.ts";
 import {
@@ -335,6 +342,8 @@ export interface SentinelRuntimeHooks {
 	onApiModelChange(): void;
 	/** A device came online/went offline, or the device page's data changed. */
 	onDroidChange(): void;
+	/** An iOS device or token changed; the iOS page re-renders. */
+	onIosChange(): void;
 	/** Live supervision state of a conversation. */
 	onSupervisorState(view: SentinelSupervisorView | null): void;
 	/** One supervisor episode settled; the floating window appends it. */
@@ -398,6 +407,12 @@ interface ManagedSession {
 	 * the composer switch, so a reopened conversation keeps its own choice.
 	 */
 	droidOn: boolean;
+	/**
+	 * Whether this conversation mounts the iOS toolset. Separate from `droidOn`
+	 * so one chat can drive a phone while another drives an iPhone; read from
+	 * the branch at creation and written back by the composer switch.
+	 */
+	iosOn: boolean;
 	/**
 	 * The preset agent this session was created with, read from the branch. null
 	 * means the plain default agent. The body is not cached: it is read from disk
@@ -515,6 +530,7 @@ export class SentinelRuntime {
 	private readonly pocs: PocStore;
 	private readonly apiModels: ApiModelStore;
 	private readonly droids: DroidStore;
+	private readonly ios: IosStore;
 	private readonly captures: CaptureStore;
 	private readonly assets: AssetStore;
 	private readonly webSearchLog: WebSearchStore;
@@ -522,6 +538,7 @@ export class SentinelRuntime {
 	private readonly webUsageCache = new Map<string, { at: number; remaining: number; limit: number | null }>();
 	/** Injected once the server has built the WS device gateway (see server.ts). */
 	private droidGateway: DroidGateway | undefined;
+	private iosGateway: IosGateway | undefined;
 	private readonly subscriptions: PocSubscriptions;
 	private readonly gateStore: GatekeeperStore;
 	private readonly gatekeeper: Gatekeeper;
@@ -567,6 +584,7 @@ export class SentinelRuntime {
 		this.pocs = new PocStore(pocsDbPath(this.agentDir));
 		this.apiModels = new ApiModelStore(apiModelsDbPath(this.agentDir));
 		this.droids = new DroidStore(droidDbPath(this.agentDir));
+		this.ios = new IosStore(iosDbPath(this.agentDir));
 		this.captures = new CaptureStore(capturesDbPath(this.agentDir));
 		this.assets = new AssetStore(assetsDbPath(this.agentDir));
 		this.webSearchLog = new WebSearchStore(websearchDbPath(this.agentDir));
@@ -772,6 +790,7 @@ export class SentinelRuntime {
 			// A reopened conversation keeps the mode it was left in.
 			modeOverride: readSessionMode(manager.getBranch()),
 			droidOn: task ? false : readSessionDroid(manager.getBranch()),
+			iosOn: task ? false : readSessionIos(manager.getBranch()),
 			presetId,
 			presetMissing: presetId !== null && presetText === null,
 			// Modeling is a console feature: an engineering task's worker never gets
@@ -908,6 +927,11 @@ export class SentinelRuntime {
 			// which keeps an Android toolset out of a Web-pentest session's prompt.
 			...(task ? [] : createDroidTools(this.createDroidToolContext(managed))),
 			...(task ? [] : createApkTools(this.createDroidToolContext(managed))),
+			// The iOS toolset is opt-in per conversation, independent of Android.
+			...(task ? [] : createIosTools(this.createIosToolContext(managed))),
+			...(task ? [] : createIosFridaTools(this.createIosToolContext(managed))),
+			...(task ? [] : createIosCaptureTools(this.createIosToolContext(managed))),
+			...(task ? [] : createIosDecryptTools(this.createIosToolContext(managed))),
 			...(task ? [] : createFridaTools(this.createDroidToolContext(managed))),
 			...(task
 				? []
@@ -1015,6 +1039,7 @@ export class SentinelRuntime {
 		// conversation carries attached records.
 		this.applyModelingTools(managed);
 		this.applyDroidTools(managed);
+		this.applyIosTools(managed);
 		if (task) {
 			// Task sessions live under their engine's collapsible group in the
 			// sidebar, which already states the ownership — the name is just the
@@ -2709,6 +2734,195 @@ export class SentinelRuntime {
 		if (changed) managed.session.setActiveToolsByName(wanted);
 	}
 
+	// =========================================================================
+	// iOS devices (SentinelBridge)
+	// =========================================================================
+
+	/** The gateway is built by the server once the HTTP listener exists. */
+	setIosGateway(gateway: IosGateway): void {
+		this.iosGateway = gateway;
+	}
+
+	/** The registry the server's iOS gateway authenticates against. */
+	get iosRegistry(): IosStore {
+		return this.ios;
+	}
+
+	/** Everything the iOS page shows: the active conversation's switch, devices, tokens. */
+	iosState(): {
+		enabled: boolean;
+		devices: ReturnType<IosStore["listDevices"]>;
+		tokens: ReturnType<IosStore["listTokens"]>;
+		pairing: ReturnType<IosStore["activePairing"]>;
+	} {
+		const devices = this.ios.listDevices().map((device) => {
+			const liveness = this.iosGateway?.livenessOf(device.id);
+			return { ...device, stale: liveness?.stale ?? false, idleMs: liveness?.idleMs ?? 0 };
+		});
+		return {
+			enabled: this.active?.iosOn ?? false,
+			devices,
+			tokens: this.ios.listTokens(),
+			pairing: this.ios.activePairing(),
+		};
+	}
+
+	/** The persisted iOS reverse-listener config; null until the operator enabled it. */
+	iosListenConfig(): { host: string; port: number } | null {
+		const host = this.ios.getMeta("listenHost");
+		const port = this.ios.getMeta("listenPort");
+		if (!host || !port) return null;
+		return { host, port: Number(port) };
+	}
+
+	/** Bind and persist the dedicated iOS reverse listener. */
+	async iosSetListen(host: string, port: number): Promise<void> {
+		const trimmed = host.trim();
+		if (!trimmed) throw new Error(t("监听地址不能为空"));
+		if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(t("端口必须在 1-65535 之间"));
+		if (!this.iosGateway) throw new Error(t("设备网关未启动"));
+		const result = await this.iosGateway.listen(trimmed, port);
+		if (!result.ok) throw new Error(result.error ?? t("监听失败"));
+		this.ios.setMeta("listenHost", trimmed);
+		this.ios.setMeta("listenPort", String(port));
+		this.hooks.onIosChange();
+	}
+
+	/** Flip the iOS toolset switch for the conversation on screen only. */
+	async setIosEnabled(enabled: boolean): Promise<void> {
+		const active = this.active;
+		if (!active || active.taskSession) return;
+		if (active.iosOn === enabled) return;
+		active.iosOn = enabled;
+		active.manager.appendCustomEntry(SESSION_IOS_CUSTOM_TYPE, { enabled, at: Date.now() });
+		this.applyIosTools(active);
+		this.hooks.onStateChange();
+		this.hooks.onIosChange();
+	}
+
+	async iosCreateToken(label: string): Promise<void> {
+		this.ios.createToken(label);
+		this.hooks.onIosChange();
+	}
+
+	/** Create a token plus the six-digit code shown on the iOS page. */
+	async iosCreatePairing(label: string): Promise<void> {
+		this.ios.createPairing(label);
+		this.hooks.onIosChange();
+	}
+
+	/** Public claim query used by the device setup page; no session required. */
+	iosClaimPairing(code: string): string | null {
+		return this.ios.claimPairing(code)?.token ?? null;
+	}
+
+	/** 删除一条 token，并断开用它反连的设备。 */
+	async iosDeleteToken(id: string): Promise<void> {
+		if (!this.ios.deleteToken(id)) throw new Error(t("该 token 不存在"));
+		for (const device of this.ios.listDevices()) {
+			if (device.tokenId === id) this.iosGateway?.disconnect(device.id);
+		}
+		this.hooks.onIosChange();
+	}
+
+	async iosRenameDevice(id: string, name: string): Promise<void> {
+		if (!this.ios.renameDevice(id, name)) throw new Error(t("设备不存在或名称为空"));
+		this.hooks.onIosChange();
+	}
+
+	async iosRemoveDevice(id: string): Promise<void> {
+		this.iosGateway?.disconnect(id);
+		if (!this.ios.removeDevice(id)) throw new Error(t("设备不存在"));
+		this.hooks.onIosChange();
+	}
+
+	private createIosToolContext(managed: ManagedSession): IosToolContext {
+		return {
+			gateway: () => this.iosGateway,
+			enabled: () => managed.iosOn,
+			workDir: () => this.cwd,
+			container: () => this.requireContainer(),
+			guard: (deviceName, command) => this.guardIosCommand(deviceName, command),
+			project: () =>
+				this.activeProjectId ? { id: this.activeProjectId, name: this.activeProjectName ?? t("未命名项目") } : null,
+			store: () => this.captures,
+		};
+	}
+
+	/**
+	 * The approval chain for iOS commands, the same three modes container bash
+	 * goes through. The judge sees the device as the source, and an edited command
+	 * from the approval card is the one that runs.
+	 */
+	private guardIosCommand(deviceName: string, command: string): Promise<string> {
+		const mode = this.effectiveMode(this.active);
+		const label = t("设备「{name}」", { name: deviceName });
+		const auditContext = {
+			label: () => label,
+			projectId: this.activeProjectId ?? null,
+			projectName: this.activeProjectName ?? null,
+			sessionId: () => this.active?.manager.getSessionId() ?? null,
+		};
+		if (mode === "auto") {
+			this.recordUnjudged({ tool: "ios_shell", command, cwd: "/work", approval: "auto", context: auditContext });
+			return Promise.resolve(command);
+		}
+		if (mode === "review") {
+			if (this.approvals.isAutoAllowed(command)) {
+				this.recordUnjudged({ tool: "ios_shell", command, cwd: "/work", approval: "auto", context: auditContext });
+				return Promise.resolve(command);
+			}
+			return this.approvals
+				.request(command, this.activeContainer ? "/work" : "/", undefined, label)
+				.then((outcome) => {
+					this.recordUnjudged({
+						tool: "ios_shell",
+						command: outcome.command ?? command,
+						cwd: "/work",
+						approval: "human",
+						...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
+						context: auditContext,
+					});
+					if (outcome.approved && outcome.command !== undefined) return outcome.command;
+					throw new Error(outcome.reason ?? t("已拒绝"));
+				});
+		}
+		return this.gatekeeper
+			.guard({
+				command,
+				cwd: "/work",
+				source: label,
+				projectId: this.activeProjectId ?? null,
+				projectName: this.activeProjectName ?? null,
+				sessionId: this.active?.manager.getSessionId() ?? null,
+			})
+			.then((outcome) => {
+				if (outcome.kind === "allow" || outcome.kind === "failed") return command;
+				throw new Error(outcome.kind === "block" ? outcome.message : t("已中止"));
+			});
+	}
+
+	/**
+	 * Mount or unmount the iOS toolset as one switch. The tools refuse to act
+	 * while no device is online, so the switch controls prompt noise, not
+	 * authority — the authority control is the command gate above.
+	 */
+	private applyIosTools(managed: ManagedSession): void {
+		if (managed.taskSession) return;
+		const active = managed.session.getActiveToolNames();
+		const mounted = [
+			...IOS_TOOL_NAMES,
+			...IOS_FRIDA_TOOL_NAMES,
+			...IOS_CAPTURE_TOOL_NAMES,
+			...IOS_DECRYPT_TOOL_NAMES,
+		];
+		const wanted = managed.iosOn
+			? [...active, ...mounted.filter((name) => !active.includes(name))]
+			: active.filter((name) => !mounted.includes(name));
+		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
+		if (changed) managed.session.setActiveToolsByName(wanted);
+	}
+
 	/**
 	 * One finding reached the hub while this goal was running. Sub-agents count
 	 * too: their work is the goal's work, and a completion claim that ignored a
@@ -4039,6 +4253,7 @@ export class SentinelRuntime {
 			modeling: this.modelingView(active),
 			modelingAttached: this.modelingAttachedView(active),
 			droidEnabled: active?.droidOn ?? false,
+			iosEnabled: active?.iosOn ?? false,
 			supervisor: this.activeKey ? this.supervisor.view(this.activeKey) : null,
 			supervisorConfig: readSupervisorConfig(this.agentDir),
 			gatekeeper,
@@ -4288,6 +4503,7 @@ export class SentinelRuntime {
 		this.pocs.close();
 		this.apiModels.close();
 		this.droids.close();
+		this.ios.close();
 		this.captures.close();
 		this.assets.close();
 		this.webSearchLog.close();

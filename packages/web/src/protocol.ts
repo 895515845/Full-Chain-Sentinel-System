@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { DroidDevice, DroidToken } from "./droid.ts";
 import type { UiLanguage } from "./i18n-messages.ts";
+import type { IosDevice, IosPairing, IosToken } from "./ios.ts";
 import type { SentinelPermissionPreset, SentinelPermissionSet, SentinelPermissionsConfig } from "./permissions.ts";
 import type { SentinelPluginManifest } from "./plugin-manifest.ts";
 import type { SentinelSessionListEntry, SentinelSessionStatus } from "./session-status.ts";
@@ -1425,6 +1426,8 @@ export interface SentinelStateSnapshot {
 	compactionStartedAt: number | null;
 	/** Whether the viewed conversation mounts the Android toolset (per session). */
 	droidEnabled: boolean;
+	/** Whether the viewed conversation mounts the iOS toolset (per session). */
+	iosEnabled: boolean;
 	/** Supervision of the viewed conversation; null when it was never armed. */
 	supervisor: SentinelSupervisorView | null;
 	/** Global supervision settings shown under 设置 → 模型. */
@@ -1784,6 +1787,15 @@ export type SentinelClientMessage =
 	| { type: "droid_device_remove"; id: string }
 	| { type: "droid_set_enabled"; enabled: boolean }
 	| { type: "droid_set_listen"; host: string; port: number }
+	/** The iOS device page: same listener controls, same token list. */
+	| { type: "ios_set_listen"; host: string; port: number }
+	| { type: "ios_state" }
+	| { type: "ios_token_create"; label: string }
+	| { type: "ios_pairing_create"; label: string }
+	| { type: "ios_token_delete"; id: string }
+	| { type: "ios_device_rename"; id: string; name: string }
+	| { type: "ios_device_remove"; id: string }
+	| { type: "ios_set_enabled"; enabled: boolean }
 	/** Close a record from the page, for a run whose session is no longer loaded. */
 	| { type: "end_api_model"; id: string }
 	| { type: "list_api_models"; filters?: SentinelApiModelFilters }
@@ -1931,6 +1943,19 @@ export type SentinelServerMessage =
 			listenConfig: { host: string; port: number } | null;
 			/** Non-internal IPv4 addresses of the server, for the listen picker. */
 			lanIps: string[];
+	  }
+	| {
+			type: "ios_state";
+			/** The viewed conversation's switch; device and token lists are global. */
+			enabled: boolean;
+			devices: IosDevice[];
+			tokens: IosToken[];
+			pairing: IosPairing | null;
+			listen: { host: string; port: number } | null;
+			listenConfig: { host: string; port: number } | null;
+			lanIps: string[];
+			/** SHA-256 of the console's leaf certificate, for wss pinning. */
+			certPin: string | null;
 	  }
 	| { type: "supervisor_state"; supervisor: SentinelSupervisorView | null }
 	| {

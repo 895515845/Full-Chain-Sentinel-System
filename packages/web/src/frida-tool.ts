@@ -107,7 +107,7 @@ async function materializeScripts(
 }
 
 /** Split combined frida output into per-script sections, each within its budget. */
-function sectionOutput(names: string[], output: string): string {
+export function sectionOutput(names: string[], output: string): string {
 	const sections: string[] = [];
 	const consumed = new Set<string>();
 	let rest = output;

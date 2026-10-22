@@ -9,6 +9,7 @@
  */
 
 import {
+	Apple,
 	Bell,
 	Bot,
 	Bug,
@@ -239,6 +240,11 @@ export function ApiModelIcon(props: IconProps) {
 /** Sider menu: Android devices (the Droid plugin). */
 export function DroidIcon(props: IconProps) {
 	return <Smartphone size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu and composer: iOS devices (SentinelBridge). */
+export function IosIcon(props: IconProps) {
+	return <Apple size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Sider menu: console security settings. */

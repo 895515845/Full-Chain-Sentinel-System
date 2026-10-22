@@ -19,7 +19,7 @@ export interface FridaScript {
 }
 
 /** JS prelude injected ahead of every builtin script body. */
-function prelude(params: Record<string, string>): string {
+export function prelude(params: Record<string, string>): string {
 	return `var SENTINEL_PARAMS = ${JSON.stringify(params)};\nfunction sp(k, d) { return SENTINEL_PARAMS[k] !== undefined ? SENTINEL_PARAMS[k] : d; }\n`;
 }
 

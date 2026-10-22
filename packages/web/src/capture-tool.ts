@@ -9,13 +9,14 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { CaptureStore, HttpEntry } from "./captures.ts";
 import { execInContainer } from "./docker.ts";
 import type { DroidGateway } from "./droid-gateway.ts";
+import { parseTsharkHttpJson } from "./pcap-http.ts";
 
 export const CAPTURE_TOOL_NAMES: readonly string[] = [
 	"droid_capture_start",
@@ -194,11 +195,13 @@ export function createCaptureTools(ctx: CaptureToolContext): ToolDefinition[] {
 		label: "Import a capture export into the evidence store",
 		defaultActive: false,
 		description:
-			"Import a HAR (.har), Burp Suite XML export, or raw request dump from the work directory into this project's HTTP evidence store. Afterwards capture_search/capture_get quote the requests and capture_replay builds replay commands. Importing again creates duplicates; import once per export.",
-		promptSnippet: "Import a HAR/Burp/text capture export as queryable evidence",
+			"Import a HAR (.har), Burp Suite XML export, raw request dump, or a pcap from the work directory into this project's HTTP evidence store. pcap uses tshark to extract plaintext HTTP requests/responses (HTTPS stays encrypted; use ios_http_log for that). Afterwards capture_search/capture_get quote the requests and capture_replay builds replay commands. Importing again creates duplicates; import once per export.",
+		promptSnippet: "Import a HAR/Burp/text/pcap capture export as queryable evidence",
 		parameters: Type.Object({
-			path: Type.String({ description: "工作目录内的导出文件路径，例如 /work/burp.xml 或 /work/traffic.har" }),
-			format: Type.Union([Type.Literal("har"), Type.Literal("burp"), Type.Literal("text")], {
+			path: Type.String({
+				description: "工作目录内的导出文件路径，例如 /work/burp.xml、/work/traffic.har 或 /work/ios.pcap",
+			}),
+			format: Type.Union([Type.Literal("har"), Type.Literal("burp"), Type.Literal("text"), Type.Literal("pcap")], {
 				description: "导出格式",
 			}),
 		}),
@@ -207,6 +210,31 @@ export function createCaptureTools(ctx: CaptureToolContext): ToolDefinition[] {
 			if (typeof context === "string") return failure(context);
 			const hostPath = join(ctx.workDir(), params.path.replace(/^\/work\/?/, ""));
 			if (!existsSync(hostPath)) return failure(`文件不存在：${params.path}`);
+			if (params.format === "pcap") {
+				let cPath: string;
+				try {
+					cPath = containerPathOf(ctx.workDir(), hostPath);
+				} catch (error) {
+					return failure(error instanceof Error ? error.message : String(error));
+				}
+				const parsed = await importPcap(ctx.container(), cPath);
+				if (!parsed.ok) return failure(`tshark 解析失败：${parsed.error}`);
+				if (parsed.entries.length === 0) {
+					return failure(
+						"pcap 里没有明文 HTTP 请求。HTTPS 流量请用 ios_http_log（NSURLSession 层）或手工代理导出 HAR。",
+					);
+				}
+				const result = context.store.importEntries(context.project.id, basename(params.path), parsed.entries);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `pcap 导入完成：${result.imported} 条入库，${result.skipped} 条跳过（来源 ${result.source}，项目 ${context.project.name}）。用 capture_search 检索。`,
+						},
+					],
+					details: { ok: true },
+				};
+			}
 			const text = readText(hostPath);
 			const result =
 				params.format === "har"
@@ -340,6 +368,26 @@ export function createCaptureTools(ctx: CaptureToolContext): ToolDefinition[] {
 function writePcap(target: string, bytes: Buffer): void {
 	mkdirSync(dirname(target), { recursive: true });
 	writeFileSync(target, bytes);
+}
+
+/** Host path under the project, expressed as the container's /work mount. */
+function containerPathOf(workDir: string, hostPath: string): string {
+	const rel = relative(workDir, hostPath).split(sep).join("/");
+	if (rel === "" || rel.startsWith("..")) throw new Error(`路径必须位于工程目录内：${hostPath}`);
+	return `/work/${rel}`;
+}
+
+async function importPcap(
+	container: string,
+	cPath: string,
+): Promise<{ ok: true; entries: ReturnType<typeof parseTsharkHttpJson> } | { ok: false; error: string }> {
+	const parsed = await execInContainer(container, 'tshark -r "$1" -Y http --no-duplicate-keys -T json', [cPath], {
+		timeoutMs: 300_000,
+	});
+	if (parsed.code !== 0) {
+		return { ok: false, error: parsed.stderr.trim() || `tshark 退出码 ${parsed.code}` };
+	}
+	return { ok: true, entries: parseTsharkHttpJson(parsed.stdout) };
 }
 
 function readText(path: string): string {

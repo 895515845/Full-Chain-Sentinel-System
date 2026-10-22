@@ -97,6 +97,34 @@ test("search filters by host and free text, project-scoped", () => {
 	expect(store.count("p1")).toBe(3);
 });
 
+test("structured entries from the iOS HTTP logger import and stay searchable", () => {
+	const result = store.importEntries("p3", "ios_http_log:com.example.demo", [
+		{
+			method: "GET",
+			url: "https://api.example.com/v1/profile?id=7",
+			status: 200,
+			requestHeaders: "Authorization: Bearer token",
+			requestBody: "",
+			responseHeaders: "Content-Type: application/json",
+			responseBody: '{"name":"demo"}',
+		},
+		{
+			method: "POST",
+			url: "https://api.example.com/v1/order",
+			status: 403,
+			requestHeaders: "Content-Type: application/json",
+			requestBody: '{"orderId":9}',
+			responseHeaders: "",
+			responseBody: '{"code":403}',
+		},
+	]);
+	expect(result.imported).toBe(2);
+	expect(store.list("p3", { host: "api.example.com" })).toHaveLength(2);
+	expect(store.list("p3", { q: "profile" })).toHaveLength(1);
+	const row = store.list("p3", { q: "order" })[0];
+	expect(store.get(row?.id as string, "p3")?.status).toBe(403);
+});
+
 test("vuln records carry the Droid platform fields", () => {
 	const created = vulns.create({
 		projectId: "p1",

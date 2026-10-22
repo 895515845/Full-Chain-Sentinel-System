@@ -84,6 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		fd-find \
 		zip \
 		unzip \
+		libplist-utils \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Extended tools: availability varies by Kali release; failures are tolerated.

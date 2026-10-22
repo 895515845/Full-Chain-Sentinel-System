@@ -1128,7 +1128,6 @@ export const EN_MESSAGES: Record<string, string> = {
 		"Reconstruct endpoints and business entities in this session; you can also just ask in the chat",
 	在查看器中打开全部内容: "Open the full content in the viewer",
 	在沙箱里打开插件界面: "Open the plugin UI in the sandbox",
-	在线: "Online",
 	"在项目容器内执行命令（审批模式仍逐条确认）":
 		"Run commands in the project container (approval mode still confirms each one)",
 	"地址: {url}": "Address: {url}",
@@ -1144,7 +1143,15 @@ export const EN_MESSAGES: Record<string, string> = {
 	复制: "Copy",
 	复制全文: "Copy full text",
 	"复制全部检查项，便于排障": "Copy all checks for troubleshooting",
+	"独立监听只提供 ws://（私网可用）；公网或需要加密时用控制台的 wss 地址，并把下面的证书指纹填进设备。":
+		"The dedicated listener serves ws:// only (fine on a private network); for public or encrypted links use the console's wss URL and pin the fingerprint below.",
+	"控制台证书 SHA-256（wss 自签时填进设备）": "Console certificate SHA-256 (pin it on the device for self-signed wss)",
 	复制命令: "Copy command",
+	一键安装与启动: "One-click install and start",
+	"在控制台机器上执行（设备需已开 SSH；脚本按 dpkg 架构自动选 rootful/rootless deb，安装后写入配置并 launchctl bootstrap）：":
+		"Run on the console host (the device needs SSH; the script picks the rootful/rootless deb from dpkg's architecture, writes the config, and bootstraps launchd):",
+	"只装 TrollStore IPA 时没有 root：文件传输/应用清单/截屏可用，shell 不是 root。":
+		"The TrollStore IPA has no root: file transfer, app inventory and screenshots work, but the shell is not root.",
 	"复制失败，请手动选择下面的文本": "Copy failed; select the text below manually",
 	复制数据包: "Copy packet",
 	复制诊断: "Copy diagnostics",
@@ -1196,6 +1203,48 @@ export const EN_MESSAGES: Record<string, string> = {
 	"当前对话已挂载安卓工具（droid_* / apk_*）。点击摘除；其他对话不受影响":
 		"Android tools are mounted in this conversation (droid_* / apk_*). Click to unmount; other conversations are unaffected.",
 	安卓设备: "Android device",
+	"iOS 设备": "iOS devices",
+	iOS: "iOS",
+	"SentinelBridge 反连通道与设备管理": "SentinelBridge reverse channel and device management",
+	"当前对话已挂载 iOS 工具（ios_*）。点击摘除；其他对话不受影响":
+		"iOS tools are mounted in this conversation (ios_*). Click to unmount; other conversations are unaffected.",
+	"为当前对话挂载 iOS 工具（ios_*）：需要先在「iOS 设备」页创建 token，并有一台越狱设备在线":
+		"Mount iOS tools in this conversation (ios_*): create a token on the iOS devices page and keep a jailbroken device online first.",
+	反连地址: "Reverse address",
+	随控制台端口: "Uses the console port",
+	"iOS 端主动连控制台，不需要在手机上开放端口；局域网内填这台机器的地址，跨网段用域名或内网穿透。":
+		"SentinelBridge dials the console, so no port is opened on the phone. On a LAN, use this machine's address; across networks, use a domain or a tunnel.",
+	"要求越狱设备（rootful 或 rootless）。仅 TrollStore 的安装包没有 root，只能跑受限模式。":
+		"A jailbroken device is required (rootful or rootless). A TrollStore-only install has no root and runs in restricted mode.",
+	"名称，例如 测试机-iPhone 12": "Name, for example Test-iPhone 12",
+	"还没有 token。创建一个，填进设备上的 SentinelBridge。":
+		"No tokens yet. Create one and enter it in SentinelBridge on the device.",
+	"{count} 台设备 socket 还在但已停止响应：进程可能被 iOS 挂起，请在设备上重开 SentinelBridge。":
+		"{count} device(s) still have a socket but stopped responding: iOS may have suspended the process. Reopen SentinelBridge on the device.",
+	"还没有设备注册过。按下方指引安装 SentinelBridge 并反连。":
+		"No device has registered yet. Install SentinelBridge as described below and let it dial in.",
+	未知越狱: "Unknown jailbreak",
+	"daemon 有 root": "daemon runs as root",
+	"仅 App 权限": "App sandbox only",
+	"无响应 {seconds}s": "Unresponsive for {seconds}s",
+	"设备需已越狱：rootless 装 rootless deb，rootful 装 rootful deb；只装了 TrollStore 时走受限模式。":
+		"The device must be jailbroken: install the rootless deb on rootless, the rootful deb on rootful; a TrollStore-only install runs in restricted mode.",
+	"在左侧创建 token，把反连地址和 token 填进 SentinelBridge：":
+		"Create a token on the left, then enter the reverse address and token in SentinelBridge:",
+	"命令行安装（设备上通过 SSH 或 NewTerm）：": "Install from a shell on the device (SSH or NewTerm):",
+	"设备出现在上方即接入成功；到对话页为当前对话打开「iOS」开关，Agent 才能使用 ios_* 工具。":
+		"Once the device appears above it is connected. On the chat page, turn on the iOS switch for that conversation before the agent can use ios_* tools.",
+	"用 SentinelBridge 的扫码填入对准即可；点空白处关闭。":
+		"Point SentinelBridge's scan-to-fill at this code; click outside to close.",
+	在线: "Online",
+	设备连接已被新连接替换: "The device connection was replaced by a new one",
+	隧道建立超时: "Tunnel setup timed out",
+	帧过大: "Frame too large",
+	"设备无响应：已 {seconds}s 未收到心跳（SentinelBridge 可能被挂起或卡死：socket 还在，但设备不再执行任何代码）。请在设备上重开 SentinelBridge 或重启 daemon 后重试":
+		"The device is unresponsive: no heartbeat for {seconds}s (SentinelBridge may be suspended or stuck: the socket is open, but the device runs no code). Reopen SentinelBridge or restart the daemon and retry.",
+	"流超过大小上限 {limit} 字节": "Stream exceeds the {limit}-byte limit",
+	"单帧 {size} 字节超过 {limit} 上限，请拆分请求或分片发送":
+		"The {size}-byte frame exceeds the {limit}-byte limit; split the request or send it in chunks",
 	"安排时间，然后交给指挥官": "Schedule the run, then hand it to the commander",
 	安装: "Install",
 	"安装 Docker Engine 或 Docker Desktop，并确认 docker 在 PATH 中":

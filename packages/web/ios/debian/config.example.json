@@ -1,0 +1,7 @@
+{
+  "url": "wss://sentinel.example.com/ws/ios",
+  "token": "ios_REPLACE_ME",
+  "pinnedCertSha256": "",
+  "jailbreakName": "Dopamine",
+  "jailbreakVersion": "2.0"
+}

@@ -21,6 +21,17 @@
 
 ### Added
 
+- iOS 设备端（M0）：新增独立的 iOS 设备网关 `/ws/ios` 与 `ios.db`，复用安卓的分片、超时与 TCP 隧道语义（抽到 `device-transport.ts`）。设备用独立 token 反连，hello 上报机型、系统、架构、越狱形态与能力集，roothide 明确拒绝；本期只落服务端与协议，不挂工具、不出页面。
+- iOS 设备端（M1）：控制台新增「iOS 设备」页（token 创建/显示/复制/二维码/删除、设备列表与 stale 提示、重命名/移除、接入指引），侧栏入口和对话输入框的「iOS」开关；打开开关的会话获得 `ios_devices / ios_shell / ios_file_pull / ios_file_push / ios_screencap`，`ios_shell` 走与 bash 相同的守门/审批与审计，证据写入 `evidence/ios/{screenshots,files}`，每会话开关持久化在 `zg-ios` 标记。新增 Swift daemon `packages/web/ios`：反向 WebSocket、15s 心跳、断线退避重连、`posix_spawn` exec、分片 pull/push、TCP 隧道、叶证书 pin、配置与设备 ID；`build-ios.sh` 交叉编译 arm64（iOS 14+）并用 ldid 签 entitlements，`build-deb.sh` 生成 rootful/rootless 两个 deb 与 launchd。主机端到端测试用同一份 Swift 源码连真实网关，未构建二进制时跳过。
+- iOS 设备端（M2 进行中）：应用面工具 `ios_apps / ios_app_info / ios_ipa_pull / ios_profiles / ios_install / ios_uninstall` 与静态 `ipa_info / ipa_files`。设备端新增 `apps_list / app_info / app_bundle / profiles_list / install / uninstall` 帧，读 Info.plist、数据容器、框架、URL scheme、`ldid -e` entitlements，并用 Mach-O 解析报告架构与 FairPlay `cryptid`；`app_bundle` 只返回文件清单，控制台逐文件拉取后在工程容器里 `zip` 成 IPA 存到 `evidence/ios/ipa/`，设备不需要 zip。安装/卸载走审批链，只读工具不拦截；容器镜像增加 `libplist-utils` 供 `ipa_info` 解析二进制 plist。静态侧再补 `ipa_strings`（主可执行或指定条目 strings）、`ipa_search`（解包后整包 grep -E，返回 file:line）、`ipa_plist`（打印任意条目为 XML plist）；设备侧 `profilePlist` 从 CMS 签名数据里扫描内嵌 plist，`ios_app_info` 与 `ios_profiles` 因此能报 UUID、团队、到期与应用标识等 entitlements。
+- iOS 动态面（M3 进行中）：`ios_frida_setup / ios_frida_ps / ios_frida / ios_syslog / ios_url_open`，frida-server 按越狱形态推送到 `/var/jb/usr/bin` 或 `/usr/bin`，容器内 frida CLI 经网关 TCP 隧道直连设备 27042；新增 iOS 专用内建脚本 `ios_ssl_bypass`（SecTrustEvaluate/BoringSSL）、`ios_jailbreak_bypass`（文件与 canOpenURL 检测）、`ios_nslog`（NSLog/os_log 格式串采集）、`ios_class_dump`（hook 前确认 ObjC 类与方法）。`ios_syslog` 复用 ios_nslog，`ios_url_open` 走审批链；多脚本输出分节与参数注入复用 Android 的 frida 基础设施。同批加入 iOS 抓包 `ios_capture_start / ios_capture_status / ios_capture_pull`：在设备上按越狱形态探测 tcpdump（缺失时提示安装），支持接口与 BPF 过滤，pcap 拉到 `evidence/ios/captures/` 后用容器内 tshark 输出协议分布、明文 HTTP、DNS 与 TLS SNI。
+- iOS 深度面（M4 进行中）：`ios_decrypt` 按 docs/ios-agent-qa.md §11 实现 FairPlay 解密——设备端 frida 内建脚本 `ios_decrypt_dump` spawn 目标后按 4MB 分块读出 App 内已加载且加密的 Mach-O 到 `/tmp/sentinel-decrypt`，控制台分片拉回、覆盖原始 bundle、清零 `cryptid`、重打包为 `evidence/ios/ipas/<name>-decrypted.ipa` 并写含前后 cryptid 与 sha256 的 JSON 报告；Mach-O 读写抽到 `macho.ts`（thin/fat 均支持，`ipa_info` 复用）。`ios_keychain` 探测 keychain 数据库与 keychain_dumper，有则 dump 到 `evidence/ios/keychain/`，无则明确说明不可 dump 并给出 frida 路线，同时可按 bundleId 报 keychain-access-groups。
+- iOS 服务端渗透（P0）：新增 `ios_http_log`，在 NSURLSession/NSURLConnection 层记录明文请求/响应（方法、URL、头、body、状态码），不需要代理或信任 CA；结果按项目写入 `captures.db`，可直接 `capture_search / capture_get / capture_replay`。`ios_capture_pull` 现在把 pcap 里的明文 HTTP 用 tshark 转成证据并入库，`capture_import` 新增 `pcap` 格式；HTTPS 仍由 `ios_http_log` 从 NSURLSession 层取明文。iOS 内建脚本因此有 6 个，`ios_frida` 也可直接加载。
+- iOS 砸壳（P1）：`ios_decrypt` 先扫描整个 bundle 的 Mach-O（Frameworks/PlugIns/dylib），dump 后对比应解/已解/漏解并重扫确认 cryptid；保留原密文 IPA，两个 IPA 与每个替换二进制都带 SHA-256，校验 dump 大小；有 `ldid` 时按 dump 前读取的 entitlements 重签替换过的二进制；frida 失败自动回退设备上的 `bfdecrypt`；新增 `verifyDevice` 在第二台设备安装并用 `app_info` 读回 cryptid 0 做交付验证。报告新增 `images / encryptedImages / afterImages / stillEncrypted / missing / artifacts / signing / verification`。
+- iOS deb-only 极简配对：控制台「iOS 设备」页生成 6 位一次性配对码（10 分钟），设备安装 deb 后在 Safari 打开 `http://127.0.0.1:9945/setup`，输入控制台地址和配对码，确认自签证书指纹后自动写入配置并反连。新增 `ios_pairings` 表、公开 `POST /api/ios/pair/claim`（gate/auth 之前、按 IP 限速、一次性消费）与 `SetupServer`（仅绑回环，配对成功即退出，由 launchd 重启）。`ios_state` 和 iOS 页增加配对码、倒计时、证书指纹。新增 `scripts/build-repo.sh` 生成 `docs/repo` Sileo 静态源与 `.github/workflows/ios-repo.yml` Pages 发布。
+- iOS 交付物：`scripts/build-deb.sh` 生成 rootful/rootless 两个 deb（没有 `dpkg-deb` 时自动用 `scripts/debpack.py` 的纯 Python ar+tar 实现），`scripts/build-repo.sh` 生成 `docs/repo` 的 Sileo 静态源。daemon 增加 `logSink` 与 `onStateChange` 供设备状态显示；IPA 已移除，见 Removed。
+- iOS 反连监听与一键安装：iOS 页新增「反连服务」（绑定地址/端口，默认 0.0.0.0:9945，应用即重绑，独立于控制台端口，重启后自动恢复），与安卓对齐；`ws://` 从仅回环放宽到回环+私网/链路本地/CGNAT/.local，公网仍要求 wss，IPA 增加 ATS 例外以允许按 IP 直连。设备端与网关的关闭日志现在带 close code/reason，便于定位 4002/4005/401 导致的反复重连。新增 `scripts/install-ios.sh`（自动选 deb、安装、写配置、launchctl bootstrap，支持 `--dry-run`）与 iOS 页「一键安装与启动」卡片。
+- iOS wss 与自动化：iOS 页显示控制台叶证书 SHA-256（服务端从 TLS 证书现算）供自签 wss 固定，daemon 与 IPA 都支持 `pinnedCertSha256`；IPA 新增「证书 SHA-256」「启动时自动连接」两个设置，配置存在 UserDefaults，启动后自动重连。`install-ios.sh` 增加 `--with-deps`（best effort 安装 tcpdump/appinst）。文档说明 IPA 无 root/apt，无法自动安装系统依赖。
 - 控制台支持中英文切换，默认中文。侧栏底部以及登录、首次创建账号、授权承诺页都能切换；客户端文案、服务端返回的错误与状态、环境诊断、漏洞报告、插件开发指南都有英文版本。AI 生成的对话、漏洞结论、监督建议与用户输入保持原文，不做机器翻译。语言偏好存 `<配置目录>/ui-config.json`，服务端为权威值：WebSocket 连接先下发 `ui_config`，切换后广播给所有已连接浏览器；登录前通过 `GET/POST /api/ui-language` 读写并立即重载页面。授权承诺提供双语文本，同一份记录覆盖两种语言（`CONSENT_VERSION` 升到 2），切换语言不会再次要求承诺
 - 监督思路支持同时选择多个：设置 → 模型 → 监督可勾选多个默认策略，开启监督时也可多选；多个策略的关注点和自定义说明会合并进同一份监督判断，悬浮窗和审计页显示全部策略名。运行中仍可增减策略，至少保留一个。新增「不测危险接口」预设：不允许测试或建议测试会修改系统正常运行/业务数据、任意用户密码重置或账号接管、文件删除/覆盖等不可逆或影响面大的接口，只记录风险并建议人工确认
 - 工程定时计划：新建工程时可选择立即启动或保存一条一次性的绝对时间线（开始、可选的中途暂停/恢复、可选的最晚停止），按浏览器 IANA 时区保存。到点启动前检查 Docker 环境；暂停是硬中断，立即中止正在运行的 Agent 并保留会话，恢复时自动续跑这些任务；最晚停止到点未完成则暂停工程，由操作员决定后续。计划状态持久化在 `engines.db`，服务重启采用安全策略：未开始的计划继续等待，已运行或已暂停的工程保持暂停并停用计划，不自动续跑；手动暂停/继续/终止会停用后续计划。工程列表和看板显示计划阶段、下一次动作与倒计时，未启动的计划可修改或取消
@@ -237,6 +248,7 @@
 
 ### Fixed
 
+- iOS 真机验收修复：Frida 17 移除 `Module.findExportByName`/`Process.exit`，内建脚本改用兼容 helper 与 C `exit()`；Mach-O 解析按实际小端读取（TS 与 Swift），`app_info` 不再把 arm64 报成未知架构；daemon `posix_spawn` 关闭子进程继承的管道写端，后台 tcpdump 不再让 `ios_shell`/`ios_capture_start` 等到超时；抓包改用 pidfile，不再依赖设备上没有的 `pgrep`/`pkill`；tshark JSON 兼容嵌套协议对象、`--no-duplicate-keys` 与冒号分隔 hex body，并先判 response 再判 request，避免响应被当成幽灵请求。
 - 安卓工具开关改为按对话独立：此前它写在一个全局的 DroidStore 标记里，一个对话打开「安卓」就会把 droid_*/apk_* 挂进所有打开的对话。现在每个会话有自己的 `zg-droid` 条目，输入框的开关只影响当前对话；切换回其他对话显示该对话自己的状态，刷新、重开与 fork 后保持不变。新对话默认关闭。
 - 运行中的工具卡片（包括 `droid_shell`）现在和思考、bash 的单行一样在行首显示调用时间；此前实时卡片没有时间，只有结束后变成单行手风琴才出现。
 - codemode 脚本里调用的工具（典型是 `droid_shell`）不再被当成独立的顶层工具卡片：这类内嵌调用没有自己的会话消息，实时卡片结束后无法收成单行手风琴，也不会随运行折叠，只有刷新后才消失。现在实时工具列表只接收顶层调用，内嵌调用由父工具的结果统一呈现。
@@ -285,4 +297,12 @@
 
 ### Removed
 
+- iOS IPA 源码、构建脚本与发布说明已移除：不再维护 `App/`、`scripts/build-ipa.sh` 和 TrollStore 受限模式；设备端只发 deb，配对由本地 setup 页完成。
+
 - 设备页的「扫码即连」卡片：它把当前反连地址与**首个** token 拼成二维码、随地址或 token 变化自动重画，等于替操作员挑了一条 token——多台设备时扫到的可能不是要连的那台，页面上也没有任何地方写明用的是哪一条。二维码现在只从令牌列表按 token 生成：点某一行的「二维码」弹出该 token 的接入二维码（内容 = 当前反连地址 + 该 token），不点就没有二维码；接入指引第 1 步改为指向这个入口，卡片下方那行自动拼接「地址?token=首个token」的文本也一并去掉
+
+### Fixed
+
+- iOS daemon 的连接日志现在带上端口：之前 `connecting to ws://host/path` 把端口吃掉，排查反连时看不出目标端口。
+- iOS `--with-deps` 改为逐个 apt 安装 tcpdump/appinst：之前一条命令里 appinst 不存在会连累 tcpdump。
+- iOS daemon 截屏失败时给出可操作原因（daemon 无 UI 会话，iOS 16 真机 `_UICreateScreenUIImage` 返回 nil），不再只报“空图片”。
