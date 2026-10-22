@@ -6,13 +6,13 @@ Codename: ios
 Architectures: iphoneos-arm iphoneos-arm64
 Components: main
 Description: SentinelBridge packages for Full Chain Sentinel
-Date: Thu, 22 Oct 2026 10:30:48 +0000
+Date: Thu, 22 Oct 2026 10:37:13 +0000
 MD5Sum:
- 3ee7cff144c6423c9706d0090fc1cd39 1055 Packages
- c4dfe37e01cdbc3f346c8cb15e075d9a 503 Packages.gz
+ b91b5d99bc8f182e5c713ea16fffa1d0 1055 Packages
+ b7a37113d255f9c8be199e6c011acaa0 503 Packages.gz
 SHA1:
- 30b1cf2c7a1394a1d6ef298b657ea612ff284798 1055 Packages
- 53f709c5bab83d9b782838c7124cd652a6a070bc 503 Packages.gz
+ ee6d9502f5507c578fb712587c49dfdb3a5a387c 1055 Packages
+ 60207dadc1eedf8f2b08cbda177e3bfc47f9f606 503 Packages.gz
 SHA256:
- b2daf2742a6cd2e825a9bea0162e77684e11ddb9f9a2706637da4cc2f1ddb062 1055 Packages
- 8193471434c15e1eb887e85b67fb5741288cc6447efa2adac992fd15212cf489 503 Packages.gz
+ 25c38542bbbc8dc746332b938f7bdd82108f21bdc736836cb38abf9163ec3584 1055 Packages
+ 5577014412856afe784577e2689f31b5984d707f539a9af42d240ce352ea90d1 503 Packages.gz

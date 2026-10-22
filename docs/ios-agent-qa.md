@@ -648,8 +648,8 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 
 | 文件 | 用途 |
 | --- | --- |
-| `com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
-| `com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
 
 构建：`scripts/build-ios.sh` + `scripts/build-deb.sh <rootful|rootless>`；`scripts/build-repo.sh` 生成 `docs/repo/` 的 Sileo 静态源（`Packages`、`Release`、`pool/*.deb`），由 `.github/workflows/ios-repo.yml` 发布到 GitHub Pages。
 
@@ -804,7 +804,7 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.11 \
 2. 控制台「iOS 设备」页创建 token，点「显示/复制」拿到 `ios_...`，同时记下控制台证书 SHA-256。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
 4. 填控制台 wss 地址（如 `wss://console.example.com/ws/ios`）和 token，点「检测证书」；核对指纹后点「配对」。
-5. daemon 写配置并退出，launchd 重启后正常反连；控制台设备列表出现该机。
+5. 点「保存并连接」后控制页常驻；可实时连接、停止、重载，控制台设备列表出现该机。
 
 SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url wss://... --token ...`。
 
@@ -817,7 +817,7 @@ SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url wss://... --token 
 ### 26.3 设备端
 
 - `ConfigLoader.context` 允许没有有效 URL/token 时启动 setup 模式；`--setup` 可强制进入。
-- `SetupServer` 只绑 `127.0.0.1:9945`，提供 `/setup`、`/api/setup/probe`、`/api/setup/pair`；配对成功后写 config 并 `exit(0)`，由 launchd 的 `KeepAlive` 重启。
+- `SetupServer` 只绑 `127.0.0.1:9945`，提供 `/setup`、`/api/status`、`/api/setup/probe`、`/api/setup/save`、`/api/control/{start,stop,reload}`；保存 config 后不退出，页面每秒轮询状态，daemon 常驻。
 - 自签证书：probe 读取叶证书 SHA-256 并显示；pair 请求用同一指纹做 TLS pin，指纹不匹配时不发送 token。
 - `parseConsoleURL` 只接受 `https://` / `wss://`，`ConfigLoader` 同样只接受 `wss://`。
 - `postinst` 不再在缺配置时退出，而是加载 daemon 并提示 Safari 打开 setup 页。
@@ -826,4 +826,4 @@ SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url wss://... --token 
 
 - macOS 主机端到端：起测试控制台（自签 TLS）→ 创建 token → 启动 setup 模式 daemon → probe 得到指纹 → pair 写入 config；错误 token/错误指纹返回 400。
 - 单元测试：token 创建/查找/删除/正常化；iOS 状态与 UI 类型检查通过。
-- 8P 真机（2026-10-22）：通过。安装 0.1.3 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，用 `wss://192.168.1.2:9970/ws/ios` + token + 自签证书指纹写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后改为真实控制台 `wss://192.168.1.2:7777/ws/ios`，`last_seen` 正常更新。
+- 8P 真机（2026-10-22）：通过。安装 0.1.4 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，用 `wss://192.168.1.2:9970/ws/ios` + token + 自签证书指纹写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后改为真实控制台 `wss://192.168.1.2:7777/ws/ios`，`last_seen` 正常更新；控制页常驻，`/api/control/stop` 后设备离线、`/api/control/start` 后重新在线。

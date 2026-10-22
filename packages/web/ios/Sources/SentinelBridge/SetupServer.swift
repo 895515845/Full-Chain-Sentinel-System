@@ -1,15 +1,11 @@
 /**
- * First-run setup, served only on 127.0.0.1:9945.
+ * Local control page, served only on 127.0.0.1:9945.
  *
  * The deb has no App, so this local page is the only place to enter the token.
- * After install, Safari on the phone opens this page; the page asks for the
- * console's wss URL and an operator-created token, verifies the console's
- * self-signed certificate fingerprint, writes `sentinelbridge.json`, and
- * exits. launchd's KeepAlive restarts the daemon in normal mode.
- *
- * The listener is deliberately loopback-only: it is a root configuration
- * endpoint, and the token is the only secret it accepts. It disappears as soon
- * as pairing succeeds.
+ * It stays up after the config is saved: the operator can start, stop or reload
+ * the bridge without killing the launchd job, and the page polls the live
+ * status every second. The listener is deliberately loopback-only: it is a root
+ * configuration endpoint, and the token is the only secret it accepts.
  */
 
 import CryptoKit
@@ -24,18 +20,20 @@ struct ConsoleTarget {
 
 final class SetupServer {
 	private let context: BridgeSetupContext
+	private let controller: BridgeController
 	private let queue = DispatchQueue(label: "com.zgsfsec.sentinelbridge.setup")
 	private var listener: NWListener?
 	private var attempts = 0
 	private var lockedUntil = Date.distantPast
 
-	init(context: BridgeSetupContext) {
+	init(context: BridgeSetupContext, controller: BridgeController) {
 		self.context = context
+		self.controller = controller
 	}
 
 	func start() throws {
 		guard let port = NWEndpoint.Port(rawValue: 9945) else {
-			throw SetupError.message("配对端口 9945 不可用")
+			throw SetupError.message("控制端口 9945 不可用")
 		}
 		let parameters = NWParameters.tcp
 		parameters.allowLocalEndpointReuse = true
@@ -64,10 +62,10 @@ final class SetupServer {
 		listener.start(queue: queue)
 		if ready.wait(timeout: .now() + 4) == .timedOut {
 			listener.cancel()
-			throw SetupError.message("配对页启动超时（端口 9945 可能被占用）")
+			throw SetupError.message("控制页启动超时（端口 9945 可能被占用）")
 		}
 		if let startError {
-			throw SetupError.message("配对页无法监听 127.0.0.1:9945：\(startError.localizedDescription)")
+			throw SetupError.message("控制页无法监听 127.0.0.1:9945：\(startError.localizedDescription)")
 		}
 	}
 
@@ -134,6 +132,14 @@ final class SetupServer {
 			sendHTML(connection, html: Self.page)
 			return
 		}
+		if method == "GET", path == "/api/status" {
+			sendJSON(connection, status: 200, object: controller.status())
+			return
+		}
+		if method == "GET", path == "/api/log" {
+			sendJSON(connection, status: 200, object: ["log": controller.logTail()])
+			return
+		}
 		guard method == "POST" else {
 			sendJSON(connection, status: 404, object: ["error": "not found"])
 			return
@@ -163,14 +169,10 @@ final class SetupServer {
 					self.sendJSON(connection, status: 400, object: ["error": error.localizedDescription])
 				}
 			}
-		case "/api/setup/pair":
+		case "/api/setup/save":
 			let raw = (json["url"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 			let token = (json["token"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 			let fingerprint = (json["fingerprint"] as? String ?? "").lowercased().replacingOccurrences(of: ":", with: "")
-			guard token.range(of: "^ios_[A-Za-z0-9]{8,}$", options: .regularExpression) != nil else {
-				sendJSON(connection, status: 400, object: ["error": "token 格式不对，应形如 ios_..." ])
-				return
-			}
 			guard fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
 				sendJSON(connection, status: 400, object: ["error": "请先检测证书指纹，并确认与控制台一致"])
 				return
@@ -187,12 +189,11 @@ final class SetupServer {
 						switch probe {
 						case .success:
 							do {
-								try self.writeConfig(target: target, token: token, fingerprint: fingerprint)
-								self.sendJSON(connection, status: 200, object: ["ok": true])
-								log("配对成功，配置已写入；准备重启")
-								DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { exit(0) }
+								try self.controller.save(url: target.websocket, token: token, pin: fingerprint)
+								self.sendJSON(connection, status: 200, object: self.controller.status())
+								log("控制页：配置已写入，连接已启动")
 							} catch {
-								self.sendJSON(connection, status: 500, object: ["error": "写入配置失败：\(error.localizedDescription)"])
+								self.sendJSON(connection, status: 400, object: ["error": error.localizedDescription])
 							}
 						case .failure(let error):
 							self.sendJSON(connection, status: 400, object: ["error": error.localizedDescription])
@@ -202,6 +203,15 @@ final class SetupServer {
 					self.sendJSON(connection, status: 400, object: ["error": error.localizedDescription])
 				}
 			}
+		case "/api/control/start":
+			controller.start()
+			sendJSON(connection, status: 200, object: controller.status())
+		case "/api/control/stop":
+			controller.stop()
+			sendJSON(connection, status: 200, object: controller.status())
+		case "/api/control/reload":
+			controller.reload()
+			sendJSON(connection, status: 200, object: controller.status())
 		default:
 			sendJSON(connection, status: 404, object: ["error": "not found"])
 		}
@@ -281,21 +291,6 @@ final class SetupServer {
 		task.resume()
 	}
 
-	private func writeConfig(target: ConsoleTarget, token: String, fingerprint: String) throws {
-		var config = BridgeConfig()
-		config.url = target.websocket
-		config.token = token
-		config.pinnedCertSha256 = fingerprint.isEmpty ? nil : fingerprint
-		config.deviceId = context.deviceId
-		config.jailbreakName = context.config.jailbreakName
-		config.jailbreakVersion = context.config.jailbreakVersion
-		let directory = (context.path as NSString).deletingLastPathComponent
-		try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-		let data = try JSONEncoder().encode(config)
-		try data.write(to: URL(fileURLWithPath: context.path), options: .atomic)
-		try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: context.path)
-	}
-
 	// MARK: - HTTP responses
 
 	private func sendJSON(_ connection: NWConnection, status: Int, object: [String: Any]) {
@@ -331,45 +326,68 @@ button.secondary{background:#21262d;border:1px solid #30363d}button:disabled{opa
 .note{margin-top:18px;padding:12px;border:1px solid #30363d;border-radius:8px;background:#161b22;color:#8b949e;font-size:13px}
 .ok{color:#3fb950}.err{color:#f85149}code{color:#58a6ff}
 </style></head><body><main>
-<h1>SentinelBridge 配对</h1>
-<p>只在本机回环地址监听。iOS 强制 wss：填入控制台 wss 地址、控制台创建的 token，确认证书指纹后写入配置。</p>
+<h1>SentinelBridge 控制</h1>
+<p>只在本机回环地址监听。iOS 强制 wss；保存一次后页面会一直在，可随时连接、停止、重载。</p>
+<div class="note" id="status">读取状态…</div>
+<div class="row"><button class="secondary" id="start">连接</button><button class="secondary" id="stop">停止</button><button class="secondary" id="reload">重载</button></div>
 <label>控制台地址</label>
-<input id="url" placeholder="https://console.example.com:9443" autocomplete="off" spellcheck="false">
+<input id="url" placeholder="wss://console.example.com/ws/ios" autocomplete="off" spellcheck="false">
 <label>访问令牌 token</label>
 <input id="token" placeholder="ios_..." autocomplete="off" spellcheck="false">
 <label>控制台证书 SHA-256</label>
 <input id="fingerprint" readonly placeholder="先点“检测证书”">
-<div class="row"><button class="secondary" id="probe">检测证书</button><button id="pair" disabled>配对</button></div>
+<div class="row"><button class="secondary" id="probe">检测证书</button><button id="save" disabled>保存并连接</button></div>
 <label style="display:flex;gap:8px;align-items:flex-start;margin-top:16px"><input type="checkbox" id="confirm" style="width:18px;margin-top:4px"> 我已核对指纹与控制台“iOS 设备”页显示的一致</label>
-<div class="note" id="status">等待操作。</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
 function show(text, ok) { statusEl.textContent = text; statusEl.className = "note " + (ok ? "ok" : "err"); }
-async function post(path, body) {
-  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+async function call(path, body) {
+  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.ok) throw new Error(data.error || "请求失败");
+  if (!response.ok) throw new Error(data.error || "请求失败");
   return data;
 }
+function syncSave() { $("save").disabled = !($("confirm").checked && $("fingerprint").value && $("token").value.trim()); }
+function apply(data) {
+  const bits = [data.state || "未知"];
+  if (data.url) bits.push(data.url);
+  if (data.deviceId) bits.push(data.deviceId);
+  show(bits.join(" · "), !!data.connected);
+  $("start").disabled = !data.configured || !!data.connected;
+  $("stop").disabled = !data.connected;
+  $("reload").disabled = !data.configured;
+  if (data.url && !$("url").value) $("url").value = data.url;
+}
+async function refresh() {
+  try { apply(await (await fetch("/api/status")).json()); }
+  catch (error) { show("读不到状态：" + error.message, false); }
+}
 $("probe").onclick = async () => {
-  $("pair").disabled = true;
+  $("save").disabled = true;
   try {
-    const data = await post("/api/setup/probe", { url: $("url").value.trim() });
+    const data = await call("/api/setup/probe", { url: $("url").value.trim() });
     $("fingerprint").value = data.fingerprint || "";
+    if (data.websocket && !$("url").value.includes("/ws/ios")) $("url").value = data.websocket;
     show("证书指纹已读取，请与控制台显示的值核对。", true);
   } catch (error) { show(error.message, false); }
+  syncSave();
 };
-$("confirm").onchange = () => { $("pair").disabled = !($("confirm").checked && $("fingerprint").value && $("token").value.trim()); };
-$("token").oninput = () => { $("pair").disabled = !($("confirm").checked && $("fingerprint").value && $("token").value.trim()); };
-$("pair").onclick = async () => {
-  $("pair").disabled = true;
+$("confirm").onchange = syncSave;
+$("token").oninput = syncSave;
+$("save").onclick = async () => {
+  $("save").disabled = true;
   try {
-    await post("/api/setup/pair", { url: $("url").value.trim(), token: $("token").value.trim(), fingerprint: $("fingerprint").value.trim() });
-    show("配对成功，设备将重启并连接控制台。", true);
-    $("pair").textContent = "已配对";
-  } catch (error) { show(error.message, false); $("pair").disabled = false; }
+    apply(await call("/api/setup/save", { url: $("url").value.trim(), token: $("token").value.trim(), fingerprint: $("fingerprint").value.trim() }));
+    show("已保存，连接已启动；页面会一直保留。", true);
+  } catch (error) { show(error.message, false); }
+  syncSave();
 };
+$("start").onclick = async () => { try { apply(await call("/api/control/start")); } catch (error) { show(error.message, false); } };
+$("stop").onclick = async () => { try { apply(await call("/api/control/stop")); } catch (error) { show(error.message, false); } };
+$("reload").onclick = async () => { try { apply(await call("/api/control/reload")); } catch (error) { show(error.message, false); } };
+setInterval(refresh, 1000);
+refresh();
 </script></main></body></html>
 """
 }

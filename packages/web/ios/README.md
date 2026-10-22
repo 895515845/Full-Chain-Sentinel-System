@@ -46,8 +46,8 @@ scripts/build-repo.sh
 
 ```
 build/sentinelbridged
-build/com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm.deb
-build/com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm64.deb
+build/com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm.deb
+build/com.zgsfsec.sentinelbridge_0.1.4_iphoneos-arm64.deb
 docs/repo/{Packages,Release,pool/*.deb}
 ```
 
@@ -62,7 +62,7 @@ docs/repo/{Packages,Release,pool/*.deb}
 2. 控制台「iOS 设备」页创建 token，点「显示/复制」拿到 `ios_...`。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
 4. 填控制台 wss 地址（如 `wss://console.example.com/ws/ios`）和 token；点「检测证书」，确认指纹与控制台显示一致，再点「配对」。
-5. 配对成功后 daemon 自动重启并反连；设备出现在控制台设备列表。
+5. 点「保存并连接」后 daemon 不退出，控制页常驻；可随时连接、停止、重载。设备出现在控制台设备列表。
 
 SSH 回退（设备需开 OpenSSH）：
 
@@ -78,7 +78,7 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 
 - iOS 强制 wss：`ConfigLoader` 拒绝 `ws://`，setup 页也只接受 `https://` / `wss://`。
 - 控制台不再生成配对码；操作员创建 token 后复制到设备 setup 页，和 Android 的地址 + token 逻辑一致。
-- 设备 setup 页只在 `127.0.0.1:9945` 监听；写入 `/var/jb/etc/sentinelbridge.json`（0600）后退出。
+- 设备控制页只在 `127.0.0.1:9945` 监听；写入 `/var/jb/etc/sentinelbridge.json`（0600）后页面常驻，可实时连接/停止/重载。
 - 自签证书必须核对指纹：setup 页先 probe 控制台叶证书 SHA-256，用户确认后配对请求用同一指纹 pin，token 不会发给证书不匹配的端点。
 
 ## 设备 ID 与状态
@@ -91,7 +91,7 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 ## 已验证范围
 
 - macOS 主机契约测试：`test/ios-daemon.test.ts` 用同一份 Swift 源码连真实 Node 网关，覆盖 hello、exec、1.5MB 分片 pull/push、TCP echo 隧道、SIGTERM 退出。
-- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup token 配对已通过（wss + 自签证书指纹 + 配置写入 + launchd 重启）。
+- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup token 配对已通过（wss + 自签证书指纹 + 配置写入）；本地控制页常驻，停止/启动/重载已实测。
 - 未验证：rootful 真机、roothide、第二台设备 `verifyDevice`、`ldid` 重签、`bfdecrypt` 回退。
 
 ## 故障排查
@@ -105,6 +105,6 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 ## 安全边界
 
 - daemon 以 root 运行，`ios_shell` 的审批在控制台侧完成；daemon 只执行收到的命令。
-- setup 页只绑回环，配对成功即退出；不要在配对窗口期把 127.0.0.1:9945 转发到局域网。
+- 控制页只绑回环，且常驻；不要长期把 127.0.0.1:9945 转发到局域网。
 - 公网必须 `wss://`；自签证书必须核对指纹。
 - pull/push 的路径限制在控制台项目工作目录内，由控制台工具层校验；daemon 本身不做目录白名单。

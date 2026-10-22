@@ -26,40 +26,22 @@ do {
 	exit(2)
 }
 
-// A fresh deb has no config: keep the launchd job alive but serve the local
-// setup page instead of exiting into a throttle loop. Once pairing writes the
-// config, the process exits and launchd restarts it in normal mode.
-let configured = (options.url != nil && options.token != nil)
-	|| (!setupContext.config.url.isEmpty && !setupContext.config.token.isEmpty)
-if options.setup || !configured {
-	let server = SetupServer(context: setupContext)
-	do {
-		try server.start()
-	} catch {
-		FileHandle.standardError.write(Data("无法启动配对页：\(error)\n".utf8))
-		exit(2)
-	}
-	log("SentinelBridge setup mode · \(Platform.model) · iOS \(Platform.osVersion) · root=\(Platform.isRoot)")
-	log("setup page: http://127.0.0.1:9945/setup")
-	RunLoop.main.run()
-	exit(0)
-}
+// The local control page is always available: it can save config, start, stop
+// and reload the bridge without restarting the launchd job. If a valid config
+// already exists, start the connection immediately as well.
+let controller = BridgeController(context: setupContext)
+controller.startIfConfigured()
 
-let config: BridgeConfig
-let stateDir: String
-let deviceId: String
+let server = SetupServer(context: setupContext, controller: controller)
 do {
-	(config, stateDir, deviceId) = try ConfigLoader.load(options)
+	try server.start()
+	log("SentinelBridge control · \(Platform.model) · iOS \(Platform.osVersion) · root=\(Platform.isRoot)")
+	log("control page: http://127.0.0.1:9945/setup")
 } catch {
-	FileHandle.standardError.write(Data("配置错误：\(error)\n".utf8))
-	exit(2)
+	// A second instance or a port conflict must not take the bridge down; the
+	// launchd job can still connect, just without the local page.
+	FileHandle.standardError.write(Data("控制页未启动：\(error)\n".utf8))
 }
-
-log("SentinelBridge starting · \(Platform.model) · iOS \(Platform.osVersion) · \(Platform.arch) · \(Platform.form) · root=\(Platform.isRoot)")
-log("state dir: \(stateDir)")
-
-let client = GatewayClient(config: config, deviceId: deviceId)
-client.start()
 
 signal(SIGPIPE, SIG_IGN)
 // Dispatch sources are cancelled when released; keep them alive for the process
@@ -68,7 +50,7 @@ var signalSources: [DispatchSourceSignal] = []
 for number in [SIGTERM, SIGINT] {
 	let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
 	source.setEventHandler {
-		client.stop()
+		controller.stop()
 		exit(0)
 	}
 	source.resume()
