@@ -419,14 +419,14 @@ export function IosPage({
 							<p className="droid-hint">
 								{t("在 Sileo 添加源，安装 SentinelBridge；rootless/rootful 由设备架构自动选择。")}
 							</p>
-							<div className="mono droid-url">https://zgsfsec.github.io/Full-Chain-Sentinel-System/</div>
+							<div className="mono droid-url">https://zgsfsec.github.io/sentinel-ios-repo/</div>
 							<div className="droid-inline">
 								<button
 									type="button"
 									className="ghost small"
 									onClick={() =>
 										void navigator.clipboard
-											?.writeText("https://zgsfsec.github.io/Full-Chain-Sentinel-System/")
+											?.writeText("https://zgsfsec.github.io/sentinel-ios-repo/")
 											.catch(() => undefined)
 									}
 								>

@@ -35,6 +35,13 @@ scripts/build-deb.sh rootless
 scripts/build-repo.sh
 ```
 
+发布到独立的小写 Pages 仓库：
+
+1. 创建 `zgsfsec/sentinel-ios-repo`（public，空仓库，默认分支 `main`）。
+2. 该仓库 Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`、目录 `/ (root)`。
+3. 在**主仓库** Settings → Secrets and variables → Actions 新建 `PAGES_REPO_TOKEN`：fine-grained PAT 给 `sentinel-ios-repo` 的 Contents 写权限，或 classic PAT 的 `repo` scope。
+4. push `docs/repo` 变更；`.github/workflows/ios-repo.yml` 会把静态源推到 `sentinel-ios-repo` 的 `main`。
+
 产物：
 
 ```
@@ -50,8 +57,8 @@ docs/repo/{Packages,Release,pool/*.deb}
 
 推荐路径：
 
-1. Sileo 添加源 `https://zgsfsec.github.io/Full-Chain-Sentinel-System/`，安装 `SentinelBridge`。
-   如果仓库 Pages 仍配置为从 `docs/` 目录发布，而不是使用 `.github/workflows/ios-repo.yml` 的 GitHub Actions，源地址改为 `https://zgsfsec.github.io/Full-Chain-Sentinel-System/repo/`。
+1. Sileo 添加源 `https://zgsfsec.github.io/sentinel-ios-repo/`，安装 `SentinelBridge`。
+   新仓库 `sentinel-ios-repo` 的 Pages Source 选 `main` / root；发布内容就是仓库根，不要再加 `/repo/`。
    Actions 首次部署前需要在 Settings → Pages → Build and deployment 把 Source 设为 GitHub Actions；也可以在仓库 Secrets 添加 `PAGES_TOKEN`（fine-grained PAT 给 Pages write + 仓库 read，或 classic PAT 的 `repo` scope），workflow 会用它自动启用 Pages。`GITHUB_TOKEN` 本身没有创建 Pages 站点的权限。
 2. 控制台「iOS 设备」页生成 6 位配对码。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。

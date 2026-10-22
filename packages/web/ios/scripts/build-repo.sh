@@ -10,7 +10,7 @@
 #   docs/repo/pool/*.deb
 #
 # Sileo source URL after Pages deploys:
-#   https://zgsfsec.github.io/Full-Chain-Sentinel-System/
+#   https://zgsfsec.github.io/sentinel-ios-repo/
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -130,11 +130,11 @@ cat >"$OUT/index.html" <<HTML
 <h1>Full Chain Sentinel iOS repo</h1>
 <p>Sileo 添加源：<code>$(python3 - <<'PY'
 import os
-print(os.environ.get("SILEO_URL", "https://zgsfsec.github.io/Full-Chain-Sentinel-System/"))
+print(os.environ.get("SILEO_URL", "https://zgsfsec.github.io/sentinel-ios-repo/"))
 PY
 )</code></p>
 <p>包目录：<a href="Packages">Packages</a></p>
 HTML
 
 echo "repo written to $OUT"
-echo "Sileo source: ${SILEO_URL:-https://zgsfsec.github.io/Full-Chain-Sentinel-System/}"
+echo "Sileo source: ${SILEO_URL:-https://zgsfsec.github.io/sentinel-ios-repo/}"

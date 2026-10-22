@@ -800,7 +800,7 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.11 \
 
 ### 26.1 用户路径
 
-1. Sileo 添加源 `https://zgsfsec.github.io/Full-Chain-Sentinel-System/`，安装 SentinelBridge（rootful/rootless 由设备选择）。
+1. Sileo 添加源 `https://zgsfsec.github.io/sentinel-ios-repo/`，安装 SentinelBridge（rootful/rootless 由设备选择）。
 2. 控制台「iOS 设备」页点「生成配对码」，得到 6 位码（10 分钟、一次性）和控制台证书 SHA-256。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
 4. 填控制台地址（公网用 `https://`，自签用指纹确认），点「检测证书」；核对指纹后点「配对」。
