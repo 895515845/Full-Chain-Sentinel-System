@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { t } from "../i18n.ts";
-import type { IosDevice, IosPairing, IosToken, SentinelClientMessage } from "../types.ts";
+import type { IosDevice, IosToken, SentinelClientMessage } from "../types.ts";
 
 function formatTime(iso: string | null): string {
 	if (!iso) return "—";
@@ -22,7 +22,6 @@ export function IosPage({
 	connected,
 	devices,
 	tokens,
-	pairing,
 	listen,
 	listenConfig,
 	lanIps,
@@ -33,7 +32,6 @@ export function IosPage({
 	connected: boolean;
 	devices: IosDevice[];
 	tokens: IosToken[];
-	pairing: IosPairing | null;
 	listen: { host: string; port: number } | null;
 	listenConfig: { host: string; port: number } | null;
 	lanIps: string[];
@@ -45,19 +43,9 @@ export function IosPage({
 	const [label, setLabel] = useState("");
 	const [revealed, setRevealed] = useState<string | null>(null);
 	const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-	const [pairLabel, setPairLabel] = useState("");
 	const [listenHost, setListenHost] = useState("0.0.0.0");
 	const [listenPort, setListenPort] = useState("9945");
 	const [copied, setCopied] = useState(false);
-	const [now, setNow] = useState(Date.now());
-
-	useEffect(() => {
-		if (!pairing) return;
-		setNow(Date.now());
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(timer);
-	}, [pairing]);
-
 	useEffect(() => {
 		if (listenConfig) {
 			setListenHost(listenConfig.host);
@@ -76,21 +64,16 @@ export function IosPage({
 		if (listen) {
 			const host = listen.host === "0.0.0.0" ? (lanIps[0] ?? "0.0.0.0") : listen.host;
 			const note = listen.host === "0.0.0.0" && lanIps.length > 1 ? t("（多网卡，如不通请手改 IP）") : "";
-			return { url: `ws://${host}:${listen.port}/ws/ios`, note };
+			return { url: `wss://${host}:${listen.port}/ws/ios`, note };
 		}
 		return {
-			url: `${consoleUrl.replace(/^http/, "ws").replace(/\/$/, "")}/ws/ios`,
+			url: `${consoleUrl.replace(/^https:/, "wss:").replace(/^http:/, "wss:").replace(/\/$/, "")}/ws/ios`,
 			note: t("（未启用独立监听，随控制台地址）"),
 		};
 	})();
 	const reverseUrl = reverseAddress.url;
 	const onlineCount = devices.filter((device) => device.online && !device.stale).length;
 	const staleCount = devices.filter((device) => device.stale).length;
-	const pairingRemaining = pairing
-		? Math.max(0, Math.floor((Date.parse(pairing.expiresAt) - now) / 1000))
-		: 0;
-	const pairingExpired = pairing !== null && pairingRemaining === 0;
-	const pairingClock = `${String(Math.floor(pairingRemaining / 60)).padStart(2, "0")}:${String(pairingRemaining % 60).padStart(2, "0")}`;
 
 	return (
 		<div className="page-card droid-page">
@@ -163,7 +146,7 @@ export function IosPage({
 								{reverseAddress.note ? ` ${reverseAddress.note}` : ""}
 							</p>
 							<p className="droid-hint">
-								{t("独立监听只提供 ws://（私网可用）；公网或需要加密时用控制台的 wss 地址，并把下面的证书指纹填进设备。")}
+								{t("iOS 强制 wss；独立监听也使用控制台 TLS。把下面的 wss 地址和证书指纹填进设备 setup 页。")}
 							</p>
 							{certPin ? (
 								<div className="droid-field">
@@ -182,79 +165,7 @@ export function IosPage({
 
 						<div className="droid-card">
 							<h3 className="droid-card__title">
-								{t("配对码")}
-								<span className="api-model-chip api-model-chip--manual">
-									{pairing ? t("10 分钟内有效") : t("未生成")}
-								</span>
-							</h3>
-							{pairing ? (
-								<>
-									<div className="droid-field">
-										<label>{t("6 位配对码")}</label>
-										<div className="mono droid-url" style={{ fontSize: 30, letterSpacing: 8, textAlign: "center" }}>
-											{pairing.code.replace(/(\d{3})(\d{3})/, "$1 $2")}
-										</div>
-										<div className="droid-inline">
-											<button
-												type="button"
-												className="ghost small"
-												onClick={() => void navigator.clipboard?.writeText(pairing.code).catch(() => undefined)}
-											>
-												{t("复制配对码")}
-											</button>
-											<button
-												type="button"
-												className="ghost small"
-												onClick={() => send({ type: "ios_pairing_create", label: pairing.label })}
-											>
-												{t("重新生成")}
-											</button>
-										</div>
-									</div>
-									<p className={pairingExpired ? "droid-hint droid-hint--warn" : "droid-hint"}>
-										{pairingExpired ? t("已过期，请重新生成。") : t("剩余 {clock}，一次性使用。", { clock: pairingClock })}
-									</p>
-									<ol className="droid-steps">
-										<li>{t("在 iPhone 上用 Safari 打开：")}<div className="mono">http://127.0.0.1:9945/setup</div></li>
-										<li>{t("控制台地址填：")}<div className="mono">{consoleUrl}</div></li>
-										<li>{t("输入上面的 6 位配对码；点“检测证书”，确认指纹与控制台一致后配对。")}</li>
-									</ol>
-									{certPin ? (
-										<div className="droid-field">
-											<label>{t("控制台证书 SHA-256")}</label>
-											<div className="mono droid-url">{certPin}</div>
-										</div>
-									) : null}
-								</>
-							) : (
-								<>
-									<div className="droid-field">
-										<label>{t("设备名称")}</label>
-										<input
-											value={pairLabel}
-											placeholder={t("例如 测试机-iPhone 8P")}
-											onChange={(event) => setPairLabel(event.target.value)}
-										/>
-									</div>
-									<button
-										type="button"
-										className="primary droid-block-btn"
-										disabled={!pairLabel.trim()}
-										onClick={() => {
-											send({ type: "ios_pairing_create", label: pairLabel.trim() });
-											setPairLabel("");
-										}}
-									>
-										{t("生成配对码")}
-									</button>
-									<p className="droid-hint">{t("生成后 10 分钟内有效，一次性；设备端 setup 页只需输入这个码。")}</p>
-								</>
-							)}
-						</div>
-
-						<div className="droid-card">
-							<h3 className="droid-card__title">
-								{t("手动 token（备用）")}
+								{t("连接令牌")}
 								<span className="api-model-chip api-model-chip--manual">{t("{count} 个", { count: tokens.length })}</span>
 							</h3>
 							<div className="droid-field">
@@ -279,7 +190,7 @@ export function IosPage({
 								</div>
 							</div>
 							{tokens.length === 0 ? (
-								<p className="droid-hint">{t("还没有 token。配对码会自动创建 token；也可以在这里手动创建。")}</p>
+								<p className="droid-hint">{t("还没有 token。创建一个，然后复制到 iPhone setup 页。")}</p>
 							) : (
 								<div className="droid-token-list">
 									{tokens.map((token) => (
@@ -434,7 +345,7 @@ export function IosPage({
 								</button>
 							</div>
 							<p className="droid-hint">
-								{t("装完在 iPhone Safari 打开 http://127.0.0.1:9945/setup，输入左侧配对码完成配对。")}
+								{t("装完在 iPhone Safari 打开 http://127.0.0.1:9945/setup，填入控制台 wss 地址和左侧 token。")}
 							</p>
 							<p className="droid-hint">
 								{t("没有 Sileo 源时用 SSH 回退：")}
@@ -464,9 +375,9 @@ export function IosPage({
 							<h3 className="droid-card__title">{t("接入指引")}</h3>
 							<ol className="droid-steps">
 								<li>{t("设备需已越狱；Sileo 安装 deb，或用 install-ios.sh 通过 SSH 安装。")}</li>
-								<li>{t("左侧生成配对码，10 分钟内有效、一次性。")}</li>
+								<li>{t("左侧创建 token，点显示/复制拿到 ios_... 值。")}</li>
 								<li>
-									{t("iPhone Safari 打开 http://127.0.0.1:9945/setup，填控制台地址和配对码；点“检测证书”，确认指纹一致后配对。")}
+									{t("iPhone Safari 打开 http://127.0.0.1:9945/setup，填控制台 wss 地址和 token；点“检测证书”，确认指纹一致后配对。")}
 								</li>
 								<li>{t("设备出现在上方后，到对话页为当前对话打开「iOS」开关，Agent 才能使用 ios_* 工具。")}</li>
 							</ol>

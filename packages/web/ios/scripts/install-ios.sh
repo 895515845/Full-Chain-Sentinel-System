@@ -2,7 +2,7 @@
 # One command to install and start SentinelBridge over SSH.
 #
 #   scripts/install-ios.sh root@192.168.1.50 \
-#     --url ws://192.168.1.10:9945/ws/ios \
+#     --url wss://192.168.1.10:9945/ws/ios \
 #     --token ios_xxx [--pin SHA256]
 #
 # The script asks the device for its dpkg architecture to pick the rootful or
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-0.1.1}"
+VERSION="${VERSION:-0.1.3}"
 TARGET=""
 URL=""
 TOKEN=""
@@ -75,6 +75,12 @@ fi
 if [ -n "$TOKEN" ] && [ -z "$URL" ]; then
 	echo "error: 给了 --token 但没给 --url" >&2
 	exit 2
+fi
+if [ -n "$URL" ]; then
+	case "$URL" in
+	wss://*) ;;
+	*) echo "error: iOS 强制 wss，--url 必须是 wss:// 地址" >&2; exit 1 ;;
+	esac
 fi
 
 ensure_artifact() {

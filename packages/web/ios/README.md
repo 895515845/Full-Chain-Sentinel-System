@@ -46,8 +46,8 @@ scripts/build-repo.sh
 
 ```
 build/sentinelbridged
-build/com.zgsfsec.sentinelbridge_0.1.1_iphoneos-arm.deb
-build/com.zgsfsec.sentinelbridge_0.1.1_iphoneos-arm64.deb
+build/com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm.deb
+build/com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm64.deb
 docs/repo/{Packages,Release,pool/*.deb}
 ```
 
@@ -59,10 +59,9 @@ docs/repo/{Packages,Release,pool/*.deb}
 
 1. Sileo 添加源 `https://zgsfsec.github.io/sentinel-ios-repo/`，安装 `SentinelBridge`。
    新仓库 `sentinel-ios-repo` 的 Pages Source 选 `main` / root；发布内容就是仓库根，不要再加 `/repo/`。
-   Actions 首次部署前需要在 Settings → Pages → Build and deployment 把 Source 设为 GitHub Actions；也可以在仓库 Secrets 添加 `PAGES_TOKEN`（fine-grained PAT 给 Pages write + 仓库 read，或 classic PAT 的 `repo` scope），workflow 会用它自动启用 Pages。`GITHUB_TOKEN` 本身没有创建 Pages 站点的权限。
-2. 控制台「iOS 设备」页生成 6 位配对码。
+2. 控制台「iOS 设备」页创建 token，点「显示/复制」拿到 `ios_...`。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
-4. 填控制台地址（如 `https://console.example.com`）和配对码；点「检测证书」，确认指纹与控制台显示一致，再点「配对」。
+4. 填控制台 wss 地址（如 `wss://console.example.com/ws/ios`）和 token；点「检测证书」，确认指纹与控制台显示一致，再点「配对」。
 5. 配对成功后 daemon 自动重启并反连；设备出现在控制台设备列表。
 
 SSH 回退（设备需开 OpenSSH）：
@@ -75,12 +74,12 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 
 不带 `--url/--token` 时，脚本只装 deb，随后用 Safari 走上面的 setup 页。
 
-## 配对协议
+## 配置协议
 
-- 控制台生成 6 位码，10 分钟有效、一次性，绑定一个 token。
-- 设备 setup 页只在 `127.0.0.1:9945` 监听；配对成功写 `/var/jb/etc/sentinelbridge.json`（0600）后退出。
-- 设备到控制台的 claim 请求走 `POST /api/ios/pair/claim`，不经过控制台 gate/登录；控制台按 IP 限速并做一次性消费。
-- 自签证书必须核对指纹：setup 页先 probe 控制台叶证书 SHA-256，用户确认后 pairing 请求用同一指纹 pin，避免把 6 位码发给中间人。
+- iOS 强制 wss：`ConfigLoader` 拒绝 `ws://`，setup 页也只接受 `https://` / `wss://`。
+- 控制台不再生成配对码；操作员创建 token 后复制到设备 setup 页，和 Android 的地址 + token 逻辑一致。
+- 设备 setup 页只在 `127.0.0.1:9945` 监听；写入 `/var/jb/etc/sentinelbridge.json`（0600）后退出。
+- 自签证书必须核对指纹：setup 页先 probe 控制台叶证书 SHA-256，用户确认后配对请求用同一指纹 pin，token 不会发给证书不匹配的端点。
 
 ## 设备 ID 与状态
 
@@ -92,12 +91,12 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.50 --with-deps \
 ## 已验证范围
 
 - macOS 主机契约测试：`test/ios-daemon.test.ts` 用同一份 Swift 源码连真实 Node 网关，覆盖 hello、exec、1.5MB 分片 pull/push、TCP echo 隧道、SIGTERM 退出。
-- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup 配对已通过（6 位码 + 自签证书指纹 + 配置写入 + launchd 重启）。
+- 8P 真机（iOS 16.7.12，rootless）：安装、launchd、反连、exec/pull/push/apps/profiles/TCP 隧道、tcpdump、HTTP 日志、砸壳主二进制；deb-only setup token 配对已通过（wss + 自签证书指纹 + 配置写入 + launchd 重启）。
 - 未验证：rootful 真机、roothide、第二台设备 `verifyDevice`、`ldid` 重签、`bfdecrypt` 回退。
 
 ## 故障排查
 
-- **控制台显示“反连被拒绝：token 无效或已删除”**：token 填错或被删；在控制台生成新配对码重新配对。
+- **控制台显示“反连被拒绝：token 无效或已删除”**：token 填错或被删；在控制台创建新 token 重新配对。
 - **Safari 打不开 setup 页**：确认 daemon 正在运行（`launchctl list | grep sentinel`）且没有旧配置；有旧配置时 daemon 直接反连，不会开 setup 页。重新配对先删配置并重启：`rm /var/jb/etc/sentinelbridge.json && launchctl kickstart -k system/com.zgsfsec.sentinelbridged`。
 - **设备在线但工具报“设备无响应”**：45s 没有心跳，通常是 iOS 挂起了进程；重开 daemon。
 - **`daemon 不是 root`**：检查 plist 的 `UserName` 与 `launchctl print system/com.zgsfsec.sentinelbridged`。

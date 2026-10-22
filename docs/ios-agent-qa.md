@@ -4,7 +4,7 @@
 
 用法：每条 A 是建议答案。标〔待定〕的需要产品决策，标〔待验证〕的必须真机 spike 后才能定，标〔不做〕的是明确排除项。
 
-> **2026-10-22 交付变更：IPA 已移除。** 当前只发 root daemon deb；首次安装后在设备 Safari 打开 `http://127.0.0.1:9945/setup`，输入控制台 6 位配对码完成配置。下文 Q9/Q10、§20、§22.2 中关于 IPA 的描述是历史设计记录，实际以本注和 §26 为准。
+> **2026-10-22 交付变更：IPA 已移除。** 当前只发 root daemon deb；首次安装后在设备 Safari 打开 `http://127.0.0.1:9945/setup`，填入控制台 wss 地址和 token 完成配置。下文 Q9/Q10、§20、§22.2 中关于 IPA 的描述是历史设计记录，实际以本注和 §26 为准。
 
 ## 0. 先定十件事
 
@@ -648,12 +648,12 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 
 | 文件 | 用途 |
 | --- | --- |
-| `com.zgsfsec.sentinelbridge_0.1.0_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
-| `com.zgsfsec.sentinelbridge_0.1.0_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm.deb` | rootful（iOS 14+，`/usr/bin` + `/Library/LaunchDaemons`）。 |
+| `com.zgsfsec.sentinelbridge_0.1.3_iphoneos-arm64.deb` | rootless（iOS 15+，`/var/jb/...`）。 |
 
 构建：`scripts/build-ios.sh` + `scripts/build-deb.sh <rootful|rootless>`；`scripts/build-repo.sh` 生成 `docs/repo/` 的 Sileo 静态源（`Packages`、`Release`、`pool/*.deb`），由 `.github/workflows/ios-repo.yml` 发布到 GitHub Pages。
 
-首次安装后的配对不再需要 App：deb 的 `postinst` 总是加载 LaunchDaemon；daemon 发现没有有效配置时进入 setup 模式，只在 `127.0.0.1:9945` 提供配对页。用户在设备 Safari 打开 `http://127.0.0.1:9945/setup`，填控制台地址、6 位配对码，核对自签证书指纹后写入 `/var/jb/etc/sentinelbridge.json`（0600），daemon 退出并由 launchd 重启为正常反连模式。
+首次安装后的配对不再需要 App：deb 的 `postinst` 总是加载 LaunchDaemon；daemon 发现没有有效配置时进入 setup 模式，只在 `127.0.0.1:9945` 提供配对页。用户在设备 Safari 打开 `http://127.0.0.1:9945/setup`，填控制台 wss 地址、token，核对自签证书指纹后写入 `/var/jb/etc/sentinelbridge.json`（0600），daemon 退出并由 launchd 重启为正常反连模式。
 
 签名：没有 `ldid` 时用 `SKIP_SIGN=1` 编译，再用 macOS `codesign --force --sign - --entitlements entitlements.plist` 做 ad-hoc 签名；deb 依赖越狱的 AMFI 补丁。真机安装前需确认 `launchctl` 能加载 LaunchDaemon。
 
@@ -661,9 +661,9 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 
 ### 21.1 iOS 独立反连监听
 
-与安卓对齐：iOS 页左栏新增「反连服务」，可绑定 `0.0.0.0` / `127.0.0.1` / 单张网卡与端口（默认 9945），应用后立即重绑，独立于控制台端口。实现上 `IosGateway.listen(host, port)` 自建一个 HTTP server，把 upgrade 交给同一个 `handleUpgrade`，所以 token 校验、`/ws/ios` 路径、hello 校验与替换规则完全一致；`ios_set_listen` 持久化在 `ios_meta`，控制台重启后自动恢复监听。页面同时显示监听状态与可拨号地址（绑 `0.0.0.0` 时取第一张网卡 IPv4）。
+与安卓对齐：iOS 页左栏新增「反连服务」，可绑定 `0.0.0.0` / `127.0.0.1` / 单张网卡与端口（默认 9945），应用后立即重绑，独立于控制台端口。实现上 `IosGateway.listen(host, port)` 自建一个 TLS server（控制台启用 TLS 时，iOS 强制 wss），把 upgrade 交给同一个 `handleUpgrade`，所以 token 校验、`/ws/ios` 路径、hello 校验与替换规则完全一致；`ios_set_listen` 持久化在 `ios_meta`，控制台重启后自动恢复监听。页面同时显示监听状态与可拨号地址（绑 `0.0.0.0` 时取第一张网卡 IPv4）。
 
-明文策略相应调整：`ws://` 从「只许回环」放宽到「回环 + RFC1918/链路本地/CGNAT/`.local`」，公网仍强制 `wss://`。这是为了配合独立监听（它只提供 HTTP）；token 在局域网内以明文传输，不可信网络请改用 wss 或隧道。IPA 的 `Info.plist` 增加 `NSAllowsArbitraryLoads`，否则 ATS 会拦下按 IP 直连的 ws 握手。
+iOS 强制 wss：不再允许 `ws://`，独立监听也复用控制台的 TLS 证书，只有控制台启用 TLS 时才可绑定；token 不再有明文传输路径。
 
 ### 21.2 一直断开重连的排查
 
@@ -680,7 +680,7 @@ IPA 已移除；设备端只发两个 deb，均在 `packages/web/ios/build/`：
 
 ```sh
 scripts/install-ios.sh root@192.168.1.50 \
-  --url ws://192.168.1.10:9945/ws/ios \
+  --url wss://192.168.1.10:9945/ws/ios \
   --token ios_xxx
 ```
 
@@ -697,12 +697,12 @@ scripts/install-ios.sh root@192.168.1.50 \
 
 - 指纹：iOS 页「反连服务」卡片现在显示控制台证书的 SHA-256（服务端从 `options.tls.cert` 现算），点复制后填进 DAEMON 的 `pinnedCertSha256` 或 IPA 的「证书 SHA-256」输入框。
 - 命令行取值：`openssl x509 -in ~/.sentinel/tls/cert.pem -outform der | shasum -a 256`，去掉冒号、小写。
-- 独立监听是纯 HTTP，只有 `ws://`；要给它加密，前面挂一层 TLS 反代（nginx/caddy），或直接改用控制台的 wss 地址。
-- 私网（10/8、172.16/12、192.168/16、100.64/10、.local）现在允许 `ws://`，所以局域网内不必上 wss；公网仍然强制 wss。
+- 独立监听现在也使用控制台 TLS，只提供 `wss://`；没有 TLS 的控制台不启动 iOS 监听。
+- 不再有私网 `ws://` 例外；所有 iOS 连接都必须 wss。
 
 ### 22.2 deb-only 的依赖策略（IPA 已移除）
 
-- 设备端只有 root daemon，没有 App/UserDefaults/自动连接界面；配对由 `setup` 页完成，配置写入 `/var/jb/etc/sentinelbridge.json`（0600）。
+- 设备端只有 root daemon，没有 App/UserDefaults/自动连接界面；配置由 `setup` 页完成（控制台 wss 地址 + token），写入 `/var/jb/etc/sentinelbridge.json`（0600）。
 - deb 只带 daemon，不带 tcpdump/appinst/frida-server：这些依赖按需安装。`scripts/install-ios.sh --with-deps` 会 best-effort `apt-get install tcpdump appinst`；frida-server 不在 apt 仓库，仍由 `ios_frida_setup` 推二进制。
 - 没有 root 的 App-only 降级模式随 IPA 一起移除；非越狱设备只保留主机侧 IPA 静态分析。
 
@@ -714,7 +714,7 @@ scripts/install-ios.sh root@192.168.1.50 \
 
 ```sh
 packages/web/ios/scripts/install-ios.sh root@192.168.1.11 \
-  --url ws://192.168.1.2:9945/ws/ios \
+  --url wss://192.168.1.2:9945/ws/ios \
   --token ios_... --arch rootless
 ```
 
@@ -796,35 +796,34 @@ packages/web/ios/scripts/install-ios.sh root@192.168.1.11 \
 - 没有内建 MITM 代理/CA；`ios_http_log` 只覆盖 NSURLSession/NSURLConnection，Flutter/自建 BoringSSL 需自定义脚本。
 
 
-## 26. deb-only 极简配对（2026-10-22 实现）
+## 26. deb-only token 配置（2026-10-22 实现）
 
 ### 26.1 用户路径
 
 1. Sileo 添加源 `https://zgsfsec.github.io/sentinel-ios-repo/`，安装 SentinelBridge（rootful/rootless 由设备选择）。
-2. 控制台「iOS 设备」页点「生成配对码」，得到 6 位码（10 分钟、一次性）和控制台证书 SHA-256。
+2. 控制台「iOS 设备」页创建 token，点「显示/复制」拿到 `ios_...`，同时记下控制台证书 SHA-256。
 3. iPhone Safari 打开 `http://127.0.0.1:9945/setup`。
-4. 填控制台地址（公网用 `https://`，自签用指纹确认），点「检测证书」；核对指纹后点「配对」。
+4. 填控制台 wss 地址（如 `wss://console.example.com/ws/ios`）和 token，点「检测证书」；核对指纹后点「配对」。
 5. daemon 写配置并退出，launchd 重启后正常反连；控制台设备列表出现该机。
 
-SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url ... --token ...`。
+SSH 回退仍保留：`scripts/install-ios.sh root@<IP> --url wss://... --token ...`。
 
 ### 26.2 服务端
 
-- `ios_pairings` 表：`code`、`token_id`、`label`、`created_at`、`expires_at`、`used_at`。
-- 控制台生成配对码时同时创建 token；`activePairing()` 只返回最新未使用且未过期的码。
-- 公开路由 `POST /api/ios/pair/claim` 在 gate/auth 之前处理，只接受 6 位数字；成功返回 token，失败统一「配对码无效或已过期」；按来源 IP 每分钟最多 30 次。
-- 配对码一次性消费；删除 token 同时删除其未使用的配对码。
-- `ios_state` 增加 `pairing` 字段；控制台显示码、倒计时、控制台地址和证书指纹。
+- 不再有配对码表或公开 claim 路由；控制台只创建 token，操作员复制到设备 setup 页，与 Android 的地址 + token 操作一致。
+- `ios_state` 不再包含 `pairing` 字段；iOS 页只显示 token 列表、wss 地址和证书指纹。
+- 独立反连监听在控制台启用 TLS 时也使用 wss；`ConfigLoader` 拒绝任何 `ws://`。
 
 ### 26.3 设备端
 
 - `ConfigLoader.context` 允许没有有效 URL/token 时启动 setup 模式；`--setup` 可强制进入。
 - `SetupServer` 只绑 `127.0.0.1:9945`，提供 `/setup`、`/api/setup/probe`、`/api/setup/pair`；配对成功后写 config 并 `exit(0)`，由 launchd 的 `KeepAlive` 重启。
-- 自签证书：probe 读取叶证书 SHA-256 并显示；pair 请求用同一指纹做 TLS pin，指纹不匹配时不发送 6 位码。
+- 自签证书：probe 读取叶证书 SHA-256 并显示；pair 请求用同一指纹做 TLS pin，指纹不匹配时不发送 token。
+- `parseConsoleURL` 只接受 `https://` / `wss://`，`ConfigLoader` 同样只接受 `wss://`。
 - `postinst` 不再在缺配置时退出，而是加载 daemon 并提示 Safari 打开 setup 页。
 
 ### 26.4 验证
 
-- macOS 主机端到端：起测试控制台（自签 TLS）→ 生成配对码 → 启动 setup 模式 daemon → probe 得到指纹 → pair 写入 config；重放已用码和错误码均返回 400。
-- 单元测试：配对码格式/一次性/过期、删除 token 清理配对码；iOS 状态与 UI 类型检查通过。
-- 8P 真机（2026-10-22）：通过。安装 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，probe 得到自签证书指纹，提交 6 位配对码后写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后恢复原控制台配置并 kickstart，真实控制台 `last_seen` 正常更新。
+- macOS 主机端到端：起测试控制台（自签 TLS）→ 创建 token → 启动 setup 模式 daemon → probe 得到指纹 → pair 写入 config；错误 token/错误指纹返回 400。
+- 单元测试：token 创建/查找/删除/正常化；iOS 状态与 UI 类型检查通过。
+- 8P 真机（2026-10-22）：通过。安装 0.1.3 rootless deb，删除旧配置后 launchd 进入 setup 模式；经 SSH 转发访问 `127.0.0.1:9945/setup`，用 `wss://192.168.1.2:9970/ws/ios` + token + 自签证书指纹写入配置；daemon 退出并由 launchd 重启，临时测试控制台 `hello accepted`；随后改为真实控制台 `wss://192.168.1.2:7777/ws/ios`，`last_seen` 正常更新。

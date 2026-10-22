@@ -9,7 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { DroidDevice, DroidToken } from "./droid.ts";
 import type { UiLanguage } from "./i18n-messages.ts";
-import type { IosDevice, IosPairing, IosToken } from "./ios.ts";
+import type { IosDevice, IosToken } from "./ios.ts";
 import type { SentinelPermissionPreset, SentinelPermissionSet, SentinelPermissionsConfig } from "./permissions.ts";
 import type { SentinelPluginManifest } from "./plugin-manifest.ts";
 import type { SentinelSessionListEntry, SentinelSessionStatus } from "./session-status.ts";
@@ -1791,7 +1791,6 @@ export type SentinelClientMessage =
 	| { type: "ios_set_listen"; host: string; port: number }
 	| { type: "ios_state" }
 	| { type: "ios_token_create"; label: string }
-	| { type: "ios_pairing_create"; label: string }
 	| { type: "ios_token_delete"; id: string }
 	| { type: "ios_device_rename"; id: string; name: string }
 	| { type: "ios_device_remove"; id: string }
@@ -1950,7 +1949,6 @@ export type SentinelServerMessage =
 			enabled: boolean;
 			devices: IosDevice[];
 			tokens: IosToken[];
-			pairing: IosPairing | null;
 			listen: { host: string; port: number } | null;
 			listenConfig: { host: string; port: number } | null;
 			lanIps: string[];

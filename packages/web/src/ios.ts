@@ -17,7 +17,7 @@
  * permanently null on each side.
  */
 
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { IosHelloFrame, IosJailbreakForm } from "./ios-protocol.ts";
 import type { SqliteDatabase } from "./sqlite.ts";
@@ -62,19 +62,6 @@ export interface IosToken {
 	lastUsedAt: string | null;
 }
 
-/**
- * A short-lived code the operator reads from the console and types into the
- * device's local setup page. The code maps to one token; claiming it is the
- * only unauthenticated device-facing action in this store.
- */
-export interface IosPairing {
-	code: string;
-	tokenId: string;
-	label: string;
-	createdAt: string;
-	expiresAt: string;
-}
-
 export interface IosDeviceFacts {
 	deviceId: string;
 	model: string;
@@ -116,15 +103,7 @@ CREATE TABLE IF NOT EXISTS ios_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS ios_pairings (
-  code TEXT PRIMARY KEY,
-  token_id TEXT NOT NULL,
-  label TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  used_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_ios_pairings_token ON ios_pairings(token_id);
+DROP TABLE IF EXISTS ios_pairings;
 `;
 
 interface DeviceRow {
@@ -150,15 +129,6 @@ interface TokenRow {
 	token: string;
 	created_at: string;
 	last_used_at: string | null;
-}
-
-interface PairingRow {
-	code: string;
-	token_id: string;
-	label: string;
-	created_at: string;
-	expires_at: string;
-	used_at: string | null;
 }
 
 const JAILBREAK_FORMS: readonly IosJailbreakForm[] = ["rootful", "rootless", "roothide", "unknown"];
@@ -200,16 +170,6 @@ function toToken(row: TokenRow): IosToken {
 		token: row.token,
 		createdAt: row.created_at,
 		lastUsedAt: row.last_used_at,
-	};
-}
-
-function toPairing(row: PairingRow): IosPairing {
-	return {
-		code: row.code,
-		tokenId: row.token_id,
-		label: row.label,
-		createdAt: row.created_at,
-		expiresAt: row.expires_at,
 	};
 }
 
@@ -256,83 +216,8 @@ export class IosStore {
 
 	/** Delete a token: the secret can never authenticate again. */
 	deleteToken(id: string): boolean {
-		this.db.prepare("DELETE FROM ios_pairings WHERE token_id = ?").run(id);
 		const result = this.db.prepare("DELETE FROM ios_tokens WHERE id = ?").run(id);
 		return Number(result.changes ?? 0) > 0;
-	}
-
-	// -- pairings -------------------------------------------------------------
-
-	getToken(id: string): IosToken | undefined {
-		const row = this.db.prepare("SELECT * FROM ios_tokens WHERE id = ?").get(id) as TokenRow | undefined;
-		return row ? toToken(row) : undefined;
-	}
-
-	/** Remove expired or consumed codes; called before reads/writes. */
-	private prunePairings(): void {
-		this.db.prepare("DELETE FROM ios_pairings WHERE used_at IS NOT NULL OR expires_at <= ?").run(now());
-	}
-
-	/**
-	 * Create a token plus a six-digit code that the device's setup page can
-	 * claim once. The token is the real credential; the code only carries it to
-	 * the device over the console's public HTTPS endpoint.
-	 */
-	createPairing(label: string, ttlMs = 10 * 60 * 1000): { pairing: IosPairing; token: IosToken } {
-		this.prunePairings();
-		const token = this.createToken(label);
-		const createdAt = now();
-		const expiresAt = new Date(Date.now() + ttlMs).toISOString();
-		let code = "";
-		for (let attempt = 0; attempt < 20; attempt += 1) {
-			const candidate = randomInt(0, 1_000_000).toString().padStart(6, "0");
-			const existing = this.db.prepare("SELECT code FROM ios_pairings WHERE code = ?").get(candidate);
-			if (!existing) {
-				code = candidate;
-				break;
-			}
-		}
-		if (!code) throw new Error("生成配对码失败，请重试");
-		this.db
-			.prepare(
-				"INSERT INTO ios_pairings (code, token_id, label, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, NULL)",
-			)
-			.run(code, token.id, token.label, createdAt, expiresAt);
-		return {
-			pairing: {
-				code,
-				tokenId: token.id,
-				label: token.label,
-				createdAt,
-				expiresAt,
-			},
-			token,
-		};
-	}
-
-	/** The newest code the console should show; expired codes are pruned first. */
-	activePairing(): IosPairing | null {
-		this.prunePairings();
-		const row = this.db.prepare("SELECT * FROM ios_pairings ORDER BY created_at DESC LIMIT 1").get() as
-			| PairingRow
-			| undefined;
-		return row ? toPairing(row) : null;
-	}
-
-	/**
-	 * Consume a code and return its token. Only an exact, unexpired, unused code
-	 * works; callers must rate-limit guesses because six digits are brute-forceable
-	 * at high volume.
-	 */
-	claimPairing(code: string): IosToken | null {
-		this.prunePairings();
-		const row = this.db.prepare("SELECT * FROM ios_pairings WHERE code = ?").get(code) as PairingRow | undefined;
-		if (!row || row.used_at !== null) return null;
-		const result = this.db
-			.prepare("UPDATE ios_pairings SET used_at = ? WHERE code = ? AND used_at IS NULL")
-			.run(now(), code);
-		if (Number(result.changes ?? 0) === 0) return null;
-		return this.getToken(row.token_id) ?? null;
 	}
 
 	// -- devices --------------------------------------------------------------

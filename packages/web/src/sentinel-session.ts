@@ -2753,7 +2753,6 @@ export class SentinelRuntime {
 		enabled: boolean;
 		devices: ReturnType<IosStore["listDevices"]>;
 		tokens: ReturnType<IosStore["listTokens"]>;
-		pairing: ReturnType<IosStore["activePairing"]>;
 	} {
 		const devices = this.ios.listDevices().map((device) => {
 			const liveness = this.iosGateway?.livenessOf(device.id);
@@ -2763,7 +2762,6 @@ export class SentinelRuntime {
 			enabled: this.active?.iosOn ?? false,
 			devices,
 			tokens: this.ios.listTokens(),
-			pairing: this.ios.activePairing(),
 		};
 	}
 
@@ -2805,18 +2803,6 @@ export class SentinelRuntime {
 		this.hooks.onIosChange();
 	}
 
-	/** Create a token plus the six-digit code shown on the iOS page. */
-	async iosCreatePairing(label: string): Promise<void> {
-		this.ios.createPairing(label);
-		this.hooks.onIosChange();
-	}
-
-	/** Public claim query used by the device setup page; no session required. */
-	iosClaimPairing(code: string): string | null {
-		return this.ios.claimPairing(code)?.token ?? null;
-	}
-
-	/** 删除一条 token，并断开用它反连的设备。 */
 	async iosDeleteToken(id: string): Promise<void> {
 		if (!this.ios.deleteToken(id)) throw new Error(t("该 token 不存在"));
 		for (const device of this.ios.listDevices()) {

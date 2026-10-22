@@ -47,7 +47,6 @@ import type {
 	DroidDevice,
 	DroidToken,
 	IosDevice,
-	IosPairing,
 	IosToken,
 	SessionEventView,
 	SessionInfoView,
@@ -411,7 +410,6 @@ export function App() {
 		enabled: boolean;
 		devices: IosDevice[];
 		tokens: IosToken[];
-		pairing: IosPairing | null;
 		listen: { host: string; port: number } | null;
 		listenConfig: { host: string; port: number } | null;
 		lanIps: string[];
@@ -420,7 +418,6 @@ export function App() {
 		enabled: false,
 		devices: [],
 		tokens: [],
-		pairing: null,
 		listen: null,
 		listenConfig: null,
 		lanIps: [],
@@ -1128,7 +1125,6 @@ export function App() {
 						enabled: message.enabled,
 						devices: message.devices,
 						tokens: message.tokens,
-						pairing: message.pairing,
 						listen: message.listen,
 						listenConfig: message.listenConfig,
 						lanIps: message.lanIps,
@@ -2568,7 +2564,6 @@ export function App() {
 							connected={connected}
 							devices={iosState.devices}
 							tokens={iosState.tokens}
-							pairing={iosState.pairing}
 							listen={iosState.listen}
 							listenConfig={iosState.listenConfig}
 							lanIps={iosState.lanIps}

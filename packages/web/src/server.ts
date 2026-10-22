@@ -622,7 +622,6 @@ export async function startSentinelServer(
 			enabled: state.enabled,
 			devices: state.devices,
 			tokens: state.tokens,
-			pairing: state.pairing,
 			listen: iosGateway.listenInfo() ?? null,
 			listenConfig: runtime.iosListenConfig(),
 			lanIps: lanIps(),
@@ -892,57 +891,26 @@ export async function startSentinelServer(
 	// The iOS side is deliberately its own store and gateway (M0 decision). The
 	// store lives on the runtime like the Android one, so the tools and the page
 	// read the same registry the gateway authenticates against.
-	const iosGateway = new IosGateway(runtime.iosRegistry, {
-		onDeviceChange: () => broadcastIosDevices(),
-		log: (line: string) => console.error(`[sentinel-ios] ${line}`),
-	});
+	const iosGateway = new IosGateway(
+		runtime.iosRegistry,
+		{
+			onDeviceChange: () => broadcastIosDevices(),
+			log: (line: string) => console.error(`[sentinel-ios] ${line}`),
+		},
+		{ tls: options.tls },
+	);
 	runtime.setIosGateway(iosGateway);
 	// Restore the persisted reverse-connection listener (address the operator
 	// picked on the device page). Binding 0.0.0.0 is what lets a LAN phone dial in.
 	const listenConfig = runtime.droidListenConfig();
 	if (listenConfig) await droidGateway.listen(listenConfig.host, listenConfig.port);
 	const iosListenConfig = runtime.iosListenConfig();
-	if (iosListenConfig) await iosGateway.listen(iosListenConfig.host, iosListenConfig.port);
-
-	// Public pairing claim: the device's setup page posts a six-digit code and
-	// receives the token it maps to. This is the one device-facing route that runs
-	// before the gate/session checks, so it must never return console data or
-	// distinguish a wrong code from an expired one.
-	const pairWindows = new Map<string, { count: number; resetAt: number }>();
-	function pairRateLimited(ip: string): boolean {
-		const at = Date.now();
-		const window = pairWindows.get(ip);
-		if (!window || window.resetAt <= at) {
-			pairWindows.set(ip, { count: 1, resetAt: at + 60_000 });
-			return false;
+	if (iosListenConfig) {
+		if (options.tls) {
+			await iosGateway.listen(iosListenConfig.host, iosListenConfig.port);
+		} else {
+			console.error("[sentinel-ios] iOS 强制 wss，未启用控制台 TLS，跳过独立监听");
 		}
-		window.count += 1;
-		return window.count > 30;
-	}
-
-	async function handleIosPairClaim(request: IncomingMessage, response: ServerResponse): Promise<void> {
-		const ip = request.socket.remoteAddress ?? "unknown";
-		if (pairRateLimited(ip)) {
-			response.setHeader("cache-control", "no-store");
-			sendJson(response, { error: "尝试过于频繁，请稍后再试" }, 429);
-			return;
-		}
-		const body = await readJsonBody(request);
-		const code = body ? textField(body, "code") : "";
-		if (!/^\d{6}$/.test(code)) {
-			response.setHeader("cache-control", "no-store");
-			sendJson(response, { error: "配对码无效或已过期" }, 400);
-			return;
-		}
-		const token = runtime.iosClaimPairing(code);
-		response.setHeader("cache-control", "no-store");
-		if (!token) {
-			sendJson(response, { error: "配对码无效或已过期" }, 400);
-			return;
-		}
-		sendJson(response, { ok: true, token });
-		// The code is consumed: refresh the page so it disappears for the operator.
-		broadcastIosDevices();
 	}
 
 	const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
@@ -954,10 +922,6 @@ export async function startSentinelServer(
 		// or the API document pane renders blank.
 		if (path.startsWith("/assets/swagger-ui-")) {
 			serveStatic(webuiDistDir(), path, response);
-			return;
-		}
-		if (path === "/api/ios/pair/claim" && request.method === "POST") {
-			void handleIosPairClaim(request, response);
 			return;
 		}
 		// The gate answers before anything else — before the auth endpoints too, so a
@@ -2342,7 +2306,6 @@ export async function startSentinelServer(
 						enabled: state.enabled,
 						devices: state.devices,
 						tokens: state.tokens,
-						pairing: state.pairing,
 						listen: iosGateway.listenInfo() ?? null,
 						listenConfig: runtime.iosListenConfig(),
 						lanIps: lanIps(),
@@ -2352,22 +2315,6 @@ export async function startSentinelServer(
 				}
 				case "ios_token_create": {
 					await runtime.iosCreateToken(message.label);
-					return;
-				}
-				case "ios_pairing_create": {
-					try {
-						await runtime.iosCreatePairing(message.label);
-					} catch (error) {
-						sendError(socket, error instanceof Error ? error.message : String(error));
-					}
-					return;
-				}
-				case "ios_token_delete": {
-					try {
-						await runtime.iosDeleteToken(message.id);
-					} catch (error) {
-						sendError(socket, error instanceof Error ? error.message : String(error));
-					}
 					return;
 				}
 				case "ios_device_rename": {

@@ -822,15 +822,6 @@ export interface IosToken {
 	lastUsedAt: string | null;
 }
 
-/** A six-digit code shown on the console and typed into the device setup page. */
-export interface IosPairing {
-	code: string;
-	tokenId: string;
-	label: string;
-	createdAt: string;
-	expiresAt: string;
-}
-
 // ---------------------------------------------------------------------------
 // 监督（观察 / 介入）
 // ---------------------------------------------------------------------------
@@ -1535,7 +1526,6 @@ export type SentinelClientMessage =
 	/** The iOS device page: tokens and devices (no dedicated listener). */
 	| { type: "ios_state" }
 	| { type: "ios_token_create"; label: string }
-	| { type: "ios_pairing_create"; label: string }
 	| { type: "ios_token_delete"; id: string }
 	| { type: "ios_device_rename"; id: string; name: string }
 	| { type: "ios_device_remove"; id: string }
@@ -1672,7 +1662,6 @@ export type SentinelServerMessage =
 			enabled: boolean;
 			devices: IosDevice[];
 			tokens: IosToken[];
-			pairing: IosPairing | null;
 			listen: { host: string; port: number } | null;
 			listenConfig: { host: string; port: number } | null;
 			lanIps: string[];

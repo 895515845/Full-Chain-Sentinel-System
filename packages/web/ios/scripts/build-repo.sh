@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/../../.." && pwd)"
-VERSION="${VERSION:-0.1.1}"
+VERSION="${VERSION:-0.1.3}"
 OUT="${OUT:-$REPO_ROOT/docs/repo}"
 BUILD=0
 

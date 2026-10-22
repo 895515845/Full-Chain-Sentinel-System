@@ -74,23 +74,6 @@ enum Platform {
 		return "/etc/sentinelbridge.json"
 	}
 
-	/// Loopback, RFC1918, link-local, CGNAT/Tailscale, `.local` or a bare name.
-	static func isPrivateHost(_ host: String) -> Bool {
-		let name = host.lowercased()
-		if name == "localhost" || name == "127.0.0.1" || name == "::1" { return true }
-		if name.hasSuffix(".local") || !name.contains(".") { return true }
-		let parts = name.split(separator: ".").compactMap { Int($0) }
-		guard parts.count == 4, parts.allSatisfy({ (0 ... 255).contains($0) }) else { return false }
-		switch parts[0] {
-		case 10: return true
-		case 172: return (16 ... 31).contains(parts[1])
-		case 192: return parts[1] == 168
-		case 169: return parts[1] == 254
-		case 100: return (64 ... 127).contains(parts[1])
-		default: return false
-		}
-	}
-
 	static func defaultStateDir() -> String {
 		if isRootless { return "/var/jb/var/lib/sentinelbridge" }
 		if isRoot { return "/var/lib/sentinelbridge" }
@@ -272,9 +255,9 @@ enum ConfigLoader {
 		if let id = options.deviceId { config.deviceId = id }
 
 		guard var parsed = URL(string: config.url), let scheme = parsed.scheme,
-		      scheme == "ws" || scheme == "wss", parsed.host != nil
+		      scheme == "wss", parsed.host != nil
 		else {
-			throw ConfigError.message("配置里的 url 必须是 ws:// 或 wss:// 地址")
+			throw ConfigError.message("iOS 强制 wss：配置里的 url 必须是 wss:// 地址")
 		}
 		guard !config.token.isEmpty else {
 			throw ConfigError.message("配置里缺少 token（在控制台「iOS 设备」页创建）")
@@ -287,12 +270,6 @@ enum ConfigLoader {
 			items.append(URLQueryItem(name: "token", value: config.token))
 			components.queryItems = items
 			if let built = components.url { parsed = built; config.url = built.absoluteString }
-		}
-		// The dedicated reverse listener is plain HTTP: allow ws:// to loopback and
-		// private/link-local addresses (the device token is still required), but
-		// never to a public host. Public deployments must use wss://.
-		if scheme == "ws" && !Platform.isPrivateHost(parsed.host ?? "") {
-			throw ConfigError.message("明文 ws:// 只允许回环或局域网地址；公网请用 wss://")
 		}
 
 		let stateDir = options.stateDir ?? Platform.defaultStateDir()

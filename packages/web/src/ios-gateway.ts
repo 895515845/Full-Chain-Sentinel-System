@@ -19,6 +19,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage } from "node:http";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import {
 	type AddressInfo,
 	createServer as createTcpServer,
@@ -70,6 +71,8 @@ export interface IosGatewayOptions {
 	staleMs?: number;
 	/** Liveness sweep interval (default 5s). */
 	watchdogTickMs?: number;
+	/** TLS material for the dedicated listener; iOS only accepts wss. */
+	tls?: { cert: string | Buffer; key: string | Buffer };
 }
 
 export interface IosGatewayHooks {
@@ -111,7 +114,7 @@ export class IosGateway {
 	private readonly pending = new PendingRequests<IosResult>();
 	private readonly tunnels = new Map<string, TcpTunnel>();
 	/** The dedicated reverse listener, independent from the console's HTTP server. */
-	private listener: { server: HttpServer; host: string; port: number } | undefined;
+	private listener: { server: HttpServer | HttpsServer; host: string; port: number } | undefined;
 	private watchdog: ReturnType<typeof setInterval> | undefined;
 	private counter = 0;
 	/** Set once the gateway is shutting down: close handlers must not touch the store. */
@@ -121,12 +124,14 @@ export class IosGateway {
 	private readonly hooks: IosGatewayHooks;
 	private readonly staleMs: number;
 	private readonly watchdogTickMs: number;
+	private readonly tls: { cert: string | Buffer; key: string | Buffer } | undefined;
 
 	constructor(store: IosStore, hooks: IosGatewayHooks, options: IosGatewayOptions = {}) {
 		this.store = store;
 		this.hooks = hooks;
 		this.staleMs = options.staleMs ?? IOS_STALE_MS;
 		this.watchdogTickMs = options.watchdogTickMs ?? IOS_WATCHDOG_TICK_MS;
+		this.tls = options.tls;
 	}
 
 	/** HTTP upgrade dispatch: only this path, only a valid token. */
@@ -437,7 +442,7 @@ export class IosGateway {
 	 */
 	async listen(host: string, port: number): Promise<{ ok: boolean; port?: number; error?: string }> {
 		this.stopListener();
-		const server = createHttpServer();
+		const server = this.tls ? createHttpsServer(this.tls) : createHttpServer();
 		// A plain GET here is an operator probing the port from a phone browser:
 		// answer immediately instead of leaving the request hanging.
 		server.on("request", (_request, response) => {

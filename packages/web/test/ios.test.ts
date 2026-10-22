@@ -90,29 +90,6 @@ test("tokens: create, find, last-used, delete", () => {
 	expect(store.deleteToken(created.id)).toBe(false);
 });
 
-test("pairing codes are six digits, one-time, and map to a token", () => {
-	const created = store.createPairing("配对机");
-	expect(created.pairing.code).toMatch(/^\d{6}$/);
-	expect(store.activePairing()?.code).toBe(created.pairing.code);
-	const claimed = store.claimPairing(created.pairing.code);
-	expect(claimed?.token).toBe(created.token.token);
-	// A claimed code cannot be replayed, and the console stops showing it.
-	expect(store.claimPairing(created.pairing.code)).toBeNull();
-	expect(store.activePairing()).toBeNull();
-});
-
-test("an expired pairing code is refused", async () => {
-	const created = store.createPairing("过期机", 5);
-	await new Promise((resolve) => setTimeout(resolve, 15));
-	expect(store.claimPairing(created.pairing.code)).toBeNull();
-});
-
-test("deleting a token also drops its pending pairing code", () => {
-	const created = store.createPairing("删令牌机");
-	expect(store.deleteToken(created.token.id)).toBe(true);
-	expect(store.claimPairing(created.pairing.code)).toBeNull();
-});
-
 test("an unknown token is refused at the upgrade", async () => {
 	const fake = new FakeIos("dvc-bad", "ios_not_a_real_token");
 	await expect(fake.connect(baseUrl)).rejects.toThrow();

@@ -1,15 +1,14 @@
 /**
  * First-run setup, served only on 127.0.0.1:9945.
  *
- * The deb has no App, so the operator cannot type a token into a mobile UI.
+ * The deb has no App, so this local page is the only place to enter the token.
  * After install, Safari on the phone opens this page; the page asks for the
- * console URL and the six-digit code shown in the console, verifies the
- * console's self-signed certificate fingerprint, claims the token, writes
- * `sentinelbridge.json`, and exits. launchd's KeepAlive restarts the daemon in
- * normal mode.
+ * console's wss URL and an operator-created token, verifies the console's
+ * self-signed certificate fingerprint, writes `sentinelbridge.json`, and
+ * exits. launchd's KeepAlive restarts the daemon in normal mode.
  *
  * The listener is deliberately loopback-only: it is a root configuration
- * endpoint, and the code is the only secret it accepts. It disappears as soon
+ * endpoint, and the token is the only secret it accepts. It disappears as soon
  * as pairing succeeds.
  */
 
@@ -20,9 +19,7 @@ import Security
 
 struct ConsoleTarget {
 	let origin: URL
-	let claim: URL
 	let websocket: String
-	let fingerprintRequired: Bool
 }
 
 final class SetupServer {
@@ -168,10 +165,10 @@ final class SetupServer {
 			}
 		case "/api/setup/pair":
 			let raw = (json["url"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-			let code = (json["code"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+			let token = (json["token"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 			let fingerprint = (json["fingerprint"] as? String ?? "").lowercased().replacingOccurrences(of: ":", with: "")
-			guard code.range(of: "^[0-9]{6}$", options: .regularExpression) != nil else {
-				sendJSON(connection, status: 400, object: ["error": "配对码必须是 6 位数字"])
+			guard token.range(of: "^ios_[A-Za-z0-9]{8,}$", options: .regularExpression) != nil else {
+				sendJSON(connection, status: 400, object: ["error": "token 格式不对，应形如 ios_..." ])
 				return
 			}
 			guard fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
@@ -186,9 +183,9 @@ final class SetupServer {
 				guard let self else { return }
 				switch result {
 				case .success(let target):
-					self.claim(target, code: code, fingerprint: fingerprint) { claim in
-						switch claim {
-						case .success(let token):
+					self.probeCertificate(target, expected: fingerprint) { probe in
+						switch probe {
+						case .success:
 							do {
 								try self.writeConfig(target: target, token: token, fingerprint: fingerprint)
 								self.sendJSON(connection, status: 200, object: ["ok": true])
@@ -234,16 +231,12 @@ final class SetupServer {
 
 	static func parseConsoleURL(_ raw: String) throws -> ConsoleTarget {
 		guard var components = URLComponents(string: raw), let scheme = components.scheme?.lowercased(),
-		      scheme == "https" || scheme == "wss" || scheme == "http" || scheme == "ws",
+		      scheme == "https" || scheme == "wss",
 		      let host = components.host, !host.isEmpty
 		else {
-			throw SetupError.message("控制台地址必须是 https:// 或 wss:// 地址")
+			throw SetupError.message("iOS 强制 wss：控制台地址必须是 https:// 或 wss://")
 		}
-		let secure = scheme == "https" || scheme == "wss"
-		if !secure, host != "127.0.0.1", host != "localhost", host != "::1" {
-			throw SetupError.message("公网控制台必须用 https:// 或 wss://")
-		}
-		components.scheme = secure ? "https" : "http"
+		components.scheme = "https"
 		components.query = nil
 		components.fragment = nil
 		var path = components.path
@@ -253,82 +246,37 @@ final class SetupServer {
 		guard let origin = components.url else {
 			throw SetupError.message("控制台地址不合法")
 		}
-		guard let claim = URL(string: origin.absoluteString + "/api/ios/pair/claim") else {
-			throw SetupError.message("控制台地址不合法")
-		}
 		var ws = URLComponents(url: origin, resolvingAgainstBaseURL: false)
-		ws?.scheme = secure ? "wss" : "ws"
+		ws?.scheme = "wss"
 		ws?.path = path + "/ws/ios"
 		guard let websocket = ws?.url?.absoluteString else {
 			throw SetupError.message("控制台地址不合法")
 		}
-		return ConsoleTarget(origin: origin, claim: claim, websocket: websocket, fingerprintRequired: secure)
+		return ConsoleTarget(origin: origin, websocket: websocket)
 	}
 
 	// MARK: - TLS fingerprint
 
-	private func probeCertificate(_ target: ConsoleTarget, completion: @escaping (Result<String, Error>) -> Void) {
-		guard target.fingerprintRequired else {
-			completion(.success(""))
-			return
-		}
-		let delegate = PinSessionDelegate(allowAny: true, expected: nil)
+	private func probeCertificate(
+		_ target: ConsoleTarget,
+		expected: String? = nil,
+		completion: @escaping (Result<String, Error>) -> Void
+	) {
+		let delegate = PinSessionDelegate(allowAny: expected == nil, expected: expected)
 		let configuration = URLSessionConfiguration.ephemeral
 		configuration.timeoutIntervalForRequest = 8
 		let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
 		let task = session.dataTask(with: target.origin) { _, _, _ in
 			session.finishTasksAndInvalidate()
-			if let fingerprint = delegate.fingerprint {
-				completion(.success(fingerprint))
-			} else {
+			guard let fingerprint = delegate.fingerprint else {
 				completion(.failure(SetupError.message("无法读取控制台证书：请确认地址可达、端口正确")))
-			}
-		}
-		task.resume()
-	}
-
-	private func claim(
-		_ target: ConsoleTarget,
-		code: String,
-		fingerprint: String,
-		completion: @escaping (Result<String, Error>) -> Void
-	) {
-		guard target.fingerprintRequired else {
-			// Local http:// development only; the public path always verifies a pin.
-			performClaim(target, code: code, delegate: nil, completion: completion)
-			return
-		}
-		let delegate = PinSessionDelegate(allowAny: false, expected: fingerprint)
-		performClaim(target, code: code, delegate: delegate, completion: completion)
-	}
-
-	private func performClaim(
-		_ target: ConsoleTarget,
-		code: String,
-		delegate: PinSessionDelegate?,
-		completion: @escaping (Result<String, Error>) -> Void
-	) {
-		let configuration = URLSessionConfiguration.ephemeral
-		configuration.timeoutIntervalForRequest = 10
-		let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-		var request = URLRequest(url: target.claim)
-		request.httpMethod = "POST"
-		request.setValue("application/json", forHTTPHeaderField: "content-type")
-		request.httpBody = try? JSONSerialization.data(withJSONObject: ["code": code])
-		let task = session.dataTask(with: request) { data, response, error in
-			session.finishTasksAndInvalidate()
-			if let error {
-				completion(.failure(SetupError.message("连接控制台失败：\(error.localizedDescription)")))
 				return
 			}
-			let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-			let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any] ?? [:]
-			guard status == 200, let token = object["token"] as? String, !token.isEmpty else {
-				let message = object["error"] as? String ?? "配对码无效或已过期"
-				completion(.failure(SetupError.message(message)))
+			if let expected, fingerprint != expected {
+				completion(.failure(SetupError.message("证书指纹与控制台显示不一致")))
 				return
 			}
-			completion(.success(token))
+			completion(.success(fingerprint))
 		}
 		task.resume()
 	}
@@ -379,16 +327,16 @@ main{max-width:560px;margin:0 auto;padding:24px 18px 48px}h1{font-size:22px;marg
 label{display:block;margin:16px 0 6px;font-size:13px;color:#8b949e}input{width:100%;padding:11px 12px;border:1px solid #30363d;border-radius:8px;background:#161b22;color:#c9d1d9;font-size:16px}
 input[readonly]{color:#58a6ff}button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:8px;background:#238636;color:#fff;font-size:16px}
 button.secondary{background:#21262d;border:1px solid #30363d}button:disabled{opacity:.45}
-.row{display:flex;gap:10px}.row>*{flex:1}.code{margin-top:6px;padding:18px;text-align:center;font:600 34px/1.2 ui-monospace,Menlo,monospace;letter-spacing:8px;background:#161b22;border:1px solid #30363d;border-radius:10px}
+.row{display:flex;gap:10px}.row>*{flex:1}
 .note{margin-top:18px;padding:12px;border:1px solid #30363d;border-radius:8px;background:#161b22;color:#8b949e;font-size:13px}
 .ok{color:#3fb950}.err{color:#f85149}code{color:#58a6ff}
 </style></head><body><main>
 <h1>SentinelBridge 配对</h1>
-<p>只在本机回环地址监听。输入控制台显示的 6 位配对码，确认证书指纹后写入配置。</p>
+<p>只在本机回环地址监听。iOS 强制 wss：填入控制台 wss 地址、控制台创建的 token，确认证书指纹后写入配置。</p>
 <label>控制台地址</label>
 <input id="url" placeholder="https://console.example.com:9443" autocomplete="off" spellcheck="false">
-<label>6 位配对码</label>
-<input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
+<label>访问令牌 token</label>
+<input id="token" placeholder="ios_..." autocomplete="off" spellcheck="false">
 <label>控制台证书 SHA-256</label>
 <input id="fingerprint" readonly placeholder="先点“检测证书”">
 <div class="row"><button class="secondary" id="probe">检测证书</button><button id="pair" disabled>配对</button></div>
@@ -409,14 +357,15 @@ $("probe").onclick = async () => {
   try {
     const data = await post("/api/setup/probe", { url: $("url").value.trim() });
     $("fingerprint").value = data.fingerprint || "";
-    show(data.fingerprint ? "证书指纹已读取，请与控制台显示的值核对。" : "该地址不需要证书指纹（仅本机 http）。", true);
+    show("证书指纹已读取，请与控制台显示的值核对。", true);
   } catch (error) { show(error.message, false); }
 };
-$("confirm").onchange = () => { $("pair").disabled = !($("confirm").checked && $("fingerprint").value); };
+$("confirm").onchange = () => { $("pair").disabled = !($("confirm").checked && $("fingerprint").value && $("token").value.trim()); };
+$("token").oninput = () => { $("pair").disabled = !($("confirm").checked && $("fingerprint").value && $("token").value.trim()); };
 $("pair").onclick = async () => {
   $("pair").disabled = true;
   try {
-    await post("/api/setup/pair", { url: $("url").value.trim(), code: $("code").value.trim(), fingerprint: $("fingerprint").value.trim() });
+    await post("/api/setup/pair", { url: $("url").value.trim(), token: $("token").value.trim(), fingerprint: $("fingerprint").value.trim() });
     show("配对成功，设备将重启并连接控制台。", true);
     $("pair").textContent = "已配对";
   } catch (error) { show(error.message, false); $("pair").disabled = false; }
