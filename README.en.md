@@ -24,6 +24,7 @@ This project is released under the MIT License, without warranty of any kind.
 - **Vulnerability hub**: `vuln_submit` records validated findings, requires a CVSS score, preserves raw packets verbatim, keeps an operator review timeline, and exports a Markdown report per project.
 - **API modeling and POC library**: reconstruct a target site as an OpenAPI 3.0 document; subscribe to, search, and reference Nuclei POCs.
 - **Android device plugin**: install the custom DroidBridge APK on a rooted test device to let it connect back. Provides shell, file upload/download, screenshots, logcat, tcpdump capture, Frida dynamic instrumentation, and APK static analysis.
+- **iOS device plugin**: install the `SentinelBridge` deb on a rootless or rootful jailbroken device; its local control page takes a wss URL and token. Provides shell, file pull/push, app inventory, HTTP logs, packet capture, Frida, decryption, and IPA pull.
 - **Asset discovery plugin** (Settings → Asset discovery): integrates **FOFA**, **360 Quake**, and **QiAnXin Hunter**. The agent uses `fofa_search` / `quake_search` / `hunter_search` with each platform's own query syntax to discover public assets (domains, IPs, ports, titles, services, fingerprints). Raw responses are written to the project's `evidence/asset/`, and every query is logged. All three support a **custom base URL** (a reverse-proxy prefix; leave it empty for the official URL). The console appends each platform's API path and re-validates after saving, so a failed validation unmounts the tool. **A platform is mounted only when it is enabled, has a key, and passes validation**; otherwise the agent cannot see that tool at all. Queries are sent directly by the console process; keys never enter the container, bash audit, or Gatekeeper decisions.
 - **Web search plugin** (Settings → Web search): integrates **Tavily**. The agent uses `web_search` (public web search) and `web_extract` (page text extraction) for target intelligence such as leaked documents, public reports, and technical articles. Multiple keys form a pool; the console rotates them according to remaining quota and switches when a key is exhausted. Query history is stored in `websearch.db`, and raw responses go to the project's `evidence/search/`. Tools are mounted only when Permissions → Web search is enabled and the pool contains a validated key. Keys are stored in plaintext in the local `websearch.json` (0600) and never enter the container or bash audit.
 - **Custom MCP plugins** (Settings → MCP): add, edit, test, and remove MCP servers (`http`, `sse`, or `stdio`) from the console. Tools are exposed as `mcp__<server>__<tool>` and remain subject to the Permissions → MCP master switch, where each server can be enabled or disabled individually. The configuration is owned by Sentinel (`mcp-servers.json`, 0600); **pi's native `mcp.json` is not read**, so servers absent from the list are invisible to the agent. **stdio servers execute directly on the console host** (outside the container and without bash approval), so every one requires an explicit risk acknowledgement before it can be saved.
@@ -67,6 +68,8 @@ Download `sentinel-web-windows-x64.exe` from Releases, place it in an empty dire
 ```
 
 The executable is unsigned, so SmartScreen may block it once; choose "More info → Run anyway". Windows does not include `openssl` by default, so the first start falls back to plaintext HTTP and logs a warning. To keep HTTPS, install OpenSSL or provide certificates with `--tls-cert/--tls-key`. Containers use host networking by default; if Docker Desktop does not support host networking, switch to bridge networking under Settings → Environment and recreate the containers.
+
+**Windows notes:** running the console on Windows is not recommended. Install [Win32OpenSSL](https://slproweb.com/products/Win32OpenSSL.html) and add `C:\Program Files\Git\usr\bin\` to the system `PATH`; otherwise HTTPS access will not work reliably.
 
 Console release assets: `sentinel-web-linux-x64.tar.gz`, `sentinel-web-linux-arm64.tar.gz`, `sentinel-web-darwin-arm64.tar.gz`, `sentinel-web-darwin-x64.tar.gz`, `sentinel-web-windows-x64.exe`, plus the DroidBridge APK.
 
@@ -159,6 +162,7 @@ The repository keeps the upstream pi monorepo package layout. Package names stil
 | [packages/durable](packages/durable) | Session, task, and document runtime |
 | [packages/mcp](packages/mcp) · [packages/protocol](packages/protocol) | MCP and protocol layer |
 | [packages/droid-apk](packages/droid-apk) | Android DroidBridge APK (Kotlin) |
+| [packages/web/ios](packages/web/ios) | iOS SentinelBridge deb (Swift) and Sileo repository |
 | [docker](docker) | Workspace container image (Kali + toolchain) |
 
 ## Development
@@ -193,7 +197,7 @@ The base image and apt/pip/npm/go mirrors are configured under Settings → Envi
 
 **The container constrains commands, not the whole process**: the console and agent processes run as the starting user on the host. Only commands enter the container.
 
-- The approval chain covers only bash and Android shell (`droid_shell`); subagent bash uses the same chain. **read/edit/write, the file panel, MCP tools, codemode, and tools that call the container directly (Frida, packet capture, APK analysis, and similar) bypass the gate.** Engagement-task bash has a separate regex blacklist, a 20-second timeout, and a 40-command budget, and also bypasses approval.
+- The approval chain covers bash, Android shell (`droid_shell`), and iOS shell (`ios_shell`); subagent bash uses the same chain. **read/edit/write, the file panel, MCP tools, codemode, and tools that call the container directly (Frida, packet capture, APK analysis, and similar) bypass the gate.** Engagement-task bash has a separate regex blacklist, a 20-second timeout, and a 40-command budget, and also bypasses approval.
 - `read/edit/write` access the host filesystem directly. The project directory is only the base for relative paths; absolute paths are unrestricted. MCP stdio servers are host subprocesses.
 - AI Approval (the Gatekeeper) judges only six classes of destructive operations. Failures, timeouts, and unparseable replies fail open. It is **not a sandbox and does not prevent data leakage**.
 - The container runs as root with no resource limits and no cap-drop / seccomp / read-only hardening. All sessions and concurrent tasks in a project share one container.
@@ -269,6 +273,32 @@ You need a rooted device (a virtual machine is also fine) with the companion app
 Rooting the phone is outside the scope of this document; the Coolapk community is a good place to learn more. The Android device is the primary reverse-connection platform, so you can deploy the main program on a public server.
 
 <img src="images/Pasted%20image%2020261017124518.png" width="295" alt="Android device configuration" />
+
+## iOS security
+
+iOS support is still under development and testing. Do not use it without some iOS security fundamentals; issues and pull requests are welcome.
+
+You need a jailbroken iPhone with Sileo installed.
+
+Add the package source (use the lowercase repository URL):
+
+```text
+https://zgsfsec.github.io/sentinel-ios-repo/
+```
+
+<img src="images/IMG_0002.png" width="298" alt="Add the SentinelBridge source in Sileo" />
+
+<img src="images/IMG_0003.png" width="294" alt="Install SentinelBridge in Sileo" />
+
+Then open the following address in Safari on the iPhone:
+
+```text
+http://127.0.0.1:9945/setup
+```
+
+Create a token on the console's iOS devices page, enter the console wss URL and the token, verify the certificate fingerprint, and save. The local control page stays available and can connect, stop, or reload the bridge at any time.
+
+<img src="images/IMG_0004.png" width="304" alt="SentinelBridge local control page" />
 
 ## Engagement mode
 

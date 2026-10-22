@@ -19,11 +19,12 @@
 
 - **方法论驱动的渗透流程**：侦察 → 枚举 → 漏洞映射 → 验证 → 利用 → 后渗透 → 报告，系统提示强调授权范围、证据留痕与最小侵入。
 - **中英文 Web 控制台**（[packages/web](packages/web/README.md)）：默认中文，可在侧栏、登录页与授权承诺页切换英文；服务端提示、错误和报告同步英文化。流式对话与思考过程、工具执行卡片、会话树、文件与子代理弹窗、项目选择。
-- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。审批链覆盖 bash 与安卓 shell 命令（`droid_shell`）；frida、抓包、APK 分析与文件面板直接调用容器，不过审批门。
+- **三档执行模式**：审批模式（默认，每条 bash 命令可编辑后放行或拒绝）、自动执行、AI 审批（守门模型逐条判定 `ALLOW` / `BLOCK`，判定失败或超时一律放行）。审批链覆盖 bash、安卓 shell 命令（`droid_shell`）与 iOS shell（`ios_shell`）；frida、抓包、APK 分析与文件面板直接调用容器，不过审批门。
 - **容器化作业环境**：每个项目一个 Kali 容器，内置侦察、枚举、Web 利用、口令与内网工具；容器网络模式在「设置 → 环境」切换（默认 host）。
 - **漏洞中枢**：`vuln_submit` 提交已验证漏洞，必填 CVSS 分数，原始数据包逐字保存，操作员复核留时间线，可按项目导出 Markdown 报告。
 - **业务建模与 POC 库**：把目标站点还原成 OpenAPI 3.0 文档；Nuclei POC 订阅、检索与引用。
 - **安卓设备插件**：root 测试机安装自研 DroidBridge APK 主动反连，提供 shell、文件上下行、截屏、logcat、tcpdump 抓包、frida 动态调试与 APK 静态分析。
+- **iOS 设备插件**：rootless/rootful 越狱设备安装 `SentinelBridge` deb 后反连，本地控制页填 wss 地址和 token；提供 shell、文件拉取/推送、应用清单、HTTP 日志、抓包、frida、砸壳与 IPA 拉取。
 - **资产测绘平台插件**（设置 → 资产测绘）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter**，Agent 用 `fofa_search` / `quake_search` / `hunter_search` 三个工具按各平台自己的查询语法测绘公网资产（域名、IP、端口、标题、服务、指纹），原始响应落到项目 `evidence/asset/`，每次查询记一条流水。三家都支持**自定义 BaseURL**（可填反向代理前缀，留空使用官方地址；控制台自动拼接 API 路径，保存后按新地址重新验证，失败则不挂载）。**只有「已启用 + 已配置密钥 + 验证通过」的平台才会挂载工具**，没配置或密钥不可用时 Agent 根本看不到该工具；查询由控制台进程直接发起，密钥不进容器、不进 bash 审计，也不进守门模型判定。
 - **Web 搜索插件**（设置 → Web 搜索）：接入 **Tavily**，Agent 用 `web_search`（公网搜索）与 `web_extract`（页面正文抓取）做目标情报收集（泄露文档、公开报告、技术文章）。支持多 Key 号池，控制台按各 Key 剩余额度自动轮换，额度耗尽自动切换；查询流水入 `websearch.db`，原始响应落项目 `evidence/search/`。只有「权限 → Web 搜索」开关打开且号池里有已验证的 Key 时才会挂载工具；密钥明文存本机 `websearch.json`（0600），不进容器、不进 bash 审计。
 - **自定义 MCP 插件**（设置 → MCP）：在控制台里增删改查 MCP 服务器（`http`、`sse` 或 `stdio`）并逐个测试连接，工具以 `mcp__<服务器>__<工具>` 挂给 Agent，仍受「权限 → MCP」总开关约束，且该开关下可逐个服务器放开或关掉。配置由哨兵自己拥有（`mcp-servers.json`，0600），**不读 pi 原生的 `mcp.json`**，所以列表里没有的服务器 Agent 看不到。**stdio 服务器在控制台宿主机上直接执行**（不在容器内、不过 bash 审批），必须逐条勾选风险确认才能保存。
@@ -83,6 +84,9 @@ Windows（需要 Docker Desktop，PowerShell 中运行）：
 全链哨兵（PCSS）是以项目为隔离，为了安全考虑，每个项目一个 kali 容器。
 建议开 host 模式，否则公网环境无法进行监听操作。
 
+## Windows注意事项
+
+不建议使用 Windows 运行“全链哨兵”。需要提前安装 [Win32OpenSSL](https://slproweb.com/products/Win32OpenSSL.html)，并把 `C:\Program Files\Git\usr\bin\` 加入系统环境变量，否则无法正常通过 HTTPS 访问。
 
 ### 从源码运行
 
@@ -159,6 +163,7 @@ npm run start:web
 | [packages/durable](packages/durable) | 会话、任务与文档运行时 |
 | [packages/mcp](packages/mcp) · [packages/protocol](packages/protocol) | MCP 与协议层 |
 | [packages/droid-apk](packages/droid-apk) | 安卓 DroidBridge APK（Kotlin） |
+| [packages/web/ios](packages/web/ios) | iOS SentinelBridge deb（Swift）与 Sileo 源 |
 | [docker](docker) | 作业容器镜像（Kali + 工具链） |
 
 ## 开发
@@ -193,7 +198,7 @@ docker build -t sentinel:latest docker/
 
 **但容器只约束命令，不是整体沙箱**：控制台与 Agent 进程本身以启动者的用户身份跑在宿主机上，只有命令进容器。
 
-- 审批链只覆盖 bash 与安卓 shell（`droid_shell`），子代理的 bash 走同一条链；**read/edit/write、文件面板、MCP 工具、codemode，以及 frida、抓包、APK 分析等直接调用容器的工具都不过门**。工程任务的 bash 另有一套正则黑名单、20 秒超时与 40 条预算，同样不走审批门。
+- 审批链只覆盖 bash、安卓 shell（`droid_shell`）与 iOS shell（`ios_shell`），子代理的 bash 走同一条链；**read/edit/write、文件面板、MCP 工具、codemode，以及 frida、抓包、APK 分析等直接调用容器的工具都不过门**。工程任务的 bash 另有一套正则黑名单、20 秒超时与 40 条预算，同样不走审批门。
 - `read/edit/write` 直接读写宿主机文件系统，项目目录只是相对路径的基准，绝对路径不受限制；MCP 的 stdio 服务器是宿主机子进程。
 - AI 审批（守门模型）只判六类破坏性操作，判定失败、超时或无法解析一律放行（fail-open），**不是沙箱、也不做数据防泄漏**。
 - 容器以 root 运行，没有资源上限，也没有 cap-drop / seccomp / read-only；同一项目的所有会话与并发任务共用一个容器。
@@ -270,6 +275,33 @@ docker build -t sentinel:latest docker/
 关于手机 root，这里就不再讲解，有兴趣可以去酷安社区逛逛,安卓机为反连主平台，所以你可以将主程序部署在公网服务器。
 
 <img src="images/Pasted%20image%2020261017124518.png" width="295" alt="Pasted image 20261017124518.png" />
+
+## 关于 iOS 安全
+
+首先如果你没有一些 iOS 安全相关的基础知识，不建议使用这个功能。该功能还在开发测试阶段，欢迎提交 issue。
+
+首先需要一台越狱后的机器，并安装 Sileo。
+
+添加软件源（必须使用小写仓库地址）：
+
+```text
+https://zgsfsec.github.io/sentinel-ios-repo/
+```
+
+<img src="images/IMG_0002.png" width="298" alt="Sileo 添加 SentinelBridge 源" />
+
+<img src="images/IMG_0003.png" width="294" alt="Sileo 安装 SentinelBridge" />
+
+然后在 iPhone 的 Safari 打开：
+
+```text
+http://127.0.0.1:9945/setup
+```
+
+在控制台「iOS 设备」页创建 token，填入控制台 wss 地址、token，检测并核对证书指纹后保存。控制页会常驻，可随时连接、停止和重载。
+
+<img src="images/IMG_0004.png" width="304" alt="SentinelBridge 本地控制页" />
+
 
 ## 工程模式
 
