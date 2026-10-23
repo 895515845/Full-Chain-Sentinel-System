@@ -29,11 +29,11 @@ import {
 	validateCredentials,
 	verifyLogin,
 } from "./auth.ts";
-import { buildImage } from "./docker.ts";
+import { buildImage, containerStates, deleteProjectWorkDir } from "./docker.ts";
 import { deleteDoctrine, listDoctrines, saveDoctrine } from "./doctrines.ts";
 import { DroidGateway } from "./droid-gateway.ts";
 import { testModelConfig } from "./endpoint-probe.ts";
-import { EngineManager } from "./engine.ts";
+import { EngineManager, engineHasWorkInFlight } from "./engine.ts";
 import { checkEnvironment } from "./env-check.ts";
 import { guessMimeType } from "./files.ts";
 import { getServerLanguage, setServerLanguage, t } from "./i18n.ts";
@@ -57,6 +57,8 @@ import {
 	removeProject,
 	resolveStartupProject,
 	setLastActiveProject,
+	startProject,
+	stopProject,
 } from "./projects.ts";
 import type {
 	SentinelClientMessage,
@@ -643,17 +645,40 @@ export async function startSentinelServer(
 		});
 	}
 
-	/** Project list with each project's finding and gate-record counts, for the delete warning. */
-	function projectInfos(): SentinelProjectInfo[] {
+	/**
+	 * Project list with each project's finding and gate-record counts, for the
+	 * delete warning, plus the container's real state so the page can offer the
+	 * action that applies (start, stop, or nothing).
+	 *
+	 * The state comes from one `docker ps -a`, not one inspect per project.
+	 */
+	async function projectInfos(): Promise<SentinelProjectInfo[]> {
 		if (!agentDir) return [];
-		return listProjects(agentDir).projects.map(({ id, name, workDir, container }) => ({
+		const states = await containerStates();
+		return listProjects(agentDir).projects.map(({ id, name, workDir, container, manualStop }) => ({
 			id,
 			name,
 			cwd: workDir,
 			container,
+			state: states.get(container) ?? "missing",
+			manualStop: manualStop === true,
+			sessionCount: runtime.countProjectSessions(workDir),
 			vulnCount: runtime.countProjectVulns(id),
 			gateCount: runtime.countProjectGates(id),
 		}));
+	}
+
+	/**
+	 * Work in flight for a project, which stopping its container would interrupt:
+	 * engines that are running or scheduled (or hold queued/running tasks), plus
+	 * the streaming sessions of the active project. Sessions of a project that is
+	 * not active are not tracked here, because the console detaches them.
+	 */
+	function projectActivity(projectId: string): { engines: number; sessions: number } {
+		const snapshot = runtime.snapshot();
+		const sessions = snapshot.project?.id === projectId ? snapshot.runningSessions.length : 0;
+		const busy = (engines?.listEngines(projectId) ?? []).filter(engineHasWorkInFlight);
+		return { engines: busy.length, sessions };
 	}
 
 	/**
@@ -674,11 +699,11 @@ export async function startSentinelServer(
 		else broadcast(view);
 	}
 
-	function broadcastProjects(): void {
+	async function broadcastProjects(): Promise<void> {
 		const registry = agentDir ? listProjects(agentDir) : { projects: [] };
 		broadcast({
 			type: "projects",
-			projects: projectInfos(),
+			projects: await projectInfos(),
 			activeProjectId: runtime.snapshot().project?.id ?? registry.lastActiveProjectId ?? null,
 		});
 	}
@@ -1124,20 +1149,22 @@ export async function startSentinelServer(
 	});
 	wss.on("connection", (socket) => {
 		clients.add(socket);
-		socket.send(JSON.stringify({ type: "ui_config", language: getServerLanguage() } satisfies SentinelServerMessage));
-		socket.send(JSON.stringify({ type: "snapshot", snapshot: runtime.snapshot() } satisfies SentinelServerMessage));
-		socket.send(
-			JSON.stringify({
-				type: "projects",
-				projects: projectInfos(),
-				activeProjectId: runtime.snapshot().project?.id ?? null,
-			} satisfies SentinelServerMessage),
-		);
+		// Listeners first: the project list needs docker, and a client that sends a
+		// command right after connecting must not have it dropped in the meantime.
 		socket.on("message", (data) => {
 			void handleClientMessage(socket, data.toString());
 		});
 		socket.on("close", () => clients.delete(socket));
 		socket.on("error", () => clients.delete(socket));
+		sendTo(socket, { type: "ui_config", language: getServerLanguage() });
+		sendTo(socket, { type: "snapshot", snapshot: runtime.snapshot() });
+		void projectInfos().then((projects) => {
+			sendTo(socket, {
+				type: "projects",
+				projects,
+				activeProjectId: runtime.snapshot().project?.id ?? null,
+			});
+		});
 		// Engineering mode: the board and doctrine list are pushed per connect.
 		broadcastEngines(socket);
 		if (agentDir) sendTo(socket, { type: "doctrines", doctrines: listDoctrines(agentDir) });
@@ -1898,7 +1925,7 @@ export async function startSentinelServer(
 					return;
 				}
 				case "list_projects": {
-					broadcastProjects();
+					await broadcastProjects();
 					return;
 				}
 				case "add_project": {
@@ -1911,7 +1938,7 @@ export async function startSentinelServer(
 						sendError(socket, result.error);
 						return;
 					}
-					broadcastProjects();
+					await broadcastProjects();
 					return;
 				}
 				case "remove_project": {
@@ -1929,11 +1956,27 @@ export async function startSentinelServer(
 						sendError(socket, t("确认失败：请输入完整项目名「{name}」", { name: target.name }));
 						return;
 					}
-					// Unregister, stop+remove the container, and delete the findings: a
-					// finding cannot outlive the scope it was found in. The project's
-					// session files stay on the host until the operator removes them.
 					const wasActive = runtime.snapshot().project?.id === message.id;
-					const result = await removeProject(agentDir, message.id);
+					if (message.scope === "container") {
+						// Only the container goes: the registry entry, the work directory,
+						// the sessions and every record stay. The project needs an explicit
+						// start, which recreates the container from current settings.
+						const removed = await removeProject(agentDir, message.id, "container");
+						if (removed.error) {
+							sendError(socket, removed.error);
+							return;
+						}
+						// Its container is gone, so live sessions of the active project cannot
+						// run; the console falls back to the project-required state.
+						if (wasActive) await runtime.detachProject(target.workDir);
+						console.error(`[sentinel-server] 删除项目 ${target.name} 的容器，项目与数据保留`);
+						await broadcastProjects();
+						if (wasActive) broadcastSnapshot();
+						return;
+					}
+					// Scope "data": unregister, remove the container, and delete what the
+					// project owned — records, session files and the work directory.
+					const result = await removeProject(agentDir, message.id, "data");
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
@@ -1948,14 +1991,75 @@ export async function startSentinelServer(
 					const purgedAssets = runtime.purgeProjectAssets(message.id);
 					const purgedWebSearch = runtime.purgeProjectWebSearch(message.id);
 					const purgedSupervisor = runtime.purgeProjectSupervisor(message.id);
-					console.error(
-						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录、${purgedWebSearch} 条 Web 搜索记录、${purgedSupervisor} 个监督会话`,
-					);
-					// The removed project's container is gone, so its sessions cannot run;
-					// the console falls back to the project-required state.
+					// Detach before the work directory goes: the live sessions holding it
+					// must be closed first, or their managers would write into a deleted path.
 					if (wasActive) await runtime.detachProject(target.workDir);
-					broadcastProjects();
+					const purgedSessions = await runtime.purgeProjectSessions(target.workDir);
+					const workDir = deleteProjectWorkDir(target.workDir);
+					console.error(
+						`[sentinel-server] 删除项目 ${target.name}，连带删除 ${purged} 条漏洞记录、${purgedGates} 条守门记录、${purgedModels} 份业务模型、${purgedCaptures} 条抓包记录、${purgedAssets} 条资产测绘记录、${purgedWebSearch} 条 Web 搜索记录、${purgedSupervisor} 个监督会话、${purgedSessions} 个会话文件${workDir.ok ? "与工作目录" : `（工作目录未删除：${workDir.error ?? ""}）`}`,
+					);
+					await broadcastProjects();
 					broadcastSnapshot();
+					return;
+				}
+				case "stop_project": {
+					if (!agentDir) {
+						sendError(socket, t("内部错误：agentDir 未初始化"));
+						return;
+					}
+					const target = listProjects(agentDir).projects.find((project) => project.id === message.id);
+					if (!target) {
+						sendError(socket, t("项目不存在"));
+						return;
+					}
+					// Stopping a container with work in flight would fail that work with
+					// docker errors, so the operator is asked to end it first.
+					const busy = projectActivity(message.id);
+					if (busy.engines > 0 || busy.sessions > 0) {
+						sendError(
+							socket,
+							t(
+								"该项目还有正在运行的内容（{engines} 个工程、{sessions} 个会话）：请先暂停工程或等它结束，再停止容器",
+								{
+									engines: busy.engines,
+									sessions: busy.sessions,
+								},
+							),
+						);
+						return;
+					}
+					const stopped = await stopProject(agentDir, message.id);
+					if (stopped.error) {
+						sendError(socket, stopped.error);
+						return;
+					}
+					// A stopped project cannot be worked in, so the console leaves it; the
+					// operator re-enters after starting the container again.
+					if (runtime.snapshot().project?.id === message.id) {
+						await runtime.detachProject(target.workDir);
+						broadcastSnapshot();
+					}
+					await broadcastProjects();
+					return;
+				}
+				case "start_project": {
+					if (!agentDir) {
+						sendError(socket, t("内部错误：agentDir 未初始化"));
+						return;
+					}
+					const started = await startProject(agentDir, message.id);
+					if (started.error) {
+						sendError(socket, started.error);
+						return;
+					}
+					// A recreated container may not match the environment the console
+					// reported before (image, toolchain), so re-check it.
+					if (started.created) {
+						await ensureEnvironment(true);
+						broadcastEnvironment();
+					}
+					await broadcastProjects();
 					return;
 				}
 				case "recreate_project": {
@@ -1972,7 +2076,7 @@ export async function startSentinelServer(
 						sendError(socket, recreated.error);
 						return;
 					}
-					broadcastProjects();
+					await broadcastProjects();
 					await ensureEnvironment(true);
 					broadcastEnvironment();
 					return;
@@ -1988,8 +2092,14 @@ export async function startSentinelServer(
 						sendError(socket, t("项目不存在"));
 						return;
 					}
-					if (!(await ensureProjectReady(target))) {
-						sendError(socket, t("项目容器 {container} 无法启动，请检查 Docker", { container: target.container }));
+					if (!(await ensureProjectReady(target, agentDir))) {
+						// A deliberate stop is not a Docker failure: say which click fixes it.
+						sendError(
+							socket,
+							target.manualStop
+								? t("项目容器已停止：请在「项目」页点「启动容器」后再进入")
+								: t("项目容器 {container} 无法启动，请检查 Docker", { container: target.container }),
+						);
 						return;
 					}
 					setLastActiveProject(agentDir, target.id);
@@ -1999,7 +2109,7 @@ export async function startSentinelServer(
 						container: target.container,
 						cwd: target.workDir,
 					});
-					broadcastProjects();
+					await broadcastProjects();
 					await broadcastSessions();
 					return;
 				}

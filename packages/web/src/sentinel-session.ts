@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve as resolveFsPath } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -31,6 +31,7 @@ import {
 	type ExtensionFactory,
 	getAgentDir,
 	getDefaultSessionDir,
+	getSessionDirPath,
 	type ImageContent,
 	ModelRuntime,
 	mcpNamespace,
@@ -3957,6 +3958,58 @@ export class SentinelRuntime {
 	async listSessions(): Promise<SentinelSessionListEntry[]> {
 		const sessions = await SessionManager.list(this.cwd, this.sessionDir || undefined);
 		return sessions.map(withSessionStatus);
+	}
+
+	/**
+	 * How many sessions a project has, counted without parsing them.
+	 *
+	 * One session is one file, so a directory listing is enough — and it is the
+	 * only way to know the count for a project that is not the active one.
+	 */
+	countProjectSessions(workDir: string): number {
+		const dir = getSessionDirPath(workDir, this.agentDir);
+		if (!existsSync(dir)) return 0;
+		try {
+			return readdirSync(dir).filter((name) => name.endsWith(".jsonl")).length;
+		} catch {
+			return 0;
+		}
+	}
+
+	/**
+	 * Delete a project's session files, and nothing else.
+	 *
+	 * Sessions are listed through the SDK for that working directory, so only
+	 * files that are really this project's sessions are removed; sidecars that
+	 * share a session's name (a temporary file, a database journal) go with it.
+	 * The directory itself stays, because it is derived from the working
+	 * directory and may hold another project's sessions in the same folder.
+	 */
+	async purgeProjectSessions(workDir: string): Promise<number> {
+		const dir = getSessionDirPath(workDir, this.agentDir);
+		if (!existsSync(dir)) return 0;
+		const sessions = await SessionManager.list(workDir, dir);
+		let removed = 0;
+		const ids = new Set<string>();
+		for (const session of sessions) {
+			ids.add(session.id);
+			try {
+				rmSync(session.path, { force: true });
+				removed += 1;
+			} catch {
+				// A session file we cannot remove must not stop the purge.
+			}
+		}
+		for (const name of readdirSync(dir)) {
+			const owner = [...ids].find((id) => name === id || name.startsWith(`${id}.`));
+			if (!owner) continue;
+			try {
+				rmSync(join(dir, name), { force: true, recursive: true });
+			} catch {
+				// Same: keep going, the caller reports what it could remove.
+			}
+		}
+		return removed;
 	}
 
 	/** Rename any session in the managed session directory by appending a session_info entry. */

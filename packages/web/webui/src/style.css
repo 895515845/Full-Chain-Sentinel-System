@@ -4665,6 +4665,132 @@ svg.lucide {
 	font-size: 12px;
 }
 
+/* 项目页：项目单元格两行（名字 / 状态 + 容器短名），数量列右对齐，
+   动作列只留一个主动作加一个 ⋯ 菜单，不再并排四个同等权重的按钮。 */
+.project-table .data-row {
+	grid-template-columns: minmax(220px, 2fr) 72px 72px minmax(140px, auto);
+}
+
+.project-cell {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.project-cell__name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	font-weight: 500;
+	color: var(--text-bright);
+}
+
+.project-cell__sub {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	font-size: 12px;
+}
+
+.project-cell__sub code {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--faint);
+}
+
+.project-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--dim);
+	white-space: nowrap;
+}
+
+.project-state__dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--disabled);
+}
+
+.project-state--run .project-state__dot {
+	background: var(--ok);
+}
+
+.project-state--stopped .project-state__dot {
+	background: var(--warn);
+}
+
+.project-state--none .project-state__dot {
+	background: transparent;
+	border: 1px solid var(--border-strong);
+}
+
+.project-num {
+	text-align: right;
+}
+
+.project-current-note {
+	font-size: 12px;
+	color: var(--faint);
+}
+
+.cell-menu {
+	position: relative;
+	display: inline-flex;
+}
+
+.cell-menu__list {
+	position: absolute;
+	right: 0;
+	top: 26px;
+	z-index: 20;
+	display: flex;
+	flex-direction: column;
+	min-width: 150px;
+	padding: 4px;
+	background: var(--card);
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	box-shadow: var(--shadow-md);
+}
+
+.cell-menu__list button {
+	height: 28px;
+	padding: 0 10px;
+	justify-content: flex-start;
+	text-align: left;
+	background: transparent;
+	border-color: transparent;
+}
+
+.cell-menu__list button:hover:not(:disabled) {
+	background: var(--accent-dim);
+	border-color: transparent;
+}
+
+.cell-menu__danger {
+	color: var(--danger);
+}
+
+.cell-menu__danger:hover:not(:disabled) {
+	background: var(--danger-dim);
+	color: var(--danger);
+}
+
+.cell-menu__sep {
+	display: block;
+	height: 1px;
+	margin: 4px 6px;
+	background: var(--border);
+}
+
 .data-confirm {
 	grid-column: 1 / -1;
 	display: flex;
@@ -8209,6 +8335,137 @@ button.link {
 
 .vuln-delete-body p {
 	margin: 0 0 6px;
+}
+
+/* 确认弹窗：比默认 modal 窄，标题、正文与动作分区。
+   项目删除、停止容器、重建容器共用它，避免把一段说明和几个按钮塞进表格行或下拉。 */
+.modal.confirm-dialog {
+	width: min(500px, calc(100vw - 48px));
+	height: auto;
+	max-height: calc(100vh - 96px);
+	display: flex;
+	flex-direction: column;
+	padding: 0 18px 16px;
+}
+
+.confirm-dialog__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 15px 0 11px;
+	border-bottom: 1px solid var(--border);
+}
+
+.confirm-dialog__title {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text-bright);
+}
+
+.confirm-dialog__sub {
+	margin-left: 8px;
+	font-size: 13px;
+	font-weight: 400;
+	color: var(--dim);
+}
+
+.confirm-dialog__body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 14px 0 4px;
+	overflow-y: auto;
+}
+
+.confirm-dialog__foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border);
+}
+
+/* 一行元信息（容器名与记录数）与一段说明：不画盒子，靠字号与颜色分层 */
+.confirm-meta {
+	font-size: 12.5px;
+	line-height: 1.7;
+	color: var(--faint);
+}
+
+.confirm-meta code {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.confirm-note {
+	margin: 0;
+	font-size: 12.5px;
+	line-height: 1.85;
+	color: var(--dim);
+}
+
+.confirm-note code {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.confirm-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.confirm-field__label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.confirm-field__ok {
+	color: var(--ok);
+}
+
+.confirm-field input {
+	height: 30px;
+	padding: 0 10px;
+	font-size: 13px;
+	color: var(--text);
+	background: var(--card);
+	border: 1px solid var(--border-strong);
+	border-radius: 4px;
+}
+
+.confirm-field input:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
+/* 页面级错误边界：显示具体报错并提供重试，而不是整页白屏 */
+.page-error-card__detail {
+	max-height: 260px;
+	margin: 0;
+	padding: 12px;
+	overflow: auto;
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.7;
+	color: var(--danger);
+	background: var(--danger-dim);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.page-error-card__actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 14px;
 }
 
 /* 漏洞中枢筛选：一个搜索框 + 一个条件面板，生效条件折成可点掉的胶囊。

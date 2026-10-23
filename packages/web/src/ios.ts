@@ -304,6 +304,15 @@ export class IosStore {
 		return rows.map(toDevice);
 	}
 
+	/**
+	 * Clear every device's online flag: the gateway calls this when it starts,
+	 * because nothing can be connected before its listener exists. Without it a
+	 * device that was connected at shutdown stays 在线 forever.
+	 */
+	clearOnline(): void {
+		this.db.prepare(`UPDATE ios_devices SET online = 0`).run();
+	}
+
 	setDeviceOnline(id: string, online: boolean): void {
 		this.db.prepare("UPDATE ios_devices SET online = ?, last_seen = ? WHERE id = ?").run(online ? 1 : 0, now(), id);
 	}

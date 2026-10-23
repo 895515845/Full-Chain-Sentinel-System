@@ -76,7 +76,8 @@ export function DroidPage({
 		};
 	})();
 
-	const onlineCount = devices.filter((device) => device.online).length;
+	// 无响应的设备不能算在线：进程可能被挂起，socket 还开着但什么都不会回。
+	const onlineCount = devices.filter((device) => device.online && !device.stale).length;
 
 	return (
 		<div className="page-card droid-page">
@@ -242,7 +243,13 @@ export function DroidPage({
 											<div className="droid-device__facts">
 												<span className="droid-tag">Android {device.androidVersion} (SDK {device.sdkInt})</span>
 												{device.rooted ? <span className="droid-tag root">{t("已 root")}</span> : <span className="droid-tag">{t("未 root")}</span>}
-												<span className="droid-tag">{device.online ? t("在线") : t("离线 · {time}", { time: formatTime(device.lastSeen) })}</span>
+												<span className="droid-tag">
+													{device.stale
+														? t("无响应 {seconds}s", { seconds: Math.round((device.idleMs ?? 0) / 1000) })
+														: device.online
+															? t("在线")
+															: t("离线 · {time}", { time: formatTime(device.lastSeen) })}
+												</span>
 												<span className="droid-tag mono-tag">id {device.id.slice(0, 8)}</span>
 											</div>
 											<div className="droid-device__ops">

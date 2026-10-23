@@ -158,6 +158,21 @@ interface EngineLive {
 	bash: { used: number };
 }
 
+/**
+ * Whether an engine, or any of its tasks, is doing work right now.
+ *
+ * Used by the container stop gate: a container that goes away interrupts
+ * exactly this work, so it has to be refused while it is in flight. A paused
+ * engine counts as idle — resuming it is a deliberate operator action.
+ */
+export function engineHasWorkInFlight(engine: SentinelEngine): boolean {
+	return (
+		engine.status === "running" ||
+		engine.status === "scheduled" ||
+		engine.tasks.some((task) => task.status === "running" || task.status === "queued")
+	);
+}
+
 export class EngineManager {
 	private readonly agentDir: string;
 	private readonly store: EngineStore;

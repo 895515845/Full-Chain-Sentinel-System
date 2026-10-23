@@ -12,10 +12,11 @@ import { readContainerNetwork } from "./container-network.ts";
 import {
 	containerNameFor,
 	createContainer,
-	ensureRunning,
+	ensureContainer,
 	hasImage,
 	projectWorkDir,
 	removeContainer,
+	stopContainer,
 } from "./docker.ts";
 import { t } from "./i18n.ts";
 
@@ -27,6 +28,14 @@ export interface SentinelProject {
 	/** Host directory mounted at /work in the container. */
 	workDir: string;
 	createdAt: string;
+	/**
+	 * The operator stopped this project's container on purpose.
+	 *
+	 * Docker state is not enough to tell an intentional stop from a container
+	 * that exited with the host: the first must wait for an explicit start, the
+	 * second may be started again whenever the project is used.
+	 */
+	manualStop?: boolean;
 }
 
 interface ProjectsFile {
@@ -105,24 +114,45 @@ export async function recreateProject(
 	if (!(await hasImage())) {
 		return { error: t("工具镜像尚未构建，请先构建镜像后再重建容器") };
 	}
-	await removeContainer(project.container);
+	const removed = await removeContainer(project.container);
+	if (!removed.ok) return { error: t("容器删除失败：{error}", { error: removed.error ?? "" }) };
 	const created = await createContainer(project.container, project.workDir, readContainerNetwork(agentDir));
 	if (!created.ok) return { error: t("容器重建失败：{error}", { error: created.error ?? "" }) };
+	// A freshly created container is running: an earlier manual stop is spent.
+	delete project.manualStop;
+	writeProjects(agentDir, file);
 	return { project };
 }
 
+/**
+ * Remove a project's container, or the project itself.
+ *
+ * `container` keeps the registry entry and everything on the host: the container
+ * is disposable, the work directory and the records are not. The project is left
+ * needing an explicit start, which recreates the container from current settings.
+ * `data` unregisters the project; its stored data is deleted by the caller, which
+ * owns the databases and the session files.
+ */
 export async function removeProject(
 	agentDir: string,
 	id: string,
+	scope: ProjectRemoveScope = "data",
 ): Promise<{ removed?: SentinelProject; error?: string }> {
 	const file = readProjects(agentDir);
-	const index = file.projects.findIndex((project) => project.id === id);
-	if (index === -1) return { error: t("项目不存在") };
-	const [removed] = file.projects.splice(index, 1);
+	const project = file.projects.find((entry) => entry.id === id);
+	if (!project) return { error: t("项目不存在") };
+	const removed = await removeContainer(project.container);
+	if (!removed.ok) return { error: t("容器删除失败：{error}", { error: removed.error ?? "" }) };
+	if (scope === "container") {
+		project.manualStop = true;
+		writeProjects(agentDir, file);
+		return { removed: project };
+	}
+	const index = file.projects.findIndex((entry) => entry.id === id);
+	file.projects.splice(index, 1);
 	if (file.lastActiveProjectId === id) delete file.lastActiveProjectId;
 	writeProjects(agentDir, file);
-	await removeContainer(removed.container);
-	return { removed };
+	return { removed: project };
 }
 
 export function setLastActiveProject(agentDir: string, id: string | undefined): void {
@@ -135,11 +165,62 @@ export function setLastActiveProject(agentDir: string, id: string | undefined): 
 export async function resolveStartupProject(agentDir: string): Promise<{ project?: SentinelProject }> {
 	const file = readProjects(agentDir);
 	const last = file.projects.find((project) => project.id === file.lastActiveProjectId);
-	if (last && (await ensureRunning(last.container))) return { project: last };
+	// Going through the readiness check keeps a deliberately stopped project
+	// stopped: starting it is the operator's click, not a side effect of a restart.
+	if (last && (await ensureProjectReady(last, agentDir))) return { project: last };
 	return {};
 }
 
-/** Verify a project's container is usable, starting it when stopped. */
-export async function ensureProjectReady(project: SentinelProject): Promise<boolean> {
-	return await ensureRunning(project.container);
+/** The project's container state as the operator should see it. */
+export type ProjectContainerState = "running" | "stopped" | "missing";
+
+/** What a delete request covers: just the container, or everything the project owns. */
+export type ProjectRemoveScope = "container" | "data";
+
+/**
+ * Verify a project's container is usable, starting it when it is merely stopped
+ * and creating it when it is gone.
+ *
+ * A project the operator stopped by hand is never started here: it needs an
+ * explicit 「启动容器」, or the stop would be undone by the next click.
+ */
+export async function ensureProjectReady(project: SentinelProject, agentDir: string): Promise<boolean> {
+	if (project.manualStop) return false;
+	const ready = await ensureContainer(project.container, project.workDir, readContainerNetwork(agentDir));
+	return ready.ok;
+}
+
+/**
+ * Stop a project's container and remember that it was intentional.
+ *
+ * The container is kept: it can be started again with its installed packages
+ * intact, which is what separates this from removing or rebuilding it.
+ */
+export async function stopProject(
+	agentDir: string,
+	id: string,
+): Promise<{ project?: SentinelProject; error?: string }> {
+	const file = readProjects(agentDir);
+	const project = file.projects.find((entry) => entry.id === id);
+	if (!project) return { error: t("项目不存在") };
+	const stopped = await stopContainer(project.container);
+	if (!stopped.ok && stopped.error) return { error: t("容器停止失败：{error}", { error: stopped.error }) };
+	project.manualStop = true;
+	writeProjects(agentDir, file);
+	return { project };
+}
+
+/** Start a project's container again, creating it when it no longer exists. */
+export async function startProject(
+	agentDir: string,
+	id: string,
+): Promise<{ project?: SentinelProject; created?: boolean; error?: string }> {
+	const file = readProjects(agentDir);
+	const project = file.projects.find((entry) => entry.id === id);
+	if (!project) return { error: t("项目不存在") };
+	const ready = await ensureContainer(project.container, project.workDir, readContainerNetwork(project.workDir));
+	if (!ready.ok) return { error: t("容器启动失败：{error}", { error: ready.error ?? "" }) };
+	delete project.manualStop;
+	writeProjects(agentDir, file);
+	return { project, created: ready.created };
 }

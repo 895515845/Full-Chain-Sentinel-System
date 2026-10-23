@@ -8,10 +8,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { embeddedDockerfile } from "./assets.ts";
 import { containerNetworkFlags } from "./container-network.ts";
@@ -256,9 +256,84 @@ export async function ensureRunning(containerName: string): Promise<boolean> {
 	return start.code === 0;
 }
 
-/** Force-remove the project container. */
-export async function removeContainer(containerName: string): Promise<void> {
-	await runDocker(["rm", "-f", containerName], { timeoutMs: 60000 });
+/** Stop the project container, keeping it around so it can be started again. */
+export async function stopContainer(containerName: string): Promise<{ ok: boolean; error?: string }> {
+	const result = await runDocker(["stop", containerName], { timeoutMs: 120000 });
+	return result.code === 0 ? { ok: true } : { ok: false, error: result.stderr.trim() };
+}
+
+/**
+ * Make sure a project has a running container, creating it when it is gone.
+ *
+ * "Gone" is a normal state now: removing just the container (or rebuilding it)
+ * leaves the project registered with its work directory, and the next explicit
+ * start recreates the container from the current settings.
+ */
+export async function ensureContainer(
+	containerName: string,
+	workDir: string,
+	network: SentinelContainerNetwork,
+): Promise<{ ok: boolean; created: boolean; error?: string }> {
+	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
+	if (state.code !== 0) {
+		if (!(await hasImage())) {
+			return { ok: false, created: false, error: t("工具镜像尚未构建，请先构建镜像后再启动容器") };
+		}
+		const created = await createContainer(containerName, workDir, network);
+		return { ok: created.ok, created: true, error: created.error };
+	}
+	if (state.stdout.trim() === "true") return { ok: true, created: false };
+	const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
+	return { ok: start.code === 0, created: false, error: start.code === 0 ? undefined : start.stderr.trim() };
+}
+
+/**
+ * Container state per container name, in one docker call.
+ *
+ * `docker ps -a` lists stopped containers too, so a name that is absent has no
+ * container at all — which is what the projects page shows as 「无容器」.
+ */
+export async function containerStates(): Promise<Map<string, "running" | "stopped">> {
+	const states = new Map<string, "running" | "stopped">();
+	const result = await runDocker(["ps", "-a", "--format", "{{.Names}}\t{{.State}}"], { timeoutMs: 15000 });
+	if (result.code !== 0) return states;
+	for (const line of result.stdout.split("\n")) {
+		const [name, state] = line.trim().split("\t");
+		if (!name) continue;
+		states.set(name, state === "running" ? "running" : "stopped");
+	}
+	return states;
+}
+
+/**
+ * Force-remove the project container.
+ *
+ * Returns the docker error when the container could not be removed, so the
+ * caller can tell the operator rather than dropping the registry entry while a
+ * container still holds the work directory.
+ */
+export async function removeContainer(containerName: string): Promise<{ ok: boolean; error?: string }> {
+	const result = await runDocker(["rm", "-f", containerName], { timeoutMs: 60000 });
+	// Already gone counts as removed: the operator asked for it to not exist.
+	if (result.code === 0) return { ok: true };
+	const inspect = await runDocker(["inspect", "-f", "{{.Id}}", containerName], { timeoutMs: 15000 });
+	return inspect.code === 0 ? { ok: false, error: result.stderr.trim() } : { ok: true };
+}
+
+/**
+ * Delete a project's host work directory, refusing anything outside the
+ * projects root: the path comes from the registry, but a corrupted entry must
+ * not be able to turn a delete into `rm -rf` somewhere else.
+ */
+export function deleteProjectWorkDir(workDir: string): { ok: boolean; error?: string } {
+	if (!workDir.trim()) return { ok: false, error: t("工作目录为空，拒绝删除") };
+	const root = resolve(process.env.SENTINEL_PROJECTS_DIR ?? join(homedir(), ".sentinel", "projects"));
+	const target = resolve(workDir);
+	if (target === root || !target.startsWith(root + sep)) {
+		return { ok: false, error: t("工作目录不在项目根目录下，拒绝删除：{dir}", { dir: target }) };
+	}
+	rmSync(target, { recursive: true, force: true });
+	return { ok: true };
 }
 
 /**

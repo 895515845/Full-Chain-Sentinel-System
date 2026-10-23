@@ -5,6 +5,7 @@ import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { AppSider, type PluginNavEntry } from "./components/AppSider.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { ConsentGate } from "./components/ConsentGate.tsx";
+import { PageBoundary } from "./components/PageBoundary.tsx";
 import { BranchModal } from "./components/BranchModal.tsx";
 import { ChatToolbar } from "./components/ChatToolbar.tsx";
 import { Composer } from "./components/Composer.tsx";
@@ -1430,6 +1431,22 @@ export function App() {
 		[projectAction, send],
 	);
 
+	const removeProject = useCallback(
+		(id: string, confirmName: string, scope: "container" | "data"): Promise<string | null> =>
+			projectAction.run(() => send({ type: "remove_project", id, confirmName, scope })),
+		[projectAction, send],
+	);
+
+	const stopProject = useCallback(
+		(id: string): Promise<string | null> => projectAction.run(() => send({ type: "stop_project", id })),
+		[projectAction, send],
+	);
+
+	const startProject = useCallback(
+		(id: string): Promise<string | null> => projectAction.run(() => send({ type: "start_project", id })),
+		[projectAction, send],
+	);
+
 	const pluginPages = useMemo<PluginNavEntry[]>(() => {
 		const entries = (pluginsView?.plugins ?? []).flatMap((plugin): PluginNavEntry[] => {
 			const ui = plugin.manifest.ui;
@@ -2044,12 +2061,6 @@ export function App() {
 
 	const activeSession = sessions.find((session) => session.id === snapshot?.activeSessionId);
 	const sessionLabel = activeSession?.name ?? activeSession?.firstMessage.slice(0, 30) ?? t("未选择会话");
-	const sessionCount: Record<string, number> = {};
-	for (const session of sessions) {
-		const id = session.cwd.split("/").pop() ?? "";
-		sessionCount[id] = (sessionCount[id] ?? 0) + 1;
-	}
-
 	if (authState === "checking") {
 		return <div className="app app--boot" />;
 	}
@@ -2127,14 +2138,15 @@ export function App() {
 						streaming={streaming}
 						onSwitch={(id) => send({ type: "switch_project", id })}
 						onAdd={addProject}
-						onRemove={(id, confirmName) =>
-							projectAction.run(() => send({ type: "remove_project", id, confirmName }))
-						}
+						onRemove={removeProject}
 					/>
 				}
 			/>
 			<div className="app-body">
 				<main className="app-content">
+					{/* A page that throws costs that page, not the console: the shell stays
+					    usable and the message says what broke. */}
+					<PageBoundary key={page} onHome={() => setPage("chat")}>
 					{connected ? null : (
 						<div className="conn-banner" role="status">
 							<span className="conn-banner-dot" />
@@ -2530,10 +2542,9 @@ export function App() {
 							onCreate={addProject}
 							onSwitch={(id) => send({ type: "switch_project", id })}
 							onRecreate={recreateProject}
-							onRemove={(id, confirmName) =>
-								projectAction.run(() => send({ type: "remove_project", id, confirmName }))
-							}
-							sessionCount={sessionCount}
+							onRemove={removeProject}
+							onStop={stopProject}
+							onStart={startProject}
 						/>
 					) : page === "vulns" ? (
 						<VulnPage
@@ -3260,6 +3271,7 @@ export function App() {
 							connected={connected}
 						/>
 					)}
+					</PageBoundary>
 				</main>
 			</div>
 			{filesOpen ? (

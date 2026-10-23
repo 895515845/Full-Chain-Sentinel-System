@@ -7,6 +7,11 @@
  * console issues succeed, and `exec` runs the command on the host after
  * rewriting `/work` to the project work directory. That keeps the real code path
  * (including the container scripts in files.ts) under test without Docker.
+ *
+ * Container lifecycle is tracked per name, because stopping, starting and
+ * removing containers is behaviour under test: `docker ps -a` reports what the
+ * fake knows, while a container it never saw still counts as running, so tests
+ * that never create one keep their previous meaning.
  */
 
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -17,12 +22,66 @@ const SCRIPT = `#!/bin/sh
 # With SENTINEL_FAKE_DOCKER_LOG set, every invocation is appended, so a test can assert
 # what the console asked for (e.g. the flags a container was created with).
 [ -n "\${SENTINEL_FAKE_DOCKER_LOG:-}" ] && printf '%s\\n' "$*" >> "$SENTINEL_FAKE_DOCKER_LOG"
+state_dir="\${SENTINEL_FAKE_DOCKER_STATE:-}"
+
+# Record a container's state: running, stopped, or removed.
+mark() {
+	[ -n "$state_dir" ] || return 0
+	mkdir -p "$state_dir"
+	printf '%s' "$1" > "$state_dir/$2"
+}
+
+# The container name is the last argument of start/stop/rm/inspect.
+last_arg() {
+	_last=""
+	for _arg in "$@"; do _last="$_arg"; done
+	printf '%s' "$_last"
+}
+
 cmd="$1"
+shift
 case "$cmd" in
-	image|build|run|start|rm) exit 0 ;;
-	inspect) echo "true"; exit 0 ;;
+	image|build) exit 0 ;;
+	run)
+		# docker run -d --name <name> ...: remember the new container as running.
+		name=""
+		prev=""
+		for arg in "$@"; do
+			[ "$prev" = "--name" ] && name="$arg"
+			prev="$arg"
+		done
+		[ -n "$name" ] && mark running "$name"
+		exit 0
+		;;
+	start) mark running "$(last_arg "$@")"; exit 0 ;;
+	stop) mark stopped "$(last_arg "$@")"; exit 0 ;;
+	rm) mark removed "$(last_arg "$@")"; exit 0 ;;
+	inspect)
+		target="$(last_arg "$@")"
+		state=""
+		[ -n "$state_dir" ] && [ -f "$state_dir/$target" ] && state=$(cat "$state_dir/$target")
+		case "$state" in
+			running) echo "true"; exit 0 ;;
+			stopped) echo "false"; exit 0 ;;
+			removed) echo "Error: No such container: $target" >&2; exit 1 ;;
+			*) echo "true"; exit 0 ;;
+		esac
+		;;
+	ps)
+		[ -n "$state_dir" ] || exit 0
+		[ -d "$state_dir" ] || exit 0
+		for file in "$state_dir"/*; do
+			[ -f "$file" ] || continue
+			name=$(basename "$file")
+			state=$(cat "$file")
+			case "$state" in
+				running) printf '%s\\t%s\\n' "$name" running ;;
+				stopped) printf '%s\\t%s\\n' "$name" exited ;;
+			esac
+		done
+		exit 0
+		;;
 	exec)
-		shift
 		[ "$1" = "-i" ] && shift
 		# dockerBashOperations passes the session cwd as the exec working dir.
 		[ "$1" = "-w" ] && shift 2
@@ -72,9 +131,11 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 	const previousProjectsDir = process.env.SENTINEL_PROJECTS_DIR;
 	const previousWorkDir = process.env.SENTINEL_FAKE_WORKDIR;
 	const previousLog = process.env.SENTINEL_FAKE_DOCKER_LOG;
+	const previousState = process.env.SENTINEL_FAKE_DOCKER_STATE;
 	process.env.PATH = `${dir}:${previousPath ?? ""}`;
 	process.env.SENTINEL_PROJECTS_DIR = join(root, "projects");
 	process.env.SENTINEL_FAKE_WORKDIR = workDir;
+	process.env.SENTINEL_FAKE_DOCKER_STATE = join(root, "fake-docker-state");
 	if (logPath) process.env.SENTINEL_FAKE_DOCKER_LOG = logPath;
 
 	return {
@@ -88,6 +149,8 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 			else process.env.SENTINEL_FAKE_WORKDIR = previousWorkDir;
 			if (previousLog === undefined) delete process.env.SENTINEL_FAKE_DOCKER_LOG;
 			else process.env.SENTINEL_FAKE_DOCKER_LOG = previousLog;
+			if (previousState === undefined) delete process.env.SENTINEL_FAKE_DOCKER_STATE;
+			else process.env.SENTINEL_FAKE_DOCKER_STATE = previousState;
 		},
 	};
 }

@@ -142,6 +142,9 @@ export class IosGateway {
 		this.staleMs = options.staleMs ?? IOS_STALE_MS;
 		this.watchdogTickMs = options.watchdogTickMs ?? IOS_WATCHDOG_TICK_MS;
 		this.tls = options.tls;
+		// The gateway owns the only truthful online state: nothing is connected
+		// before its listener exists, so drop what the last run left behind.
+		this.store.clearOnline();
 		this.uploads = options.uploads ?? new IosUploads();
 	}
 

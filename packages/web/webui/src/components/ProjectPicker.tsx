@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n.ts";
 import type { SentinelProjectInfo } from "../types.ts";
 import { CaretDownIcon, CaretUpIcon, CloseIcon } from "./icons.tsx";
+import { ProjectDeleteDialog } from "./ProjectDeleteDialog.tsx";
 
 export function ProjectPicker({
 	projects,
@@ -16,16 +17,18 @@ export function ProjectPicker({
 	streaming: boolean;
 	onSwitch: (id: string) => void;
 	onAdd: (name: string) => Promise<string | null>;
-	onRemove: (id: string, confirmName: string) => Promise<string | null>;
+	onRemove: (id: string, confirmName: string, scope: "container" | "data") => Promise<string | null>;
 }) {
 	const [open, setOpen] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 	const [formError, setFormError] = useState<string | null>(null);
 	const [removing, setRemoving] = useState<SentinelProjectInfo | null>(null);
-	const [confirmName, setConfirmName] = useState("");
 	const [busy, setBusy] = useState(false);
 	const rootRef = useRef<HTMLDivElement | null>(null);
+	// A console that has been upgraded while an older server keeps pushing an
+	// older payload must degrade, not blank the sidebar.
+	const list = Array.isArray(projects) ? projects : [];
 
 	useEffect(() => {
 		const close = (event: MouseEvent) => {
@@ -52,18 +55,17 @@ export function ProjectPicker({
 		setName("");
 	};
 
-	const submitRemove = async () => {
+	const submitRemove = async (scope: "container" | "data") => {
 		if (!removing) return;
 		setBusy(true);
 		setFormError(null);
-		const error = await onRemove(removing.id, confirmName);
+		const error = await onRemove(removing.id, removing.name, scope);
 		setBusy(false);
 		if (error) {
 			setFormError(error);
 			return;
 		}
 		setRemoving(null);
-		setConfirmName("");
 		setOpen(false);
 	};
 
@@ -88,8 +90,8 @@ export function ProjectPicker({
 				<div className="project-menu">
 					{!creating && !removing ? (
 						<>
-							{projects.length === 0 ? <div className="project-empty">{t("还没有项目，新建一个吧")}</div> : null}
-							{projects.map((project) => (
+							{list.length === 0 ? <div className="project-empty">{t("还没有项目，新建一个吧")}</div> : null}
+							{list.map((project) => (
 								<div key={project.id} className="project-row">
 									<button
 										type="button"
@@ -160,34 +162,15 @@ export function ProjectPicker({
 					) : null}
 
 					{removing ? (
-						<div className="project-form">
-							<div className="project-form-title">{t("删除项目「{name}」", { name: removing.name })}</div>
-							<div className="project-warn">
-								{t("将删除项目「{name}」的容器并移除注册（工作目录与会话保留），输入完整项目名确认：", {
-									name: removing.name,
-								})}
-							</div>
-							<input
-								value={confirmName}
-								onChange={(event) => setConfirmName(event.target.value)}
-								placeholder={removing.name}
-								spellCheck={false}
-							/>
-							{formError ? <div className="project-error">{formError}</div> : null}
-							<div className="project-form-actions">
-								<button
-									type="button"
-									className="danger"
-									disabled={busy || confirmName !== removing.name}
-									onClick={submitRemove}
-								>
-									{busy ? t("删除中…") : t("确认删除")}
-								</button>
-								<button type="button" onClick={() => setRemoving(null)}>
-									{t("取消")}
-								</button>
-							</div>
-						</div>
+						<ProjectDeleteDialog
+							project={removing}
+							busy={busy}
+							onConfirm={(scope) => void submitRemove(scope)}
+							onCancel={() => {
+								setRemoving(null);
+								setFormError(null);
+							}}
+						/>
 					) : null}
 				</div>
 			) : null}

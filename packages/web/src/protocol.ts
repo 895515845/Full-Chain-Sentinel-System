@@ -526,6 +526,12 @@ export interface SentinelProjectInfo {
 	cwd: string;
 	/** Docker container executing this project's tools. */
 	container?: string | null;
+	/** Sessions recorded for this project, counted from the session directory. */
+	sessionCount?: number;
+	/** Docker's view of the container: absent when there is no container at all. */
+	state?: "running" | "stopped" | "missing";
+	/** The operator stopped this container on purpose, so it needs an explicit start. */
+	manualStop?: boolean;
 	/** Findings recorded for this project, so its deletion can state what it takes. */
 	vulnCount?: number;
 	/** Gatekeeper judgments recorded for this project, for the same reason. */
@@ -1544,7 +1550,12 @@ export type SentinelClientMessage =
 	| { type: "get_stats" }
 	| { type: "list_projects" }
 	| { type: "add_project"; name: string }
-	| { type: "remove_project"; id: string; confirmName: string }
+	/** What a removal covers: the container only, or the project and its data. */
+	| { type: "remove_project"; id: string; confirmName: string; scope: "container" | "data" }
+	/** Stop the container deliberately: it stays, but using the project needs an explicit start. */
+	| { type: "stop_project"; id: string }
+	/** Start (or recreate, when it is gone) the project container. */
+	| { type: "start_project"; id: string }
 	/** Replace a project's container so changed settings (network mode) apply. */
 	| { type: "recreate_project"; id: string }
 	| { type: "switch_project"; id: string }

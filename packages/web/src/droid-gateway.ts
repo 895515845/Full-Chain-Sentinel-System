@@ -121,6 +121,9 @@ export class DroidGateway {
 		this.hooks = hooks;
 		this.staleMs = options.staleMs ?? DROID_STALE_MS;
 		this.watchdogTickMs = options.watchdogTickMs ?? DROID_WATCHDOG_TICK_MS;
+		// The gateway owns the only truthful online state: nothing is connected
+		// before its listener exists, so drop what the last run left behind.
+		this.store.clearOnline();
 	}
 
 	/** HTTP upgrade dispatch: only this path, only a valid token. */

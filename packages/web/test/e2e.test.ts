@@ -1913,7 +1913,7 @@ test("deleting a project deletes its findings and reports the count first", asyn
 	).toBe(1);
 
 	drainIncoming();
-	send({ type: "remove_project", id: cascade?.id ?? "", confirmName: cascadeName });
+	send({ type: "remove_project", id: cascade?.id ?? "", confirmName: cascadeName, scope: "data" });
 	await waitFor(
 		(message) => message.type === "projects" && !message.projects.some((project) => project.name === cascadeName),
 	);

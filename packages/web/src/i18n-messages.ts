@@ -28,6 +28,93 @@ export function interpolate(source: string, vars?: Record<string, string | numbe
  * string still renders (in Chinese) until its translation lands.
  */
 export const EN_MESSAGES: Record<string, string> = {
+	回到工作台: "Back to 工作台",
+	"页面渲染时抛出了下面的错误。切到别的页面或点「重试」可以继续用；错误详情也会打印在浏览器控制台。":
+		"Rendering threw the error below. Switch to another page or press Retry to keep working; the full details are also printed in the browser console.",
+	这个页面出错了: "This page failed to render",
+	"容器的网络模式等创建期设置改完（设置 → 环境）后，用「重建容器」让已有项目生效；删除项目不可恢复。":
+		"After changing creation-time settings such as the network mode (设置 → 环境), use 重建容器 to apply them to existing projects. Deleting a project cannot be undone.",
+	"，bash 与「文件」页看到的都是它。": ", which is what bash and the 文件 page see.",
+	"{count} 个 · {running} 个运行中": "{count} projects · {running} running",
+	"删除项目…": "Delete project…",
+	更多操作: "More actions",
+	进入: "Open",
+	"删除项目数据会连项目条目、工作目录 /work 里的文件、会话文件与漏洞/审批等记录一起删除，不可恢复。":
+		"Delete project data removes the container, the registry entry, every file in the work directory /work, the session files and the finding/approval records. This cannot be undone.",
+	"仅删除容器只删掉容器本身，项目、工作目录、会话与记录都保留，下次「启动容器」按当前设置重建；":
+		"Delete container only removes the container itself: the project, work directory, sessions and records stay, and Start container recreates it from the current settings. ",
+	"{count} 个会话": "{count} sessions",
+	"容器的网络模式等创建期设置改完（设置 → 环境）后，用这里让已有项目生效。":
+		"After changing creation-time settings such as the network mode (设置 → 环境), apply them to existing projects here.",
+	"）不受影响。": ") is unaffected.",
+	"容器被删掉并重新创建：容器里用 apt 装的包、":
+		"The container is removed and created again: packages installed with apt and files outside ",
+	"该项目有正在运行的工程任务或对话时不能停止。":
+		"A container cannot be stopped while engineering tasks or conversations are running.",
+	"里的文件、会话与漏洞记录都不受影响。": "the files there, the sessions and the findings are not.",
+	"停止后该项目的工具调用与对话都无法进行，需要点「启动容器」才能继续；容器里用 apt 装的包与进程状态会丢失，":
+		"While the container is stopped, tools and conversations for this project cannot run: start it to continue. Packages installed with apt and the state of running processes are lost; ",
+	"容器、项目条目、工作目录里的全部文件、会话文件与漏洞/审批等记录一起删除，不可恢复。":
+		"The container, the registry entry, every file in the work directory, the session files and the finding/approval records go together. This cannot be undone.",
+	"删掉容器本身。项目、工作目录、会话与全部记录都保留，下次点「启动容器」按当前设置重建。":
+		"Remove the container itself. The project, work directory, sessions and every record stay; Start container recreates it from the current settings.",
+	用途: "Use it when",
+	前提: "Precondition",
+	影响: "Effect",
+	"处理中…": "Working…",
+	"输入项目名 {name} 以确认": "Type the project name {name} to confirm",
+	" · {sessions} 个会话": " · {sessions} sessions",
+	"{vulns} 条漏洞记录 · {gates} 条审批记录": "{vulns} findings · {gates} approval records",
+	已有数据: "Existing data",
+	选择删除范围: "Choose what to delete",
+	删除项目: "Delete project",
+	个项目还有正在运行的内容: "work in flight",
+	"该项目还有正在运行的内容（{engines} 个工程、{sessions} 个会话）：请先暂停工程或等它结束，再停止容器":
+		"This project still has work in flight ({engines} engines, {sessions} sessions): pause the engines or wait for them to finish before stopping the container",
+	"项目容器已停止：请在「项目」页点「启动容器」后再进入":
+		"This project's container is stopped: start it on the 项目 page before entering",
+	"容器删除失败：{error}": "Removing the container failed: {error}",
+	"容器启动失败：{error}": "Starting the container failed: {error}",
+	"容器停止失败：{error}": "Stopping the container failed: {error}",
+	"工作目录不在项目根目录下，拒绝删除：{dir}":
+		"The work directory is outside the projects root, refusing to delete it: {dir}",
+	"工作目录为空，拒绝删除": "The work directory is empty, refusing to delete it",
+	"工具镜像尚未构建，请先构建镜像后再启动容器":
+		"The toolbox image has not been built yet; build it before starting the container",
+	"删除项目「{name}」：可选择只删容器，或连项目数据一起删。输入完整项目名确认：":
+		'Delete project "{name}": remove only its container, or its data as well. Type the full project name to confirm:',
+	"里的全部文件、会话文件与漏洞/审批等记录，不可恢复。":
+		"every file in the work directory, session files and the finding/approval records. This cannot be undone.",
+	"「仅删除容器」保留项目与全部数据；「删除项目数据」会删掉容器、项目条目、":
+		"Delete container only keeps the project and all its data; Delete project data removes the container, the registry entry, ",
+	"删除项目本身：容器、项目条目、工作目录里的全部文件、会话文件与各库记录":
+		"Delete the project itself: container, registry entry, every file in the work directory, session files and database records",
+	"只删掉容器：项目、工作目录、会话与全部记录都保留，下次点「启动容器」重建":
+		"Remove only the container: the project, work directory, sessions and records stay; Start container recreates it",
+	删除项目数据: "Delete project data",
+	仅删除容器: "Delete container only",
+	"。输入项目名确认，然后选择删除范围：": ". Type the project name, then choose what to delete: ",
+	当前项目有: "This project has ",
+	"里的文件、会话与漏洞记录都不受影响。有工程任务在运行时不能停止。":
+		"the files there, the sessions and the records are not. A container cannot be stopped while engineering tasks are running.",
+	"容器里用 apt 装的包与启动的进程状态都会丢失，":
+		"Packages installed with apt and the state of running processes are lost; ",
+	"停止容器后，该项目的工具调用与对话都无法进行，需要点「启动容器」才能继续；":
+		"While the container is stopped, tools and conversations for this project cannot run: start it to continue. ",
+	"容器不存在：点「启动容器」会按当前设置重新创建":
+		"There is no container: Start container recreates it from the current settings",
+	"容器已停止：点「启动容器」即可重新启动，容器里的安装内容都还在":
+		"The container is stopped: Start container runs it again with everything installed inside still there",
+	"容器已被手动停止：进入该项目前需要点「启动容器」":
+		"The container was stopped on purpose: start it before entering this project",
+	"容器正在运行：停止后需要用「启动容器」重新启动":
+		"The container is running: after stopping it, use Start container to run it again",
+	"停止容器以释放资源；容器与工作目录都保留":
+		"Stop the container to free resources; the container and the work directory are kept",
+	确认停止: "Stop it",
+	启动容器: "Start container",
+	停止容器: "Stop container",
+	"已停止（手动）": "Stopped (by operator)",
 	完成: "Done",
 	筛选: "Filter",
 	"10.0.0.5、https://…": "10.0.0.5, https://…",
