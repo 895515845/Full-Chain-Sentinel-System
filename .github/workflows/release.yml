@@ -186,16 +186,27 @@ jobs:
         shell: pwsh
         run: .\binaries\windows-x64\sentinel-web.exe --version
 
+      # One path per artifact on purpose: upload-artifact roots the artifact at the
+      # common ancestor of the paths, so listing the .exe together with the zip (a
+      # directory above it) would put it at windows-x64/sentinel-web.exe inside the
+      # artifact and the publish job would not find it. Two artifacts keep both files
+      # at their artifact root, and both are offered to users: the bare .exe for a
+      # quick single-file run (the replay toolset then reports how to add its
+      # binaries), and the zip with the Linux container binaries it pushes into the
+      # containers.
       - name: Upload the executable
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          # Both are offered: the bare .exe for a quick single-file run (the replay
-          # toolset then reports how to add its binaries), and the zip with the
-          # Linux container binaries the replay toolset pushes into the containers.
           name: sentinel-web-windows-x64
-          path: |
-            binaries/windows-x64/sentinel-web.exe
-            binaries/sentinel-web-windows-x64.zip
+          path: binaries/windows-x64/sentinel-web.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the container binaries archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-web-windows-x64-zip
+          path: binaries/sentinel-web-windows-x64.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -289,10 +300,11 @@ jobs:
           # Windows ships the bare executable: a single-file binary needs no
           # extract step, and the .exe suffix is what Explorer expects.
           cp release-assets/sentinel-web-windows-x64/sentinel-web.exe publish/sentinel-web-windows-x64.exe
-          cp release-assets/sentinel-web-windows-x64/sentinel-web-windows-x64.zip publish/sentinel-web-windows-x64.zip
+          cp release-assets/sentinel-web-windows-x64-zip/sentinel-web-windows-x64.zip publish/sentinel-web-windows-x64.zip
           cp release-assets/sentinel-droidbridge/app-debug.apk "publish/sentinel-droidbridge-${version}-debug.apk"
           ls -l publish
-          test "$(find publish -type f | wc -l)" -eq 6
+          # 4 console archives + the Windows executable + its container-binaries zip + the APK.
+          test "$(find publish -type f | wc -l)" -eq 7
 
       - name: Create the release
         env:
