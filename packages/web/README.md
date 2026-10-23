@@ -32,6 +32,7 @@
 - **POC 库**（侧栏「工作台 → POC 库」）：操作员导入的 Nuclei 模板中心，全局共享（`~/.sentinel/agent/pocs.db`，不进容器）。导入支持多选 yaml 与 zip，按模板 `info.id` 去重覆盖（顶层带 `workflows:` 的 nuclei workflow 不是模板，跳过并单独说明原因）；Agent 只有 `poc_search` / `poc_read` 两个只读工具（「设置 → 权限」的 `poc_read` 开关控制，旧配置按关闭读取），`poc_search` 一次最多列 100 条元数据并明确提示「还有更多」，`poc_read` 一次可取多条模板全文（最多 8 条），模板文件永不挂进项目容器——要实际执行，Agent 必须自己写 yaml 到工作目录再用 bash 跑 nuclei
 - **钉钉通知**（设置页「通知」）：一次运行结束（完成 / 失败 / 已中止）后向钉钉群自定义机器人推送 markdown 消息，含状态、项目、会话状态、耗时、token 用量与花费、最后回复（默认截断 2000 字，可在设置页改成任意字数，`0` 表示不截断）与失败原因。支持「加签」（secret 留空则不加签）与「自定义关键词」；字数上限同时作用于任务报告的「最后回复」、持续目标的「结论」和漏洞通知的「原始数据包」，超出钉钉单条 20000 字节时按字节硬截断并注明；「发送测试消息」可先验证机器人。输入框旁的「通知」开关按条决定本次运行是否推送，默认跟随全局开关，全局关闭时也可单条强制发送；发送失败重试 2 次，最近一次发送结果显示在设置页
 - **资产测绘平台**（设置页「资产测绘」）：接入 **FOFA**、**360 Quake**、**奇安信 Hunter** 三家互联网资产测绘平台，用操作员自己的账号查询公网已测绘到的资产。**三家各一个工具**（`fofa_search` / `quake_search` / `hunter_search`），因为三家查询语法不通用——FOFA 写 `ip="1.1.1.1"`、Quake 写 `ip:"1.1.1.1"`、Hunter 写 `ip="1.1.1.1"` 但字段名与分页参数各不相同；合成一个工具就得猜方言，猜错的代价是「查不到」而不是报错。工具说明里写明各自语法与申请地址。**挂载规则**：只有「已启用 + 已配置密钥 + 已验证通过」三个条件同时满足的平台才把工具挂给 Agent（`asset_read` 开关另在「设置 → 权限」里，旧配置按关闭读取）；未配置或密钥不可用的平台**根本不挂载**，Agent 看不到该工具，而不是拿到一个每次调用都失败的工具。三家都支持**自定义 BaseURL**（可填反向代理前缀，如 `https://proxy.example/fofa`，留空使用官方地址；控制台自动拼接各平台 API 路径）。保存时会按新地址自动验证一次，也可以单独点「测试连接」（验证结果立即生效，会按需重建会话）；页面上显示每个平台最近一次调用结果与剩余额度。**查询由控制台进程直接发出**，密钥不进容器、不进 bash 命令、不进守门审计；每次查询记一条流水到 `<配置目录>/assets.db`（含查询语句、平台、条数、耗时、错误、额度、来源会话与证据路径），原始响应写入项目工作目录的 `evidence/asset/`（按时间命名，报告里可直接引用）。密钥明文存在 `<配置目录>/assets.json`（0600），前端不回显（留空表示不修改，另有「清除已保存的密钥」）。三家都按次计费，另有「每个会话查询次数上限」（按会话三家合计、子代理共用，`0` = 不限）。删除项目连带删除该项目的查询流水。**查询内容与密钥会发送给这三家第三方平台**，见「安全提示」
+- **发包重放与界面截图**（控制台会话默认挂载，源码 [MITM_Fuzz_Render](../MITM_Fuzz_Render)）：每个项目容器里常驻一个 `replayd`（Go 单二进制，含 Repeater / MITM 代理 / 无头渲染 / 抓包历史），控制台在首次使用时把与自身版本配对的二进制下发进容器（`docker exec` + stdin，落 `/opt/sentinel/replayd`，按 sha256 校验，架构按容器 `uname -m` 选，不随镜像版本漂移）。两个工具在**每个控制台会话里默认声明并启用**（和业务建模工具同一类：工程任务的 worker 与子代理都不挂），都只为**报告留证**服务：`replay_capture` 驱动 replayd 的 Repeater 界面填包 → 发送 → 等北京时间取证面板 → 整窗截图（PNG 返回给模型并存 `evidence/replay/`，可用 `highlight` 按文本打高亮；`purpose` 必填，写明这张图证明什么，会显示在审批卡与审计里）、`replay_flows` 回查该容器的抓包历史。**没有「按字节发任意报文」的工具**：日常发包用 bash 里的 curl（同一条审批链），少一个工具；代价是 curl 不保真（畸形 `Content-Length`、手工 chunked、精确 header 顺序/大小写），需要时走 bash 的 `nc`/python。**不给 Agent 渲染任意 URL 的工具**：replayd 的 `POST /api/render`（无头浏览器渲染任意页面）是通用抓取能力，不属于数据包工具，只保留在操作员自己的 replayd 界面里；Agent 拿到的截图是 Repeater 窗口，内容是它放行过的那次请求的响应。**截图过审批链**（人工放行时可先改包，AI 模式过守门员，审计记 `replay_capture`），查历史不过门。工具**不受「设置 → 权限」的开关影响**：它和业务建模工具一样在每个控制台会话默认挂载，因此「只读侦察 / 全部禁用」预设也会带上它（这两个预设能挡住 bash，但挡不住 `replay_capture` 这一次发包）。要让它可被摘除，需要新增一个 `replay` 权限键——注意本仓库的规矩是「旧配置里没有的开关按关闭读取」，那会让已有安装必须先手动打开一次，需要产品上确认。只给一个报文也能发：目标从 absolute-form 请求行或 `Host` 头推断；纯 LF 的报文按 CRLF 发送（textarea 会把 CRLF 规范化成 LF，前端发送前补回），出现过 CR 的报文原样保真。数据落项目目录 `.sentinel/replayd/`（SQLite + 内容寻址产物，容器重建不丢）
 - **自定义 MCP 服务器**（设置页「MCP」）：在控制台里增删改查 MCP 服务器并逐个「测试连接」，不用再手写 JSON。配置由哨兵自己拥有，存 `<配置目录>/mcp-servers.json`（0600）；会话通过给 `createMcpExtension` 传自定义 `loadConfig` **只读这一份文件**（pi 原生的 `mcp.json` 一概不读），所以列表里没有的服务器对 Agent 就不存在，手写的文件不会偷偷加进一个操作员看不见的工具。支持三种传输：`http`（远程 streamable HTTP，可配请求头）、`sse`（旧版 HTTP+SSE 长连接，服务器在首个 `endpoint` 事件里给出消息地址）与 `stdio`（命令 + 参数 + 环境变量 + 工作目录）。SSE 与 HTTP 共用 `url` / `headers` 字段，只是协议不同；服务器同时提供两者时优先用 `http`（通常是把 `/sse` 换成 `/mcp`）。**stdio 是容器隔离唯一的例外**：它在控制台宿主机上直接 spawn 进程，不在 Kali 容器内、不经过 bash 审批、不进守门审计，所以必须勾选「我确认该命令会在控制台宿主机上直接执行」才能保存（挂载时再校验一次）。暴露方式可选 codemode（默认）/ tool_search / direct / hidden，工具以 `mcp__<服务器>__<工具>` 注册，仍受「设置 → 权限」的 `mcp` 总开关约束。「测试连接」走与真实会话相同的 `McpServerConnection`（同一套 `${VAR}` / `!cmd` 解析、`~` 展开与 cwd 解析），一次连接读完工具列表就关闭，不保存、不影响运行中的会话；结果（成功 / 需要 OAuth 登录 / 失败，含 stdio 的 stderr 尾部）留在页面上，本页不做 OAuth，需要登录的服务器提示去终端跑 `sentinel mcp login`。保存与删除会重建活动会话（有会话在跑时拒绝），页面不显示会话内的实时连接状态。「设置 → 权限」的 `mcp` 总开关下逐个列出这些服务器，每行一个开关，写的就是本页的「启用」——两个页面是同一个开关的两个视图，不会互相矛盾；因此「允许 MCP 但不允许其中某一台」不需要再拆一个语义重叠的权限字段。
 - 长输出查看：复制命令 / 复制输出 / 全屏查看 + 行过滤搜索
 - 会话分支：对话页工具栏「分支」打开分支树弹窗，任意历史用户消息处一键分叉
@@ -110,18 +111,20 @@ npm --prefix packages/web run start
 ./scripts/build-web-binaries.sh --platform linux-x64    # 只构建一个平台
 ./scripts/build-web-binaries.sh --platform linux-arm64  # Linux arm64
 ./scripts/build-web-binaries.sh --platform darwin-x64   # Intel macOS
-./scripts/build-web-binaries.sh --platform windows-x64  # Windows：产出 sentinel-web.exe
+./scripts/build-web-binaries.sh --platform windows-x64  # Windows：sentinel-web.exe + zip（含 replayd/）
 ./scripts/build-web-binaries.sh --skip-build            # 复用已有 dist
 ```
 
-产物在 `packages/web/binaries/`。Unix 平台是 `sentinel-web-<平台>.tar.gz`，解压后是一个 `sentinel-web` 可执行文件，拷到目标机器直接运行；Windows 是 `windows-x64/sentinel-web.exe`，不需要解压：
+产物在 `packages/web/binaries/`。Unix 平台是 `sentinel-web-<平台>.tar.gz`，解压后是 `sentinel-web/` 目录（可执行文件 + 容器用的 `replayd/`）；Windows 是 `windows-x64/sentinel-web.exe`（裸 exe，可直接跑），旁边另出一个 `sentinel-web-windows-x64.zip`（exe + `replayd/`）：
 
 ```bash
 ./sentinel-web --check          # 只跑 Docker 环境检查，未通过时退出码 1
 ./sentinel-web --port 7777      # 启动控制台
 ```
 
-二进制里带着前端资源和 Dockerfile，所以旁边不需要任何文件；运行时把 coding-agent 的 `package.json`、README、CHANGELOG 和 docs 解包到系统临时目录（`$TMPDIR/sentinel-web-package`）并指向它，否则 pi 会退回自己的默认值，把状态写进 `~/.pi/agent`。它仍然需要目标机器上有 Docker 守护进程和 `sentinel:latest` 镜像（环境页可以直接构建）；linux-x64 产物链接 glibc，Alpine 等 musl 发行版需要额外兼容层。
+`replayd/` 里是发包重放服务的 Linux 二进制（amd64/arm64），控制台首次在项目容器里用到「发包」时把它下发进容器（见 `src/replayd.ts`），因此必须放在可执行文件旁边；不放也能跑，只是发包工具会明确报告找不到二进制（可用 `SENTINEL_REPLAYD_DIR` 指向别处）。构建脚本需要 Go 与 pnpm/npm 来产出它，缺工具链时跳过并给出提示，`SENTINEL_SKIP_REPLAYD=1` 可显式跳过。
+
+二进制里带着前端资源和 Dockerfile，所以**除了 `replayd/` 之外**旁边不需要任何文件；运行时把 coding-agent 的 `package.json`、README、CHANGELOG 和 docs 解包到系统临时目录（`$TMPDIR/sentinel-web-package`）并指向它，否则 pi 会退回自己的默认值，把状态写进 `~/.pi/agent`。它仍然需要目标机器上有 Docker 守护进程和 `sentinel:latest` 镜像（环境页可以直接构建）；linux-x64 产物链接 glibc，Alpine 等 musl 发行版需要额外兼容层。
 
 首次使用先在侧栏「设置 → 模型」添加一条模型（或在 `~/.sentinel/agent/models.json` 手动配置端点），确认「主模型」角色选中了它，在「设置 → 环境」确认 Docker 与 `sentinel:latest` 镜像可用（缺失时可直接构建），然后新建一个项目：控制台没有默认目录，未选择项目时只能看到创建项目的引导页。
 
@@ -174,5 +177,6 @@ npm --prefix packages/web run start
 - 控制台会加载项目工作目录下的 `settings.json`、`.pi/extensions` 与 `AGENTS.md`。与 CLI 不同，这里没有项目信任确认步骤：不要把这些文件来自不可信来源的工作目录设为项目。MCP 服务器不在此列：它们只来自「设置 → MCP」，项目目录里的 `.pi/mcp.json` 与配置目录里的 `mcp.json` 都不读。
 - **漏洞中枢只有代理能写、只有操作员能改**：`vuln_submit` 是唯一的写入入口，提交内容逐字入库；状态、等级、CVSS 与备注只能从控制台改，改动进时间线。因此「模型认为的」和「人复核过的」始终分得开。提交不经过审批门（它不改目标、不执行命令），要拦住它请在「设置 → 权限」里关掉 `vuln_submit`；`vuln_read` 只放开查询。旧配置文件里这两个开关不存在时按关闭处理
 - 自动执行模式下模型可运行任意命令。pi 无内建沙箱，请仅在授权目标与隔离环境中开启自动执行，必要时配合容器化运行；需要无人值守又不想全放行时用 AI 审批。
+- **发包重放走 `docker exec` 桥接，不发布端口**：`replayd` 只监听容器内回环 `127.0.0.1`（端口按容器名推导，被占用时顺延重试），控制台通过容器内 `curl` 调它的 REST，所以不发布端口、不改容器创建参数，host 与 bridge 两种网络模式都可用，已有容器也不必重建。访问 token 由 replayd 自己生成在挂载的数据目录 `token` 文件（0600）里，由容器内 `cat` 读取，不进入 `docker exec` 的命令行参数、不进控制台内存。**它真的会打到目标**：`replay_capture` 与 bash 同级过审批链，审批卡片上显示的是完整报文（可编辑后放行）；`replay_flows` 只读本容器历史。截图依赖容器镜像里的 Chromium（`docker/Dockerfile` 已装 `chromium` 与 `fonts-noto-cjk`，中文字面不会变方块）：镜像没装浏览器时截图会明确报错并给出补装方式，**不会**偷偷去公网下载浏览器。数据目录在项目工作目录内，容器里的命令与文件面板都能读写它
 - **资产测绘会把查询内容与 API Key 发送给第三方平台**：查询由控制台进程直接 HTTPS 发出，不过审批门、也不经过容器，但目标域名、IP、标题等查询内容对 FOFA / 360 Quake / 奇安信 Hunter 可见，且会占用操作员账号的额度。密钥明文存在 `<配置目录>/assets.json`（0600），前端不回显、不进 bash 审计、不进守门员判定，但它是操作员账号的凭据，泄露即等于额度被用。配置自定义 BaseURL 时，密钥与查询内容会发送到该地址，只应填写可信的反向代理。查询流水（`assets.db`）与原始响应（项目 `evidence/asset/`）留在本机；证据文件在项目工作目录内，容器里的命令同样能读写它。只挂载「已验证通过」的平台是为了避免 Agent 反复调用一个不可用的工具，**不是**访问控制：`asset_read` 关掉即整体摘除工具，但它只控制工具是否挂载，不控制操作员自己在页面上测试连接。
 - **持续目标在自动执行下没有危险命令黑名单**：目标模式可在自动执行或 AI 审批下运行，自动执行时运行期间是全放行的（目标条上固定显示「自动模式 · 全放行」）。控制台只做轮数上限、连续空转、同一阻塞三重熔断，不会拦截 `rm -rf` 之类的命令，也不会在续跑时重新征求确认。请只在授权目标上启动持续目标；要边跑边兜底就选 AI 审批。

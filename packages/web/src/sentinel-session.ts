@@ -72,6 +72,7 @@ import { AssetStore, assetsDbPath } from "./asset-store.ts";
 import { type AssetQueryReport, type AssetToolContext, createAssetTools, writeAssetEvidence } from "./asset-tool.ts";
 import { CAPTURE_TOOL_NAMES, createCaptureTools } from "./capture-tool.ts";
 import { CaptureStore, capturesDbPath } from "./captures.ts";
+import { readContainerNetwork } from "./container-network.ts";
 import { containerWorkPath, dockerBashOperations } from "./docker.ts";
 import { DroidStore, droidDbPath } from "./droid.ts";
 import type { DroidGateway } from "./droid-gateway.ts";
@@ -197,7 +198,7 @@ import { PocSubscriptions } from "./poc-subscriptions.ts";
 import { createPocTools } from "./poc-tool.ts";
 import { LIST_CAP, type PocImportOptions, PocStore, pocsDbPath } from "./pocs.ts";
 import { ensureBuiltinPresets, findPreset, readPresetText } from "./presets.ts";
-import { listProjects, type SentinelProject } from "./projects.ts";
+import { ensureProjectReady, listProjects, type SentinelProject } from "./projects.ts";
 import type {
 	SentinelApiModel,
 	SentinelApiModelEvent,
@@ -276,6 +277,8 @@ import type {
 	SentinelWebSearchConfigView,
 	SentinelWebSearchKeyInput,
 } from "./protocol.ts";
+import { createReplayTools, type ReplayToolContext } from "./replay-tool.ts";
+import { ensureReplayd, type ReplaydStatus } from "./replayd.ts";
 import { readSessionDroid, SESSION_DROID_CUSTOM_TYPE } from "./session-droid.ts";
 import { readSessionIos, SESSION_IOS_CUSTOM_TYPE } from "./session-ios.ts";
 import { readSessionMode, SESSION_MODE_CUSTOM_TYPE } from "./session-mode.ts";
@@ -965,6 +968,9 @@ export class SentinelRuntime {
 			...(task ? [] : createIosCaptureTools(this.createIosToolContext(managed))),
 			...(task ? [] : createIosDecryptTools(this.createIosToolContext(managed))),
 			...(task ? [] : createFridaTools(this.createDroidToolContext(managed))),
+			// The report-evidence toolset is declared and active in every console
+			// session (like the modeling tools), and never handed to a task worker.
+			...(task ? [] : createReplayTools(this.createReplayToolContext(managed))),
 			...(task
 				? []
 				: createCaptureTools({
@@ -2785,6 +2791,94 @@ export class SentinelRuntime {
 			: active.filter((name) => !droidNames.includes(name));
 		const changed = wanted.length !== active.length || wanted.some((name, index) => name !== active[index]);
 		if (changed) managed.session.setActiveToolsByName(wanted);
+	}
+
+	// =========================================================================
+	// Packet replay (replayd, running inside the project container)
+	// =========================================================================
+
+	private createReplayToolContext(managed: ManagedSession): ReplayToolContext {
+		return {
+			container: () => managed.container,
+			workDir: () => managed.cwd,
+			guard: (tool, summary, payload) => this.guardReplayCommand(managed, tool, summary, payload),
+			ensure: (options) => this.ensureReplayService(managed, options),
+		};
+	}
+
+	/**
+	 * The container's replayd, started on demand. The project is readied first so
+	 * a stopped container is started rather than reported as an exec failure; the
+	 * status is cached by replayd.ts, so this is cheap on the second call.
+	 */
+	private async ensureReplayService(
+		managed: ManagedSession,
+		options: { force?: boolean; start?: boolean } = {},
+	): Promise<ReplaydStatus> {
+		const project = managed.projectId
+			? listProjects(this.agentDir).projects.find((candidate) => candidate.id === managed.projectId)
+			: undefined;
+		if (project) await ensureProjectReady(project, this.agentDir);
+		// Host networking shares the host loopback, which is the only case where the
+		// operator's browser can open the service UI directly.
+		const hostNetwork = readContainerNetwork(this.agentDir) === "host";
+		return ensureReplayd(managed.container, managed.cwd, { ...options, hostNetwork });
+	}
+
+	/**
+	 * The approval chain for actions that reach the target, the same three modes
+	 * container bash goes through. The payload — the raw packet — is what the
+	 * approval card shows and may edit, and what the judge sees as the command.
+	 */
+	private guardReplayCommand(
+		managed: ManagedSession,
+		tool: string,
+		summary: string,
+		payload: string,
+	): Promise<string> {
+		const mode = managed.modeOf();
+		const label = summary;
+		const auditContext = {
+			label: () => label,
+			projectId: managed.projectId,
+			projectName: managed.projectName,
+			sessionId: () => managed.manager.getSessionId(),
+		};
+		if (mode === "auto") {
+			this.recordUnjudged({ tool, command: payload, cwd: "/work", approval: "auto", context: auditContext });
+			return Promise.resolve(payload);
+		}
+		if (mode === "review") {
+			if (this.approvals.isAutoAllowed(payload, managed.projectId)) {
+				this.recordUnjudged({ tool, command: payload, cwd: "/work", approval: "auto", context: auditContext });
+				return Promise.resolve(payload);
+			}
+			return this.approvals.request(payload, "/work", undefined, label, managed.projectId).then((outcome) => {
+				this.recordUnjudged({
+					tool,
+					command: outcome.command ?? payload,
+					cwd: "/work",
+					approval: "human",
+					...(outcome.approved ? {} : { decision: "block" as const, reason: outcome.reason ?? t("已拒绝") }),
+					context: auditContext,
+				});
+				if (outcome.approved && outcome.command !== undefined) return outcome.command;
+				throw new Error(outcome.reason ?? t("已拒绝"));
+			});
+		}
+		return this.gatekeeper
+			.guard({
+				command: payload,
+				cwd: "/work",
+				source: label,
+				projectId: managed.projectId,
+				projectName: managed.projectName,
+				sessionId: managed.manager.getSessionId(),
+			})
+			.then((outcome) => {
+				if (outcome.kind === "allow" || outcome.kind === "failed") return payload;
+				throw new Error(outcome.kind === "block" ? outcome.message : t("已中止"));
+			});
 	}
 
 	// =========================================================================

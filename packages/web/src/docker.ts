@@ -138,7 +138,7 @@ function buildImageIn(
 	});
 }
 
-function repoRoot(): string {
+export function repoRoot(): string {
 	// dist/docker.js -> package root -> packages -> repo root
 	return join(import.meta.dirname, "..", "..", "..");
 }

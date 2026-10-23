@@ -92,6 +92,11 @@ case "$cmd" in
 		[ "$1" = "zg" ] && shift
 		root="\${SENTINEL_FAKE_WORKDIR:-/work}"
 		script=$(printf '%s' "$script" | sed "s#/work#\${root}#g")
+		# Tooling the console keeps outside the work directory (the replayd binary
+		# lives in /opt/sentinel) is redirected too, so scripts that inspect or write
+		# it can be tested without touching the host's /opt.
+		sentinel="\${SENTINEL_FAKE_SENTINEL_DIR:-/opt/sentinel}"
+		script=$(printf '%s' "$script" | sed "s#/opt/sentinel#\${sentinel}#g")
 		# Rotate the positional parameters, rewriting each one.
 		count=$#
 		i=0
@@ -116,9 +121,11 @@ export interface FakeDocker {
 
 /**
  * Install the fake docker under `root` and point the project layout at `root`:
- * `SENTINEL_PROJECTS_DIR` keeps project creation out of the operator's home, and
- * `SENTINEL_FAKE_WORKDIR` is what the fake rewrites `/work` to. Passing `logPath` records
- * every invocation there, one command line per call.
+ * `SENTINEL_PROJECTS_DIR` keeps project creation out of the operator's home,
+ * `SENTINEL_FAKE_WORKDIR` is what the fake rewrites `/work` to, and
+ * `SENTINEL_FAKE_SENTINEL_DIR` does the same for `/opt/sentinel` (where the
+ * container-side tooling lives). Passing `logPath` records every invocation there,
+ * one command line per call.
  */
 export function installFakeDocker(root: string, workDir: string, logPath?: string): FakeDocker {
 	const dir = join(root, "fake-docker");
@@ -132,10 +139,12 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 	const previousWorkDir = process.env.SENTINEL_FAKE_WORKDIR;
 	const previousLog = process.env.SENTINEL_FAKE_DOCKER_LOG;
 	const previousState = process.env.SENTINEL_FAKE_DOCKER_STATE;
+	const previousSentinel = process.env.SENTINEL_FAKE_SENTINEL_DIR;
 	process.env.PATH = `${dir}:${previousPath ?? ""}`;
 	process.env.SENTINEL_PROJECTS_DIR = join(root, "projects");
 	process.env.SENTINEL_FAKE_WORKDIR = workDir;
 	process.env.SENTINEL_FAKE_DOCKER_STATE = join(root, "fake-docker-state");
+	process.env.SENTINEL_FAKE_SENTINEL_DIR = join(root, "fake-opt-sentinel");
 	if (logPath) process.env.SENTINEL_FAKE_DOCKER_LOG = logPath;
 
 	return {
@@ -151,6 +160,8 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 			else process.env.SENTINEL_FAKE_DOCKER_LOG = previousLog;
 			if (previousState === undefined) delete process.env.SENTINEL_FAKE_DOCKER_STATE;
 			else process.env.SENTINEL_FAKE_DOCKER_STATE = previousState;
+			if (previousSentinel === undefined) delete process.env.SENTINEL_FAKE_SENTINEL_DIR;
+			else process.env.SENTINEL_FAKE_SENTINEL_DIR = previousSentinel;
 		},
 	};
 }

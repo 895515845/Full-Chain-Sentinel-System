@@ -16,6 +16,8 @@
  * - `bash` and `droid_shell` record themselves inside their own execution path
  *   (see `createGatedBash` / `guardDroidCommand`). 审批模式 has an answer only
  *   after the operator replies, and a row written here would have to guess it.
+ * - the evidence capture (`replay_capture`) reaches the target through
+ *   `guardReplayCommand`, which records the payload and the outcome the same way.
  * - MCP tools that the AI gate will judge are recorded by the gate itself;
  *   recording them here as well would put two rows on one call.
  */
@@ -26,7 +28,7 @@ import type { GatekeeperStore } from "./gatekeeper-store.ts";
 import { shouldJudgeTool, stringifyToolArgs, type ToolGateContext } from "./tool-gate.ts";
 
 /** Tools whose own execution path writes the audit row, outcome included. */
-const SELF_RECORDED = new Set(["bash", "droid_shell"]);
+const SELF_RECORDED = new Set(["bash", "droid_shell", "replay_capture"]);
 
 export function createToolAuditExtension(options: {
 	store: GatekeeperStore;
