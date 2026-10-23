@@ -61,17 +61,19 @@ root@VM-0-11-ubuntu:~/sentinel-web# ./sentinel-web
 ```
 Windows (requires Docker Desktop; run in PowerShell):
 
-Download `sentinel-web-windows-x64.exe` from Releases, place it in an empty directory, and run:
+Download `sentinel-web-windows-x64.zip` from Releases (recommended) or the single-file `sentinel-web-windows-x64.exe`. The zip unpacks to the console `sentinel-web.exe` plus a `replayd/` folder (the release asset carries the platform suffix, the executable inside is `sentinel-web.exe`):
 
 ```powershell
-.\sentinel-web-windows-x64.exe
+.\sentinel-web.exe
 ```
+
+`replayd/` holds the Linux binaries of the packet-replay service that the console pushes into the project containers on first use, so they must sit next to the executable. The bare `.exe` also runs: the replay toolset then reports that it cannot find the binary — drop `replayd/` next to the exe, or point `SENTINEL_REPLAYD_DIR` at its directory.
 
 The executable is unsigned, so SmartScreen may block it once; choose "More info → Run anyway". Windows does not include `openssl` by default, so the first start falls back to plaintext HTTP and logs a warning. To keep HTTPS, install OpenSSL or provide certificates with `--tls-cert/--tls-key`. Containers use host networking by default; if Docker Desktop does not support host networking, switch to bridge networking under Settings → Environment and recreate the containers.
 
 **Windows notes:** running the console on Windows is not recommended. Install [Win32OpenSSL](https://slproweb.com/products/Win32OpenSSL.html) and add `C:\Program Files\Git\usr\bin\` to the system `PATH`; otherwise HTTPS access will not work reliably.
 
-Console release assets: `sentinel-web-linux-x64.tar.gz`, `sentinel-web-linux-arm64.tar.gz`, `sentinel-web-darwin-arm64.tar.gz`, `sentinel-web-darwin-x64.tar.gz`, `sentinel-web-windows-x64.exe`, plus the DroidBridge APK.
+Console release assets: `sentinel-web-linux-x64.tar.gz`, `sentinel-web-linux-arm64.tar.gz`, `sentinel-web-darwin-arm64.tar.gz`, `sentinel-web-darwin-x64.tar.gz`, `sentinel-web-windows-x64.zip`, `sentinel-web-windows-x64.exe` (console only, no container binaries), plus the DroidBridge APK. The four tar.gz archives and the Windows zip all carry `replayd/` (linux amd64 and arm64) for the in-container packet replay.
 
 The first run requires creating an account and password.
 

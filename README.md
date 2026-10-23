@@ -30,6 +30,7 @@
 - **自定义 MCP 插件**（设置 → MCP）：在控制台里增删改查 MCP 服务器（`http`、`sse` 或 `stdio`）并逐个测试连接，工具以 `mcp__<服务器>__<工具>` 挂给 Agent，仍受「权限 → MCP」总开关约束，且该开关下可逐个服务器放开或关掉。配置由哨兵自己拥有（`mcp-servers.json`，0600），**不读 pi 原生的 `mcp.json`**，所以列表里没有的服务器 Agent 看不到。**stdio 服务器在控制台宿主机上直接执行**（不在容器内、不过 bash 审批），必须逐条勾选风险确认才能保存。
 
 - **社区插件中心**（设置 → 插件）：插件以 Docker 镜像交付，可以跑在本机，也可以跑在用户自己的 VPS 上。控制台主动出站连接插件主机，所以本地部署没有公网 IP 也能用，不需要反向隧道。每个插件就是一个 MCP server，工具沿用 `mcp__<插件>__<工具>` 命名，受「权限 → MCP」总开关约束。安装时展示 manifest 声明的网络模式与 capabilities，`host` 网络和 `privileged` 必须单独确认；工具调用不逐条拦截，只写审计，插件页可一键停用。插件包是一个 zip（根目录或一层子目录里有 `plugin.json`、Dockerfile 与构建上下文），在「设置 → 插件」上传后由插件主机本地构建并运行，不需要镜像仓库；`source` 必须公开。详见 [docs/plugin-center.md](docs/plugin-center.md) 与 [docs/plugin-authoring.md](docs/plugin-authoring.md)。插件还可以自带前端（`ui.entry`）：在插件抽屉点「打开界面」，控制台以 `sandbox="allow-scripts"` 的 iframe 全屏加载镜像里的 `/ui/`，通过 postMessage 桥调用该插件自己的工具、读产物、读写配置与插件级 storage；iframe 是 opaque origin，读不到控制台 Cookie 与 DOM。见 [docs/plugin-ui.md](docs/plugin-ui.md)。
+- **发包重放与界面截图插件**（控制台会话默认挂载，无开关）：每个项目容器里常驻一个 `replayd`（[MITM_Fuzz_Render](MITM_Fuzz_Render) 的 Go 单二进制，控制台首次使用时下发并校验 sha256）。工具只有两个，且只为**报告留证**服务：`replay_capture` 把一次请求 + 响应 + 北京时间取证面板整窗截成 PNG（可指定要高亮的文本片段，并要求模型在 `purpose` 里写明这张图证明什么，该说明会出现在审批卡与审计里），`replay_flows` 回查抓包历史。**日常发包不给专用工具**：Agent 用 bash 里的 curl 发即可，反正同一条审批链，少一个工具；代价是 curl 无法字节保真（畸形 `Content-Length`、手工 chunked、精确 header 顺序），需要那种保真度时走 bash 的 `nc`/python。截图走审批链（人工放行时可先改包），查历史不过门。**不给 Agent 渲染任意 URL 的能力**：replayd 本身有 `POST /api/render`（无头浏览器渲染任意页面），但那是通用抓取工具，不属于数据包工具，只留给操作员在自己的界面里用。数据落在项目目录 `.sentinel/replayd/`（SQLite 历史 + 内容寻址产物），容器重建不丢。
 - **OpenAI 兼容端点**：支持 vLLM、one-api、new-api 等自建端点，界面直接配置。
 - **会话即审计**：复用 pi 的 JSONL 会话树，命令、输出与模型决策完整留痕。
 
@@ -61,15 +62,17 @@ root@VM-0-11-ubuntu:~/sentinel-web# ./sentinel-web
 ```
 Windows（需要 Docker Desktop，PowerShell 中运行）：
 
-在 Releases 下载 `sentinel-web-windows-x64.exe`，放进一个空目录后执行：
+在 Releases 下载 `sentinel-web-windows-x64.zip`（推荐）或单文件的 `sentinel-web-windows-x64.exe`。zip 解压后目录里是控制台 `sentinel-web.exe` 加一个 `replayd/` 文件夹（发布资产名带平台后缀，包内的可执行文件叫 `sentinel-web.exe`）：
 
 ```powershell
-.\sentinel-web-windows-x64.exe
+.\sentinel-web.exe
 ```
+
+`replayd/` 里是发包重放服务给容器用的 Linux 二进制：控制台首次在项目容器里用到「发包」时会把它下发进容器，所以要放在可执行文件旁边。只想要单文件时下载裸 `.exe` 也行，但发包功能会提示找不到二进制——这时把 `replayd/` 放到 exe 同级目录，或用 `SENTINEL_REPLAYD_DIR` 指向它的所在目录。
 
 该文件未签名，SmartScreen 可能拦一次，选择「更多信息 → 仍要运行」即可。Windows 默认没有 `openssl`，首次启动会回退到明文 HTTP 并在日志里提示；要保留 HTTPS，安装 OpenSSL，或用 `--tls-cert/--tls-key` 指定证书。容器默认用 host 网络，如果本机 Docker Desktop 不支持 host 网络，在「设置 → 环境」切到桥接后重建容器。
 
-控制台的 Release 资产：`sentinel-web-linux-x64.tar.gz`、`sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`、`sentinel-web-windows-x64.exe`，另有 DroidBridge APK。
+控制台的 Release 资产：`sentinel-web-linux-x64.tar.gz`、`sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`、`sentinel-web-windows-x64.zip`、`sentinel-web-windows-x64.exe`（仅为控制台，不含容器二进制），另有 DroidBridge APK。四个 tar.gz 与 Windows 的 zip 都带 `replayd/`（linux amd64/arm64），供容器内发包重放使用。
 
 首次运行访问需要设置账号密码
 
@@ -164,6 +167,7 @@ npm run start:web
 | [packages/mcp](packages/mcp) · [packages/protocol](packages/protocol) | MCP 与协议层 |
 | [packages/droid-apk](packages/droid-apk) | 安卓 DroidBridge APK（Kotlin） |
 | [packages/web/ios](packages/web/ios) | iOS SentinelBridge deb（Swift）与 Sileo 源 |
+| [MITM_Fuzz_Render](MITM_Fuzz_Render) | 容器内发包重放与渲染截图服务（`replayd`，Go 单二进制） |
 | [docker](docker) | 作业容器镜像（Kali + 工具链） |
 
 ## 开发
@@ -184,10 +188,16 @@ node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run te
 
 `packages/ai/src/providers/data/` 是 `generate-models` 的产物，已固定在版本库里：模型 id 的类型联合体直接由它推导，固定它之后 `tsc` 和测试不会随厂商轮换模型而漂移（全新克隆也能离线做类型检查）。要更新目录时跑 `npm run generate:models`（需联网）并提交改动——刷新会改到 `.manifest.json` 的 `generatedAt` 时间戳，属正常。发布流程仍会实时刷新，发布产物里的目录是最新的。
 
-作业容器：
+作业容器（镜像里带 Chromium 与中文字体，供发包截图使用）：
 
 ```bash
 docker build -t sentinel:latest docker/
+```
+
+发包服务（`replayd`）：控制台首次在项目容器里用到它时会自动下发，二进制从仓库检出（`MITM_Fuzz_Render/dist/replayd_linux_{amd64,arm64}`）或发布包同级的 `replayd/` 目录读取，也可以用 `SENTINEL_REPLAYD_DIR` 指定。本地没构建过就先跑一次：
+
+```bash
+cd MITM_Fuzz_Render && make dist   # 产出 dist/replayd_linux_{amd64,arm64}
 ```
 
 基础镜像与 apt/pip/npm/go 软件源可在控制台「设置 → 环境」配置，也可以在命令行用 `--build-arg` 覆盖。
@@ -209,6 +219,7 @@ docker build -t sentinel:latest docker/
 
 完整边界与配置见 [packages/web/README.md](packages/web/README.md#安全提示)。
 
+- **发包重放（replayd）在容器内运行，控制台用 `docker exec` 调用它**：服务只监听容器内回环 `127.0.0.1`（端口按容器名推导，被占用时自动换），控制台通过容器内 `curl` 调它的 REST，因此不发布端口、不改容器创建参数，host 与 bridge 两种网络模式都可用；访问 token 由 replayd 自己生成在挂载的数据目录里，由容器内读取，不经过 `docker exec` 的命令行参数。`replay_capture` 会真的打到目标，因此和 bash 一样过审批链（人工可改包后放行），`replay_flows` 只读历史、不过门。截图截的是 replayd 自己的 Repeater 窗口，内容是你放行过的那次请求的响应。截图依赖容器镜像里的 Chromium：镜像没装浏览器时截图会明确报错并给出补装方式（控制台下发的是 replayd 二进制，不是浏览器）。数据目录 `.sentinel/replayd/` 在项目工作目录内，容器里的命令与文件面板都能读写它。
 自动执行模式下模型可运行任意命令，持续目标在自动执行下也没有危险命令黑名单，请仅在**授权目标与隔离环境**中使用；需要无人值守又不愿全放行时用 AI 审批。控制台的登录、随机入口串与授权承诺只用于防误用与防扫描，不构成隔离。
 
 安全问题请通过仓库 Issue 反馈，不要在公开 Issue 里附可直接利用的细节。
