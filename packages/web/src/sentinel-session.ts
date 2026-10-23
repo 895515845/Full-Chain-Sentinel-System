@@ -495,6 +495,10 @@ export interface TaskSessionOptions {
 	 */
 	presetId: string | null;
 	taskTitle: string;
+	/** The engine this task belongs to, recorded on every finding it submits. */
+	engineId: string;
+	/** The task itself; with the engine it is the hub's 工程/任务 filter key. */
+	taskId: string;
 	/**
 	 * The engine's gate for this task's commands. A worker never waits for a
 	 * human, so `ai` routes its commands through the gatekeeper instead.
@@ -924,6 +928,8 @@ export class SentinelRuntime {
 				project: sessionProject,
 				permissions,
 				getSessionId: () => manager.getSessionId(),
+				getSessionName: () => managed.manager.getSessionName(),
+				...(task ? { getEngineRef: () => ({ engineId: task.engineId, taskId: task.taskId }) } : {}),
 				getSource: () => (task ? `工程任务「${task.taskTitle}」` : "主代理"),
 				workDir: manager.getCwd(),
 				// A finding counts towards the goal's hub statement whether the main
@@ -1006,6 +1012,8 @@ export class SentinelRuntime {
 									project: sessionProject,
 									permissions: subagentPermissions,
 									getSessionId: () => manager.getSessionId(),
+									getSessionName: () => managed.manager.getSessionName(),
+									...(task ? { getEngineRef: () => ({ engineId: task.engineId, taskId: task.taskId }) } : {}),
 									getSource,
 									workDir: manager.getCwd(),
 									// A task session's goal is the worker's, not managed.goal:
@@ -1333,6 +1341,8 @@ export class SentinelRuntime {
 		project: { id: string; name: string } | undefined;
 		permissions: SentinelPermissionSet;
 		getSessionId: () => string | undefined;
+		getSessionName: () => string | undefined;
+		getEngineRef?: () => { engineId: string; taskId: string } | undefined;
 		getSource: () => string;
 		/** Host project work directory, mapped to /work inside the container. */
 		workDir: string;
@@ -1344,6 +1354,8 @@ export class SentinelRuntime {
 			store: this.vulnerabilities,
 			getProject: () => options.project,
 			getSessionId: options.getSessionId,
+			getSessionName: options.getSessionName,
+			...(options.getEngineRef ? { getEngineRef: options.getEngineRef } : {}),
 			getSource: options.getSource,
 			getWorkDir: () => options.workDir,
 			onHighSeverity: (vuln) => this.notifyHighSeverity(vuln),
@@ -4384,12 +4396,52 @@ export class SentinelRuntime {
 		return updated ? evidencePathsToContainer(updated, this.cwd) : undefined;
 	}
 
-	deleteVuln(id: string): boolean {
-		const vuln = this.getVuln(id);
-		if (!vuln) return false;
-		const deleted = this.vulnerabilities.delete(vuln.id);
-		if (deleted) this.hooks.onVulnChange();
+	/**
+	 * How much deleting these findings would take with them. The confirmation
+	 * dialog shows these counts, so the operator sees the evidence and notes that
+	 * disappear with the records.
+	 */
+	previewVulnDelete(ids: readonly string[]): { count: number; evidence: number; notes: number } {
+		if (!this.activeProjectId) return { count: 0, evidence: 0, notes: 0 };
+		return this.vulnerabilities.deletePreview(this.activeProjectId, ids);
+	}
+
+	/** True on the one startup that added the provenance columns. */
+	needsVulnProvenanceBackfill(): boolean {
+		return this.vulnerabilities.needsProvenanceBackfill();
+	}
+
+	/** Delete findings of the active project; returns how many records went. */
+	deleteVulns(ids: readonly string[]): number {
+		if (!this.activeProjectId) return 0;
+		const deleted = this.vulnerabilities.deleteMany(this.activeProjectId, ids);
+		if (deleted > 0) this.hooks.onVulnChange();
 		return deleted;
+	}
+
+	/**
+	 * One-time fill of 工程/任务/会话名 for findings submitted before those columns
+	 * existed. The caller supplies the session→engine/task mapping (only the engine
+	 * service knows it); this side adds the session names it can still read.
+	 */
+	async backfillVulnProvenance(
+		engineRefs: ReadonlyMap<string, { engineId: string; taskId: string }>,
+	): Promise<number> {
+		const names = new Map<string, string>();
+		for (const project of listProjects(this.agentDir).projects) {
+			try {
+				const sessions = await SessionManager.list(
+					project.workDir,
+					getDefaultSessionDir(project.workDir, this.agentDir),
+				);
+				for (const session of sessions) {
+					if (session.name) names.set(session.id, session.name);
+				}
+			} catch {
+				// A project whose sessions cannot be listed simply contributes no names.
+			}
+		}
+		return this.vulnerabilities.backfillEngineRefs(engineRefs) + this.vulnerabilities.backfillSessionNames(names);
 	}
 
 	/**

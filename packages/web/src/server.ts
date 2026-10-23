@@ -475,6 +475,20 @@ export async function startSentinelServer(
 			)
 		: undefined;
 
+	// One-time, best-effort: fill 工程/任务/会话名 on findings submitted before
+	// those columns existed. It runs off the startup path, because listing every
+	// project's sessions must not delay the console.
+	if (runtime.needsVulnProvenanceBackfill()) {
+		void runtime
+			.backfillVulnProvenance(engines?.taskSessionRefs() ?? new Map())
+			.then((filled) => {
+				if (filled > 0) broadcastVulns();
+			})
+			.catch(() => {
+				// Provenance is enrichment: the hub works without it.
+			});
+	}
+
 	/**
 	 * The vulnerability reviewer: a dedicated LLM calibrating every fresh
 	 * finding's severity/CVSS and flagging hallucination suspects. Hub layer
@@ -2092,15 +2106,19 @@ export async function startSentinelServer(
 					broadcastVulns();
 					return;
 				}
-				case "delete_vuln": {
-					const ok = runtime.deleteVuln(message.id);
-					sendTo(socket, {
-						type: "vuln_result",
-						action: "删除",
-						id: message.id,
-						ok,
-						...(ok ? {} : { error: t("该漏洞记录不存在") }),
-					});
+				case "preview_vuln_delete": {
+					// The dialog shows what disappears with the records; nothing is
+					// deleted until the operator confirms.
+					sendTo(socket, { type: "vuln_delete_preview", ...runtime.previewVulnDelete(message.ids) });
+					return;
+				}
+				case "delete_vulns": {
+					// Deleting triggers the hub-change hook, which broadcasts the
+					// unfiltered list to every console; the caller answers with its own
+					// count and then re-lists with its own filters, so a filtered view is
+					// not silently widened.
+					const count = runtime.deleteVulns(message.ids);
+					sendTo(socket, { type: "vulns_deleted", count });
 					return;
 				}
 				case "export_vulns": {

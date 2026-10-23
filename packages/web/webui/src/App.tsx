@@ -360,6 +360,8 @@ export function App() {
 	} | null>(null);
 	/** Vulnerability hub: the active project's findings, its counts, and the current filter. */
 	const [vulnItems, setVulnItems] = useState<SentinelVulnSummary[]>([]);
+	/** The filters the page is showing, readable from message handlers. */
+	const vulnFiltersRef = useRef<SentinelVulnFilters>({});
 	const [vulnStats, setVulnStats] = useState<SentinelVulnStats>({
 		total: 0,
 		bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
@@ -368,6 +370,13 @@ export function App() {
 	const [vulnFilters, setVulnFilters] = useState<SentinelVulnFilters>({});
 	/** The record the detail overlay shows, and the evidence file it is previewing. */
 	const [vulnDetail, setVulnDetail] = useState<SentinelVulnerability | null>(null);
+	/** Ids awaiting the batch-delete confirmation, and the impact the server reported. */
+	const [vulnDeletePending, setVulnDeletePending] = useState<string[] | null>(null);
+	const [vulnDeletePreview, setVulnDeletePreview] = useState<{
+		count: number;
+		evidence: number;
+		notes: number;
+	} | null>(null);
 	const [pocItems, setPocItems] = useState<SentinelPocSummary[]>([]);
 	const [pocStats, setPocStats] = useState<SentinelPocStats>({
 		total: 0,
@@ -1066,8 +1075,19 @@ export function App() {
 					break;
 				case "vuln_result":
 					if (!message.ok && message.error) pushError(message.error);
-					if (message.ok && message.action === "删除") setVulnDetail(null);
 					break;
+				case "vuln_delete_preview":
+					setVulnDeletePreview({ count: message.count, evidence: message.evidence, notes: message.notes });
+					break;
+				case "vulns_deleted": {
+					// The broadcast that follows carries the unfiltered list, so the page
+					// asks again with the filters it is actually showing.
+					setVulnDeletePending(null);
+					setVulnDeletePreview(null);
+					setVulnDetail(null);
+					send({ type: "list_vulns", filters: vulnFiltersRef.current });
+					break;
+				}
 				case "vuln_review_result":
 					if (!message.ok) pushError(t("重新评审失败：{error}", { error: message.error ?? t("未知错误") }));
 					break;
@@ -1797,10 +1817,35 @@ export function App() {
 	const loadVulns = useCallback(
 		(filters: SentinelVulnFilters) => {
 			setVulnFilters(filters);
+			vulnFiltersRef.current = filters;
 			send({ type: "list_vulns", filters });
 		},
 		[send],
 	);
+
+	/** Ask the server what deleting these records would take with them. */
+	const requestVulnDelete = useCallback(
+		(ids: string[]) => {
+			if (ids.length === 0) return;
+			setVulnDeletePending(ids);
+			setVulnDeletePreview(null);
+			send({ type: "preview_vuln_delete", ids });
+		},
+		[send],
+	);
+
+	const confirmVulnDelete = useCallback(
+		(ids: string[]) => {
+			if (ids.length === 0) return;
+			send({ type: "delete_vulns", ids });
+		},
+		[send],
+	);
+
+	const cancelVulnDelete = useCallback(() => {
+		setVulnDeletePending(null);
+		setVulnDeletePreview(null);
+	}, []);
 
 	/**
 	 * Modeling records are project-scoped like findings, so the page re-reads on
@@ -2495,6 +2540,14 @@ export function App() {
 							items={vulnItems}
 							stats={vulnStats}
 							filters={vulnFilters}
+							projectId={snapshot?.project?.id ?? null}
+							engines={engines}
+							sessions={sessions}
+							deletePending={vulnDeletePending}
+							deletePreview={vulnDeletePreview}
+							onRequestDelete={requestVulnDelete}
+							onConfirmDelete={confirmVulnDelete}
+							onCancelDelete={cancelVulnDelete}
 							projectName={snapshot?.project?.name ?? null}
 							hasProject={snapshot?.project !== null && snapshot?.project !== undefined}
 							onFiltersChange={loadVulns}
@@ -3282,12 +3335,20 @@ export function App() {
 				<VulnDetail
 					vuln={vulnDetail}
 					preview={vulnPreview}
+					provenance={{
+						// Names are resolved live; the record keeps the ids as the source of
+						// truth, and the session snapshot covers a session that is gone.
+						engine: engines.find((engine) => engine.id === vulnDetail.engineId)?.name,
+						task: engines
+							.flatMap((engine) => engine.tasks)
+							.find((task) => task.id === vulnDetail.taskId)?.title,
+						session: sessions.find((session) => session.id === vulnDetail.sessionId)?.name,
+					}}
 					onClose={() => {
 						setVulnDetail(null);
 						setVulnPreview(null);
 					}}
 					onUpdate={(id, patch: SentinelVulnUpdate) => send({ type: "update_vuln", id, patch })}
-					onDelete={(id) => send({ type: "delete_vuln", id })}
 					onRetryReview={(id, force) => send({ type: "retry_vuln_review", id, ...(force ? { force: true } : {}) })}
 					onPreview={previewVulnFile}
 				/>

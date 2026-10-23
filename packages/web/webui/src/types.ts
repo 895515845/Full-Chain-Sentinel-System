@@ -534,6 +534,11 @@ export interface SentinelVulnerability {
 	projectId: string;
 	projectName: string;
 	sessionId?: string;
+	/** Engineering provenance: the engine and task this finding came from. */
+	engineId?: string;
+	taskId?: string;
+	/** Session display name at submission time, for records whose session is gone. */
+	sessionName?: string;
 	source: string;
 	title: string;
 	severity: SentinelVulnSeverity;
@@ -561,7 +566,14 @@ export interface SentinelVulnFilters {
 	status?: SentinelVulnStatus;
 	severity?: SentinelVulnSeverity;
 	target?: string;
+	/** Matches id, title, type, description and the origin/source text. */
 	search?: string;
+	/** Exact session the finding was submitted from. */
+	sessionId?: string;
+	/** Exact engineering engine (工程) the finding came from. */
+	engineId?: string;
+	/** Exact engineering task inside that engine. */
+	taskId?: string;
 	/** Only records the reviewer marked as dubious (hallucination suspects). */
 	dubious?: boolean;
 }
@@ -1345,7 +1357,9 @@ export type SentinelClientMessage =
 	| { type: "list_vulns"; filters?: SentinelVulnFilters }
 	| { type: "get_vuln"; id: string }
 	| { type: "update_vuln"; id: string; patch: SentinelVulnUpdate }
-	| { type: "delete_vuln"; id: string }
+	/** How much deleting these records would take with them, for the dialog. */
+	| { type: "preview_vuln_delete"; ids: string[] }
+	| { type: "delete_vulns"; ids: string[] }
 	| { type: "export_vulns"; filters?: SentinelVulnFilters }
 	| { type: "retry_vuln_review"; id: string; force?: boolean }
 	| { type: "review_pending_vulns" }
@@ -1592,6 +1606,10 @@ export type SentinelServerMessage =
 	| { type: "vulns"; items: SentinelVulnSummary[]; stats: SentinelVulnStats }
 	| { type: "vuln"; vuln: SentinelVulnerability }
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "vuln_delete_preview"; count: number; evidence: number; notes: number }
+	| { type: "vulns_deleted"; count: number }
+	| { type: "vuln_delete_preview"; count: number; evidence: number; notes: number }
+	| { type: "vulns_deleted"; count: number }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
 	| { type: "pocs"; items: SentinelPocSummary[]; stats: SentinelPocStats; total: number; page: number; pageSize: number }

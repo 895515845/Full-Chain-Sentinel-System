@@ -260,6 +260,22 @@ export class EngineManager {
 		return index;
 	}
 
+	/**
+	 * sessionId → engine/task for the vulnerability hub's provenance backfill.
+	 * `taskSessionIndex` carries the display name; this is the id pair the hub
+	 * stores on a record.
+	 */
+	taskSessionRefs(): Map<string, { engineId: string; taskId: string }> {
+		const refs = new Map<string, { engineId: string; taskId: string }>();
+		if (this.disposed) return refs;
+		for (const engine of this.store.listEngines()) {
+			for (const task of engine.tasks) {
+				if (task.sessionId) refs.set(task.sessionId, { engineId: engine.id, taskId: task.id });
+			}
+		}
+		return refs;
+	}
+
 	/** Doctrine list for the create form. */
 	doctrines(): SentinelDoctrine[] {
 		return listDoctrines(this.agentDir);
@@ -1365,6 +1381,10 @@ export class EngineManager {
 		const acquire: WorkerAcquire = (input) =>
 			this.acquireTaskSession({
 				taskTitle: task.title,
+				// Recorded on every finding this task submits, so the hub can filter
+				// by 工程/任务 long after the task's session is gone.
+				engineId: entry.engine.id,
+				taskId: task.id,
 				appendPrompt: WORKER_APPEND_PROMPT,
 				// The task's own preset, fixed at dispatch. A task resumed after a
 				// restart reopens its session file, which already carries the choice.

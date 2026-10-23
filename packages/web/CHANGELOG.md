@@ -22,6 +22,8 @@
 
 ### Added
 
+- 漏洞中枢支持按**工程 / 任务 / 会话**与**目标**筛选：工程下拉列当前项目全部工程（含已结束），任务下拉跟随所选工程，会话下拉列项目全部会话并显示会话名（记录里的会话已删除时显示提交时的名称快照）；漏洞记录新增 `engineId / taskId / sessionName`，提交时写入，老记录在升级后的首次启动按会话补齐归属，因此筛选不依赖会话文件是否还在。搜索框同时匹配来源文本（`主代理`、`子代理 …`、`工程任务「…」`）。
+- 漏洞中枢支持**批量删除**：列表每行可勾选，表头与工具栏可「全选筛选结果」，确认弹窗显示将删除的记录数、连带删除的证据与复核备注数；删除按项目限定，选中记录后一次提交（`delete_vulns`）完成，单条删除入口已移除（列表与详情页都不再有单独删除按钮）。
 - iOS 设备端（M0）：新增独立的 iOS 设备网关 `/ws/ios` 与 `ios.db`，复用安卓的分片、超时与 TCP 隧道语义（抽到 `device-transport.ts`）。设备用独立 token 反连，hello 上报机型、系统、架构、越狱形态与能力集，roothide 明确拒绝；本期只落服务端与协议，不挂工具、不出页面。
 - iOS 设备端（M1）：控制台新增「iOS 设备」页（token 创建/显示/复制/二维码/删除、设备列表与 stale 提示、重命名/移除、接入指引），侧栏入口和对话输入框的「iOS」开关；打开开关的会话获得 `ios_devices / ios_shell / ios_file_pull / ios_file_push / ios_screencap`，`ios_shell` 走与 bash 相同的守门/审批与审计，证据写入 `evidence/ios/{screenshots,files}`，每会话开关持久化在 `zg-ios` 标记。新增 Swift daemon `packages/web/ios`：反向 WebSocket、15s 心跳、断线退避重连、`posix_spawn` exec、分片 pull/push、TCP 隧道、叶证书 pin、配置与设备 ID；`build-ios.sh` 交叉编译 arm64（iOS 14+）并用 ldid 签 entitlements，`build-deb.sh` 生成 rootful/rootless 两个 deb 与 launchd。主机端到端测试用同一份 Swift 源码连真实网关，未构建二进制时跳过。
 - iOS 设备端（M2 进行中）：应用面工具 `ios_apps / ios_app_info / ios_ipa_pull / ios_profiles / ios_install / ios_uninstall` 与静态 `ipa_info / ipa_files`。设备端新增 `apps_list / app_info / app_bundle / profiles_list / install / uninstall` 帧，读 Info.plist、数据容器、框架、URL scheme、`ldid -e` entitlements，并用 Mach-O 解析报告架构与 FairPlay `cryptid`；`app_bundle` 只返回文件清单，控制台逐文件拉取后在工程容器里 `zip` 成 IPA 存到 `evidence/ios/ipa/`，设备不需要 zip。安装/卸载走审批链，只读工具不拦截；容器镜像增加 `libplist-utils` 供 `ipa_info` 解析二进制 plist。静态侧再补 `ipa_strings`（主可执行或指定条目 strings）、`ipa_search`（解包后整包 grep -E，返回 file:line）、`ipa_plist`（打印任意条目为 XML plist）；设备侧 `profilePlist` 从 CMS 签名数据里扫描内嵌 plist，`ios_app_info` 与 `ios_profiles` 因此能报 UUID、团队、到期与应用标识等 entitlements。

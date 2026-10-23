@@ -185,6 +185,10 @@ export interface VulnerabilityToolOptions {
 	getProject: () => { id: string; name: string } | undefined;
 	/** Main session of the submission, for the record. */
 	getSessionId: () => string | undefined;
+	/** Display name of that session at submission time, when it has one. */
+	getSessionName?: () => string | undefined;
+	/** Engineering provenance, when a task session submits the finding. */
+	getEngineRef?: () => { engineId: string; taskId: string } | undefined;
 	/** Who is calling, e.g. "主代理" or "子代理 <runId>". */
 	getSource: () => string;
 	/** Host project work directory; evidence paths under it are stored as /work/... */
@@ -277,7 +281,7 @@ const listSchema = Type.Object({
 		),
 	),
 	target: Type.Optional(Type.String({ description: "Substring match on the affected target" })),
-	search: Type.Optional(Type.String({ description: "Substring match on id, title, type or description" })),
+	search: Type.Optional(Type.String({ description: "Substring match on id, title, type, description or source" })),
 });
 
 const getSchema = Type.Object({
@@ -345,10 +349,16 @@ export function createVulnerabilityTools(options: VulnerabilityToolOptions): Too
 					isError: true,
 				};
 			}
+			// Provenance is captured at submission time: filtering the hub by
+			// 工程/任务/会话 must keep working after the session file is gone.
+			const engineRef = options.getEngineRef?.();
+			const sessionName = options.getSessionName?.()?.trim();
 			const vuln = options.store.create({
 				projectId: project.id,
 				projectName: project.name,
 				...(options.getSessionId() ? { sessionId: options.getSessionId() as string } : {}),
+				...(engineRef ? { engineId: engineRef.engineId, taskId: engineRef.taskId } : {}),
+				...(sessionName ? { sessionName } : {}),
 				source: options.getSource(),
 				title,
 				severity: params.severity,

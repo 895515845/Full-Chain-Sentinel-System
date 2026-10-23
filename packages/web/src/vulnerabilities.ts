@@ -94,6 +94,11 @@ export interface SentinelVulnCreateInput {
 	projectId: string;
 	projectName: string;
 	sessionId?: string;
+	/** Engineering provenance, when the submission came from an engine task. */
+	engineId?: string;
+	taskId?: string;
+	/** Display name of the session at submission time, for records whose session is gone. */
+	sessionName?: string;
 	/** Who submitted it, e.g. "主代理" or "子代理 <runId>". */
 	source: string;
 	title: string;
@@ -123,6 +128,9 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
   project_id TEXT NOT NULL,
   project_name TEXT NOT NULL,
   session_id TEXT,
+  engine_id TEXT,
+  task_id TEXT,
+  session_name TEXT,
   source TEXT NOT NULL,
   title TEXT NOT NULL,
   severity TEXT NOT NULL,
@@ -174,6 +182,9 @@ interface VulnRow {
 	project_id: string;
 	project_name: string;
 	session_id: string | null;
+	engine_id: string | null;
+	task_id: string | null;
+	session_name: string | null;
 	source: string;
 	title: string;
 	severity: string;
@@ -249,6 +260,8 @@ export function emptyVulnStats(): SentinelVulnStats {
 
 export class VulnerabilityStore {
 	private readonly db: SqliteDatabase;
+	/** True when this open added the provenance columns, so a backfill is due. */
+	private provenanceMigrated = false;
 
 	constructor(path: string) {
 		mkdirSync(dirname(path), { recursive: true });
@@ -257,6 +270,27 @@ export class VulnerabilityStore {
 		this.db.exec(SCHEMA);
 		this.addReviewColumn();
 		this.addDroidColumns();
+		this.addProvenanceColumns();
+	}
+
+	/**
+	 * Databases created before findings recorded where they came from have no
+	 * engine/task/session-name columns. They are filled in on submission from here
+	 * on; existing rows keep their `session_id` (which is what filtering uses) and
+	 * are backfilled once by the runtime, which is the only layer that can see the
+	 * engines and session files.
+	 */
+	private addProvenanceColumns(): void {
+		const columns = this.db.prepare("PRAGMA table_info(vulnerabilities)").all() as unknown as Array<{ name: string }>;
+		const names = columns.map((column) => column.name);
+		if (!names.includes("engine_id")) {
+			this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN engine_id TEXT");
+			// Only the runtime can map sessions to engines and names, so it is asked
+			// to backfill once, after this migration.
+			this.provenanceMigrated = true;
+		}
+		if (!names.includes("task_id")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN task_id TEXT");
+		if (!names.includes("session_name")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN session_name TEXT");
 	}
 
 	/** Databases created before the Droid plugin existed have no platform columns. */
@@ -267,6 +301,11 @@ export class VulnerabilityStore {
 			this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN platform TEXT NOT NULL DEFAULT 'web'");
 		if (!names.includes("app_package")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN app_package TEXT");
 		if (!names.includes("app_version")) this.db.exec("ALTER TABLE vulnerabilities ADD COLUMN app_version TEXT");
+	}
+
+	/** True on the one startup that added the provenance columns. */
+	needsProvenanceBackfill(): boolean {
+		return this.provenanceMigrated;
 	}
 
 	/** Databases created before the reviewer existed have no review column. */
@@ -303,10 +342,11 @@ export class VulnerabilityStore {
 		this.db
 			.prepare(
 				`INSERT INTO vulnerabilities (
-					id, label, number, project_id, project_name, session_id, source, title, severity, cvss,
+					id, label, number, project_id, project_name, session_id, engine_id, task_id, session_name,
+					source, title, severity, cvss,
 					cvss_vector, status, target, category, platform, app_package, app_version, description, packet,
 					repro, remediation, refs, review, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -315,6 +355,9 @@ export class VulnerabilityStore {
 				input.projectId,
 				input.projectName,
 				input.sessionId ?? null,
+				input.engineId ?? null,
+				input.taskId ?? null,
+				input.sessionName ?? null,
 				input.source,
 				input.title,
 				input.severity,
@@ -548,12 +591,26 @@ export class VulnerabilityStore {
 			conditions.push("target LIKE ? ESCAPE '\\'");
 			params.push(likePattern(filters.target.trim()));
 		}
+		if (filters.sessionId?.trim()) {
+			conditions.push("session_id = ?");
+			params.push(filters.sessionId.trim());
+		}
+		if (filters.engineId?.trim()) {
+			conditions.push("engine_id = ?");
+			params.push(filters.engineId.trim());
+		}
+		if (filters.taskId?.trim()) {
+			conditions.push("task_id = ?");
+			params.push(filters.taskId.trim());
+		}
 		if (filters.search?.trim()) {
 			const pattern = likePattern(filters.search.trim());
+			// `source` is included so an operator can search the origin text
+			// ("主代理", "子代理 …", "工程任务「…」") the list shows.
 			conditions.push(
-				"(label LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR COALESCE(category, '') LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')",
+				"(label LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR COALESCE(category, '') LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')",
 			);
-			params.push(pattern, pattern, pattern, pattern);
+			params.push(pattern, pattern, pattern, pattern, pattern);
 		}
 		const rows = this.db
 			.prepare(`SELECT * FROM vulnerabilities WHERE ${conditions.join(" AND ")} ORDER BY number DESC`)
@@ -672,6 +729,91 @@ export class VulnerabilityStore {
 			);
 	}
 
+	/**
+	 * What a deletion would take with it. The confirmation dialog shows these so
+	 * the operator sees the evidence and notes that disappear with the records.
+	 */
+	deletePreview(projectId: string, ids: readonly string[]): { count: number; evidence: number; notes: number } {
+		const selected = scopedIds(ids);
+		if (selected.length === 0) return { count: 0, evidence: 0, notes: 0 };
+		const placeholders = selected.map(() => "?").join(", ");
+		const count = (table: string): number => {
+			const row = this.db
+				.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ? AND id IN (${placeholders})`)
+				.get(projectId, ...selected) as unknown as { count: number } | undefined;
+			return Number(row?.count ?? 0);
+		};
+		const linked = (table: string): number => {
+			const row = this.db
+				.prepare(
+					`SELECT COUNT(*) AS count FROM ${table} WHERE vuln_id IN (SELECT id FROM vulnerabilities WHERE project_id = ? AND id IN (${placeholders}))`,
+				)
+				.get(projectId, ...selected) as unknown as { count: number } | undefined;
+			return Number(row?.count ?? 0);
+		};
+		return {
+			count: count("vulnerabilities"),
+			evidence: linked("vulnerability_evidence"),
+			notes: linked("vulnerability_notes"),
+		};
+	}
+
+	/**
+	 * Delete many records of one project with their evidence and notes. Scoped to
+	 * the project so a leaked id from another project cannot take records with it.
+	 */
+	deleteMany(projectId: string, ids: readonly string[]): number {
+		const selected = scopedIds(ids);
+		if (selected.length === 0) return 0;
+		const placeholders = selected.map(() => "?").join(", ");
+		this.db.exec("BEGIN");
+		try {
+			const row = this.db
+				.prepare(`SELECT COUNT(*) AS count FROM vulnerabilities WHERE project_id = ? AND id IN (${placeholders})`)
+				.get(projectId, ...selected) as unknown as { count: number } | undefined;
+			const scope = `vuln_id IN (SELECT id FROM vulnerabilities WHERE project_id = ? AND id IN (${placeholders}))`;
+			this.db.prepare(`DELETE FROM vulnerability_evidence WHERE ${scope}`).run(projectId, ...selected);
+			this.db.prepare(`DELETE FROM vulnerability_notes WHERE ${scope}`).run(projectId, ...selected);
+			this.db
+				.prepare(`DELETE FROM vulnerabilities WHERE project_id = ? AND id IN (${placeholders})`)
+				.run(projectId, ...selected);
+			this.db.exec("COMMIT");
+			return Number(row?.count ?? 0);
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
+	}
+
+	/**
+	 * Fill engineering provenance for rows submitted before those columns existed.
+	 * The runtime supplies the mapping, because only it can see the engines.
+	 */
+	backfillEngineRefs(bySession: ReadonlyMap<string, { engineId: string; taskId: string }>): number {
+		if (bySession.size === 0) return 0;
+		const update = this.db.prepare(
+			"UPDATE vulnerabilities SET engine_id = ?, task_id = ? WHERE session_id = ? AND engine_id IS NULL",
+		);
+		let changed = 0;
+		for (const [sessionId, ref] of bySession) {
+			changed += Number(update.run(ref.engineId, ref.taskId, sessionId).changes ?? 0);
+		}
+		return changed;
+	}
+
+	/** Fill the session-name snapshot for rows submitted before it existed. */
+	backfillSessionNames(bySession: ReadonlyMap<string, string>): number {
+		if (bySession.size === 0) return 0;
+		const update = this.db.prepare(
+			"UPDATE vulnerabilities SET session_name = ? WHERE session_id = ? AND session_name IS NULL",
+		);
+		let changed = 0;
+		for (const [sessionId, name] of bySession) {
+			changed += Number(update.run(name, sessionId).changes ?? 0);
+		}
+		return changed;
+	}
+
 	delete(id: string): boolean {
 		const existing = this.db.prepare("SELECT id FROM vulnerabilities WHERE id = ?").get(id) as unknown as
 			| { id: string }
@@ -736,6 +878,11 @@ function normalizeReview(raw: string | null): SentinelVulnReview {
 	}
 }
 
+/** Deduplicate and drop empty ids before they reach a statement. */
+function scopedIds(ids: readonly string[]): string[] {
+	return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
 function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]): SentinelVulnerability {
 	const severity = row.severity as SentinelVulnSeverity;
 	const cvss = Number(row.cvss);
@@ -747,6 +894,9 @@ function toVulnerability(row: VulnRow, evidence: EvidenceRow[], notes: NoteRow[]
 		projectId: row.project_id,
 		projectName: row.project_name,
 		...(optional(row.session_id) ? { sessionId: row.session_id as string } : {}),
+		...(optional(row.engine_id) ? { engineId: row.engine_id as string } : {}),
+		...(optional(row.task_id) ? { taskId: row.task_id as string } : {}),
+		...(optional(row.session_name) ? { sessionName: row.session_name as string } : {}),
 		source: row.source,
 		title: row.title,
 		severity,

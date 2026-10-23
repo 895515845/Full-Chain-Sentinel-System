@@ -8175,9 +8175,166 @@ button.link {
 }
 
 .vuln-table .data-row {
-	grid-template-columns: 96px 120px 78px minmax(140px, 1fr) minmax(260px, 1.7fr) 108px 96px;
+	/* The leading column is the deletion checkbox. */
+	grid-template-columns: 26px 96px 120px 78px minmax(140px, 1fr) minmax(260px, 1.7fr) 108px 96px;
 	padding: 5px 12px;
 	font-size: 12.5px;
+}
+
+/* A ticked row is visibly part of the pending deletion. */
+.vuln-row.selected {
+	background: var(--accent-dim);
+}
+
+.vuln-select {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* The delete confirmation states counts and asks once, so it stays narrow
+   instead of taking the wide panel an overlay defaults to. */
+.modal.vuln-delete-modal {
+	width: min(520px, calc(100vw - 48px));
+	height: auto;
+	max-height: calc(100vh - 96px);
+	display: block;
+	overflow: visible;
+}
+
+.vuln-delete-body ul {
+	margin: 6px 0 10px;
+	padding-left: 20px;
+}
+
+.vuln-delete-body p {
+	margin: 0 0 6px;
+}
+
+/* 漏洞中枢筛选：一个搜索框 + 一个条件面板，生效条件折成可点掉的胶囊。
+   控件不再和批量动作挤在同一行，也不会因为多加一个筛选项就撑宽工具条。 */
+.vuln-filter-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px 8px;
+}
+
+.vuln-filter-search {
+	flex: 1;
+	min-width: 220px;
+}
+
+.vuln-filter-anchor {
+	position: relative;
+}
+
+.vuln-filter-count {
+	display: inline-block;
+	min-width: 16px;
+	margin-left: 4px;
+	padding: 0 4px;
+	font-size: 11px;
+	line-height: 16px;
+	text-align: center;
+	color: #fff;
+	background: var(--accent);
+	border-radius: 8px;
+}
+
+.vuln-filter-panel {
+	position: absolute;
+	right: 0;
+	top: 34px;
+	z-index: 20;
+	width: min(520px, calc(100vw - 48px));
+	padding: 12px;
+	background: var(--card);
+	border: 1px solid var(--border-strong);
+	border-radius: 8px;
+	box-shadow: var(--shadow-md);
+}
+
+.vuln-filter-panel.hidden {
+	display: none;
+}
+
+.vuln-filter-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px 12px;
+}
+
+.vuln-filter-grid label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.vuln-filter-grid .inline-input {
+	width: 100%;
+}
+
+.vuln-filter-label {
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.vuln-filter-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border);
+}
+
+.vuln-chip-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 0 14px 10px;
+}
+
+.vuln-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 24px;
+	padding: 0 4px 0 9px;
+	font-size: 12px;
+	color: var(--accent);
+	background: var(--accent-dim);
+	border: 1px solid var(--accent-border);
+	border-radius: 999px;
+}
+
+.vuln-chip__label {
+	color: var(--dim);
+}
+
+.vuln-chip button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: var(--accent);
+}
+
+.vuln-chip button:hover {
+	color: var(--danger);
+	background: transparent;
+}
+
+.vuln-chip button svg {
+	width: 12px;
+	height: 12px;
 }
 
 .vuln-table .data-head {

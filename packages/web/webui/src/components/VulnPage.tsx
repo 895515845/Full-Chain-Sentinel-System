@@ -9,9 +9,10 @@
  * lands in the record's timeline.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n.ts";
 import type {
+	SentinelEngine,
 	SentinelFilePreview,
 	SentinelVulnEvidence,
 	SentinelVulnerability,
@@ -22,9 +23,11 @@ import type {
 	SentinelVulnStatus,
 	SentinelVulnSummary,
 	SentinelVulnUpdate,
+	SessionInfoView,
 } from "../types.ts";
 import { SENTINEL_VULN_SEVERITIES, SENTINEL_VULN_SEVERITY_LABELS, SENTINEL_VULN_STATUS_LABELS } from "../types.ts";
-import { CloseIcon, DeleteIcon, DownloadIcon } from "./icons.tsx";
+import { CaretDownIcon, CloseIcon, DeleteIcon, DownloadIcon } from "./icons.tsx";
+import { Overlay } from "./Overlay.tsx";
 
 const STATUSES: readonly SentinelVulnStatus[] = ["pending", "confirmed", "false_positive", "fixed"];
 
@@ -133,30 +136,172 @@ export function VulnPage({
 	stats,
 	filters,
 	projectName,
+	projectId,
+	engines,
+	sessions,
 	hasProject,
+	deletePending,
+	deletePreview,
 	onFiltersChange,
 	onOpen,
 	onExport,
 	onRetryReview,
 	onReviewAllPending,
+	onRequestDelete,
+	onConfirmDelete,
+	onCancelDelete,
 }: {
 	items: SentinelVulnSummary[];
 	stats: SentinelVulnStats;
 	filters: SentinelVulnFilters;
 	projectName: string | null;
+	/** Active project, so the engine dropdown lists this project's engines only. */
+	projectId: string | null;
+	/** All engines of the project, finished ones included: findings are historical. */
+	engines: SentinelEngine[];
+	/** All sessions of the project, for the session dropdown. */
+	sessions: SessionInfoView[];
 	hasProject: boolean;
+	/** Ids awaiting the delete confirmation, null when no dialog is open. */
+	deletePending: string[] | null;
+	/** What that deletion would take with it, once the server answered. */
+	deletePreview: { count: number; evidence: number; notes: number } | null;
 	onFiltersChange: (filters: SentinelVulnFilters) => void;
 	onOpen: (id: string) => void;
 	onExport: (filters: SentinelVulnFilters) => void;
 	onRetryReview: (id: string, force: boolean) => void;
 	onReviewAllPending: () => void;
+	onRequestDelete: (ids: string[]) => void;
+	onConfirmDelete: (ids: string[]) => void;
+	onCancelDelete: () => void;
 }) {
 	const [search, setSearch] = useState(filters.search ?? "");
+	const [target, setTarget] = useState(filters.target ?? "");
+	/** The condition panel is closed by default: the chips already say what is on. */
+	const [filterOpen, setFilterOpen] = useState(false);
+	const filterRef = useRef<HTMLDivElement | null>(null);
+	/** Rows ticked for deletion; cleared whenever the list is replaced. */
+	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
-	// Keep the input in step when the page is opened fresh or filters are reset.
+	// Keep the inputs in step when the page is opened fresh or filters are reset.
 	useEffect(() => {
 		setSearch(filters.search ?? "");
 	}, [filters.search]);
+	useEffect(() => {
+		setTarget(filters.target ?? "");
+	}, [filters.target]);
+	// A refresh (another console, or the agent submitting a finding) must not drop
+	// the operator's ticks, but ids that disappeared cannot stay selected: deleting
+	// them would mean deleting records that are no longer visible.
+	useEffect(() => {
+		setSelected((prev) => {
+			if (prev.size === 0) return prev;
+			const visible = new Set(items.map((item) => item.id));
+			const next = new Set([...prev].filter((id) => visible.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [items]);
+
+	// Strictly this project's engines: with no project there is nothing to show, and
+	// another project's engines must never appear in a project-scoped hub.
+	useEffect(() => {
+		if (!filterOpen) return;
+		const onDown = (event: MouseEvent) => {
+			if (filterRef.current && !filterRef.current.contains(event.target as Node)) setFilterOpen(false);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setFilterOpen(false);
+		};
+		document.addEventListener("mousedown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [filterOpen]);
+
+	const projectEngines = engines.filter((engine) => engine.projectId === projectId);
+	const activeEngine = projectEngines.find((engine) => engine.id === filters.engineId);
+	const toggle = (id: string): void => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+	const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+	const selectedIds = items.filter((item) => selected.has(item.id)).map((item) => item.id);
+	// Every session of the project is offered, named when it has a name and
+	// identified by its first message otherwise.
+	const sessionOptions = sessions.map((session) => ({
+		id: session.id,
+		name: session.name?.trim() || session.firstMessage.slice(0, 40) || t("未命名会话"),
+	}));
+	/** A record can outlive its session; the snapshot keeps the option readable. */
+	const sessionLabelFor = (id: string): string =>
+		items.find((item) => item.id && item.sessionId === id)?.sessionName?.trim() || t("已删除的会话");
+
+	/**
+	 * The conditions the panel can set, as removable chips. Search and 存疑 are not
+	 * here on purpose: each already has a visible control of its own.
+	 */
+	const chips: { key: string; label: string; value: string; clear: () => void }[] = [];
+	if (filters.target) {
+		chips.push({
+			key: "target",
+			label: t("目标"),
+			value: filters.target,
+			clear: () => onFiltersChange({ ...filters, target: undefined }),
+		});
+	}
+	if (filters.sessionId) {
+		chips.push({
+			key: "session",
+			label: t("会话"),
+			value: sessionLabelFor(filters.sessionId),
+			clear: () => onFiltersChange({ ...filters, sessionId: undefined }),
+		});
+	}
+	if (filters.engineId) {
+		chips.push({
+			key: "engine",
+			label: t("工程"),
+			value: activeEngine?.name ?? filters.engineId,
+			// A task belongs to an engine, so dropping the engine drops its task too.
+			clear: () => onFiltersChange({ ...filters, engineId: undefined, taskId: undefined }),
+		});
+	}
+	if (filters.taskId) {
+		chips.push({
+			key: "task",
+			label: t("任务"),
+			value: activeEngine?.tasks.find((task) => task.id === filters.taskId)?.title ?? filters.taskId,
+			clear: () => onFiltersChange({ ...filters, taskId: undefined }),
+		});
+	}
+	if (filters.severity) {
+		chips.push({
+			key: "severity",
+			label: t("等级"),
+			value: SENTINEL_VULN_SEVERITY_LABELS[filters.severity],
+			clear: () => onFiltersChange({ ...filters, severity: undefined }),
+		});
+	}
+	if (filters.status) {
+		chips.push({
+			key: "status",
+			label: t("状态"),
+			value: SENTINEL_VULN_STATUS_LABELS[filters.status],
+			clear: () => onFiltersChange({ ...filters, status: undefined }),
+		});
+	}
+
+	const clearAll = (): void => {
+		setSearch("");
+		setTarget("");
+		onFiltersChange({});
+	};
 
 	if (!hasProject) {
 		return (
@@ -173,7 +318,6 @@ export function VulnPage({
 			</div>
 		);
 	}
-
 	return (
 		<div className="page-card">
 			<div className="ws-panel__head">
@@ -184,6 +328,8 @@ export function VulnPage({
 						{t("{total} 条 · 待确认 {pending}", { total: stats.total, pending: stats.byStatus.pending })}
 					</span>
 				</div>
+				{/* Batch actions act on the selection, not on the filters, so they stay
+				    on the title row where they are always reachable. */}
 				<div className="ws-panel__actions">
 					<button
 						type="button"
@@ -198,58 +344,21 @@ export function VulnPage({
 					</button>
 					<button
 						type="button"
-						className={`ghost small${filters.dubious ? " on" : ""}`}
-						title={t("只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论")}
-						onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
+						disabled={items.length === 0}
+						title={t("选中当前筛选结果里的全部记录")}
+						onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))}
 					>
-						{t("⚠ 存疑")}
+						{allSelected ? t("取消全选") : t("全选筛选结果")}
 					</button>
-					<input
-						className="inline-input"
-						value={search}
-						placeholder={t("搜索编号 / 标题 / 类型 / 描述")}
-						spellCheck={false}
-						onChange={(event) => setSearch(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") onFiltersChange({ ...filters, search: search.trim() || undefined });
-						}}
-					/>
-					<select
-						className="inline-input"
-						value={filters.severity ?? ""}
-						onChange={(event) =>
-							onFiltersChange({
-								...filters,
-								severity: (event.target.value || undefined) as SentinelVulnSeverity | undefined,
-							})
-						}
+					<button
+						type="button"
+						className="danger"
+						disabled={selectedIds.length === 0}
+						title={t("删除选中的漏洞记录：会一并删掉它们的证据与备注")}
+						onClick={() => onRequestDelete(selectedIds)}
 					>
-						<option value="">{t("全部等级")}</option>
-						{SENTINEL_VULN_SEVERITIES.map((severity) => (
-							<option key={severity} value={severity}>
-								{SENTINEL_VULN_SEVERITY_LABELS[severity]}
-							</option>
-						))}
-					</select>
-					<select
-						className="inline-input"
-						value={filters.status ?? ""}
-						onChange={(event) =>
-							onFiltersChange({
-								...filters,
-								status: (event.target.value || undefined) as SentinelVulnStatus | undefined,
-							})
-						}
-					>
-						<option value="">{t("全部状态")}</option>
-						{STATUSES.map((status) => (
-							<option key={status} value={status}>
-								{SENTINEL_VULN_STATUS_LABELS[status]}
-							</option>
-						))}
-					</select>
-					<button type="button" onClick={() => onFiltersChange({ search: search.trim() || undefined })}>
-						{t("重置")}
+						<DeleteIcon />
+						{t("删除选中 ({count})", { count: selectedIds.length })}
 					</button>
 					<button type="button" className="primary" onClick={() => onExport(filters)}>
 						<DownloadIcon />
@@ -257,6 +366,172 @@ export function VulnPage({
 					</button>
 				</div>
 			</div>
+			{/* Filters: one search box and one panel. The conditions in force are shown
+			    as removable chips, so the row does not grow with every control. */}
+			<div className="vuln-filter-row" ref={filterRef}>
+				<input
+					className="inline-input vuln-filter-search"
+					value={search}
+					placeholder={t("搜索编号 / 标题 / 类型 / 描述 / 来源")}
+					spellCheck={false}
+					onChange={(event) => setSearch(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") onFiltersChange({ ...filters, search: search.trim() || undefined });
+					}}
+				/>
+				<div className="vuln-filter-anchor">
+					<button
+						type="button"
+						className={`ghost small${filterOpen ? " on" : ""}`}
+						title={t("目标、会话、工程、任务、等级与状态都在这里设置")}
+						onClick={() => setFilterOpen((open) => !open)}
+					>
+						{t("筛选")}
+						{chips.length > 0 ? <span className="vuln-filter-count">{chips.length}</span> : null}
+						<CaretDownIcon />
+					</button>
+					<div className={`vuln-filter-panel${filterOpen ? "" : " hidden"}`}>
+						<div className="vuln-filter-grid">
+							<label>
+								<span className="vuln-filter-label">{t("目标（主机 / URL / IP:port）")}</span>
+								<input
+									className="inline-input"
+									value={target}
+									placeholder={t("10.0.0.5、https://…")}
+									spellCheck={false}
+									onChange={(event) => setTarget(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") onFiltersChange({ ...filters, target: target.trim() || undefined });
+									}}
+								/>
+							</label>
+							<label>
+								<span className="vuln-filter-label">{t("会话（只列本项目）")}</span>
+								<select
+									className="inline-input"
+									value={filters.sessionId ?? ""}
+									onChange={(event) => onFiltersChange({ ...filters, sessionId: event.target.value || undefined })}
+								>
+									<option value="">{t("不限会话")}</option>
+									{/* A record can outlive its session; the snapshot keeps the option
+									    selectable instead of silently resetting the filter. */}
+									{filters.sessionId && !sessionOptions.some((option) => option.id === filters.sessionId) ? (
+										<option value={filters.sessionId}>{sessionLabelFor(filters.sessionId)}</option>
+									) : null}
+									{sessionOptions.map((option) => (
+										<option key={option.id} value={option.id}>
+											{option.name}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								<span className="vuln-filter-label">{t("工程（只列本项目，含已结束）")}</span>
+								<select
+									className="inline-input"
+									value={filters.engineId ?? ""}
+									onChange={(event) =>
+										// The task belongs to an engine, so switching engines clears it.
+										onFiltersChange({ ...filters, engineId: event.target.value || undefined, taskId: undefined })
+									}
+								>
+									<option value="">{t("不限工程")}</option>
+									{projectEngines.map((engine) => (
+										<option key={engine.id} value={engine.id}>
+											{engine.name}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								<span className="vuln-filter-label">{t("任务（先选工程）")}</span>
+								<select
+									className="inline-input"
+									value={filters.taskId ?? ""}
+									disabled={!filters.engineId}
+									onChange={(event) => onFiltersChange({ ...filters, taskId: event.target.value || undefined })}
+								>
+									<option value="">{filters.engineId ? t("不限任务") : t("先选工程")}</option>
+									{(activeEngine?.tasks ?? []).map((task) => (
+										<option key={task.id} value={task.id}>
+											{task.title}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								<span className="vuln-filter-label">{t("等级")}</span>
+								<select
+									className="inline-input"
+									value={filters.severity ?? ""}
+									onChange={(event) =>
+										onFiltersChange({
+											...filters,
+											severity: (event.target.value || undefined) as SentinelVulnSeverity | undefined,
+										})
+									}
+								>
+									<option value="">{t("全部等级")}</option>
+									{SENTINEL_VULN_SEVERITIES.map((severity) => (
+										<option key={severity} value={severity}>
+											{SENTINEL_VULN_SEVERITY_LABELS[severity]}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								<span className="vuln-filter-label">{t("状态")}</span>
+								<select
+									className="inline-input"
+									value={filters.status ?? ""}
+									onChange={(event) =>
+										onFiltersChange({
+											...filters,
+											status: (event.target.value || undefined) as SentinelVulnStatus | undefined,
+										})
+									}
+								>
+									<option value="">{t("全部状态")}</option>
+									{STATUSES.map((status) => (
+										<option key={status} value={status}>
+											{SENTINEL_VULN_STATUS_LABELS[status]}
+										</option>
+									))}
+								</select>
+							</label>
+						</div>
+						<div className="vuln-filter-foot">
+							<button type="button" className="ghost small" onClick={clearAll}>
+								{t("清空全部")}
+							</button>
+							<button type="button" className="primary small" onClick={() => setFilterOpen(false)}>
+								{t("完成")}
+							</button>
+						</div>
+					</div>
+				</div>
+				<button
+					type="button"
+					className={`ghost small${filters.dubious ? " on" : ""}`}
+					title={t("只看评审 LLM 标记为「存疑」的记录：证据不足以支撑结论")}
+					onClick={() => onFiltersChange({ ...filters, dubious: filters.dubious ? undefined : true })}
+				>
+					{t("⚠ 存疑")}
+				</button>
+			</div>
+			{chips.length > 0 ? (
+				<div className="vuln-chip-row">
+					{chips.map((chip) => (
+						<span key={chip.key} className="vuln-chip">
+							<span className="vuln-chip__label">{chip.label}</span>
+							<b>{chip.value}</b>
+							<button type="button" title={t("移除该条件")} onClick={chip.clear}>
+								<CloseIcon />
+							</button>
+						</span>
+					))}
+				</div>
+			) : null}
 			<div className="ws-panel__body">
 				<div className="vuln-stats">
 					{SENTINEL_VULN_SEVERITIES.map((severity) => (
@@ -281,6 +556,14 @@ export function VulnPage({
 				) : (
 					<div className="data-table vuln-table">
 						<div className="data-row data-head">
+							<span>
+								<input
+									type="checkbox"
+									checked={allSelected}
+									title={t("全选当前筛选结果")}
+									onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))}
+								/>
+							</span>
 							<span>{t("编号")}</span>
 							<span>{t("等级")}</span>
 							<span>{t("状态")}</span>
@@ -292,7 +575,7 @@ export function VulnPage({
 						{items.map((item) => (
 							<div
 								key={item.id}
-								className="data-row vuln-row"
+								className={`data-row vuln-row${selected.has(item.id) ? " selected" : ""}`}
 								role="button"
 								tabIndex={0}
 								onClick={() => onOpen(item.id)}
@@ -300,6 +583,20 @@ export function VulnPage({
 									if (event.key === "Enter" || event.key === " ") onOpen(item.id);
 								}}
 							>
+								<span
+									className="vuln-select"
+									onClick={(event) => {
+										// Ticking a row must not open the record.
+										event.stopPropagation();
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={selected.has(item.id)}
+										onChange={() => toggle(item.id)}
+										aria-label={t("选择 {label}", { label: item.label })}
+									/>
+								</span>
 								<span className="data-mono">{item.label}</span>
 								<span>
 									<span className={severityClass(item.severity)}>
@@ -336,8 +633,47 @@ export function VulnPage({
 				<p className="ws-panel__hint">
 					{t("代理提交的漏洞一律先记为「待确认」；确认、改级、标误报都在详情里完成，改动会记入时间线。")}{" "}
 					{t("导出只包含当前项目的记录与当前筛选条件。")}
+					{t("删除只能通过勾选记录进行：删除后证据与备注一并消失，不可恢复。")}
 				</p>
 			</div>
+			{deletePending ? (
+				<Overlay
+					title={t("删除漏洞记录")}
+					subtitle={t("删除后不可恢复")}
+					className="vuln-delete-modal"
+					onClose={onCancelDelete}
+					actions={
+						<>
+							<button type="button" onClick={onCancelDelete}>
+								{t("取消")}
+							</button>
+							<button
+								type="button"
+								className="danger"
+								disabled={deletePreview === null}
+								onClick={() => onConfirmDelete(deletePending)}
+							>
+								{t("确认删除")}
+							</button>
+						</>
+					}
+				>
+					<div className="vuln-delete-body">
+						<p>{t("将删除 {count} 条漏洞记录。", { count: deletePreview?.count ?? deletePending.length })}</p>
+						{deletePreview ? (
+							<ul>
+								<li>{t("{count} 条证据", { count: deletePreview.evidence })}</li>
+								<li>{t("{count} 条复核备注", { count: deletePreview.notes })}</li>
+							</ul>
+						) : (
+							<p className="ws-panel__sub">{t("正在统计影响…")}</p>
+						)}
+						<p className="ws-panel__hint">
+							{t("记录里的证据引用与备注会一并删除；容器里的原文件不受影响。")}
+						</p>
+					</div>
+				</Overlay>
+			) : null}
 		</div>
 	);
 }
@@ -395,25 +731,25 @@ function EvidenceBlock({
 export function VulnDetail({
 	vuln,
 	preview,
+	provenance,
 	onClose,
 	onUpdate,
-	onDelete,
 	onPreview,
 	onRetryReview,
 }: {
 	vuln: SentinelVulnerability;
 	/** Preview of a file referenced by this record's evidence, when one was requested. */
 	preview: SentinelFilePreview | null;
+	/** Human names for the stored 工程/任务/会话 ids, when they can still be resolved. */
+	provenance: { engine?: string; task?: string; session?: string };
 	onClose: () => void;
 	onUpdate: (id: string, patch: SentinelVulnUpdate) => void;
-	onDelete: (id: string) => void;
 	onPreview: (path: string) => void;
 	onRetryReview: (id: string, force: boolean) => void;
 }) {
 	const [severity, setSeverity] = useState<SentinelVulnSeverity>(vuln.severity);
 	const [cvss, setCvss] = useState(String(vuln.cvss));
 	const [note, setNote] = useState("");
-	const [confirmDelete, setConfirmDelete] = useState(false);
 	/** When the last immediate save landed, shown as a quiet confirmation. */
 	const [savedAt, setSavedAt] = useState<Date | null>(null);
 
@@ -423,7 +759,6 @@ export function VulnDetail({
 		setSeverity(vuln.severity);
 		setCvss(String(vuln.cvss));
 		setNote("");
-		setConfirmDelete(false);
 	}, [vuln.id, vuln.severity, vuln.cvss, vuln.updatedAt]);
 
 	const parsedCvss = Number(cvss);
@@ -510,10 +845,21 @@ export function VulnDetail({
 							<span>{t("提交时间")}</span>
 							<span>{formatWhen(vuln.createdAt)}</span>
 						</div>
+						{vuln.engineId || vuln.taskId ? (
+							<div>
+								<span>{t("工程 / 任务")}</span>
+								<span>
+									{provenance.engine ?? vuln.engineId}
+									{provenance.task ? ` / ${provenance.task}` : ""}
+								</span>
+							</div>
+						) : null}
 						{vuln.sessionId ? (
 							<div>
 								<span>{t("会话")}</span>
-								<code>{vuln.sessionId}</code>
+								<span title={vuln.sessionId}>
+									{provenance.session ?? vuln.sessionName ?? vuln.sessionId}
+								</span>
 							</div>
 						) : null}
 						<div>
@@ -641,21 +987,6 @@ export function VulnDetail({
 							</span>
 						) : null}
 						<span className="vuln-action-spacer" />
-						{confirmDelete ? (
-							<>
-								<span className="page-error">{t("删除后不可恢复")}</span>
-								<button type="button" className="danger" onClick={() => onDelete(vuln.id)}>
-									{t("确认删除")}
-								</button>
-								<button type="button" onClick={() => setConfirmDelete(false)}>
-									{t("取消")}
-								</button>
-							</>
-						) : (
-							<button type="button" className="danger" onClick={() => setConfirmDelete(true)}>
-								{t("删除")}
-							</button>
-						)}
 					</div>
 					<input
 						className="inline-input vuln-note-input"

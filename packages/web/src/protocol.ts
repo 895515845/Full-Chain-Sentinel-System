@@ -668,6 +668,11 @@ export interface SentinelVulnerability {
 	projectName: string;
 	/** Main session the submission belongs to. */
 	sessionId?: string;
+	/** Engineering provenance: the engine and task this finding came from. */
+	engineId?: string;
+	taskId?: string;
+	/** Session display name at submission time, for records whose session is gone. */
+	sessionName?: string;
 	/** Who submitted it: "主代理" or "子代理 <runId>". */
 	source: string;
 	title: string;
@@ -709,8 +714,14 @@ export interface SentinelVulnFilters {
 	severity?: SentinelVulnSeverity;
 	/** Case-insensitive substring match on the affected target. */
 	target?: string;
-	/** Case-insensitive substring match on label, title, category and description. */
+	/** Case-insensitive substring match on label, title, category, description and source. */
 	search?: string;
+	/** Exact session the finding was submitted from. */
+	sessionId?: string;
+	/** Exact engineering engine (工程) the finding came from. */
+	engineId?: string;
+	/** Exact engineering task inside that engine. */
+	taskId?: string;
 	/** Only records the reviewer marked as dubious (hallucination suspects). */
 	dubious?: boolean;
 }
@@ -1552,7 +1563,9 @@ export type SentinelClientMessage =
 	| { type: "list_vulns"; filters?: SentinelVulnFilters }
 	| { type: "get_vuln"; id: string }
 	| { type: "update_vuln"; id: string; patch: SentinelVulnUpdate }
-	| { type: "delete_vuln"; id: string }
+	/** How much deleting these records would take with them, for the dialog. */
+	| { type: "preview_vuln_delete"; ids: string[] }
+	| { type: "delete_vulns"; ids: string[] }
 	| { type: "export_vulns"; filters?: SentinelVulnFilters }
 	/** `force` is the hub's manual re-review: it overwrites an already-settled verdict. */
 	| { type: "retry_vuln_review"; id: string; force?: boolean }
@@ -1849,6 +1862,8 @@ export type SentinelServerMessage =
 	| { type: "vulns"; items: SentinelVulnSummary[]; stats: SentinelVulnStats }
 	| { type: "vuln"; vuln: SentinelVulnerability }
 	| { type: "vuln_result"; action: string; id?: string; ok: boolean; error?: string }
+	| { type: "vuln_delete_preview"; count: number; evidence: number; notes: number }
+	| { type: "vulns_deleted"; count: number }
 	| { type: "vulns_export"; filename: string; markdown: string }
 	| { type: "vuln_review_result"; id: string; ok: boolean; error?: string }
 	| {
