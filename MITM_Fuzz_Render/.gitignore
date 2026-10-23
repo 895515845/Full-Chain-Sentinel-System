@@ -1,0 +1,16 @@
+# Build output. `make build` writes bin/, `make dist` writes dist/ (the six
+# platform binaries the console looks for), and `make web` writes the embedded
+# frontend into internal/api/dist/.
+/bin/
+/dist/
+/internal/api/dist/
+
+# Go build cache, when a build is pointed at the checkout instead of the user's
+# cache directory (`GOCACHE=$PWD/.gocache`).
+/.gocache/
+
+# Frontend dependencies.
+/web/node_modules/
+
+# macOS.
+.DS_Store

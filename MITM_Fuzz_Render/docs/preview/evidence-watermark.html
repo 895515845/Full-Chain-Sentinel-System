@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>replayd · 取证水印信息摆放方案预览</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --panel2:#0e141d; --line:#1f2a37;
+    --ink:#e5e7eb; --muted:#94a3b8; --accent:#34d399; --danger:#f87171; --warn:#fbbf24;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:13px/1.6 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  code,.mono{font-family:var(--mono)}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(11,15,20,.96);border-bottom:1px solid var(--line);
+    padding:12px 20px;backdrop-filter:blur(6px)}
+  .topbar h1{margin:0 0 2px;font-size:15px;font-weight:600}
+  .topbar .sub{color:var(--muted);font-size:12px}
+  .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .opts button{background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:6px;
+    padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  .opts button:hover{color:var(--ink)}
+  .opts button.on{background:#16202c;color:var(--ink);border-color:#2b3a4d}
+  main{padding:16px 20px 40px;display:flex;flex-direction:column;gap:22px}
+  .option{display:none}
+  .option.show{display:block}
+  main.all .option{display:block}
+  .opt-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .opt-head h2{margin:0;font-size:14px;font-weight:600}
+  .opt-head .tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+  .pros,.cons{margin:0 0 10px;font-size:12px;color:var(--muted)}
+  .pros b{color:var(--accent);font-weight:600}
+  .cons b{color:var(--warn);font-weight:600}
+  /* 模拟三栏里的右栏宽度 */
+  .stage{display:flex;gap:8px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#080b10}
+  .ghost{flex:1;min-height:330px;border:1px dashed #1b2534;border-radius:6px;display:flex;align-items:center;
+    justify-content:center;color:#334155;font-size:11px;font-family:var(--mono)}
+  .ev{width:466px;flex:0 0 466px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:6px;
+    background:var(--panel2);overflow:hidden;position:relative}
+  .ev-head{display:flex;align-items:center;gap:6px;height:30px;padding:0 8px;background:var(--panel);
+    border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .ev-head .t{font-size:12px;color:var(--ink);font-weight:500}
+  .ev-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .ev-bar select,.ev-bar input{background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:4px;
+    padding:2px 5px;font-size:10.5px;font-family:inherit}
+  .ev-bar input{flex:1;min-width:120px;font-family:var(--mono)}
+  .btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:2px 7px;
+    font-size:10.5px;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .btn.primary{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.45);color:var(--accent)}
+  .badge{font-size:10px;border-radius:999px;padding:0 7px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .badge.ok{border-color:rgba(52,211,153,.45);color:var(--accent);background:rgba(52,211,153,.10)}
+  .badge.warn{border-color:rgba(251,191,36,.45);color:var(--warn);background:rgba(251,191,36,.10)}
+  .view{height:196px;background:#fff;position:relative;display:flex;align-items:center;justify-content:center}
+  .mock{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    background:linear-gradient(180deg,#f8fafc,#e2e8f0);color:#0f172a;text-align:center}
+  .mock .s{font-size:10px;color:#64748b}
+  .mock .t{font-size:34px;font-weight:700;font-family:var(--mono);letter-spacing:1px}
+  .mock .d{font-size:11px;color:#334155}
+  /* 水印的各种候选样式 */
+  .wm-now{padding:4px 8px;background:rgba(17,24,35,.5);font-family:var(--mono);font-size:10px;line-height:1.45;color:var(--muted);display:flex;flex-direction:column;gap:1px}
+  .wm-now b{color:var(--ink);font-weight:500}
+  .wm-line{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;background:rgba(17,24,35,.6);
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .wm-line .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wm-line b{color:var(--ink);font-weight:500}
+  .wm-float{position:absolute;right:6px;bottom:6px;max-width:calc(100% - 12px);background:rgba(0,0,0,.66);
+    color:#e2e8f0;border-radius:4px;padding:2px 6px;font-family:var(--mono);font-size:9.5px;line-height:1.35;
+    display:flex;gap:8px;flex-wrap:wrap}
+  .wm-float b{color:#fff;font-weight:500}
+  .wm-foot{display:flex;align-items:center;gap:8px;height:22px;padding:0 8px;background:var(--panel);
+    border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .wm-foot .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wm-foot b{color:var(--ink);font-weight:500}
+  .wm-two{padding:3px 8px;background:rgba(17,24,35,.5);font-family:var(--mono);font-size:9.5px;line-height:1.4;color:var(--muted)}
+  .wm-two .r{display:flex;gap:10px;flex-wrap:wrap}
+  .wm-two b{color:var(--ink);font-weight:500}
+  .clock-big{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .clock-big .time{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--accent)}
+  .clock-big .zone{font-size:10px;color:var(--muted)}
+  .clock-big .info{margin-left:auto;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);
+    color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;cursor:help}
+  .tip{position:absolute;right:6px;top:64px;z-index:5;max-width:420px;background:#0d1520;border:1px solid #2b3a4d;
+    border-radius:6px;padding:6px 8px;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--muted);
+    box-shadow:0 10px 24px rgba(0,0,0,.5)}
+  .tip b{color:var(--ink);font-weight:500}
+  .caption{font-size:11px;color:var(--muted);margin:8px 0 0}
+  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:12px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--panel);color:var(--muted);font-weight:500}
+  td b{color:var(--accent);font-weight:600}
+  .legend{color:var(--muted);font-size:11.5px;margin-top:12px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>replayd · 取证水印信息摆放 —— 6 种方案预览</h1>
+  <div class="sub">下面每个方案都画在<b>真实面板宽度（466px）</b>里，内容与真机一致：来源 · 模式 · 抓取时间 · 本机时间 · flowId。</div>
+  <nav class="opts" id="opts">
+    <button data-go="A" class="on">A 单行紧凑条</button>
+    <button data-go="B">B iframe 角浮层</button>
+    <button data-go="C">C 折进 ⓘ</button>
+    <button data-go="D">D 现位置收紧</button>
+    <button data-go="E">E 底部状态栏</button>
+    <button data-go="F">F 大字时钟 + ⓘ</button>
+    <button data-go="ALL">全部平铺</button>
+  </nav>
+  <p class="legend">截图取证的硬要求：<b>水印必须清晰可读</b>。所以"低对比度浮层"风险最高（B）；"底下一条状态栏"最稳（E）。</p>
+</header>
+
+<main id="stage">
+
+  <!-- ============ A 单行紧凑条 ============ -->
+  <section class="option show" data-opt="A">
+    <div class="opt-head"><h2>方案 A · 一行紧凑条（放 iframe 上方）</h2><span class="tag">高度 22px</span></div>
+    <p class="pros"><b>优点</b>：只占 22px，信息全在一条线上，溢出用省略号 + 悬停看全；截图里清晰。</p>
+    <p class="cons"><b>缺点</b>：一行放不下全部字段（466px 下大约只能显示到"抓取"），flowId 要悬停才能看。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="ev-head"><span class="t">取证</span><span class="badge ok">实时内嵌</span>
+          <span style="margin-left:auto" class="badge">全屏取证</span><span class="badge">隐藏</span></div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select>
+          <input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button>
+          <select><option>自动</option></select>
+          <select><option>30s</option></select>
+          <label style="font-size:10.5px;color:var(--muted)"><input type="checkbox" checked> 允许脚本</label>
+        </div>
+        <div class="wm-line" title="来源 https://www.beijing-time.org/ · 模式 实时内嵌 iframe（原站） · 抓取 2026-10-22T22:12:51+08:00 · 本机 2026-10-22 22:13:04 · flow flw_06GP7X962NNFY2J6KQQ34PEX54">
+          <span class="txt">来源 <b>beijing-time.org</b> · 实时内嵌 · 抓取 <b>22:12:51</b> · 本机 <b>22:13:04</b> · <b>flw_06GP7X9…</b></span>
+        </div>
+        <div class="view"><div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+          <div class="d">2026年10月22日 星期四</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ B 角浮层 ============ -->
+  <section class="option" data-opt="B">
+    <div class="opt-head"><h2>方案 B · 叠在 iframe 右下角浮层</h2><span class="tag">占 0 高度</span></div>
+    <p class="pros"><b>优点</b>：完全不占高度，时间页能多看到 20px。</p>
+    <p class="cons"><b>缺点</b>：<b>遮住时间页右下角内容</b>；半透明黑底压在白色页面上对比强烈但显脏；若站点右下角正好是时钟就可能挡住关键信息。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="ev-head"><span class="t">取证</span><span class="badge ok">实时内嵌</span>
+          <span style="margin-left:auto" class="badge">全屏取证</span><span class="badge">隐藏</span></div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select>
+          <input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button>
+          <select><option>自动</option></select><select><option>30s</option></select>
+        </div>
+        <div class="view">
+          <div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+            <div class="d">2026年10月22日 星期四</div></div>
+          <div class="wm-float"><span>beijing-time.org</span><span>实时内嵌</span><span>抓取 <b>22:12:51</b></span><span>本机 <b>22:13:04</b></span><span><b>flw_06GP7X9…</b></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ C 折进 ⓘ ============ -->
+  <section class="option" data-opt="C">
+    <div class="opt-head"><h2>方案 C · 折进面板头的 ⓘ</h2><span class="tag">默认只留"抓取时间"</span></div>
+    <p class="pros"><b>优点</b>：界面最干净，iframe 拿到全部高度；日常只关心"什么时候抓的"。</p>
+    <p class="cons"><b>缺点</b>：<b>截图里看不到 flowId / 来源</b>（默认收起），除非悬停展开——而悬停状态在无头截图里无法体现，取证价值打折。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="ev-head">
+          <span class="t">取证</span><span class="badge ok">实时内嵌</span>
+          <span class="badge warn" style="margin-left:6px">抓取 22:12:51</span>
+          <span style="margin-left:auto;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center">i</span>
+          <span class="badge">全屏取证</span><span class="badge">隐藏</span>
+        </div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select>
+          <input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button>
+        </div>
+        <div class="view">
+          <div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+            <div class="d">2026年10月22日 星期四</div></div>
+        </div>
+        <div class="tip">来源 <b>https://www.beijing-time.org/</b><br>模式 <b>实时内嵌 iframe（原站）</b><br>
+          抓取 <b>2026-10-22T22:12:51+08:00</b><br>本机 <b>2026-10-22 22:13:04</b><br>
+          已记入历史 <b>flw_06GP7X962NNFY2J6KQQ34PEX54</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ D 现位置收紧 ============ -->
+  <section class="option" data-opt="D">
+    <div class="opt-head"><h2>方案 D · 保持现在位置，只收紧排版</h2><span class="tag">改成两行小字</span></div>
+    <p class="pros"><b>优点</b>：改动最小，信息密度最高，截图里五行信息都完整可见。</p>
+    <p class="cons"><b>缺点</b>：仍然占 2 行高度；和现在一样"信息挤成块"，只是没那么松。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="ev-head"><span class="t">取证</span><span class="badge ok">实时内嵌</span>
+          <span style="margin-left:auto" class="badge">全屏取证</span><span class="badge">隐藏</span></div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select><input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button><select><option>30s</option></select>
+        </div>
+        <div class="wm-two">
+          <div class="r"><span>来源 <b>beijing-time.org</b></span><span>模式 <b>实时内嵌</b></span><span>抓取 <b>22:12:51</b></span><span>本机 <b>22:13:04</b></span></div>
+          <div class="r"><span>flow <b>flw_06GP7X962NNFY2J6KQQ34PEX54</b></span></div>
+        </div>
+        <div class="view"><div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+          <div class="d">2026年10月22日 星期四</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ E 底部状态栏 ============ -->
+  <section class="option" data-opt="E">
+    <div class="opt-head"><h2>方案 E · 面板底部状态栏（推荐）</h2><span class="tag">像 IDE 状态栏，高 22px</span></div>
+    <p class="pros"><b>优点</b>：信息条在<b>最底部</b>，与时间页视觉分离、不抢视线；一行放"来源 · 模式 · 抓取 · 本机"，flowId 固定贴右侧；截图里清晰可读；iframe 位置和现在完全一致（只把水印从上方挪到下方）。</p>
+    <p class="cons"><b>缺点</b>：占 22px 高度；flowId 太长时右侧会省略（点击可复制全量）。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="ev-head"><span class="t">取证</span><span class="badge ok">实时内嵌</span>
+          <span style="margin-left:auto" class="badge">全屏取证</span><span class="badge">隐藏</span></div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select><input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button><select><option>自动</option></select><select><option>30s</option></select>
+          <label style="font-size:10.5px;color:var(--muted)"><input type="checkbox" checked> 允许脚本</label>
+        </div>
+        <div class="view"><div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+          <div class="d">2026年10月22日 星期四</div></div></div>
+        <div class="wm-foot">
+          <span class="grow">来源 <b>beijing-time.org</b> · 实时内嵌 · 抓取 <b>22:12:51</b> · 本机 <b>22:13:04</b></span>
+          <span class="badge ok" title="flw_06GP7X962NNFY2J6KQQ34PEX54">flw_06GP7X9…</span>
+        </div>
+      </div>
+    </div>
+    <p class="caption">↑ 注意：iframe 上方那 5 行小字整块消失，时间页多出约 22px 可视高度。</p>
+  </section>
+
+  <!-- ============ F 大字时钟 + ⓘ ============ -->
+  <section class="option" data-opt="F">
+    <div class="opt-head"><h2>方案 F · 面板头大字"抓取时间" + ⓘ 详情</h2><span class="tag">取证观感最强</span></div>
+    <p class="pros"><b>优点</b>：把"抓取时刻"当主角（大字 + 等宽），一眼就能看出访问时间；详情收进 ⓘ，日常不干扰。</p>
+    <p class="cons"><b>缺点</b>：头部变高（30px）；和 C 一样，<b>详情默认收起，截图里只有时间</b>。适合"时间最重要、其他是附注"的场合。</p>
+    <div class="stage">
+      <div class="ghost">请求栏</div>
+      <div class="ghost">响应栏</div>
+      <div class="ev">
+        <div class="clock-big">
+          <span class="time">22:12:51</span><span class="zone">抓取时刻 · UTC+8</span>
+          <span class="info" title="来源 / 模式 / flowId 等">i</span>
+          <span class="badge ok">实时内嵌</span>
+        </div>
+        <div class="ev-bar">
+          <select><option>预设时间源…</option></select><input value="https://www.beijing-time.org/">
+          <button class="btn primary">刷新</button>
+        </div>
+        <div class="view"><div class="mock"><div class="s">北京时间</div><div class="t">22:13:04</div>
+          <div class="d">2026年10月22日 星期四</div></div></div>
+        <div class="tip" style="top:52px">来源 <b>https://www.beijing-time.org/</b><br>模式 <b>实时内嵌 iframe（原站）</b><br>
+          本机 <b>2026-10-22 22:13:04</b><br>已记入历史 <b>flw_06GP7X962NNFY2J6KQQ34PEX54</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 对比表 ============ -->
+  <table>
+    <thead><tr><th style="width:150px">方案</th><th>占高度</th><th>截图里能不能读全</th><th>遮内容</th><th>适合</th></tr></thead>
+    <tbody>
+      <tr><td>A 单行紧凑条（上方）</td><td>22px</td><td>来源/时间能读，flowId 需悬停</td><td>否</td><td>想保留"上方信息条"的习惯</td></tr>
+      <tr><td>B iframe 角浮层</td><td>0</td><td>能读但压在页面内容上</td><td><b>会遮右下角</b></td><td>时间页很高、极度缺高度</td></tr>
+      <tr><td>C 折进 ⓘ</td><td>0</td><td><b>只读得到抓取时间</b></td><td>否</td><td>日常使用（非取证）为主</td></tr>
+      <tr><td>D 现位置收紧</td><td>约 30px</td><td>能读全</td><td>否</td><td>改动最小、只求不那么散</td></tr>
+      <tr><td><b>E 底部状态栏</b></td><td>22px</td><td><b>能读全（flowId 贴右侧）</b></td><td>否</td><td><b>取证截图 + 日常都合适</b></td></tr>
+      <tr><td>F 大字时钟 + ⓘ</td><td>30px</td><td>只有时间显眼，详情收起</td><td>否</td><td>强调"什么时候访问的"</td></tr>
+    </tbody>
+  </table>
+  <p class="legend">也可以组合，例如：<b>E 的底部状态栏 + F 的大字抓取时间</b>（时间在头部大字、明细在底部一行），两者都清晰且不互相抢空间。告诉我字母组合即可。</p>
+</main>
+
+<script>
+  const stage = document.getElementById('stage');
+  const buttons = [...document.querySelectorAll('#opts button')];
+  function show(key){
+    buttons.forEach(b => b.classList.toggle('on', b.dataset.go === key));
+    if (key === 'ALL') { stage.classList.add('all'); return; }
+    stage.classList.remove('all');
+    document.querySelectorAll('.option').forEach(sec => sec.classList.toggle('show', sec.dataset.opt === key));
+  }
+  buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+</script>
+</body>
+</html>

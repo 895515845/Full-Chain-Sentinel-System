@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>replayd · 「北京时间取证面板」布局方案预览</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --panel2:#0e141d; --line:#1f2a37;
+    --ink:#e5e7eb; --muted:#94a3b8; --accent:#34d399; --danger:#f87171; --warn:#fbbf24;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:13px/1.6 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  a{color:var(--accent)}
+  code,.mono{font-family:var(--mono)}
+
+  /* ---------- 顶栏 ---------- */
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(11,15,20,.96);
+    border-bottom:1px solid var(--line);padding:12px 20px;backdrop-filter:blur(6px)}
+  .topbar h1{margin:0 0 2px;font-size:15px;font-weight:600}
+  .topbar .sub{color:var(--muted);font-size:12px}
+  .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .opts button{background:var(--panel);color:var(--muted);border:1px solid var(--line);
+    border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  .opts button:hover{color:var(--ink)}
+  .opts button.on{background:#16202c;color:var(--ink);border-color:#2b3a4d}
+  .note{margin-top:10px;font-size:12px;color:var(--muted)}
+  .note b{color:var(--accent);font-weight:600}
+
+  /* ---------- 方案区 ---------- */
+  main{padding:16px 20px 40px}
+  .option{display:none;margin-bottom:26px}
+  .option.show{display:block}
+  main.all .option{display:block}
+  .opt-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .opt-head h2{margin:0;font-size:14px;font-weight:600}
+  .opt-head .tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+  .pros,.cons{margin:0 0 10px;font-size:12px;color:var(--muted)}
+  .pros b{color:var(--accent);font-weight:600}
+  .cons b{color:var(--warn);font-weight:600}
+
+  /* ---------- 仿真应用外壳 ---------- */
+  .app{display:flex;height:520px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
+  .nav{width:150px;flex:0 0 150px;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;font-size:11px}
+  .nav .brand{padding:9px 10px;border-bottom:1px solid var(--line);font-weight:600;font-size:12px}
+  .nav ul{list-style:none;margin:6px;padding:0;flex:1}
+  .nav li{padding:5px 8px;border-radius:5px;color:var(--muted);margin-bottom:2px}
+  .nav li.active{background:#16202c;color:var(--ink)}
+  .nav .pbox{margin:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);display:flex;gap:6px;align-items:center}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 6px}
+  .dot.on{background:var(--accent)}
+  .work{flex:1;min-width:0;display:flex;flex-direction:column}
+  .workbar{height:34px;flex:0 0 34px;display:flex;align-items:center;gap:6px;
+    border-bottom:1px solid var(--line);background:var(--panel);padding:0 10px;font-size:11px;color:var(--muted)}
+  .workbar .tab{padding:3px 9px;border-radius:5px;border:1px solid transparent}
+  .workbar .tab.active{background:#16202c;color:var(--ink);border-color:var(--line)}
+  .workbar .right{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted)}
+  .canvas{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px;background:var(--bg)}
+
+  /* ---------- 请求/响应仿真 ---------- */
+  .pane{border:1px solid var(--line);border-radius:6px;background:var(--panel2);display:flex;flex-direction:column;min-height:0;min-width:0}
+  .pane>header{height:26px;flex:0 0 26px;display:flex;align-items:center;gap:6px;padding:0 8px;
+    border-bottom:1px solid var(--line);background:var(--panel);font-size:11px;color:var(--muted)}
+  .pane .pad{padding:8px;font-family:var(--mono);font-size:11px;line-height:1.7;white-space:pre-wrap;overflow:auto;min-height:0}
+  .pane .pad.dim{color:var(--muted)}
+  .row{display:flex;gap:8px;min-height:0;flex:1}
+
+  /* ---------- 取证面板 ---------- */
+  .ev{border:1px solid var(--line);border-radius:6px;background:var(--panel2);display:flex;flex-direction:column;min-height:0}
+  .ev-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .ev-bar select,.ev-bar input{background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    border-radius:5px;padding:3px 6px;font-size:11px;font-family:inherit}
+  .ev-bar input{flex:1;min-width:150px;font-family:var(--mono)}
+  .btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:5px;
+    padding:3px 9px;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .btn:hover{border-color:#2b3a4d}
+  .btn.primary{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.45);color:var(--accent)}
+  .badge{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .badge.ok{border-color:rgba(52,211,153,.45);color:var(--accent);background:rgba(52,211,153,.10)}
+  .badge.warn{border-color:rgba(251,191,36,.45);color:var(--warn);background:rgba(251,191,36,.10)}
+  .ev-mark{padding:5px 8px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:6px 14px}
+  .ev-mark b{color:var(--ink);font-weight:500}
+  .ev-view{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#070a0e}
+  .ev-view iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff}
+
+  /* 授时站点示意图（离线可见；点击可换成真实站点） */
+  .mock-site{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:linear-gradient(180deg,#f8fafc,#e2e8f0);color:#0f172a;text-align:center;padding:10px}
+  .mock-site .t{font-size:44px;font-weight:700;font-family:var(--mono);letter-spacing:2px}
+  .mock-site .d{font-size:13px;color:#334155}
+  .mock-site .s{font-size:11px;color:#64748b}
+  .mock-site .wm{position:absolute;right:8px;bottom:6px;font-size:10px;color:#94a3b8}
+  .ev-view .load-real{position:absolute;left:8px;top:8px;z-index:3}
+  .ev-view.loaded .mock-site,.ev-view.loaded .load-real{display:none}
+
+  /* 悬浮取证窗（方案 D） */
+  .float{position:absolute;right:14px;bottom:12px;width:340px;height:230px;z-index:20;
+    border:1px solid #2b3a4d;border-radius:8px;overflow:hidden;box-shadow:0 12px 34px rgba(0,0,0,.55);background:var(--panel2);
+    display:flex;flex-direction:column}
+  .float .grip{height:22px;flex:0 0 22px;display:flex;align-items:center;gap:6px;padding:0 8px;cursor:move;
+    background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .float .ev{border:0;border-radius:0;flex:1;min-height:0}
+
+  /* 对比表 */
+  table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--panel);color:var(--muted);font-weight:500}
+  td b{color:var(--accent);font-weight:600}
+  .legend{color:var(--muted);font-size:11.5px;margin-top:10px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>replayd · 「北京时间」取证面板 —— 6 种布局方案预览</h1>
+  <div class="sub">点上面的按钮切换方案（或「全部平铺」对比）。每个方案里的授时页面默认是<b>离线示意图</b>，点面板左上角「加载真实站点」会真的内嵌 <code>beijing-time.org</code>。</div>
+  <nav class="opts" id="opts">
+    <button data-go="A" class="on">方案 A · 右栏分页</button>
+    <button data-go="B">方案 B · 右栏下叠</button>
+    <button data-go="C">方案 C · 三栏并排</button>
+    <button data-go="D">方案 D · 悬浮取证窗</button>
+    <button data-go="E">方案 E · 底部全宽抽屉</button>
+    <button data-go="F">方案 F · 独立取证台</button>
+    <button data-go="ALL">全部平铺</button>
+  </nav>
+  <div class="note">所有方案都包含：<b>访问时间页的动作会记入抓包历史</b>（水印条上带 flow id）· 水印条固定显示「来源 URL / 模式 / 抓取时间 / 本地时间（UTC+8）」· 自动刷新 30s · 「全屏取证」按钮。</div>
+</header>
+
+<main id="stage">
+
+  <!-- ============================ 方案 A ============================ -->
+  <section class="option show" data-opt="A">
+    <div class="opt-head"><h2>方案 A · 右栏顶层分页</h2><span class="tag">[响应] [取证] 两页签</span></div>
+    <p class="pros"><b>优点</b>：取证页能拿到整个右栏宽度，站点显示最完整；实现最简单，右栏干净。</p>
+    <p class="cons"><b>缺点</b>：<b>响应体和时间页不能同屏</b>——截图要两张（或先截图再切页），对"一图定证"的裁判不友好。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li class="active">Repeater</li><li>Scripts</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">Repeater</span><span class="tab">History</span>
+          <span class="right"><span class="badge ok">● online v0.1.0</span></span></div>
+        <div class="canvas">
+          <div class="row">
+            <div class="pane" style="flex:0 0 38%">
+              <header>请求 <span style="margin-left:auto" class="badge">RAW · 自动保存</span></header>
+              <div class="pad">POST /api/v1/user/update HTTP/1.1
+Host: target.corp.local
+Authorization: Bearer eyJhbGciOi...
+Content-Length: 42
+
+{"role":"admin","uid":"10086"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>
+                <span class="tab active" style="border:1px solid var(--line);background:#16202c;color:var(--ink)">取证</span>
+                <span class="tab">响应</span>
+                <span style="margin-left:auto" class="badge warn">切到「响应」看返回</span>
+              </header>
+              <div style="flex:1;min-height:0;padding:8px;display:flex">
+                <!-- 取证面板（复用组件） -->
+                <div class="ev" style="flex:1">
+                  <div class="ev-bar">
+                    <select><option>beijing-time.org</option></select>
+                    <input value="https://www.beijing-time.org/">
+                    <button class="btn primary">刷新</button>
+                    <label style="color:var(--muted);font-size:11px"><input type="checkbox" checked> 30s</label>
+                    <span class="badge ok">实时内嵌</span>
+                    <button class="btn">全屏取证</button>
+                  </div>
+                  <div class="ev-mark">
+                    <span>来源 <b>beijing-time.org</b></span><span>模式 <b>实时内嵌</b></span>
+                    <span>抓取 <b>17:58:03</b></span><span>本地 <b>2026-10-22 17:58:03 (UTC+8)</b></span>
+                    <span>已记入历史 <b>flw_06GP…</b></span>
+                  </div>
+                  <div class="ev-view">
+                    <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+                    <div class="mock-site"><div class="s">北京时间</div><div class="t">17:58:03</div>
+                      <div class="d">2026年10月22日 星期四</div><div class="wm">示意图（非真实站点）</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 方案 B ============================ -->
+  <section class="option" data-opt="B">
+    <div class="opt-head"><h2>方案 B · 右栏下方叠一层</h2><span class="tag">响应在上，取证在下</span></div>
+    <p class="pros"><b>优点</b>：<b>响应体与时间页同屏</b>，一张截图同时有"漏洞结果 + 北京时间"；取证条可折叠，不用时不占地方。</p>
+    <p class="cons"><b>缺点</b>：右栏竖直空间一分为二，长响应体要多滚动；时间页较矮（约 200px）。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li class="active">Repeater</li><li>Scripts</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">Repeater</span><span class="tab">History</span>
+          <span class="right"><span class="badge ok">● online v0.1.0</span></span></div>
+        <div class="canvas">
+          <div class="row">
+            <div class="pane" style="flex:0 0 45%">
+              <header>请求 <span style="margin-left:auto" class="badge">RAW · 自动保存</span></header>
+              <div class="pad">POST /api/v1/user/update HTTP/1.1
+Host: target.corp.local
+Authorization: Bearer eyJhbGciOi...
+
+{"role":"admin","uid":"10086"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>响应 <span style="margin-left:auto" class="badge ok">200 OK · 1.1 KB · 87 ms</span></header>
+              <div class="pad" style="flex:0 0 40%">HTTP/1.1 200 OK
+Content-Type: application/json
+Server: nginx
+
+{"code":0,"msg":"updated","role":"admin"}</div>
+              <div style="flex:1;min-height:0;padding:6px 8px 8px">
+                <div class="ev" style="height:100%">
+                  <div class="ev-bar" style="padding:4px 8px">
+                    <span class="badge ok">实时内嵌</span>
+                    <span class="mono" style="color:var(--muted);font-size:10.5px">beijing-time.org · 抓取 17:58:03</span>
+                    <button class="btn" style="margin-left:auto">刷新</button>
+                    <button class="btn">全屏取证</button>
+                    <button class="btn">收起 ▾</button>
+                  </div>
+                  <div class="ev-view">
+                    <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+                    <div class="mock-site"><div class="s">北京时间</div><div class="t" style="font-size:34px">17:58:03</div>
+                      <div class="d">2026年10月22日 星期四</div><div class="wm">示意图（非真实站点）</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 方案 C ============================ -->
+  <section class="option" data-opt="C">
+    <div class="opt-head"><h2>方案 C · 三栏并排</h2><span class="tag">请求 | 响应 | 取证</span></div>
+    <p class="pros"><b>优点</b>：三者同屏，证据链最完整（原始请求 + 响应 + 时间）；适合宽屏 / 双屏截图。</p>
+    <p class="cons"><b>缺点</b>：1280 宽下每栏仅约 340px，授时站点排版会挤（可能需要站点自己自适应）；1920 及以上才舒服。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li class="active">Repeater</li><li>Scripts</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">Repeater</span><span class="tab">History</span>
+          <span class="right"><span class="badge ok">● online v0.1.0</span></span></div>
+        <div class="canvas">
+          <div class="row">
+            <div class="pane" style="flex:1">
+              <header>请求</header>
+              <div class="pad">POST /api/v1/user/update HTTP/1.1
+Host: target.corp.local
+Authorization: Bearer eyJ…
+
+{"role":"admin"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>响应 <span style="margin-left:auto" class="badge ok">200</span></header>
+              <div class="pad">HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"code":0,"msg":"updated"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>取证 <span style="margin-left:auto" class="badge ok">实时内嵌</span></header>
+              <div style="flex:1;min-height:0;padding:6px">
+                <div class="ev" style="height:100%">
+                  <div class="ev-bar" style="padding:4px 6px;gap:4px">
+                    <button class="btn">刷新</button>
+                    <button class="btn">全屏</button>
+                    <span class="badge ok" style="margin-left:auto">17:58:03</span>
+                  </div>
+                  <div class="ev-view">
+                    <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+                    <div class="mock-site"><div class="s">北京时间</div><div class="t" style="font-size:26px">17:58:03</div>
+                      <div class="d" style="font-size:11px">2026年10月22日 星期四</div><div class="wm">示意图</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 方案 D ============================ -->
+  <section class="option" data-opt="D">
+    <div class="opt-head"><h2>方案 D · 悬浮取证窗（可拖动 / 缩放）</h2><span class="tag">画中画式，不影响布局</span></div>
+    <p class="pros"><b>优点</b>：想放哪放哪（可以拖到响应体旁边、拖到角落）；不挤压任何面板；适合"临时取证"。</p>
+    <p class="cons"><b>缺点</b>：会遮挡内容，需要手动摆位；小窗口下站点可能显示不全；截图时要注意别盖住关键结果。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li class="active">Repeater</li><li>Scripts</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">Repeater</span><span class="tab">History</span>
+          <span class="right"><span class="badge warn">取证窗可拖动 ↙</span><span class="badge ok">● online</span></span></div>
+        <div class="canvas" style="position:relative">
+          <div class="row">
+            <div class="pane" style="flex:0 0 45%">
+              <header>请求</header>
+              <div class="pad">POST /api/v1/user/update HTTP/1.1
+Host: target.corp.local
+
+{"role":"admin"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>响应 <span style="margin-left:auto" class="badge ok">200 OK · 87 ms</span></header>
+              <div class="pad">HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"code":0,"msg":"updated","role":"admin"}</div>
+            </div>
+          </div>
+
+          <div class="float" id="floatWin">
+            <div class="grip" id="floatGrip">⠿ 取证窗 · beijing-time.org <span style="margin-left:auto" class="badge ok">实时</span></div>
+            <div class="ev">
+              <div class="ev-bar" style="padding:4px 6px;gap:4px">
+                <button class="btn">刷新</button><button class="btn">全屏</button>
+                <span class="mono" style="margin-left:auto;color:var(--muted);font-size:10px">17:58:03</span>
+              </div>
+              <div class="ev-view">
+                <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+                <div class="mock-site"><div class="s">北京时间</div><div class="t" style="font-size:28px">17:58:03</div>
+                  <div class="wm">示意图</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="legend">试试点住上面的紫色标题栏拖动它（预览页里可真的拖）。</p>
+  </section>
+
+  <!-- ============================ 方案 E ============================ -->
+  <section class="option" data-opt="E">
+    <div class="opt-head"><h2>方案 E · 底部全宽抽屉（推荐）</h2><span class="tag">默认 32% 高，可拖高 / 全屏</span></div>
+    <p class="pros"><b>优点</b>：<b>时间页拿到整个窗口宽度</b>（授时站点排版最自然）＋ 上方仍能同屏看到请求与响应；折叠后只剩一条水印条，几乎不占地；最适合"一图定证"。</p>
+    <p class="cons"><b>缺点</b>：竖向空间被吃掉约 1/3，长响应体需要多滚动；1440 以下高度会略挤。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li class="active">Repeater</li><li>Scripts</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">Repeater</span><span class="tab">History</span>
+          <span class="right"><span class="badge ok">● online v0.1.0</span></span></div>
+        <div class="canvas">
+          <div class="row" style="flex:0 0 52%">
+            <div class="pane" style="flex:0 0 45%">
+              <header>请求</header>
+              <div class="pad">POST /api/v1/user/update HTTP/1.1
+Host: target.corp.local
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs…
+
+{"role":"admin","uid":"10086"}</div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>响应 <span style="margin-left:auto" class="badge ok">200 OK · 1.1 KB · 87 ms</span></header>
+              <div class="pad">HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"code":0,"msg":"updated","role":"admin"}</div>
+            </div>
+          </div>
+          <div class="ev" style="flex:1">
+            <div class="ev-bar" style="padding:4px 8px">
+              <span class="badge ok">实时内嵌</span>
+              <select style="max-width:190px"><option>beijing-time.org（允许内嵌）</option><option>bjtime.cn（允许内嵌）</option><option>time.is（禁止内嵌 → 快照）</option><option>ntsc.ac.cn（禁止内嵌 → 快照）</option></select>
+              <input value="https://www.beijing-time.org/" style="max-width:420px">
+              <button class="btn primary">刷新</button>
+              <label style="color:var(--muted);font-size:11px"><input type="checkbox" checked> 30s 自动</label>
+              <button class="btn">全屏取证</button>
+              <button class="btn">收起 ▾</button>
+            </div>
+            <div class="ev-mark">
+              <span>来源 <b>https://www.beijing-time.org/</b></span><span>模式 <b>实时内嵌 iframe</b></span>
+              <span>抓取 <b>2026-10-22 17:58:03</b></span><span>本地 <b>17:58:03 (UTC+8)</b></span>
+              <span>已记入历史 <b>flw_06GP5J…</b></span>
+            </div>
+            <div class="ev-view" style="flex:0 0 150px">
+              <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+              <div class="mock-site"><div class="s">北京时间</div><div class="t" style="font-size:40px">17:58:03</div>
+                <div class="d">2026年10月22日 星期四</div><div class="wm">示意图（非真实站点）</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 方案 F ============================ -->
+  <section class="option" data-opt="F">
+    <div class="opt-head"><h2>方案 F · 独立「取证台」页面</h2><span class="tag">/evidence，可多来源并列</span></div>
+    <p class="pros"><b>优点</b>：可同时挂多个时间源（北京时间 + 国家授时中心 + 本机）互相印证；每个来源各自记录抓取时间与 flow；还能列出"取证记录"清单供事后写报告。</p>
+    <p class="cons"><b>缺点</b>：与重放结果不同屏（需再切一次页面）；实现成本最高。</p>
+    <div class="app">
+      <aside class="nav">
+        <div class="brand">replayd</div>
+        <ul><li>History</li><li>Repeater</li><li>Scripts</li><li class="active">取证台</li><li>Settings</li></ul>
+        <div class="pbox"><span class="dot on"></span>抓包中 :8898</div>
+      </aside>
+      <div class="work">
+        <div class="workbar"><span class="tab active">取证台</span><span class="tab">Repeater</span>
+          <span class="right"><span class="badge">同步时钟已对时</span><span class="badge ok">● online</span></span></div>
+        <div class="canvas">
+          <div class="row" style="flex:1">
+            <div class="pane" style="flex:1">
+              <header>北京时间 · beijing-time.org <span style="margin-left:auto" class="badge ok">实时内嵌</span></header>
+              <div class="ev-view" style="flex:1">
+                <button class="btn load-real" data-src="https://www.beijing-time.org/">加载真实站点</button>
+                <div class="mock-site"><div class="s">北京时间</div><div class="t" style="font-size:34px">17:58:03</div>
+                  <div class="d">2026年10月22日 星期四</div><div class="wm">示意图</div></div>
+              </div>
+            </div>
+            <div class="pane" style="flex:1">
+              <header>国家授时中心 · ntsc.ac.cn <span style="margin-left:auto" class="badge warn">禁止内嵌 → 服务端快照</span></header>
+              <div class="ev-view" style="flex:1">
+                <div class="mock-site" style="background:linear-gradient(180deg,#f1f5f9,#dbe3ec)">
+                  <div class="s">中国科学院国家授时中心</div><div class="t" style="font-size:30px">17:58:03</div>
+                  <div class="d" style="font-size:11px">服务端快照 · 抓取于 17:58:03（时钟停在抓取时刻）</div>
+                  <div class="wm">示意图</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="ev" style="flex:0 0 132px">
+            <div class="ev-bar" style="padding:4px 8px"><b style="font-size:11px">取证记录</b>
+              <span class="mono" style="color:var(--muted);font-size:10.5px">每次抓取都会写一条 flow，可从历史直接回看</span>
+              <button class="btn" style="margin-left:auto">导出报告（规划中）</button></div>
+            <div class="pad dim" style="font-size:10.5px">17:58:03 · beijing-time.org · 实时内嵌 · flw_06GP5J… · 200 OK
+17:57:33 · beijing-time.org · 实时内嵌 · flw_06GP5H… · 200 OK
+17:56:02 · ntsc.ac.cn · 服务端快照 · flw_06GP5G… · 200 OK</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 对比表 ============================ -->
+  <table>
+    <thead><tr><th style="width:120px">方案</th><th>响应体与时间页同屏</th><th>时间页可用宽度</th><th>实现成本</th><th>最适合</th></tr></thead>
+    <tbody>
+      <tr><td>A 右栏分页</td><td>❌ 需切页</td><td>大（约 55% 宽）</td><td>低</td><td>只要时间证据，响应体已有别的截图</td></tr>
+      <tr><td>B 右栏下叠</td><td>✅</td><td>中（右栏宽，高约 200px）</td><td>低</td><td>响应短、想一图两证</td></tr>
+      <tr><td>C 三栏并排</td><td>✅ 三者同屏</td><td>小（约 30% 宽）</td><td>中</td><td>1920+ 宽屏、要求请求+响应+时间同图</td></tr>
+      <tr><td>D 悬浮窗</td><td>✅ 可摆位</td><td>小（可缩放）</td><td>中</td><td>临时取证、不想改布局</td></tr>
+      <tr><td><b>E 底部抽屉</b></td><td>✅</td><td><b>最大（全窗宽）</b></td><td>低</td><td><b>攻防演练一图定证（推荐）</b></td></tr>
+      <tr><td>F 独立取证台</td><td>❌ 需切页</td><td>大（可并列多源）</td><td>高</td><td>多时间源互证 + 事后写报告</td></tr>
+    </tbody>
+  </table>
+  <p class="legend">通用能力（无论选哪个方案都会做）：预设站点下拉 + 自定义 URL · auto 模式自动判定「实时内嵌 or 服务端快照」· 水印条（来源/模式/抓取时间/本地时间/flow id）· 手动刷新 + 30s 自动刷新 · 全屏取证 · 访问动作记入抓包历史。</p>
+</main>
+
+<script>
+  // ---------- 方案切换 ----------
+  const stage = document.getElementById('stage');
+  const buttons = [...document.querySelectorAll('#opts button')];
+  function show(key){
+    buttons.forEach(b => b.classList.toggle('on', b.dataset.go === key));
+    if (key === 'ALL') { stage.classList.add('all'); return; }
+    stage.classList.remove('all');
+    document.querySelectorAll('.option').forEach(sec => sec.classList.toggle('show', sec.dataset.opt === key));
+  }
+  buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+
+  // ---------- 真实站点加载（按需，避免打开预览就发外部请求）----------
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.load-real');
+    if (!btn) return;
+    const view = btn.closest('.ev-view');
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');   // 给脚本走字，但不给 same-origin
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.setAttribute('title', '第三方授时站点');
+    frame.src = btn.dataset.src;
+    view.appendChild(frame);
+    view.classList.add('loaded');
+  });
+
+  // ---------- 方案 D 悬浮窗拖动 ----------
+  const win = document.getElementById('floatWin');
+  const grip = document.getElementById('floatGrip');
+  if (win && grip) {
+    let dragging = false, ox = 0, oy = 0;
+    grip.addEventListener('mousedown', (e) => {
+      dragging = true;
+      const r = win.getBoundingClientRect();
+      ox = e.clientX - r.left; oy = e.clientY - r.top;
+      win.style.right = 'auto'; win.style.bottom = 'auto';
+      win.style.left = r.left - win.parentElement.getBoundingClientRect().left + 'px';
+      win.style.top = r.top - win.parentElement.getBoundingClientRect().top + 'px';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const host = win.parentElement.getBoundingClientRect();
+      win.style.left = Math.max(0, Math.min(host.width - win.offsetWidth, e.clientX - host.left - ox)) + 'px';
+      win.style.top = Math.max(0, Math.min(host.height - win.offsetHeight, e.clientY - host.top - oy)) + 'px';
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+  }
+</script>
+</body>
+</html>

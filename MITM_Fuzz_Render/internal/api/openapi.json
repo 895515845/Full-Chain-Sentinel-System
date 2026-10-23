@@ -1,0 +1,1808 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "replayd API",
+    "version": "0.1.0",
+    "description": "Web 发包重放工具的本地接口。UI 能力全部通过 REST 暴露，Agent 可绕过界面直接调用。"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "健康检查（免鉴权）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "服务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "本规格文档",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 JSON"
+          }
+        }
+      }
+    },
+    "/session": {
+      "get": {
+        "summary": "查询当前会话",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "会话状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticated": {
+                      "type": "boolean"
+                    },
+                    "via": {
+                      "type": "string",
+                      "enum": [
+                        "",
+                        "cookie",
+                        "bearer"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "用 token 换取会话 cookie",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "已建立会话（Set-Cookie）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "delete": {
+        "summary": "清空会话 cookie",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "已退出"
+          }
+        }
+      }
+    },
+    "/flows": {
+      "get": {
+        "summary": "分页查询抓包记录",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "proxy",
+                "replay"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{items:[flow], nextCursor, total, hasMore}"
+          }
+        },
+        "description": "keyset 分页：用返回的 nextCursor 作为下一页的 cursor 参数；返回 total（当前筛选下总数）与 hasMore。"
+      }
+    },
+    "/flows/{id}": {
+      "get": {
+        "summary": "读取单条记录（?body=1 内联原始报文）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "body",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "记录详情"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除记录",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/flows/{id}/raw": {
+      "get": {
+        "summary": "下载原始报文",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "side",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "req",
+                "resp"
+              ],
+              "default": "resp"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "原始字节"
+          }
+        }
+      }
+    },
+    "/proxy": {
+      "get": {
+        "summary": "代理状态（运行/CA/捕获数/bypass）",
+        "responses": {
+          "200": {
+            "description": "状态"
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "summary": "事件推送（WebSocket）",
+        "description": "握手需 cookie 或 ?token=。事件类型：hello、ping、flow.new、flow.update、flow.deleted、proxy.status、replay.progress、script.log、error。",
+        "responses": {
+          "101": {
+            "description": "协议升级"
+          }
+        }
+      }
+    },
+    "/replay": {
+      "post": {
+        "summary": "发送原始 HTTP 请求并重放",
+        "description": "引擎错误（DNS/TLS/超时等）以 200 + error 字段返回；只有参数错误才是 400。save=true 时自动落入 flows。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "raw"
+                ],
+                "properties": {
+                  "raw": {
+                    "type": "string",
+                    "description": "原始请求报文（含 CRLF）"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "scheme": {
+                        "type": "string",
+                        "enum": [
+                          "http",
+                          "https"
+                        ]
+                      },
+                      "host": {
+                        "type": "string",
+                        "description": "host 或 host:port"
+                      },
+                      "port": {
+                        "type": "integer"
+                      }
+                    },
+                    "description": "请求行为 origin-form 时必填"
+                  },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "insecureTLS": {
+                        "type": "boolean"
+                      },
+                      "sni": {
+                        "type": "string"
+                      },
+                      "tlsMin": {
+                        "type": "string",
+                        "enum": [
+                          "1.2",
+                          "1.3"
+                        ]
+                      },
+                      "upstreamProxy": {
+                        "type": "string",
+                        "description": "http:// 或 socks5://"
+                      },
+                      "connectTimeoutMs": {
+                        "type": "integer"
+                      },
+                      "headerTimeoutMs": {
+                        "type": "integer"
+                      },
+                      "totalTimeoutMs": {
+                        "type": "integer"
+                      },
+                      "disableAutoHost": {
+                        "type": "boolean"
+                      },
+                      "disableAutoClose": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "save": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "scriptId": {
+                    "type": "string",
+                    "description": "挂钩脚本 ID；onRequest 改包、onResponse/onAssert 校验"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "重放结果（含引擎错误）"
+          },
+          "400": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/tabs": {
+      "get": {
+        "summary": "列出 Repeater 标签页",
+        "responses": {
+          "200": {
+            "description": "标签页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Tab"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "新建标签页",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "rawRequest": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tab"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tabs/{id}": {
+      "get": {
+        "summary": "读取标签页",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "标签页",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tab"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "summary": "更新标签页（部分字段）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "rawRequest": {
+                    "type": "string"
+                  },
+                  "scriptId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的标签页",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tab"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除标签页",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/import": {
+      "post": {
+        "summary": "导入 curl / HAR 为 raw 请求并创建标签页",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "format",
+                  "content"
+                ],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "curl",
+                      "har"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "createTabs": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "转换结果与新建的标签页"
+          },
+          "400": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/proxy/start": {
+      "post": {
+        "summary": "启动代理",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "listen": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "状态"
+          },
+          "409": {
+            "description": "已在运行或端口占用"
+          }
+        }
+      }
+    },
+    "/proxy/stop": {
+      "post": {
+        "summary": "停止代理",
+        "responses": {
+          "200": {
+            "description": "状态"
+          },
+          "409": {
+            "description": "未在运行"
+          }
+        }
+      }
+    },
+    "/proxy/insecure": {
+      "post": {
+        "summary": "切换上游 TLS 校验开关",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "on": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "状态"
+          }
+        }
+      }
+    },
+    "/proxy/bypass": {
+      "post": {
+        "summary": "设置 host 直连隧道（不 MITM）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "host"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "on": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "状态"
+          }
+        }
+      }
+    },
+    "/proxy/ca.pem": {
+      "get": {
+        "summary": "下载 CA（PEM，Linux/macOS）",
+        "responses": {
+          "200": {
+            "description": "PEM 文件"
+          }
+        }
+      }
+    },
+    "/proxy/ca.crt": {
+      "get": {
+        "summary": "下载 CA（DER，Windows certutil）",
+        "responses": {
+          "200": {
+            "description": "DER 文件"
+          }
+        }
+      }
+    },
+    "/proxy/ca.mobileconfig": {
+      "get": {
+        "summary": "下载 CA（iOS/macOS 描述文件）",
+        "responses": {
+          "200": {
+            "description": "mobileconfig"
+          }
+        }
+      }
+    },
+    "/proxy/ca/regenerate": {
+      "post": {
+        "summary": "重建 CA（需 confirm:true，旧证书全部失效）",
+        "responses": {
+          "200": {
+            "description": "状态"
+          }
+        }
+      }
+    },
+    "/proxy/diagnose": {
+      "get": {
+        "summary": "探测系统是否信任本 CA（返回安装指引）",
+        "responses": {
+          "200": {
+            "description": "诊断结果"
+          }
+        }
+      }
+    },
+    "/scripts": {
+      "get": {
+        "summary": "列出脚本",
+        "responses": {
+          "200": {
+            "description": "{items:[Script]}"
+          }
+        }
+      },
+      "post": {
+        "summary": "新建脚本",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "lang": {
+                    "type": "string",
+                    "enum": [
+                      "js"
+                    ]
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "hooks": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Script"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "不支持的语言（当前仅 js）"
+          }
+        }
+      }
+    },
+    "/scripts/{id}": {
+      "get": {
+        "summary": "读取脚本",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "脚本"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "summary": "更新脚本（带 updatedAt 时启用乐观锁）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "hooks": {
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "updatedAt": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的脚本"
+          },
+          "409": {
+            "description": "版本冲突"
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除脚本（级联删除执行记录）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scripts/{id}/test": {
+      "post": {
+        "summary": "试跑脚本（send=false 只跑钩子，send=true 完整发一次包）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "raw": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "scheme": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "send": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "insecureTLS": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{request, response, result, script:{logs,assert,error,hooksRun,durationMs}}"
+          }
+        }
+      }
+    },
+    "/scripts/{id}/runs": {
+      "get": {
+        "summary": "最近 50 次执行记录",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{items:[ScriptRun]}"
+          }
+        }
+      }
+    },
+    "/evidence": {
+      "get": {
+        "summary": "时间取证抓取（auto：能内嵌→direct，否则服务端快照）",
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "direct",
+                "snapshot"
+              ],
+              "default": "auto"
+            }
+          },
+          {
+            "name": "allowScripts",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
+              "default": "0"
+            }
+          },
+          {
+            "name": "insecure",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ]
+            }
+          },
+          {
+            "name": "record",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
+              "default": "1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{mode: direct|snapshot|error, url, reason, status, fetchedAt, localTime, flowId, snapshotUrl, timings, error}"
+          }
+        }
+      }
+    },
+    "/evidence/sources": {
+      "get": {
+        "summary": "预设时间源列表",
+        "responses": {
+          "200": {
+            "description": "{items:[{key,label,url,note}]}"
+          }
+        }
+      }
+    },
+    "/evidence/snapshot/{id}": {
+      "get": {
+        "summary": "读取服务端快照（同源，供 iframe 加载；脚本与内联事件已剥离）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML 快照，带 X-Replayd-Mode/Source/Fetched-At"
+          },
+          "404": {
+            "description": "快照不存在或已过期（默认 TTL 10 分钟）"
+          }
+        }
+      }
+    },
+    "/render": {
+      "post": {
+        "summary": "无头渲染 URL（返回渲染后文本、无障碍树与 PNG 截图产物）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "fullPage": {
+                    "type": "boolean"
+                  },
+                  "waitUntil": {
+                    "type": "string",
+                    "enum": [
+                      "load",
+                      "networkidle"
+                    ]
+                  },
+                  "timeoutMs": {
+                    "type": "integer"
+                  },
+                  "textLimit": {
+                    "type": "integer"
+                  },
+                  "scale": {
+                    "type": "number"
+                  },
+                  "noScreenshot": {
+                    "type": "boolean"
+                  },
+                  "noA11y": {
+                    "type": "boolean"
+                  },
+                  "viaProxy": {
+                    "type": "boolean",
+                    "description": "经 replayd MITM 代理渲染，子请求会被抓包"
+                  },
+                  "proxyUrl": {
+                    "type": "string"
+                  },
+                  "async": {
+                    "type": "boolean"
+                  },
+                  "record": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{status,url,finalUrl,title,navStatus,text,a11y,screenshots,timings,flowId,error}"
+          },
+          "202": {
+            "description": "async=true：{jobId,status,poll}"
+          }
+        }
+      }
+    },
+    "/render/status": {
+      "get": {
+        "summary": "渲染能力状态（浏览器可用性/来源/版本、产物统计）",
+        "responses": {
+          "200": {
+            "description": "renderStatusResponse"
+          }
+        }
+      }
+    },
+    "/render/jobs": {
+      "get": {
+        "summary": "最近的渲染/安装任务",
+        "responses": {
+          "200": {
+            "description": "{items:[job]}"
+          }
+        }
+      }
+    },
+    "/render/jobs/{id}": {
+      "get": {
+        "summary": "查询任务状态与结果",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "job"
+          },
+          "404": {
+            "description": "任务不存在或已淘汰"
+          }
+        }
+      }
+    },
+    "/render/browser/install": {
+      "post": {
+        "summary": "下载 chromium-headless-shell（默认异步，进度见任务）",
+        "responses": {
+          "202": {
+            "description": "{jobId,status,poll}"
+          }
+        }
+      }
+    },
+    "/artifacts": {
+      "get": {
+        "summary": "产物列表（截图/文本，永久保留）",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{items:[artifact]}"
+          }
+        }
+      }
+    },
+    "/artifacts/{id}": {
+      "get": {
+        "summary": "下载产物（PNG 可直接内嵌/交给多模态模型）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "产物字节"
+          },
+          "404": {
+            "description": "不存在"
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除产物（默认永久保留，故提供手动清理）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          },
+          "404": {
+            "description": "不存在"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "MCP over HTTP（JSON-RPC 2.0）：initialize / notifications/* / tools/list / tools/call",
+        "description": "工具：render_url、render_status、replay_request、list_flows、get_flow。截图以 MCP image 内容块返回（base64 PNG），文本以 text 内容块返回。需要 Bearer 令牌。",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC 响应"
+          },
+          "202": {
+            "description": "通知类消息（无响应体）"
+          },
+          "401": {
+            "description": "未鉴权"
+          }
+        }
+      },
+      "get": {
+        "summary": "MCP 接入信息（设置页用）：端点、令牌、工具清单、客户端配置片段",
+        "description": "返回完整访问令牌，因此需要鉴权。注意与根路径 POST /mcp（MCP 协议本体）区分。",
+        "responses": {
+          "200": {
+            "description": "{endpoint,transport,protocolVersion,auth,token,tools[],clientConfig,curlExample,renderReady}"
+          }
+        }
+      }
+    },
+    "/capture": {
+      "post": {
+        "summary": "截图 replayd 自己的 Repeater 界面（请求 + 响应 + 取证）",
+        "description": "无头浏览器打开本工具的 Repeater 页，按给定的原始请求填包 → 点发送 → 等待响应与取证面板就绪 → 整窗截图，返回 PNG 产物与从界面回读的文本（状态行/响应头/水印）。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "raw"
+                ],
+                "properties": {
+                  "raw": {
+                    "type": "string"
+                  },
+                  "scheme": {
+                    "type": "string"
+                  },
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer"
+                  },
+                  "insecureTLS": {
+                    "type": "boolean"
+                  },
+                  "scriptId": {
+                    "type": "string"
+                  },
+                  "evidenceUrl": {
+                    "type": "string"
+                  },
+                  "evidenceAuto": {
+                    "type": "string"
+                  },
+                  "evidenceMode": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "direct",
+                      "snapshot"
+                    ]
+                  },
+                  "evidenceSettleMs": {
+                    "type": "integer"
+                  },
+                  "hideEvidence": {
+                    "type": "boolean"
+                  },
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "fullPage": {
+                    "type": "boolean"
+                  },
+                  "waitTimeoutMs": {
+                    "type": "integer"
+                  },
+                  "includeContent": {
+                    "type": "boolean"
+                  },
+                  "send": {
+                    "type": "boolean"
+                  },
+                  "highlight": {
+                    "type": "object",
+                    "description": "按文本匹配打高亮（Agent 无需知道字符偏移）",
+                    "properties": {
+                      "request": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "response": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "color": {
+                        "type": "string",
+                        "enum": [
+                          "yellow",
+                          "green",
+                          "red",
+                          "blue"
+                        ]
+                      }
+                    }
+                  },
+                  "evidenceDetails": {
+                    "type": "boolean",
+                    "description": "截图时是否展开取证详情（来源/模式/抓取时间/flowId），默认 true——界面默认收起，证据图需要它"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{status,statusLine,responseHeaders,evidenceMode,evidenceWatermark,evidenceFrameUrl,screenshots,timings,flowId,highlightsApplied[],highlightsMissing[],error}"
+          },
+          "501": {
+            "description": "未启用界面截图"
+          }
+        }
+      }
+    },
+    "/tabs/{id}/highlights": {
+      "put": {
+        "summary": "保存标签页的请求/响应高亮（服务端保存，无头截图也能带上）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "request": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "start": {
+                          "type": "integer"
+                        },
+                        "end": {
+                          "type": "integer"
+                        },
+                        "color": {
+                          "type": "string",
+                          "enum": [
+                            "yellow",
+                            "green",
+                            "red",
+                            "blue"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "response": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的 tab"
+          },
+          "400": {
+            "description": "高亮数据不合法/超限"
+          },
+          "404": {
+            "description": "标签页不存在"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "replayd_session"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "未提供或提供了无效令牌",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "资源不存在",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "尝试过于频繁",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "bad_request",
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "conflict",
+                  "too_large",
+                  "rate_limited",
+                  "unsupported",
+                  "proxy_not_running",
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {}
+            }
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "buildTime": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "listen": {
+            "type": "string"
+          },
+          "dataDir": {
+            "type": "string"
+          },
+          "uptimeMs": {
+            "type": "integer"
+          },
+          "authRequired": {
+            "type": "boolean"
+          },
+          "flowCount": {
+            "type": "integer"
+          },
+          "database": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "proxy": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "boolean"
+              },
+              "listen": {
+                "type": "string"
+              },
+              "caReady": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "Flow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "replay",
+              "proxy"
+            ]
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix 毫秒"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "httpVersion": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "reqSize": {
+            "type": "integer"
+          },
+          "respSize": {
+            "type": "integer"
+          },
+          "reqHeaders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "respHeaders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          },
+          "error": {},
+          "timings": {},
+          "tls": {},
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Header": {
+        "type": "object",
+        "required": [
+          "n",
+          "v"
+        ],
+        "properties": {
+          "n": {
+            "type": "string",
+            "description": "原始大小写"
+          },
+          "v": {
+            "type": "string"
+          }
+        }
+      },
+      "Tab": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rawRequest": {
+            "type": "string"
+          },
+          "scriptId": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Script": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "js"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "hooks": {
+            "type": "object",
+            "properties": {
+              "onRequest": {
+                "type": "boolean"
+              },
+              "onResponse": {
+                "type": "boolean"
+              },
+              "onAssert": {
+                "type": "boolean"
+              }
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    }
+  }
+}
