@@ -107,6 +107,68 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The console pushes a Linux replayd into each project container for the packet
+# replay / render feature (see packages/web/src/replayd.ts). It is not embedded in
+# the console: the artifacts are large and already gitignored build output, so they
+# travel next to the executable, in `replayd/`.
+#
+# Go and the checked-out service are needed only here: without them the release
+# still builds, and the replay toolset reports why it is unavailable instead.
+REPLAYD_SOURCE="MITM_Fuzz_Render"
+REPLAYD_DIR="$(pwd)/packages/web/replayd"
+CONSOLE_VERSION="$(node -p "require('./packages/web/package.json').version" 2>/dev/null || echo "0.0.0")"
+rm -rf "$REPLAYD_DIR"
+mkdir -p "$REPLAYD_DIR"
+
+# The service's own web UI is embedded into its binary (`-tags embedui`) and that
+# build output is not tracked. Build it when it is missing, so a release never
+# ships a replayd whose Repeater page — the thing the screenshot is taken of — is
+# blank. pnpm is what the project uses; npm is the fallback on a runner without it.
+build_replayd_frontend() {
+	if command -v pnpm >/dev/null 2>&1; then
+		(cd "$REPLAYD_SOURCE/web" && pnpm install --config.confirmModulesPurge=false && pnpm build)
+	elif command -v corepack >/dev/null 2>&1 && corepack pnpm --version >/dev/null 2>&1; then
+		(cd "$REPLAYD_SOURCE/web" && corepack pnpm install --config.confirmModulesPurge=false && corepack pnpm build)
+	elif command -v npm >/dev/null 2>&1; then
+		# --no-package-lock: the project's lockfile is pnpm's, and npm must not
+		# drop its own next to it.
+		(cd "$REPLAYD_SOURCE/web" && npm install --no-package-lock --ignore-scripts --no-audit --no-fund && npm run build)
+	else
+		return 1
+	fi
+}
+
+if [[ "${SENTINEL_SKIP_REPLAYD:-}" == "1" ]]; then
+	echo "==> replayd: skipped (SENTINEL_SKIP_REPLAYD=1); the replay toolset will report itself unavailable"
+elif [[ ! -d "$REPLAYD_SOURCE/cmd/replayd" ]]; then
+	echo "==> replayd: $REPLAYD_SOURCE is missing; shipping no container binaries"
+elif ! command -v go >/dev/null 2>&1; then
+	echo "==> replayd: no Go toolchain; shipping no container binaries"
+	echo "           (the replay toolset will report itself unavailable; build with 'make dist' in $REPLAYD_SOURCE)"
+else
+	echo "==> Building replayd for the container platforms..."
+	if [[ ! -f "$REPLAYD_SOURCE/internal/api/dist/index.html" ]]; then
+		echo "  building the replayd frontend (embedded into the binary)..."
+		if ! build_replayd_frontend; then
+			echo "  error: cannot build the replayd UI (pnpm or npm required); it is part of the screenshot feature" >&2
+			exit 1
+		fi
+	fi
+	for arch in amd64 arm64; do
+		# The version the operator sees in the console status is the console's, so a
+		# shipped replayd is always identifiable as the one that pushed it.
+		if (cd "$REPLAYD_SOURCE" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags embedui -trimpath \
+			-ldflags "-s -w -X main.version=$CONSOLE_VERSION -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+			-o "$REPLAYD_DIR/replayd_linux_$arch" ./cmd/replayd); then
+			echo "  replayd linux/$arch ($CONSOLE_VERSION)"
+		else
+			echo "  error: replayd linux/$arch failed to build (see the Go output above)." >&2
+			echo "         Fix the toolchain/cache, or pass SENTINEL_SKIP_REPLAYD=1 to ship the console alone." >&2
+			exit 1
+		fi
+	done
+fi
+
 echo "==> Staging the console for the bundler..."
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
@@ -150,12 +212,41 @@ for platform in "${PLATFORMS[@]}"; do
 		--outfile "$outfile"
 done
 
+# The console looks for the container binaries at <executable dir>/replayd, so each
+# platform directory carries the same folder: inside the tarball that puts them at
+# sentinel-web/replayd/, next to the sentinel-web executable.
+if [[ -n "$(ls -A "$REPLAYD_DIR" 2>/dev/null)" ]]; then
+	for platform in "${PLATFORMS[@]}"; do
+		rm -rf "$OUTPUT_DIR/$platform/replayd"
+		cp -R "$REPLAYD_DIR" "$OUTPUT_DIR/$platform/replayd"
+	done
+fi
+
 echo "==> Creating archives..."
 cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
 	if [[ "$platform" == windows-* ]]; then
-		# One self-contained .exe: the release publishes it directly, so a tar/zip
-		# wrapper would only add an extraction step for the operator.
+		# The .exe stays a direct download, but the replay toolset needs the Linux
+		# binaries that go into the containers, and those have to sit next to the
+		# executable — so the same folder is offered as a zip. Unpacking the zip is
+		# enough; a bare .exe keeps working and reports how to add the binaries.
+		if [[ -d "$platform/replayd" ]]; then
+			rm -f "sentinel-web-$platform.zip"
+			if command -v zip >/dev/null 2>&1; then
+				(cd "$platform" && zip -qr "../sentinel-web-$platform.zip" sentinel-web.exe replayd)
+			elif command -v powershell >/dev/null 2>&1 || command -v pwsh >/dev/null 2>&1; then
+				# Relative paths with the platform directory as the working directory:
+				# Compress-Archive then stores sentinel-web.exe and replayd/ at the root
+				# of the zip instead of nesting them under the build directory.
+				ps="$(command -v powershell || command -v pwsh)"
+				(cd "$platform" && "$ps" -NoProfile -Command "Compress-Archive -Path 'sentinel-web.exe','replayd' -DestinationPath '../sentinel-web-$platform.zip' -Force")
+			else
+				echo "  warning: no zip tool; the .exe ships without replayd/ (set SENTINEL_REPLAYD_DIR)"
+			fi
+			if [[ -f "sentinel-web-$platform.zip" ]]; then
+				echo "  sentinel-web-$platform.zip (exe + replayd/)"
+			fi
+		fi
 		echo "Leaving sentinel-web-$platform.exe unarchived"
 		continue
 	fi
@@ -170,6 +261,9 @@ echo "==> Build complete!"
 for platform in "${PLATFORMS[@]}"; do
 	if [[ "$platform" == windows-* ]]; then
 		ls -lh "$OUTPUT_DIR/$platform/sentinel-web.exe"
+		if [[ -f "sentinel-web-$platform.zip" ]]; then
+			ls -lh "sentinel-web-$platform.zip"
+		fi
 	else
 		ls -lh "sentinel-web-$platform.tar.gz"
 	fi

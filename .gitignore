@@ -28,6 +28,8 @@ packages/ai/src/providers/.model-generation-*/
 
 # Package specific
 packages/web/binaries/
+# Container binaries built into the console's release layout (see build-web-binaries.sh).
+packages/web/replayd/
 .npm/
 coverage/
 .nyc_output/

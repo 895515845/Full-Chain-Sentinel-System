@@ -6,7 +6,8 @@ name: Release
 #   sentinel-web-linux-arm64.tar.gz    Linux arm64
 #   sentinel-web-darwin-arm64.tar.gz   macOS arm64
 #   sentinel-web-darwin-x64.tar.gz     macOS x86_64
-#   sentinel-web-windows-x64.exe       Windows x86_64
+#   sentinel-web-windows-x64.exe       Windows x86_64 (console only)
+#   sentinel-web-windows-x64.zip       Windows x86_64 (console + container binaries)
 #   sentinel-droidbridge-<版本>-debug.apk
 #
 # The binaries come from scripts/build-web-binaries.sh (Bun single-file compile;
@@ -115,6 +116,16 @@ jobs:
       - name: Refresh model data
         run: npm run hydrate:model-data
 
+      # The packet-replay service (MITM_Fuzz_Render, Go) is built in this job and
+      # shipped next to the console, because the console pushes it into the project
+      # containers at runtime. Version from go.mod, so the module stays the source
+      # of truth.
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: MITM_Fuzz_Render/go.mod
+          cache-dependency-path: MITM_Fuzz_Render/go.sum
+
       - name: Build the console binary
         run: bash scripts/build-web-binaries.sh --platform "${{ matrix.platform }}" --out "$RUNNER_TEMP/binaries"
 
@@ -158,6 +169,13 @@ jobs:
       - name: Refresh model data
         run: npm run hydrate:model-data
 
+      # See the matrix job above: the service's Go module is built here too.
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: MITM_Fuzz_Render/go.mod
+          cache-dependency-path: MITM_Fuzz_Render/go.sum
+
       - name: Build the console binary
         shell: bash
         # Relative --out: the script resolves it against the repo root, which
@@ -171,8 +189,13 @@ jobs:
       - name: Upload the executable
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          # Both are offered: the bare .exe for a quick single-file run (the replay
+          # toolset then reports how to add its binaries), and the zip with the
+          # Linux container binaries the replay toolset pushes into the containers.
           name: sentinel-web-windows-x64
-          path: binaries/windows-x64/sentinel-web.exe
+          path: |
+            binaries/windows-x64/sentinel-web.exe
+            binaries/sentinel-web-windows-x64.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -266,6 +289,7 @@ jobs:
           # Windows ships the bare executable: a single-file binary needs no
           # extract step, and the .exe suffix is what Explorer expects.
           cp release-assets/sentinel-web-windows-x64/sentinel-web.exe publish/sentinel-web-windows-x64.exe
+          cp release-assets/sentinel-web-windows-x64/sentinel-web-windows-x64.zip publish/sentinel-web-windows-x64.zip
           cp release-assets/sentinel-droidbridge/app-debug.apk "publish/sentinel-droidbridge-${version}-debug.apk"
           ls -l publish
           test "$(find publish -type f | wc -l)" -eq 6
