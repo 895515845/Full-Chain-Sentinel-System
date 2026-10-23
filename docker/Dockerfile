@@ -129,5 +129,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		|| pip3 install frida-tools 2>/dev/null \
 		|| echo "[sentinel] frida-tools install skipped (ok)")
 
+# Packet replay and headless render (设置 → 发包, the replayd service). The binary
+# itself is pushed into the container by the console at first use — version-locked
+# to the console — but the browser it drives has to be in the image: replayd never
+# downloads one on its own ("未找到可用浏览器"), and a pentest host is often offline.
+# fonts-noto-cjk keeps Chinese pages readable in the screenshots instead of tofu.
+# Best effort, like the extended layer above: a mirror without these packages must
+# not fail the whole build, and the console reports the missing browser with the
+# command to install it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		chromium \
+		fonts-noto-cjk \
+	|| echo "[sentinel] chromium/fonts 安装跳过（发包截图需要浏览器，可稍后在容器内补装或重建镜像）" \
+	&& rm -rf /var/lib/apt/lists/*
+
 # Long-running idle entrypoint; Full Chain Sentinel drives it with docker exec.
 CMD ["sleep", "infinity"]
