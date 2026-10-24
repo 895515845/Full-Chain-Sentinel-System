@@ -2651,7 +2651,6 @@ export function App() {
 							busy={streaming}
 							proxyConfig={proxyView}
 							onCreate={addProject}
-							onSwitch={(id) => send({ type: "switch_project", id })}
 							onRecreate={recreateProject}
 							onRemove={removeProject}
 							onStop={stopProject}

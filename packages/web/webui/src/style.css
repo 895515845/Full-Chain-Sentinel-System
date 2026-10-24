@@ -2458,26 +2458,231 @@ button.ghost.small.on {
 .project-proxy-option {
 	display: flex;
 	flex-direction: column;
+	gap: 0;
 }
 
-.project-proxy-node {
+.project-proxy-dialog.modal.confirm-dialog {
+	width: min(680px, calc(100vw - 32px));
+	max-height: min(86vh, 820px);
+}
+
+.project-proxy-dialog .confirm-dialog__body {
+	gap: 10px;
+}
+
+.project-proxy-steps {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0;
+	margin: -14px 0 0;
+	padding: 12px 0;
+	border-bottom: 1px solid var(--border);
+	list-style: none;
+}
+
+.project-proxy-steps li {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	margin: 2px 0 6px 26px;
+	gap: 7px;
+	min-width: 0;
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.project-proxy-steps li > span {
+	display: grid;
+	width: 22px;
+	height: 22px;
+	flex: none;
+	place-items: center;
+	border: 1px solid var(--border-strong);
+	border-radius: 50%;
+	font-size: 10px;
+}
+
+.project-proxy-steps li.current,
+.project-proxy-steps li.done {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.project-proxy-steps li.current > span,
+.project-proxy-steps li.done > span {
+	border-color: var(--accent);
+	background: var(--accent-dim);
+}
+
+.project-proxy-step-panel {
+	display: flex;
+	min-height: 330px;
+	flex-direction: column;
+	gap: 13px;
+}
+
+.project-proxy-step-title {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.project-proxy-step-title strong {
+	color: var(--text-bright);
+	font-size: 14px;
+}
+
+.project-proxy-step-title > span {
+	color: var(--dim);
+	font-size: 11px;
+}
+
+.project-proxy-step-empty {
+	margin: 0;
+	padding: 16px;
+	border: 1px dashed var(--border-strong);
+	border-radius: 8px;
+	color: var(--dim);
 	font-size: 12px;
+	line-height: 1.6;
+}
+
+.project-proxy-review {
+	display: grid;
+	grid-template-columns: 100px minmax(0, 1fr);
+	gap: 0;
+	margin: 0;
+	padding: 4px 14px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+.project-proxy-review dt,
+.project-proxy-review dd {
+	margin: 0;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+}
+
+.project-proxy-review dt:nth-last-of-type(1),
+.project-proxy-review dd:last-child {
+	border-bottom: 0;
+}
+
+.project-proxy-review dt {
 	color: var(--dim);
 }
 
-.project-proxy-node select {
+.project-proxy-review dd {
+	color: var(--text-bright);
+	font-weight: 550;
+}
+
+.project-proxy-intro {
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.project-proxy-options {
+	gap: 7px;
+}
+
+.env-network-options .project-proxy-option,
+.env-network-options > label {
+	border-color: var(--border);
+	border-radius: 9px;
+	background: var(--card);
+	transition: border-color 120ms ease, background 120ms ease;
+}
+
+.env-network-options .project-proxy-option.selected,
+.env-network-options > label.selected {
+	border-color: var(--accent);
+	background: var(--accent-dim);
+}
+
+.env-network-options .project-proxy-option > label {
+	border: 0;
+	background: transparent;
+}
+
+.project-proxy-option.selected > label {
+	border-color: transparent;
+}
+
+.project-proxy-node-picker {
+	margin: 0 10px 10px 32px;
+	padding: 11px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--raised);
+}
+
+.project-proxy-node-search {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--text);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.project-proxy-node-search input {
 	flex: 1;
 	min-width: 0;
-	padding: 4px 8px;
+	padding: 7px 9px;
 	border: 1px solid var(--border);
-	border-radius: var(--radius);
+	border-radius: 7px;
 	background: var(--card);
 	color: var(--text);
 	font-size: 12px;
+}
+
+.project-proxy-node-search input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.project-proxy-node-picker > p {
+	margin: 8px 0;
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.project-proxy-node-picker select {
+	width: 100%;
+	min-width: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: 7px;
+	background: var(--card);
+	color: var(--text);
+	font-size: 12px;
+}
+
+.project-proxy-node-list {
+	max-height: 250px;
+	background: var(--card);
+}
+
+.project-proxy-node-list label {
+	min-height: 32px;
+	grid-template-columns: auto minmax(0, 1fr) minmax(56px, auto);
+}
+
+.project-proxy-no-nodes {
+	display: block;
+	margin-top: 7px;
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.project-proxy-dialog .confirm-note {
+	padding: 9px 11px;
+	border-left: 3px solid var(--accent);
+	border-radius: 5px;
+	background: var(--raised);
+	font-size: 11.5px;
 }
 
 .project-proxy-hint {
@@ -2485,6 +2690,27 @@ button.ghost.small.on {
 	font-size: 11px;
 	line-height: 1.5;
 	padding: 4px 8px 0;
+}
+
+@media (max-width: 600px) {
+	.project-proxy-dialog.modal.confirm-dialog {
+		width: calc(100vw - 20px);
+		max-height: calc(100dvh - 24px);
+	}
+
+	.project-proxy-node-picker {
+		margin-left: 10px;
+	}
+
+	.project-proxy-node-search {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.project-proxy-node-search input {
+		width: 100%;
+	}
 }
 
 /* ---------- 代理 page ---------- */
@@ -5039,10 +5265,9 @@ svg.lucide {
 	font-size: 12px;
 }
 
-/* 项目页：项目单元格两行（名字 / 状态 + 容器短名），数量列右对齐，
-   动作列只留一个主动作加一个 ⋯ 菜单，不再并排四个同等权重的按钮。 */
+/* 项目页：项目单元格两行，数量列右对齐，次要操作作为清晰可见的按钮。 */
 .project-table .data-row {
-	grid-template-columns: minmax(220px, 2fr) 72px 72px minmax(140px, auto);
+	grid-template-columns: minmax(220px, 2fr) 72px 72px minmax(340px, auto);
 }
 
 .project-cell {
@@ -5110,59 +5335,23 @@ svg.lucide {
 	text-align: right;
 }
 
-.project-current-note {
-	font-size: 12px;
-	color: var(--faint);
+.project-actions {
+	flex-wrap: wrap;
+	gap: 6px;
 }
 
-.cell-menu {
-	position: relative;
-	display: inline-flex;
+.project-actions button {
+	padding: 4px 8px;
+	font-size: 11px;
 }
 
-.cell-menu__list {
-	position: absolute;
-	right: 0;
-	top: 26px;
-	z-index: 20;
-	display: flex;
-	flex-direction: column;
-	min-width: 150px;
-	padding: 4px;
-	background: var(--card);
-	border: 1px solid var(--border-strong);
-	border-radius: 6px;
-	box-shadow: var(--shadow-md);
-}
-
-.cell-menu__list button {
-	height: 28px;
-	padding: 0 10px;
-	justify-content: flex-start;
-	text-align: left;
-	background: transparent;
-	border-color: transparent;
-}
-
-.cell-menu__list button:hover:not(:disabled) {
-	background: var(--accent-dim);
-	border-color: transparent;
-}
-
-.cell-menu__danger {
+.project-actions .project-action-danger {
 	color: var(--danger);
 }
 
-.cell-menu__danger:hover:not(:disabled) {
+.project-actions .project-action-danger:hover:not(:disabled) {
 	background: var(--danger-dim);
 	color: var(--danger);
-}
-
-.cell-menu__sep {
-	display: block;
-	height: 1px;
-	margin: 4px 6px;
-	background: var(--border);
 }
 
 .data-confirm {

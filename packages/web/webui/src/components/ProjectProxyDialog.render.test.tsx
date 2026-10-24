@@ -76,14 +76,15 @@ function render(target: SentinelProjectInfo): string {
 	);
 }
 
-test("a subscription profile offers its nodes next to the profile", () => {
+test("the first wizard step offers proxy sources and the next action", () => {
 	const html = render(project());
+	expect(html).toContain("选择代理方式");
+	expect(html).toContain("选择节点");
+	expect(html).toContain("下一步");
 	expect(html).toContain("机场订阅");
 	expect(html).toContain("2 个节点，可以只给这个项目指定一个");
-	// The profile's own node is the default, so the select shows it.
-	expect(html).toContain("跟随档案默认");
-	expect(html).toContain("香港 01");
-	expect(html).toContain("日本 02");
+	expect(html).not.toContain("香港 01");
+	expect(html).not.toContain("日本 02");
 });
 
 test("a plain profile offers no node list", () => {
@@ -95,8 +96,8 @@ test("a plain profile offers no node list", () => {
 
 test("a pinned node is what the dialog starts from", () => {
 	const html = render(project({ proxyNode: "日本" }));
-	// The select is rendered with the pinned tag selected.
-	expect(html).toContain('value="日本" selected');
+	// The project starts on step one with its existing proxy profile selected.
+	expect(html).toContain('<label class="selected"><input type="radio" name="project-proxy" checked=""/><span class="env-network-label">机场订阅</span>');
 });
 
 test("the stored choice round-trips through the helpers", () => {

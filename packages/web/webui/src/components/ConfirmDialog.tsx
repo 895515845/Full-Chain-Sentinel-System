@@ -18,11 +18,13 @@ import { CloseIcon } from "./icons.tsx";
 export function ConfirmDialog({
 	title,
 	subtitle,
+	className,
 	footer,
 	onCancel,
 	children,
 }: {
 	title: string;
+	className?: string;
 	/** The object being acted on, so the dialog says what it is about. */
 	subtitle?: ReactNode;
 	/** The decision: one button for a plain confirmation, several for a choice. */
@@ -41,7 +43,7 @@ export function ConfirmDialog({
 	return (
 		<div className="modal-backdrop" onClick={onCancel}>
 			<div
-				className="modal confirm-dialog"
+				className={className ? "modal confirm-dialog " + className : "modal confirm-dialog"}
 				role="dialog"
 				aria-modal="true"
 				onClick={(event) => event.stopPropagation()}

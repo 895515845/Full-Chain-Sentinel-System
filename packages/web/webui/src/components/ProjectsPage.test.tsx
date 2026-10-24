@@ -39,7 +39,6 @@ function render(projects: SentinelProjectInfo[], activeId: string | null = proje
 			busy: false,
 			proxyConfig: EMPTY_PROXY_CONFIG,
 			onCreate: async () => null,
-			onSwitch: () => {},
 			onRecreate: async () => null,
 			onRemove: async () => null,
 			onStop: async () => null,
@@ -53,8 +52,8 @@ function render(projects: SentinelProjectInfo[], activeId: string | null = proje
 function actionsFor(html: string, projectName: string): string {
 	const nameAt = html.indexOf(projectName);
 	const rowAt = html.lastIndexOf('<div class="data-row', nameAt);
-	const actionsAt = html.indexOf('class="data-actions"', rowAt);
-	// To the end of the row, so the ⋯ menu inside the actions is included.
+	const actionsAt = html.indexOf('class="data-actions project-actions"', rowAt);
+	// Read the rendered action cell.
 	return html.slice(actionsAt, html.indexOf("</div>", actionsAt));
 }
 
@@ -71,18 +70,16 @@ test("the table is 项目 / 会话 / 漏洞 / 操作 with the counts from the se
 	expect(html).toContain(">12</span>");
 });
 
-test("a running container offers 进入, another project's row offers 启动容器", () => {
+test("switching projects is not offered in the table; stopped projects can start their container", () => {
 	const running = render([project({ id: "p1", name: "运行中项目", state: "running" })]);
 	const runningActions = actionsFor(running, "运行中项目");
-	// The active project shows a label instead of a button.
-	expect(runningActions).toContain("当前项目");
-	expect(runningActions).toContain("⋯");
+	expect(runningActions).not.toContain(">进入</button>");
+	expect(runningActions).not.toContain("当前项目</span>");
 
-	// A project that is not active but running can be entered.
+	// Running projects expose management actions without switching the active project.
 	const other = render([project({ id: "p1", name: "当前项目" }), project({ id: "p2", name: "别的项目" })]);
 	const otherActions = actionsFor(other, "别的项目");
-	// A tooltip mentions 「进入该项目」, so match the button label itself.
-	expect(otherActions).toContain(">进入</button>");
+	expect(otherActions).not.toContain(">进入</button>");
 	expect(otherActions).not.toContain(">启动容器</button>");
 
 	// Stopped by the operator: entering is refused, so the row offers the start.

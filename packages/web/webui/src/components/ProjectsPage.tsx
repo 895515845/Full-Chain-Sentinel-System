@@ -10,7 +10,7 @@
  * data deletion takes those with it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { t } from "../i18n.ts";
 import type { SentinelProjectInfo, SentinelProxyConfigView } from "../types.ts";
 import { ProjectRowDialogs, type ProjectRowAction, projectRowActionLabel } from "./ProjectRowDialogs.tsx";
@@ -41,59 +41,6 @@ function shortContainer(name: string): string {
 	return name.length > 18 ? `${name.slice(0, 13)}…${name.slice(-3)}` : name;
 }
 
-/** One row's overflow menu: the actions that do not deserve a button in the row. */
-function RowMenu({
-	items,
-}: {
-	items: { label: string; danger?: boolean; separatorBefore?: boolean; onSelect: () => void }[];
-}) {
-	const [open, setOpen] = useState(false);
-	const ref = useRef<HTMLSpanElement | null>(null);
-
-	useEffect(() => {
-		if (!open) return;
-		const onDown = (event: MouseEvent) => {
-			if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
-		};
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
-		};
-		document.addEventListener("mousedown", onDown);
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("mousedown", onDown);
-			document.removeEventListener("keydown", onKey);
-		};
-	}, [open]);
-
-	return (
-		<span className="cell-menu" ref={ref}>
-			<button type="button" className="ghost" title={t("更多操作")} onClick={() => setOpen((prev) => !prev)}>
-				⋯
-			</button>
-			{open ? (
-				<span className="cell-menu__list">
-					{items.map((item) => (
-						<span key={item.label}>
-							{item.separatorBefore ? <span className="cell-menu__sep" /> : null}
-							<button
-								type="button"
-								className={item.danger ? "cell-menu__danger" : undefined}
-								onClick={() => {
-									setOpen(false);
-									item.onSelect();
-								}}
-							>
-								{item.label}
-							</button>
-						</span>
-					))}
-				</span>
-			) : null}
-		</span>
-	);
-}
-
 function stateHint(project: SentinelProjectInfo): string {
 	if (project.state === "running") return t("容器正在运行：停止后需要用「启动容器」重新启动");
 	if (project.state === "stopped") {
@@ -110,7 +57,6 @@ export function ProjectsPage({
 	busy,
 	proxyConfig,
 	onCreate,
-	onSwitch,
 	onRecreate,
 	onRemove,
 	onStop,
@@ -123,7 +69,6 @@ export function ProjectsPage({
 	/** Proxy profiles and the default, for the row dialog. */
 	proxyConfig: SentinelProxyConfigView;
 	onCreate: (name: string) => Promise<string | null>;
-	onSwitch: (id: string) => void;
 	onRecreate: (id: string) => Promise<string | null>;
 	onRemove: (id: string, confirmName: string, scope: "container" | "data") => Promise<string | null>;
 	onStop: (id: string) => Promise<string | null>;
@@ -270,50 +215,36 @@ export function ProjectsPage({
 									</span>
 									<span className="data-mono project-num">{project.sessionCount ?? 0}</span>
 									<span className="data-mono project-num">{project.vulnCount ?? 0}</span>
-									<span className="data-actions">
-										{active ? (
-											<span className="project-current-note">{t("当前项目")}</span>
-										) : running ? (
-											<button type="button" onClick={() => onSwitch(project.id)} title={t("切换到该项目")}>
-												{t("进入")}
+									<span className="data-actions project-actions">
+						{!running ? (
+												<button
+													type="button"
+													className="primary"
+													disabled={busy}
+													onClick={() => void start(project)}
+													 title={stateHint(project)}
+												>
+													{t("启动容器")}
+								</button>
+										) : null}
+										{running ? (
+											<button type="button" onClick={() => openDialog("stop", project.id)}>
+												{projectRowActionLabel("stop")}
 											</button>
-										) : (
-											<button
-												type="button"
-												className="primary"
-												disabled={busy}
-												onClick={() => void start(project)}
-												title={stateHint(project)}
-											>
-												{t("启动容器")}
-											</button>
-										)}
-										<RowMenu
-											items={[
-												...(running
-													? [
-															{
-																label: projectRowActionLabel("stop"),
-																onSelect: () => openDialog("stop", project.id),
-															},
-														]
-													: []),
-												{
-													label: projectRowActionLabel("proxy"),
-													onSelect: () => openDialog("proxy", project.id),
-												},
-												{
-													label: projectRowActionLabel("recreate"),
-													onSelect: () => openDialog("recreate", project.id),
-												},
-												{
-													label: projectRowActionLabel("delete"),
-													danger: true,
-													separatorBefore: true,
-													onSelect: () => openDialog("delete", project.id),
-												},
-											]}
-										/>
+										) : null}
+										<button type="button" onClick={() => openDialog("proxy", project.id)}>
+											{projectRowActionLabel("proxy")}
+										</button>
+										<button type="button" onClick={() => openDialog("recreate", project.id)}>
+											{projectRowActionLabel("recreate")}
+										</button>
+										<button
+											type="button"
+											className="project-action-danger"
+											onClick={() => openDialog("delete", project.id)}
+										>
+											{projectRowActionLabel("delete")}
+										</button>
 									</span>
 								</div>
 							);
