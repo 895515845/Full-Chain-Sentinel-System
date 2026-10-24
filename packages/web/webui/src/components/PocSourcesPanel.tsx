@@ -152,8 +152,8 @@ export function PocSourcesPanel({
 				{t("订阅远程 zip 模板包：手动「立即同步」，或按间隔自动拉取。同步只新增与覆盖（按模板 id 去重），从不删除本地模板；下载限 256MB、单次 60 秒超时、网络错误自动重试一次，每个源保留最近 5 次同步记录。")}
 			</p>
 
-			<div className="form-field">
-				<label>{draft.id ? t("编辑订阅源") : t("添加订阅源")}</label>
+			<section className="settings-section-card">
+				<h3 className="settings-section">{draft.id ? t("编辑订阅源") : t("添加订阅源")}</h3>
 				<div className="source-fields">
 					<label>
 						{t("名称")}
@@ -225,7 +225,7 @@ export function PocSourcesPanel({
 					) : null}
 				</div>
 				{error ? <span className="field-sub err-text">{error}</span> : null}
-			</div>
+			</section>
 
 			<div className="settings-block__head">
 				<h3 className="settings-section">

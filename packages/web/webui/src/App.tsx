@@ -3,6 +3,7 @@ import { AboutPage } from "./components/AboutPage.tsx";
 import { ApiModelPage } from "./components/ApiModelPage.tsx";
 import { ApprovalQueue } from "./components/ApprovalQueue.tsx";
 import { AppSider, type PluginNavEntry } from "./components/AppSider.tsx";
+import { MobileTopbar } from "./components/MobileTopbar.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { ConsentGate } from "./components/ConsentGate.tsx";
 import { PageBoundary } from "./components/PageBoundary.tsx";
@@ -36,6 +37,7 @@ import { ProjectsPage } from "./components/ProjectsPage.tsx";
 import { ProxyPage } from "./components/ProxyPage.tsx";
 import { RunFold } from "./components/RunFold.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
+import { SettingsPage } from "./components/SettingsPage.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { SupervisorAuditPage } from "./components/SupervisorAuditPage.tsx";
@@ -136,6 +138,7 @@ import {
 import { ProjectAction } from "./project-actions.ts";
 import { SentinelConnection } from "./ws.ts";
 import { getLanguage, storeLanguage, t } from "./i18n.ts";
+import { useNavigation } from "./useNavigation.ts";
 
 interface LiveTool {
 	id: string;
@@ -311,6 +314,7 @@ export function App() {
 	const [errors, setErrors] = useState<string[]>([]);
 	/** The one page the content area shows; navigation lives in the sider. */
 	const [page, setPage] = useState<SentinelPageId>("chat");
+	const navigation = useNavigation();
 	/**
 	 * Console authentication: the console renders only once the session is
 	 * confirmed; otherwise the login (or first-run setup) screen replaces it.
@@ -2171,8 +2175,21 @@ export function App() {
 
 	return (
 		<div className="app">
+			{navigation.mobileOpen ? (
+				<button
+					type="button"
+					className="mobile-nav-scrim"
+					aria-label={t("收起侧边栏")}
+					tabIndex={-1}
+					onClick={navigation.close}
+				/>
+			) : null}
 			<AppSider
-				collapsed={sidebarCollapsed}
+				collapsed={!navigation.compact && sidebarCollapsed}
+				mobileOpen={navigation.mobileOpen}
+				inert={navigation.compact && !navigation.mobileOpen}
+				panelRef={navigation.panelRef}
+				onCloseMobile={navigation.close}
 				onToggleCollapse={() => {
 					setSidebarCollapsed((prev) => {
 						const next = !prev;
@@ -2219,7 +2236,10 @@ export function App() {
 						activeProject={snapshot?.project ?? null}
 						streaming={streaming}
 						proxyConfig={proxyView}
-						onSwitch={(id) => send({ type: "switch_project", id })}
+						onSwitch={(id) => {
+							send({ type: "switch_project", id });
+							navigation.close();
+						}}
 						onAdd={addProject}
 						onRemove={removeProject}
 						onSetProxy={saveProjectProxy}
@@ -2227,7 +2247,13 @@ export function App() {
 				}
 			/>
 			<div className="app-body">
-				<main className="app-content">
+				<MobileTopbar
+					open={navigation.mobileOpen}
+					projectName={snapshot?.project?.name ?? null}
+					buttonRef={navigation.triggerRef}
+					onToggle={() => navigation.setOpen((open) => !open)}
+				/>
+				<main className="app-content" inert={navigation.mobileOpen}>
 					{/* A page that throws costs that page, not the console: the shell stays
 					    usable and the message says what broke. */}
 					<PageBoundary key={page} onHome={() => setPage("chat")}>
@@ -2798,158 +2824,251 @@ export function App() {
 						sessionPathOf={(sessionId) => sessions.find((session) => session.id === sessionId)?.path ?? null}
 					/>
 				) : page === "settings.model" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">{t("模型")}</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<SettingsPanel
-									library={modelLibrary}
-									onSaveEntry={(entry) => send({ type: "save_model_entry", ...entry })}
-									onRemoveEntry={(id) => send({ type: "remove_model_entry", id })}
-									onDuplicateEntry={(id) => send({ type: "duplicate_model_entry", id })}
-									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
-									onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
-									onTestEntry={async (id) => {
-										const result = await new Promise<SentinelTestResult | null>((resolve) => {
-											modelTestResolverRef.current = resolve;
-											connectionRef.current?.send({ type: "test_model_entry", id });
+						<SettingsPage page={page}>
+							<SettingsPanel
+								library={modelLibrary}
+								onSaveEntry={(entry) => send({ type: "save_model_entry", ...entry })}
+								onRemoveEntry={(id) => send({ type: "remove_model_entry", id })}
+								onDuplicateEntry={(id) => send({ type: "duplicate_model_entry", id })}
+								onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
+								onSetReviewerAuto={(enabled) => send({ type: "set_reviewer_auto", enabled })}
+								onTestEntry={async (id) => {
+									const result = await new Promise<SentinelTestResult | null>((resolve) => {
+										modelTestResolverRef.current = resolve;
+										connectionRef.current?.send({ type: "test_model_entry", id });
+										window.setTimeout(() => {
+											if (modelTestResolverRef.current === resolve) {
+												modelTestResolverRef.current = null;
+												resolve(null);
+											}
+										}, 20000);
+									});
+									return result;
+								}}
+								onLookupDefaults={async (modelId, baseUrl) => {
+									const matches = await new Promise<SentinelBuiltinModelDefaults[] | null>((resolve) => {
+										modelDefaultsResolverRef.current = resolve;
+										connectionRef.current?.send({ type: "lookup_model_defaults", modelId, baseUrl });
+										window.setTimeout(() => {
+											if (modelDefaultsResolverRef.current === resolve) {
+												modelDefaultsResolverRef.current = null;
+												resolve(null);
+											}
+										}, 10000);
+									});
+									return matches;
+								}}
+								onListChannels={async (query) => {
+									const requestId = ++modelChannelRequestRef.current;
+									return await new Promise<SentinelBuiltinChannel[] | null>((resolve) => {
+										modelChannelResolversRef.current.set(requestId, resolve);
+										connectionRef.current?.send({ type: "list_model_channels", requestId, query });
+										window.setTimeout(() => {
+											if (!modelChannelResolversRef.current.has(requestId)) return;
+											modelChannelResolversRef.current.delete(requestId);
+											resolve(null);
+										}, 10000);
+									});
+								}}
+								onListChannelModels={async (provider) => {
+									const requestId = ++modelListRequestRef.current;
+									return await new Promise<SentinelBuiltinModelPreset[] | null>((resolve) => {
+										modelListResolversRef.current.set(requestId, resolve);
+										connectionRef.current?.send({ type: "list_channel_models", requestId, provider });
+										window.setTimeout(() => {
+											if (!modelListResolversRef.current.has(requestId)) return;
+											modelListResolversRef.current.delete(requestId);
+											resolve(null);
+										}, 10000);
+									});
+								}}
+							/>
+							<GatekeeperPanel
+								gatekeeperConfig={gatekeeperConfig}
+								judgeResolved={modelLibrary?.resolved.judge ?? null}
+								onSave={(settings) => send({ type: "save_gatekeeper_config", config: settings })}
+								onTestJudge={async () => {
+									const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
+										(resolve) => {
+											judgeTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_judge" });
 											window.setTimeout(() => {
-												if (modelTestResolverRef.current === resolve) {
-													modelTestResolverRef.current = null;
+												if (judgeTestResolverRef.current === resolve) {
+													judgeTestResolverRef.current = null;
 													resolve(null);
 												}
-											}, 20000);
-										});
-										return result;
-									}}
-									onLookupDefaults={async (modelId, baseUrl) => {
-										const matches = await new Promise<SentinelBuiltinModelDefaults[] | null>((resolve) => {
-											modelDefaultsResolverRef.current = resolve;
-											connectionRef.current?.send({ type: "lookup_model_defaults", modelId, baseUrl });
-											window.setTimeout(() => {
-												if (modelDefaultsResolverRef.current === resolve) {
-													modelDefaultsResolverRef.current = null;
-													resolve(null);
-												}
-											}, 10000);
-										});
-										return matches;
-									}}
-									onListChannels={async (query) => {
-										const requestId = ++modelChannelRequestRef.current;
-										return await new Promise<SentinelBuiltinChannel[] | null>((resolve) => {
-											modelChannelResolversRef.current.set(requestId, resolve);
-											connectionRef.current?.send({ type: "list_model_channels", requestId, query });
-											window.setTimeout(() => {
-												if (!modelChannelResolversRef.current.has(requestId)) return;
-												modelChannelResolversRef.current.delete(requestId);
-												resolve(null);
-											}, 10000);
-										});
-									}}
-									onListChannelModels={async (provider) => {
-										const requestId = ++modelListRequestRef.current;
-										return await new Promise<SentinelBuiltinModelPreset[] | null>((resolve) => {
-											modelListResolversRef.current.set(requestId, resolve);
-											connectionRef.current?.send({ type: "list_channel_models", requestId, provider });
-											window.setTimeout(() => {
-												if (!modelListResolversRef.current.has(requestId)) return;
-												modelListResolversRef.current.delete(requestId);
-												resolve(null);
-											}, 10000);
-										});
-									}}
-								/>
-								<GatekeeperPanel
-									gatekeeperConfig={gatekeeperConfig}
-									judgeResolved={modelLibrary?.resolved.judge ?? null}
-									onSave={(settings) => send({ type: "save_gatekeeper_config", config: settings })}
-									onTestJudge={async () => {
-										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
-											(resolve) => {
-												judgeTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_judge" });
-												window.setTimeout(() => {
-													if (judgeTestResolverRef.current === resolve) {
-														judgeTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 130000);
-											},
-										);
-										return result;
-									}}
-								/>
-							</div>
-						</div>
+											}, 130000);
+										},
+									);
+									return result;
+								}}
+							/>
+						</SettingsPage>
 					) : page === "settings.supervisor" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">{t("监督")}</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<SupervisorSettingsPanel
-									supervisorConfig={supervisorConfig}
-									library={modelLibrary}
-									onSaveSupervisorConfig={(config) => send({ type: "save_supervisor_config", config })}
-									onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
-									onTestSupervisor={async () => {
-										const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
-											(resolve) => {
-												supervisorTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_supervisor" });
-												window.setTimeout(() => {
-													if (supervisorTestResolverRef.current === resolve) {
-														supervisorTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 130000);
-											},
-										);
-										return result;
+						<SettingsPage page={page}>
+							<SupervisorSettingsPanel
+								supervisorConfig={supervisorConfig}
+								library={modelLibrary}
+								onSaveSupervisorConfig={(config) => send({ type: "save_supervisor_config", config })}
+								onSetRole={(role, target) => send({ type: "set_model_role", role, target })}
+								onTestSupervisor={async () => {
+									const result = await new Promise<{ result: SentinelTestResult; raw?: string } | null>(
+										(resolve) => {
+											supervisorTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_supervisor" });
+											window.setTimeout(() => {
+												if (supervisorTestResolverRef.current === resolve) {
+													supervisorTestResolverRef.current = null;
+													resolve(null);
+												}
+											}, 130000);
+										},
+									);
+									return result;
+								}}
+							/>
+						</SettingsPage>
+					) : page === "settings.security" ? (
+						<SettingsPage page={page}>
+							<SecurityPanel username={authUser} />
+						</SettingsPage>
+					) : page === "settings.notify" ? (
+						<SettingsPage page={page}>
+							<NotifyPanel
+								config={notifyConfig}
+								status={notifyStatus}
+								onSave={(next) => send({ type: "save_notify_config", config: next })}
+								onTest={async (candidate, channel) => {
+									const result = await new Promise<SentinelTestResult | null>((resolve) => {
+										notifyTestResolverRef.current = resolve;
+										connectionRef.current?.send({ type: "test_notify", config: candidate, channel });
+										window.setTimeout(() => {
+											if (notifyTestResolverRef.current === resolve) {
+												notifyTestResolverRef.current = null;
+												resolve(null);
+											}
+										}, 40000);
+									});
+									return result;
+								}}
+							/>
+						</SettingsPage>
+					) : page === "settings.permissions" ? (
+						<SettingsPage page={page} status={permissionEffective ? t("子代理实际可用 {count} 项", { count: Object.values(permissionEffective).filter(Boolean).length }) : null}>
+							{permissions ? (
+								<PermissionsPanel
+									config={permissions}
+									presets={permissionPresets}
+									tools={permissionTools}
+									mcpServers={mcpConfig?.servers ?? null}
+									plugins={pluginsView}
+									mcpBusy={mcpBusy}
+									busy={permissionBusy}
+									onRefresh={() => {
+										send({ type: "get_permissions" });
+										// The MCP switch's per-server rows come from the MCP view.
+										send({ type: "get_mcp_servers" });
+										// The plugin rows come from the plugin center's view.
+										loadPlugins();
+									}}
+									onToggleMcpServer={(name, enabled) => {
+										setMcpBusy(true);
+										send({ type: "set_mcp_server_enabled", name, enabled });
+										// Flipping the switch rebuilds the live sessions, so the row is
+										// released on a timeout as well as on the reply.
+										window.setTimeout(() => setMcpBusy(false), 30000);
+									}}
+									onSave={(next) => {
+										setPermissionBusy(true);
+										send({ type: "save_permissions", config: next });
+										// The rebuild is not instant; a refusal arrives as an error toast.
+										window.setTimeout(() => setPermissionBusy(false), 20000);
 									}}
 								/>
-							</div>
-						</div>
-					) : page === "settings.security" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">{t("安全")}</span>
+							) : (
+								<div className="ws-empty">
+									<span>{t("正在读取权限配置…")}</span>
 								</div>
-							</div>
-							<div className="ws-panel__body">
-								<SecurityPanel username={authUser} />
-							</div>
-						</div>
-					) : page === "settings.notify" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">{t("通知")}</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<NotifyPanel
-									config={notifyConfig}
-									status={notifyStatus}
-									onSave={(next) => send({ type: "save_notify_config", config: next })}
-									onTest={async (candidate, channel) => {
+							)}
+						</SettingsPage>
+					) : page === "settings.environment" ? (
+						<SettingsPage page={page} status={envReport ? (envReport.ok ? t("可用") : t("不可用")) : t("检查中")}>
+							<EnvironmentPanel
+								report={envReport}
+								building={imageBuilding}
+								buildLog={buildLog}
+								sourcesSavedAt={sourcesSavedAt}
+								onSaveSources={(sources) => send({ type: "set_sources", sources })}
+								networkSavedAt={containerNetworkSavedAt}
+								onSaveNetworkAndProxy={(network, defaultId, image) => {
+									// One button, three settings, and only the ones that changed:
+									// each is a separate message so a failure names one thing.
+									if (network !== envReport?.containerNetwork) {
+										send({ type: "set_container_network", network });
+									}
+									if (defaultId !== proxyView.defaultId) {
+										send({ type: "set_default_proxy", id: defaultId });
+									}
+									if (image !== proxyView.image) {
+										send({ type: "set_proxy_image", image });
+									}
+								}}
+								onRefresh={() => send({ type: "check_environment" })}
+								onBuild={() => {
+									setBuildLog([]);
+									setImageBuilding(true);
+									send({ type: "build_image" });
+								}}
+								onAbortBuild={() => send({ type: "abort_image_build" })}
+								proxyConfig={proxyView}
+								pullingImage={pullingSingboxImage}
+								onPullProxyImage={() => {
+									setPullingSingboxImage(true);
+									send({ type: "pull_singbox_image" });
+								}}
+							/>
+						</SettingsPage>
+					) : page === "settings.pocs" ? (
+						<SettingsPage page={page} status={t("{count} 个源", { count: pocSources.length })}>
+							<PocSourcesPanel
+								sources={pocSources}
+								syncing={pocSyncing}
+								onSave={(source: SentinelPocSourceSave) => send({ type: "save_poc_source", source })}
+								onDelete={(id) => send({ type: "delete_poc_source", id })}
+								onSync={(id) => {
+									setPocSyncing(id);
+									send({ type: "sync_poc_source", id });
+								}}
+								onRefresh={() => send({ type: "list_poc_sources" })}
+								officialSyncing={pocOfficialSyncing}
+								onSyncOfficial={syncOfficialPocs}
+							/>
+						</SettingsPage>
+					) : page === "settings.assets" ? (
+						<SettingsPage page={page} status={assetConfig ? t("已挂载 {count} 个平台", { count: assetConfig.usable }) : null}>
+							{assetConfig ? (
+								<AssetPanel
+									config={assetConfig}
+									busy={assetBusy}
+									onSave={(platform) => {
+										setAssetBusy(true);
+										send({ type: "save_asset_platform", platform });
+										// Saving also probes the key and rebuilds the sessions, so
+										// the switch is released on a timeout as well as on the reply.
+										window.setTimeout(() => setAssetBusy(false), 40000);
+									}}
+									onSaveLimit={(limit) => {
+										setAssetBusy(true);
+										send({ type: "set_asset_query_limit", limit });
+										window.setTimeout(() => setAssetBusy(false), 40000);
+									}}
+									onTest={async (platform: SentinelAssetPlatform, key?: string, baseUrl?: string) => {
 										const result = await new Promise<SentinelTestResult | null>((resolve) => {
-											notifyTestResolverRef.current = resolve;
-											connectionRef.current?.send({ type: "test_notify", config: candidate, channel });
+											assetTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_asset_platform", platform, key, baseUrl });
 											window.setTimeout(() => {
-												if (notifyTestResolverRef.current === resolve) {
-													notifyTestResolverRef.current = null;
+												if (assetTestResolverRef.current === resolve) {
+													assetTestResolverRef.current = null;
 													resolve(null);
 												}
 											}, 40000);
@@ -2957,434 +3076,216 @@ export function App() {
 										return result;
 									}}
 								/>
-							</div>
-						</div>
-					) : page === "settings.permissions" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("权限")}
-										{permissionEffective
-											? t(" · 子代理实际可用 {count} 项", { count: Object.values(permissionEffective).filter(Boolean).length })
-											: ""}
-									</span>
+							) : (
+								<div className="ws-empty">
+									<span>{t("正在读取资产测绘配置…")}</span>
 								</div>
-							</div>
-							<div className="ws-panel__body">
-								{permissions ? (
-									<PermissionsPanel
-										config={permissions}
-										presets={permissionPresets}
-										tools={permissionTools}
-										mcpServers={mcpConfig?.servers ?? null}
-										plugins={pluginsView}
-										mcpBusy={mcpBusy}
-										busy={permissionBusy}
-										onRefresh={() => {
-											send({ type: "get_permissions" });
-											// The MCP switch's per-server rows come from the MCP view.
-											send({ type: "get_mcp_servers" });
-											// The plugin rows come from the plugin center's view.
-											loadPlugins();
-										}}
-										onToggleMcpServer={(name, enabled) => {
-											setMcpBusy(true);
-											send({ type: "set_mcp_server_enabled", name, enabled });
-											// Flipping the switch rebuilds the live sessions, so the row is
-											// released on a timeout as well as on the reply.
-											window.setTimeout(() => setMcpBusy(false), 30000);
-										}}
-										onSave={(next) => {
-											setPermissionBusy(true);
-											send({ type: "save_permissions", config: next });
-											// The rebuild is not instant; a refusal arrives as an error toast.
-											window.setTimeout(() => setPermissionBusy(false), 20000);
-										}}
-									/>
-								) : (
-									<div className="ws-empty">
-										<span>{t("正在读取权限配置…")}</span>
-									</div>
-								)}
-							</div>
-						</div>
-					) : page === "settings.environment" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("环境")}
-										{envReport ? (envReport.ok ? t(" · 可用") : t(" · 不可用")) : t(" · 检查中")}
-									</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<EnvironmentPanel
-									report={envReport}
-									building={imageBuilding}
-									buildLog={buildLog}
-									sourcesSavedAt={sourcesSavedAt}
-									onSaveSources={(sources) => send({ type: "set_sources", sources })}
-									networkSavedAt={containerNetworkSavedAt}
-									onSaveNetworkAndProxy={(network, defaultId, image) => {
-										// One button, three settings, and only the ones that changed:
-										// each is a separate message so a failure names one thing.
-										if (network !== envReport?.containerNetwork) {
-											send({ type: "set_container_network", network });
-										}
-										if (defaultId !== proxyView.defaultId) {
-											send({ type: "set_default_proxy", id: defaultId });
-										}
-										if (image !== proxyView.image) {
-											send({ type: "set_proxy_image", image });
-										}
-									}}
-									onRefresh={() => send({ type: "check_environment" })}
-									onBuild={() => {
-										setBuildLog([]);
-										setImageBuilding(true);
-										send({ type: "build_image" });
-									}}
-									onAbortBuild={() => send({ type: "abort_image_build" })}
-									proxyConfig={proxyView}
-									pullingImage={pullingSingboxImage}
-									onPullProxyImage={() => {
-										setPullingSingboxImage(true);
-										send({ type: "pull_singbox_image" });
-									}}
-								/>
-							</div>
-						</div>
-					) : page === "settings.pocs" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("POC 订阅")}{pocSources.length > 0 ? t(" · {count} 个源", { count: pocSources.length }) : ""}
-									</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<PocSourcesPanel
-									sources={pocSources}
-									syncing={pocSyncing}
-									onSave={(source: SentinelPocSourceSave) => send({ type: "save_poc_source", source })}
-									onDelete={(id) => send({ type: "delete_poc_source", id })}
-									onSync={(id) => {
-										setPocSyncing(id);
-										send({ type: "sync_poc_source", id });
-									}}
-									onRefresh={() => send({ type: "list_poc_sources" })}
-									officialSyncing={pocOfficialSyncing}
-									onSyncOfficial={syncOfficialPocs}
-								/>
-							</div>
-						</div>
-					) : page === "settings.assets" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("资产测绘")}
-										{assetConfig ? t(" · 已挂载 {count} 个平台", { count: assetConfig.usable }) : ""}
-									</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								{assetConfig ? (
-									<AssetPanel
-										config={assetConfig}
-										busy={assetBusy}
-										onSave={(platform) => {
-											setAssetBusy(true);
-											send({ type: "save_asset_platform", platform });
-											// Saving also probes the key and rebuilds the sessions, so
-											// the switch is released on a timeout as well as on the reply.
-											window.setTimeout(() => setAssetBusy(false), 40000);
-										}}
-										onSaveLimit={(limit) => {
-											setAssetBusy(true);
-											send({ type: "set_asset_query_limit", limit });
-											window.setTimeout(() => setAssetBusy(false), 40000);
-										}}
-										onTest={async (platform: SentinelAssetPlatform, key?: string, baseUrl?: string) => {
-											const result = await new Promise<SentinelTestResult | null>((resolve) => {
-												assetTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_asset_platform", platform, key, baseUrl });
-												window.setTimeout(() => {
-													if (assetTestResolverRef.current === resolve) {
-														assetTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 40000);
-											});
-											return result;
-										}}
-									/>
-								) : (
-									<div className="ws-empty">
-										<span>{t("正在读取资产测绘配置…")}</span>
-									</div>
-								)}
-							</div>
-						</div>
+							)}
+						</SettingsPage>
 					) : page === "settings.websearch" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("Web 搜索（Tavily）")}
-										{webSearchConfig ? t(" · 号池 {count} 个 Key 可用", { count: webSearchConfig.usable }) : ""}
-									</span>
+						<SettingsPage page={page} status={webSearchConfig ? t("号池 {count} 个 Key 可用", { count: webSearchConfig.usable }) : null}>
+							{webSearchConfig ? (
+								<WebSearchPanel
+									config={webSearchConfig}
+									busy={webSearchBusy}
+									onSave={(key) => {
+										setWebSearchBusy(true);
+										send({ type: "save_websearch_key", key });
+										window.setTimeout(() => setWebSearchBusy(false), 40000);
+									}}
+									onDelete={(id) => {
+										setWebSearchBusy(true);
+										send({ type: "delete_websearch_key", id });
+										window.setTimeout(() => setWebSearchBusy(false), 40000);
+									}}
+									onSaveLimit={(limit) => {
+										setWebSearchBusy(true);
+										send({ type: "set_websearch_query_limit", limit });
+										window.setTimeout(() => setWebSearchBusy(false), 40000);
+									}}
+									onTest={async (id?: string, key?: string) => {
+										const result = await new Promise<SentinelTestResult | null>((resolve) => {
+											webSearchTestResolverRef.current = resolve;
+											connectionRef.current?.send({ type: "test_websearch_key", id, key });
+											window.setTimeout(() => {
+												if (webSearchTestResolverRef.current === resolve) {
+													webSearchTestResolverRef.current = null;
+													resolve(null);
+												}
+											}, 40000);
+										});
+										return result;
+									}}
+								/>
+							) : (
+								<div className="ws-empty">
+									<span>{t("正在读取 Web 搜索配置…")}</span>
 								</div>
-							</div>
-							<div className="ws-panel__body">
-								{webSearchConfig ? (
-									<WebSearchPanel
-										config={webSearchConfig}
-										busy={webSearchBusy}
-										onSave={(key) => {
-											setWebSearchBusy(true);
-											send({ type: "save_websearch_key", key });
-											window.setTimeout(() => setWebSearchBusy(false), 40000);
-										}}
-										onDelete={(id) => {
-											setWebSearchBusy(true);
-											send({ type: "delete_websearch_key", id });
-											window.setTimeout(() => setWebSearchBusy(false), 40000);
-										}}
-										onSaveLimit={(limit) => {
-											setWebSearchBusy(true);
-											send({ type: "set_websearch_query_limit", limit });
-											window.setTimeout(() => setWebSearchBusy(false), 40000);
-										}}
-										onTest={async (id?: string, key?: string) => {
-											const result = await new Promise<SentinelTestResult | null>((resolve) => {
-												webSearchTestResolverRef.current = resolve;
-												connectionRef.current?.send({ type: "test_websearch_key", id, key });
-												window.setTimeout(() => {
-													if (webSearchTestResolverRef.current === resolve) {
-														webSearchTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 40000);
-											});
-											return result;
-										}}
-									/>
-								) : (
-									<div className="ws-empty">
-										<span>{t("正在读取 Web 搜索配置…")}</span>
-									</div>
-								)}
-							</div>
-						</div>
+							)}
+						</SettingsPage>
 					) : page === "settings.mcp" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										MCP
-										{mcpConfig ? t(" · 已挂载 {count} 个服务器", { count: mcpConfig.mounted }) : ""}
-									</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								{mcpConfig ? (
-									<McpPanel
-										config={mcpConfig}
-										busy={mcpBusy}
-										onOpenPermissions={() => openPage("settings.permissions")}
-										onSave={(server: SentinelMcpServerInput) => {
-											setMcpBusy(true);
-											send({ type: "save_mcp_server", server });
-											// Saving rebuilds the live sessions, so the switch is released on a
-											// timeout as well as on the reply.
-											window.setTimeout(() => setMcpBusy(false), 30000);
-										}}
-										onDelete={(name) => {
-											setMcpBusy(true);
-											send({ type: "delete_mcp_server", name });
-											window.setTimeout(() => setMcpBusy(false), 30000);
-										}}
-										onTest={async (name, draft) => {
-											const result = await new Promise<SentinelMcpTestResult | null>((resolve) => {
-												mcpTestResolverRef.current = resolve;
-												connectionRef.current?.send({
-													type: "test_mcp_server",
-													name,
-													...(draft ? { draft } : {}),
-												});
-												window.setTimeout(() => {
-													if (mcpTestResolverRef.current === resolve) {
-														mcpTestResolverRef.current = null;
-														resolve(null);
-													}
-												}, 40000);
+						<SettingsPage page={page} status={mcpConfig ? t("已挂载 {count} 个服务器", { count: mcpConfig.mounted }) : null}>
+							{mcpConfig ? (
+								<McpPanel
+									config={mcpConfig}
+									busy={mcpBusy}
+									onOpenPermissions={() => openPage("settings.permissions")}
+									onSave={(server: SentinelMcpServerInput) => {
+										setMcpBusy(true);
+										send({ type: "save_mcp_server", server });
+										// Saving rebuilds the live sessions, so the switch is released on a
+										// timeout as well as on the reply.
+										window.setTimeout(() => setMcpBusy(false), 30000);
+									}}
+									onDelete={(name) => {
+										setMcpBusy(true);
+										send({ type: "delete_mcp_server", name });
+										window.setTimeout(() => setMcpBusy(false), 30000);
+									}}
+									onTest={async (name, draft) => {
+										const result = await new Promise<SentinelMcpTestResult | null>((resolve) => {
+											mcpTestResolverRef.current = resolve;
+											connectionRef.current?.send({
+												type: "test_mcp_server",
+												name,
+												...(draft ? { draft } : {}),
 											});
-											return result;
-										}}
-									/>
-								) : (
-									<div className="ws-empty">
-										<span>{t("正在读取 MCP 配置…")}</span>
-									</div>
-								)}
-							</div>
-						</div>
-					) : page === "settings.plugins" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("插件")}
-										{pluginsView
-											? t(" · {plugins} 个插件 / {hosts} 个主机", { plugins: pluginsView.plugins.length, hosts: pluginsView.hosts.length })
-											: ""}
-									</span>
+											window.setTimeout(() => {
+												if (mcpTestResolverRef.current === resolve) {
+													mcpTestResolverRef.current = null;
+													resolve(null);
+												}
+											}, 40000);
+										});
+										return result;
+									}}
+								/>
+							) : (
+								<div className="ws-empty">
+									<span>{t("正在读取 MCP 配置…")}</span>
 								</div>
-							</div>
-							<div className="ws-panel__body">
-								{pluginsView ? (
-									<PluginPanel
-										view={pluginsView}
-										busy={pluginsBusy}
-										permissionOn={mcpConfig ? mcpConfig.permissionOn : null}
-										logs={pluginLogs}
-										artifacts={pluginArtifacts}
-										pendingManifest={pendingManifest}
-										notice={pluginNotice}
-										onOpenPermissions={() => openPage("settings.permissions")}
-										onRefresh={loadPlugins}
-										onSaveHost={(host: SentinelPluginHostInput) =>
-											runPluginAction({ type: "save_plugin_host", host })
-										}
-										onDeleteHost={(id) => runPluginAction({ type: "delete_plugin_host", id })}
-										onTestHost={(id) => runPluginAction({ type: "test_plugin_host", id })}
-										onCloseManifest={() => {
-											setPendingManifest(null);
-											setPendingPackage(null);
-											setPendingOfficial(null);
-											setPluginBuildLog(null);
-										}}
-										onInspectPackage={(name, data) => {
-											// The old manifest belongs to the previous upload; never let an
-											// install pair the new package with stale declarations.
-											setPendingManifest(null);
-											setPendingPackage(data);
-											setPluginBuildLog(null);
-											runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
-										}}
-										onInstall={(input) => {
-											pendingInstallRef.current = {
-												hostId: input.hostId,
-												pluginId: input.manifest.id,
-											};
-											if (pendingOfficial) {
-												runPluginAction(
-													{
-														type: "install_official_plugin",
-														hostId: input.hostId,
-														pluginId: pendingOfficial.manifest.id,
-														allowBuild: input.allowBuild,
-														allowHostNetwork: input.allowHostNetwork,
-														allowPrivileged: input.allowPrivileged,
-														config: input.config,
-													},
-													1800000,
-												);
-												return;
-											}
-											if (!pendingPackage) return;
-											// Building the image and waiting for health can take minutes.
+							)}
+						</SettingsPage>
+					) : page === "settings.plugins" ? (
+						<SettingsPage page={page} status={pluginsView ? t("{plugins} 个插件 / {hosts} 个主机", { plugins: pluginsView.plugins.length, hosts: pluginsView.hosts.length }) : null}>
+							{pluginsView ? (
+								<PluginPanel
+									view={pluginsView}
+									busy={pluginsBusy}
+									permissionOn={mcpConfig ? mcpConfig.permissionOn : null}
+									logs={pluginLogs}
+									artifacts={pluginArtifacts}
+									pendingManifest={pendingManifest}
+									notice={pluginNotice}
+									onOpenPermissions={() => openPage("settings.permissions")}
+									onRefresh={loadPlugins}
+									onSaveHost={(host: SentinelPluginHostInput) =>
+										runPluginAction({ type: "save_plugin_host", host })
+									}
+									onDeleteHost={(id) => runPluginAction({ type: "delete_plugin_host", id })}
+									onTestHost={(id) => runPluginAction({ type: "test_plugin_host", id })}
+									onCloseManifest={() => {
+										setPendingManifest(null);
+										setPendingPackage(null);
+										setPendingOfficial(null);
+										setPluginBuildLog(null);
+									}}
+									onInspectPackage={(name, data) => {
+										// The old manifest belongs to the previous upload; never let an
+										// install pair the new package with stale declarations.
+										setPendingManifest(null);
+										setPendingPackage(data);
+										setPluginBuildLog(null);
+										runPluginAction({ type: "inspect_plugin_package", name, data }, 120000);
+									}}
+									onInstall={(input) => {
+										pendingInstallRef.current = {
+											hostId: input.hostId,
+											pluginId: input.manifest.id,
+										};
+										if (pendingOfficial) {
 											runPluginAction(
-												{ type: "install_plugin", ...input, package: pendingPackage },
+												{
+													type: "install_official_plugin",
+													hostId: input.hostId,
+													pluginId: pendingOfficial.manifest.id,
+													allowBuild: input.allowBuild,
+													allowHostNetwork: input.allowHostNetwork,
+													allowPrivileged: input.allowPrivileged,
+													config: input.config,
+												},
 												1800000,
 											);
-										}}
-										onUninstall={(hostId, pluginId, purge) =>
-											runPluginAction({ type: "uninstall_plugin", hostId, pluginId, purge })
+											return;
 										}
-										onStart={(hostId, pluginId) =>
-											runPluginAction({ type: "start_plugin", hostId, pluginId })
-										}
-										onStop={(hostId, pluginId) =>
-											runPluginAction({ type: "stop_plugin", hostId, pluginId })
-										}
-										onSetEnabled={(hostId, pluginId, enabled) =>
-											runPluginAction({ type: "set_plugin_enabled", hostId, pluginId, enabled })
-										}
-										onSaveConfig={(hostId, pluginId, values) =>
-											// A config change recreates the container, so it gets the install budget.
-											runPluginAction({ type: "save_plugin_config", hostId, pluginId, values }, 600000)
-										}
-										onLoadLogs={(hostId, pluginId) => {
-											setPluginLogs(null);
-											runPluginAction({ type: "get_plugin_logs", hostId, pluginId });
-										}}
-										onCloseLogs={() => setPluginLogs(null)}
-										onListArtifacts={(hostId, pluginId) => {
-											setPluginArtifacts(null);
-											runPluginAction({ type: "list_plugin_artifacts", hostId, pluginId });
-										}}
-										onCloseArtifacts={() => setPluginArtifacts(null)}
-										onFetchArtifact={(hostId, pluginId, path) =>
-											runPluginAction({ type: "fetch_plugin_artifact", hostId, pluginId, path })
-										}
-										onOpenUi={openPluginUi}
-										onSetSidebar={(hostId, pluginId, pinned) =>
-											runPluginAction({ type: "set_plugin_sidebar", hostId, pluginId, pinned })
-										}
-										officialPlugins={officialPlugins}
-										buildLog={pluginBuildLog}
-										onLoadBuildLog={loadPluginBuildLog}
-										onChooseOfficial={(plugin) => {
-											setPendingPackage(null);
-											setPluginBuildLog(null);
-											setPendingOfficial(plugin);
-											setPendingManifest({ manifest: plugin.manifest, source: t("官方插件 · 随控制台内置") });
-										}}
-									/>
-								) : (
-									<div className="ws-empty">
-										<span>{t("正在读取插件中心…")}</span>
-									</div>
-								)}
-							</div>
-						</div>
-					) : page === "settings.presets" ? (
-						<div className="page-card">
-							<div className="ws-panel__head">
-								<div className="ws-panel__title">
-									{t("设置")}
-									<span className="ws-panel__sub">
-										{t("预设 Agent")}
-										{presets
-											? t(" · {enabled} / {total} 已启用", { enabled: presets.filter((preset) => preset.enabled).length, total: presets.length })
-											: t(" · 读取中")}
-									</span>
-								</div>
-							</div>
-							<div className="ws-panel__body">
-								<PresetPanel
-									presets={presets}
-									importNotice={presetImport}
-									onSave={(input) => send({ type: "save_preset", input })}
-									onDelete={(id) => send({ type: "delete_preset", id })}
-									onSetEnabled={(id, enabled) => send({ type: "set_preset_enabled", id, enabled })}
-									onExport={() => send({ type: "export_presets" })}
-									onImport={(content) => send({ type: "import_presets", content })}
+										if (!pendingPackage) return;
+										// Building the image and waiting for health can take minutes.
+										runPluginAction(
+											{ type: "install_plugin", ...input, package: pendingPackage },
+											1800000,
+										);
+									}}
+									onUninstall={(hostId, pluginId, purge) =>
+										runPluginAction({ type: "uninstall_plugin", hostId, pluginId, purge })
+									}
+									onStart={(hostId, pluginId) =>
+										runPluginAction({ type: "start_plugin", hostId, pluginId })
+									}
+									onStop={(hostId, pluginId) =>
+										runPluginAction({ type: "stop_plugin", hostId, pluginId })
+									}
+									onSetEnabled={(hostId, pluginId, enabled) =>
+										runPluginAction({ type: "set_plugin_enabled", hostId, pluginId, enabled })
+									}
+									onSaveConfig={(hostId, pluginId, values) =>
+										// A config change recreates the container, so it gets the install budget.
+										runPluginAction({ type: "save_plugin_config", hostId, pluginId, values }, 600000)
+									}
+									onLoadLogs={(hostId, pluginId) => {
+										setPluginLogs(null);
+										runPluginAction({ type: "get_plugin_logs", hostId, pluginId });
+									}}
+									onCloseLogs={() => setPluginLogs(null)}
+									onListArtifacts={(hostId, pluginId) => {
+										setPluginArtifacts(null);
+										runPluginAction({ type: "list_plugin_artifacts", hostId, pluginId });
+									}}
+									onCloseArtifacts={() => setPluginArtifacts(null)}
+									onFetchArtifact={(hostId, pluginId, path) =>
+										runPluginAction({ type: "fetch_plugin_artifact", hostId, pluginId, path })
+									}
+									onOpenUi={openPluginUi}
+									onSetSidebar={(hostId, pluginId, pinned) =>
+										runPluginAction({ type: "set_plugin_sidebar", hostId, pluginId, pinned })
+									}
+									officialPlugins={officialPlugins}
+									buildLog={pluginBuildLog}
+									onLoadBuildLog={loadPluginBuildLog}
+									onChooseOfficial={(plugin) => {
+										setPendingPackage(null);
+										setPluginBuildLog(null);
+										setPendingOfficial(plugin);
+										setPendingManifest({ manifest: plugin.manifest, source: t("官方插件 · 随控制台内置") });
+									}}
 								/>
-							</div>
-						</div>
+							) : (
+								<div className="ws-empty">
+									<span>{t("正在读取插件中心…")}</span>
+								</div>
+							)}
+						</SettingsPage>
+					) : page === "settings.presets" ? (
+						<SettingsPage page={page} status={presets ? t("{enabled} / {total} 已启用", { enabled: presets.filter((preset) => preset.enabled).length, total: presets.length }) : t("读取中")}>
+							<PresetPanel
+								presets={presets}
+								importNotice={presetImport}
+								onSave={(input) => send({ type: "save_preset", input })}
+								onDelete={(id) => send({ type: "delete_preset", id })}
+								onSetEnabled={(id, enabled) => send({ type: "set_preset_enabled", id, enabled })}
+								onExport={() => send({ type: "export_presets" })}
+								onImport={(content) => send({ type: "import_presets", content })}
+							/>
+						</SettingsPage>
 					) : (
 						<AboutPage
 							snapshot={snapshot}

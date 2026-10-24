@@ -43,7 +43,7 @@ test("the toolbar variant shows the status and its dot color", () => {
 	);
 	expect(html).toContain("session-status-trigger todo");
 	expect(html).toContain("待跟进");
-	expect(html).toContain("#e6a23c");
+	expect(html).toContain("session-status-dot todo");
 });
 
 test("the picker stays closed until it is opened, and offers every status when it is", () => {

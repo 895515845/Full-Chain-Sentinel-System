@@ -35,6 +35,7 @@ import {
 	LayoutGrid,
 	Link,
 	LogOut,
+	Menu,
 	type LucideProps,
 	MessageSquare,
 	Minimize2,
@@ -131,6 +132,11 @@ export function CollapseIcon(props: IconProps) {
 /** Expand the sider. */
 export function ExpandIcon(props: IconProps) {
 	return <ChevronRight size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Open the primary navigation on compact screens. */
+export function MenuIcon(props: IconProps) {
+	return <Menu size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Parent directory in the file panel. */

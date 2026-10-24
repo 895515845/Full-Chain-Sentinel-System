@@ -313,37 +313,45 @@ export function PermissionsPanel({
 			</div>
 
 			<div className="perm-columns">
-				<section className="perm-column">
-					<h3>{t("主 Agent")}</h3>
-					{SWITCHES.map((item) => (
-						<Fragment key={item.key}>
-							{switchRow("main", item)}
-							{item.key === "mcp" ? mcpServerRows : null}
-						</Fragment>
-					))}
+				<section className="perm-column perm-agent">
+					<header className="perm-agent__header">
+						<h3>{t("主 Agent")}</h3>
+					</header>
+					<div className="perm-agent__body">
+						{SWITCHES.map((item) => (
+							<Fragment key={item.key}>
+								{switchRow("main", item)}
+								{item.key === "mcp" ? mcpServerRows : null}
+							</Fragment>
+						))}
+					</div>
 				</section>
-				<section className="perm-column">
-					<h3>{t("子 Agent")}</h3>
-					<p className="perm-column-note">{t("子代理的权限永远不超过主 Agent，且永远不能再派生子代理。")}</p>
-					{SUBAGENT_SWITCHES.map((item) => switchRow("subagent", item))}
-					<label className="perm-switch">
-						<span className="perm-switch-body">
-							<span className="perm-switch-name">{t("轮次上限")}</span>
-							<span className="perm-switch-hint">{t("单个子代理最多执行的轮数，达到后中止并汇报已有结果")}</span>
-						</span>
-						<input
-							type="number"
-							className="perm-number"
-							min={1}
-							max={200}
-							value={draft.subagentMaxTurns}
-							disabled={busy}
-							onChange={(event) => {
-								const value = Math.round(Number(event.target.value));
-								if (Number.isFinite(value)) setMaxTurns(value);
-							}}
-						/>
-					</label>
+				<section className="perm-column perm-agent">
+					<header className="perm-agent__header">
+						<h3>{t("子 Agent")}</h3>
+						<p className="perm-column-note">{t("子代理的权限永远不超过主 Agent，且永远不能再派生子代理。")}</p>
+					</header>
+					<div className="perm-agent__body">
+						{SUBAGENT_SWITCHES.map((item) => switchRow("subagent", item))}
+						<label className="perm-switch">
+							<span className="perm-switch-body">
+								<span className="perm-switch-name">{t("轮次上限")}</span>
+								<span className="perm-switch-hint">{t("单个子代理最多执行的轮数，达到后中止并汇报已有结果")}</span>
+							</span>
+							<input
+								type="number"
+								className="perm-number"
+								min={1}
+								max={200}
+								value={draft.subagentMaxTurns}
+								disabled={busy}
+								onChange={(event) => {
+									const value = Math.round(Number(event.target.value));
+									if (Number.isFinite(value)) setMaxTurns(value);
+								}}
+							/>
+						</label>
+					</div>
 				</section>
 				<section className="perm-column perm-column--tools">
 					<h3>{t("当前已挂载工具 ({count})", { count: tools.length })}</h3>

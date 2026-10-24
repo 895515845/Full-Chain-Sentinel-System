@@ -1,0 +1,891 @@
+/* Settings use the global console palette, radii, and compact control scale.
+   Scope layout rules to preserve the other operational screens. */
+.settings-page,
+body:has(.settings-page) :is(.cockpit-drawer, .cockpit-modal) {
+	--accent-soft: var(--accent-dim);
+	color: var(--text);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.page-card.settings-page {
+	padding: 0;
+	overflow: hidden;
+	border-radius: var(--radius);
+	background: var(--card);
+	box-shadow: none;
+	container: settings / inline-size;
+}
+
+.settings-page__header {
+	flex: none;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--card);
+}
+
+.settings-page__header-inner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	width: 100%;
+}
+
+.settings-page__heading {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.settings-page__icon {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 32px;
+	height: 32px;
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius);
+	background: var(--accent-dim);
+	color: var(--accent);
+}
+
+.settings-page__breadcrumb {
+	display: inline;
+	color: var(--dim);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.settings-page__breadcrumb::after {
+	content: "/";
+	margin-inline: 6px;
+	color: var(--faint);
+}
+
+.settings-page__heading h1 {
+	display: inline;
+	margin: 0;
+	color: var(--text-bright);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.settings-page__heading p {
+	margin: 4px 0 0;
+	color: var(--dim);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.settings-page__status {
+	flex: none;
+	max-width: 40%;
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.settings-page__body {
+	flex: 1;
+	min-height: 0;
+	padding: 16px;
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+}
+
+.settings-page__content {
+	width: 100%;
+}
+
+.settings-page__content > * {
+	min-width: 0;
+}
+
+.settings-page :is(.settings, .env, .perm, .plugin-page) {
+	width: 100%;
+	max-width: none;
+}
+
+/* Match console controls: 32px fields/actions, 26px compact table actions. */
+.settings-page button:not(:where(.asset-toggle, .mcp-toggle, .cockpit-row, .cockpit-link, .link)),
+.settings-page .notify-toolbar__actions button.primary {
+	min-height: 32px;
+	height: auto;
+	padding: 5px 12px;
+	border-radius: var(--radius);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+	white-space: nowrap;
+}
+
+.settings-page button.primary {
+	border: 1px solid var(--accent);
+	background: var(--accent);
+	color: #fff;
+	box-shadow: none;
+}
+
+.settings-page button.primary:hover:not(:disabled) {
+	background: var(--accent-hover);
+	border-color: var(--accent-hover);
+}
+
+.settings-page :is(input, select, textarea):not(:where([type="checkbox"], [type="radio"], [type="file"])) {
+	min-width: 0;
+	height: 32px;
+	margin-top: 0;
+	padding: 5px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background-color: var(--card);
+	color: var(--text-bright);
+	font-size: 13px;
+	line-height: 20px;
+	box-shadow: none;
+}
+
+.settings-page select {
+	padding-right: 30px;
+}
+
+.settings-page textarea {
+	width: 100%;
+	height: auto;
+	min-height: 120px;
+	resize: vertical;
+	line-height: 1.7;
+}
+
+.settings-page :is(input, select, textarea):focus-visible {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.settings-page :is(input, textarea)::placeholder {
+	color: var(--faint);
+	opacity: 1;
+}
+
+.settings-page :is(input[type="checkbox"], input[type="radio"]) {
+	accent-color: var(--accent);
+}
+
+.settings-page :is(.settings-hint, .gate-prose, .cockpit-hint, .asset-footnote, .mcp-footnote) {
+	max-width: 960px;
+	color: var(--dim);
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.settings-page :is(.settings-section, .cockpit-sec h3, .notify-toolbar__title h3) {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	color: var(--text-bright);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.5;
+}
+
+.settings-page :is(.cockpit-sec, .settings-block__head) {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	margin: 20px 0 10px;
+	padding: 0;
+	border: 0;
+}
+
+.settings-page :is(.cockpit-sec--first, .settings-block__head:first-child) {
+	margin-top: 0;
+}
+
+.settings-page :is(.cockpit-sec__meta, .settings-section .hint) {
+	color: var(--dim);
+	font-size: 12px;
+	font-weight: 400;
+}
+
+.settings-page :is(.cockpit-sec__right, .settings-block__ops, .preset-toolbar, .plugin-page .actions) {
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+/* Surfaces share the console border, radius, and compact content inset. */
+.settings-page :is(.gate-card, .cockpit-sup, .supervisor-settings, .env-sources, .env-group,
+	.perm-column, .perm-plugins, .perm-commander, .notify-card, .notify-rules,
+	.model-editor, .mcp-editor, .settings-section-card) {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	box-shadow: none;
+}
+
+.settings-page :is(.supervisor-settings, .env-sources, .perm-column, .perm-plugins,
+	.perm-commander, .model-editor, .mcp-editor, .settings-section-card) {
+	margin: 0 0 16px;
+	padding: 16px;
+}
+
+.settings-page :is(.env-sources h3, .env-group h3, .perm h3, .notify-card h4, .notify-rules h4) {
+	margin: 0;
+	color: var(--text-bright);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.settings-page :is(.settings-hint, .asset-notice, .mcp-notice) + :is(.settings-block__head, .asset-toolbar, .mcp-toolbar) {
+	margin-top: 4px;
+}
+
+.settings-page :is(.asset-notice, .mcp-notice, .env-blocked, .perm-warn) {
+	padding: 8px 12px;
+	border-radius: var(--radius);
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+/* Model library and supervision use the same cards and aligned section rhythm. */
+.settings-page .cockpit-roles {
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: 12px;
+}
+
+.settings-page .cockpit-role {
+	gap: 12px;
+	padding: 12px;
+	border-radius: var(--radius);
+	box-shadow: none;
+}
+
+.settings-page .cockpit-role__label {
+	padding: 3px 8px;
+	font-size: 12px;
+}
+
+.settings-page .cockpit-role__foot {
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.settings-page :is(.cockpit-role__sub, .cockpit-row__label small, .cockpit-chip, .cockpit-tag) {
+	font-size: 11px;
+}
+
+.settings-page .cockpit-search input {
+	width: 240px;
+	padding-left: 30px;
+}
+
+.settings-page .cockpit-list {
+	overflow-x: auto;
+	border-radius: var(--radius);
+}
+
+.settings-page .cockpit-row {
+	min-width: 820px;
+	min-height: 54px;
+	padding: 9px 14px;
+}
+
+.settings-page .gatekeeper {
+	margin-top: 20px;
+	padding-top: 4px;
+	border-top: 1px solid var(--border);
+}
+
+.settings-page .gatekeeper .gate-row {
+	grid-template-columns: 160px 200px minmax(0, 1fr);
+	gap: 10px 16px;
+	padding: 9px 14px;
+}
+
+.settings-page .gatekeeper .gate-endpoint {
+	grid-template-columns: 160px minmax(0, 1fr) auto;
+}
+
+.settings-page .gatekeeper .gate-mode {
+	grid-template-columns: 160px auto minmax(0, 1fr);
+}
+
+.settings-page .gatekeeper :is(.gate-row__label, .gate-option__title) {
+	font-size: 13px;
+	color: var(--text);
+}
+
+.settings-page .gatekeeper :is(.gate-row__hint, .gate-option__hint) {
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.settings-page .gatekeeper label.gate-option {
+	padding: 9px 14px;
+}
+
+.settings-page .gatekeeper .gate-input {
+	width: 100%;
+}
+
+.settings-page .cockpit-sup {
+	padding: 12px 16px;
+}
+
+.settings-page .supervisor-settings__strategy {
+	gap: 12px;
+	margin-top: 16px;
+}
+
+.settings-page .settings label.supervisor-strategy-option {
+	display: flex;
+	gap: 12px;
+	margin: 0;
+	padding: 12px;
+	border-radius: var(--radius);
+}
+
+.settings-page .supervisor-strategy-grid {
+	gap: 12px;
+}
+
+.settings-page .supervisor-strategy-option :is(b, small) {
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.settings-page :is(.supervisor-settings__grid, .env-source-grid, .model-editor__grid, .source-fields) {
+	gap: 12px;
+}
+
+.settings-page :is(.supervisor-settings__grid label, .env-source-grid label, .model-editor__grid label, .source-fields label, .security-form label) {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+	color: var(--text);
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.settings-page :is(.supervisor-custom, .supervisor-settings__grid) {
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.settings-page :is(.supervisor-settings__actions, .model-editor__actions, .env-source-actions,
+	.source-form-ops, .security-form__actions) {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+/* Notification channels keep their brand marks but share the neutral surfaces. */
+.settings-page .notify-toolbar {
+	padding-bottom: 12px;
+}
+
+.settings-page .notify-channel-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	margin-block: 16px;
+}
+
+.settings-page :is(.notify-card__head, .notify-card__body, .notify-card__foot,
+	.notify-rules__head, .notify-limit) {
+	padding: 12px 16px;
+}
+
+.settings-page .notify-card__meta {
+	padding-inline: 16px;
+}
+
+.settings-page .notify-input {
+	min-height: 32px;
+	border-color: var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.settings-page .notify-input input {
+	height: 30px;
+	border: 0;
+	font-size: 13px;
+	box-shadow: none;
+}
+
+.settings-page .notify-input:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.settings-page .notify-input input:focus-visible {
+	box-shadow: none;
+}
+
+.settings-page .notify-event {
+	padding: 10px 16px;
+}
+
+.settings-page .notify-event__copy :is(b, small) {
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+/* Permissions: compare both agents at equal widths; inventory has its own row. */
+.settings-page .perm-presets {
+	gap: 10px;
+	margin: 0 0 16px;
+	padding: 9px 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.settings-page .perm-columns {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.settings-page .perm-column--tools {
+	grid-column: 1 / -1;
+}
+
+.settings-page .perm-agent {
+	display: grid;
+	grid-template-rows: subgrid;
+	grid-row: span 2;
+	row-gap: 10px;
+	margin-bottom: 0;
+}
+
+.settings-page .perm-agent__header .perm-column-note {
+	margin: 8px 0 0;
+}
+
+.settings-page .perm-agent__body {
+	min-width: 0;
+}
+
+.settings-page .perm-switch {
+	gap: 12px;
+	padding: 9px 0;
+	border-radius: 0;
+	background: transparent;
+}
+
+.settings-page :is(.perm-switch-name, .perm-plugin-name) {
+	font-size: 13px;
+}
+
+.settings-page :is(.perm-switch-hint, .perm-column-note, .perm-mcp-note) {
+	font-size: 12px;
+	line-height: 1.7;
+}
+
+/* Tables scroll inside their own surface, never shift the header/form columns. */
+.settings-page :is(.asset-table, .mcp-table) {
+	min-width: 0;
+	overflow-x: auto;
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.settings-page :is(.asset-table > *, .mcp-table > *) {
+	min-width: 1020px;
+}
+
+.settings-page :is(.data-table, .official-plugins__table-wrap, .plugin-table-wrap) {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.settings-page :is(.plugin-table-wrap, .official-plugins__table-wrap) {
+	overflow-x: auto;
+}
+
+.settings-page .plugin-table th {
+	padding: 9px 14px;
+	background: var(--raised);
+	font-weight: 600;
+}
+
+.settings-page .plugin-table td {
+	padding: 9px 14px;
+}
+
+.settings-page .websearch-row {
+	grid-template-columns: minmax(170px, 1.2fr) 148px minmax(200px, 1.2fr) minmax(130px, 0.9fr) 200px;
+}
+
+.settings-page :is(.data-row, .asset-row, .mcp-row) {
+	padding: 9px 14px;
+	font-size: 13px;
+}
+
+.settings-page :is(.data-head, .asset-row--head, .mcp-row--head) {
+	padding-block: 9px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.settings-page :is(.data-actions, .asset-ops, .mcp-ops) button {
+	min-height: 26px;
+	padding: 2px 8px;
+	font-size: 12px;
+}
+
+.settings-page :is(.asset-toolbar, .mcp-toolbar, .plugin-head, .plugin-toolbar) {
+	gap: 12px;
+	padding: 0;
+	margin: 0 0 16px;
+	flex-wrap: wrap;
+}
+
+.settings-page .asset-limit {
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.settings-page .websearch-addrow {
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.settings-page :is(.asset-detail, .mcp-detail) {
+	padding: 12px;
+	background: var(--raised);
+}
+
+.settings-page .settings-section-card > .settings-hint {
+	margin-top: 8px;
+}
+
+.settings-page .source-fields {
+	max-width: none;
+	margin-top: 16px;
+}
+
+.settings-page .source-fields + .check-row {
+	margin-top: 16px;
+}
+
+.settings-page .model-editor {
+	margin-top: 16px;
+}
+
+.settings-page .model-editor__grid {
+	margin-top: 16px;
+}
+
+.settings-page .mcp-editor .settings-section {
+	margin-bottom: 16px;
+}
+
+.settings-page .mcp-editor__grid {
+	gap: 12px;
+}
+
+.settings-page .mcp-editor label {
+	gap: 8px;
+	color: var(--text);
+	font-size: 13px;
+}
+
+.settings-page .mcp-editor :is(input, select, textarea):not(:where([type="checkbox"], [type="radio"], [type="file"])) {
+	border-color: var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	font-size: 13px;
+}
+
+.settings-page .mcp-editor__actions {
+	flex-wrap: wrap;
+}
+
+.settings-page .preset-editor__body {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.settings-page :is(.ws-empty, .cockpit-empty, .plugin-empty) {
+	padding: 24px 16px;
+	border: 1px dashed var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--dim);
+	font-size: 13px;
+}
+
+/* Environment and account cards use the same content inset as integrations. */
+.settings-page .env-head {
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.settings-page .env-source-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-page .env-source-grid label:first-child {
+	grid-column: 1 / -1;
+}
+
+.settings-page .env-network-options {
+	gap: 12px;
+	margin-block: 16px;
+}
+
+.settings-page .env-network-options label {
+	padding: 12px;
+	border-radius: var(--radius);
+}
+
+.settings-page .env-group {
+	margin-bottom: 16px;
+	overflow: hidden;
+}
+
+.settings-page .env-group h3 {
+	padding: 9px 14px;
+	border-bottom: 1px solid var(--border);
+	background: var(--raised);
+}
+
+.settings-page .env-row {
+	padding: 9px 14px;
+}
+
+.settings-page .security-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
+	gap: 16px;
+	align-items: start;
+}
+
+.settings-page .security-form {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	max-width: 520px;
+	margin-top: 16px;
+}
+
+.settings-page .security-form__actions {
+	margin-top: 4px;
+}
+
+.settings-page .security-account {
+	padding: 16px;
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius);
+	background: var(--accent-dim);
+}
+
+.settings-page .security-account strong {
+	display: block;
+	margin: 12px 0;
+	color: var(--text-bright);
+	font-size: 16px;
+	overflow-wrap: anywhere;
+}
+
+/* Portal editors inherit the settings vocabulary without changing other overlays. */
+body:has(.settings-page) :is(.cockpit-drawer, .cockpit-modal) {
+	font-size: 13px;
+}
+
+body:has(.settings-page) .cockpit-drawer__head {
+	padding: 16px;
+}
+
+body:has(.settings-page) .cockpit-drawer__title {
+	font-size: 16px;
+}
+
+body:has(.settings-page) :is(.cockpit-drawer__body, .cockpit-drawer__foot) {
+	padding: 12px 16px;
+}
+
+body:has(.settings-page) .cockpit-field :is(input:not([type="checkbox"]), select) {
+	height: 32px;
+	border-radius: var(--radius);
+	font-size: 13px;
+}
+
+/* Container breakpoints work with either expanded or collapsed app navigation. */
+@container settings (max-width: 1050px) {
+	.settings-page .cockpit-roles {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.settings-page .gatekeeper :is(.gate-row, .gate-mode) {
+		grid-template-columns: 160px minmax(0, 1fr);
+	}
+
+	.settings-page .gatekeeper .gate-row__hint {
+		grid-column: 2;
+	}
+}
+
+@container settings (max-width: 900px) {
+	.settings-page .notify-channel-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+@container settings (max-width: 700px) {
+	.settings-page__header {
+		padding: 12px;
+	}
+
+	.settings-page__header-inner {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.settings-page__body {
+		padding: 12px;
+	}
+
+	.settings-page__status {
+		max-width: 100%;
+	}
+
+	.settings-page :is(.perm-columns, .security-layout, .env-source-grid,
+		.supervisor-strategy-grid, .supervisor-settings__grid, .model-editor__grid,
+		.mcp-editor__grid, .source-fields, .notify-field-row) {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-page .perm-agent {
+		display: block;
+		grid-row: auto;
+	}
+
+	.settings-page .perm-agent__header {
+		margin-bottom: 14px;
+	}
+
+	.settings-page .plugin-search {
+		flex: 1 1 100%;
+		width: 100%;
+		max-width: none;
+	}
+
+	.settings-page .plugin-host-chip {
+		flex-wrap: wrap;
+		height: auto;
+		padding-block: 10px;
+	}
+
+	.settings-page .plugin-host-chip :is(b, .link) {
+		flex: none;
+		white-space: nowrap;
+	}
+
+	.settings-page .cockpit-roles {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.settings-page :is(.supervisor-settings, .env-sources, .perm-column, .perm-plugins,
+		.perm-commander, .model-editor, .mcp-editor, .settings-section-card, .security-account) {
+		padding: 12px;
+	}
+
+	.settings-page :is(.cockpit-sec__right, .notify-toolbar, .notify-toolbar__actions,
+		.notify-rules__head, .notify-rules__body, .plugin-head, .plugin-toolbar) {
+		flex-wrap: wrap;
+	}
+
+	.settings-page .notify-toolbar {
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.settings-page .notify-rules__body {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-page .notify-limit {
+		border-left: 0;
+		border-top: 1px solid var(--border);
+	}
+
+	.settings-page .cockpit-sec__right {
+		width: 100%;
+		margin-left: 0;
+	}
+
+	.settings-page .settings-block__head {
+		align-items: flex-start;
+	}
+
+	.settings-page .gatekeeper :is(.gate-row, .gate-mode, .gate-endpoint) {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-page .gatekeeper .gate-row__hint {
+		grid-column: auto;
+	}
+
+	.settings-page .websearch-add-input {
+		width: 100%;
+		min-width: 0;
+		flex: 1 1 100%;
+	}
+
+	.settings-page :is(.asset-toolbar__spacer, .mcp-toolbar__spacer) {
+		display: none;
+	}
+}
+
+@container settings (max-width: 420px) {
+	.settings-page__heading {
+		gap: 12px;
+	}
+
+	.settings-page__icon {
+		width: 32px;
+		height: 32px;
+	}
+
+	.settings-page__heading h1 {
+		font-size: 14px;
+	}
+
+	.settings-page .cockpit-roles {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-page .cockpit-search {
+		width: 100%;
+	}
+
+	.settings-page .cockpit-search input {
+		width: 100%;
+	}
+}

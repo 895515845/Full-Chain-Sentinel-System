@@ -20,6 +20,7 @@ import {
 	CaretDownIcon,
 	ChatIcon,
 	CollapseIcon,
+	CloseIcon,
 	DeleteIcon,
 	DroidIcon,
 	EnvironmentIcon,
@@ -123,6 +124,10 @@ const TASK_TAG_LABELS: Record<string, string> = {
 
 export function AppSider({
 	collapsed,
+	mobileOpen,
+	inert,
+	panelRef,
+	onCloseMobile,
 	onToggleCollapse,
 	activePage,
 	onNavigate,
@@ -150,6 +155,10 @@ export function AppSider({
 	onSwitchLanguage,
 }: {
 	collapsed: boolean;
+	mobileOpen: boolean;
+	inert: boolean;
+	panelRef: React.Ref<HTMLElement>;
+	onCloseMobile: () => void;
 	onToggleCollapse: () => void;
 	activePage: SentinelPageId;
 	onNavigate: (page: SentinelPageId) => void;
@@ -177,10 +186,17 @@ export function AppSider({
 	onLogout: () => void;
 	onSwitchLanguage: (language: "zh" | "en") => void;
 }) {
+	const navigate = (next: SentinelPageId) => {
+		onNavigate(next);
+		onCloseMobile();
+	};
 	// The session list is the operator's working set, so it starts open; the
 	// settings submenu stays folded until it is needed.
 	const [sessionsOpen, setSessionsOpen] = useState(true);
-	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(activePage.startsWith("settings."));
+	useEffect(() => {
+		if (activePage.startsWith("settings.")) setSettingsOpen(true);
+	}, [activePage]);
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [editingName, setEditingName] = useState("");
 	/**
@@ -356,14 +372,14 @@ export function AppSider({
 				? "sdot sd-run"
 				: "sdot sd-idle";
 		return (
-			<div
+			<button
 				key={session.path}
-				role="button"
-				tabIndex={0}
+				type="button"
+				aria-current={isActive ? "true" : undefined}
 				className={`menu-sub-item session-row ${isActive ? "active" : ""}`}
-				onClick={() => onSwitchSession(session.path)}
-				onKeyDown={(event) => {
-					if (event.key === "Enter" || event.key === " ") onSwitchSession(session.path);
+				onClick={() => {
+					onSwitchSession(session.path);
+					onCloseMobile();
 				}}
 				onMouseEnter={(event) => showCard(session, event.currentTarget)}
 				onMouseLeave={scheduleHide}
@@ -380,12 +396,12 @@ export function AppSider({
 				/>
 				<span className="menu-sub-name">{label}</span>
 				<SessionStatusRail status={session.status} />
-			</div>
+			</button>
 		);
 	};
 
 	const sessionRows = () => (
-		<div className="menu-sub">
+		<div className="menu-sub" id="sider-submenu-chat">
 			<div className="menu-sub-head">
 				<span>
 					{sessions.length === 0
@@ -395,7 +411,16 @@ export function AppSider({
 							: t("{total} 个会话", { total: sessions.length })}
 				</span>
 				<span className="menu-sub-head-ops">
-					<button type="button" className="menu-sub-add" title={t("新建会话")} onClick={() => onNewSession()}>
+					<button
+						type="button"
+						className="menu-sub-add"
+						title={t("新建会话")}
+						aria-label={t("新建会话")}
+						onClick={() => {
+							onNewSession();
+							onCloseMobile();
+						}}
+					>
 						＋
 					</button>
 				</span>
@@ -404,6 +429,7 @@ export function AppSider({
 				<button
 					type="button"
 					className={statusFilter === "all" && sourceFilter === "all" ? "on" : ""}
+					aria-pressed={statusFilter === "all" && sourceFilter === "all"}
 					onClick={() => {
 						setStatus("all");
 						setSource("all");
@@ -414,6 +440,7 @@ export function AppSider({
 				<button
 					type="button"
 					className={statusFilter === "open" ? "on" : ""}
+					aria-pressed={statusFilter === "open"}
 					onClick={() => setStatus(statusFilter === "open" ? "all" : "open")}
 				>
 					{t("未完成")}
@@ -421,6 +448,7 @@ export function AppSider({
 				<button
 					type="button"
 					className={sourceFilter === "chat" ? "on" : ""}
+					aria-pressed={sourceFilter === "chat"}
 					disabled={!sessions.some((session) => !session.engine) && sourceFilter !== "chat"}
 					onClick={() => setSource(sourceFilter === "chat" ? "all" : "chat")}
 				>
@@ -429,6 +457,7 @@ export function AppSider({
 				<button
 					type="button"
 					className={sourceFilter === "engine" ? "on" : ""}
+					aria-pressed={sourceFilter === "engine"}
 					disabled={!sessions.some((session) => session.engine) && sourceFilter !== "engine"}
 					onClick={() => setSource(sourceFilter === "engine" ? "all" : "engine")}
 				>
@@ -457,15 +486,12 @@ export function AppSider({
 				const running = group.sessions.filter((session) => runningSessions.includes(session.id)).length;
 				return (
 					<div key={group.engineName}>
-						<div
+						<button
+							type="button"
 							className="engine-group-head"
-							role="button"
-							tabIndex={0}
+							aria-expanded={!collapsed}
 							title={t("点击折叠 / 展开该工程的会话")}
 							onClick={() => toggleEngineGroup(group.engineName)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" || event.key === " ") toggleEngineGroup(group.engineName);
-							}}
 						>
 							<span className="caret">{collapsed ? "▸" : "▾"}</span>
 							<span className={`engine-group-dot ${running > 0 ? "run" : ""}`} />
@@ -474,7 +500,7 @@ export function AppSider({
 								{group.sessions.length}
 								{running > 0 ? t(" · 运行 {count}", { count: running }) : ""}
 							</span>
-						</div>
+						</button>
 						{collapsed ? null : group.sessions.map(sessionRow)}
 					</div>
 				);
@@ -491,10 +517,15 @@ export function AppSider({
 	};
 
 	return (
-		<aside className={`sider ${collapsed ? "collapsed" : ""}`}>
+		<aside
+			id="app-navigation"
+			ref={panelRef}
+			inert={inert}
+			className={`sider ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}
+		>
 			<div
 				className="sider-brand"
-				onClick={onToggleCollapse}
+				onClick={mobileOpen ? undefined : onToggleCollapse}
 				title={t("全链哨兵 Full Chain Sentinel System")}
 			>
 				<div className="sider-logo">
@@ -505,6 +536,8 @@ export function AppSider({
 					type="button"
 					className="sider-collapse"
 					title={collapsed ? t("展开侧边栏") : t("收起侧边栏")}
+					aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")}
+					aria-expanded={!collapsed}
 					onClick={(event) => {
 						event.stopPropagation();
 						onToggleCollapse();
@@ -512,11 +545,20 @@ export function AppSider({
 				>
 					{collapsed ? <ExpandIcon /> : <CollapseIcon />}
 				</button>
+				<button
+					type="button"
+					className="sider-mobile-close"
+					title={t("收起侧边栏")}
+					aria-label={t("收起侧边栏")}
+					onClick={onCloseMobile}
+				>
+					<CloseIcon size={18} />
+				</button>
 			</div>
 
 			<div className="sider-project">{projectSlot}</div>
 
-			<nav className="sider-menu">
+			<nav className="sider-menu" aria-label={t("工作台")}>
 				{MENU.map((group) => (
 					<div key={group.group}>
 						<div className="menu-group">{collapsed ? "" : t(group.group)}</div>
@@ -533,13 +575,28 @@ export function AppSider({
 									<button
 										type="button"
 										className={`menu-item ${active ? "active" : ""}`}
+										aria-current={
+											active && !(isSettings && childOpen && !collapsed) ? "page" : undefined
+										}
+										aria-expanded={hasChildren ? childOpen && !collapsed : undefined}
+										aria-controls={
+											hasChildren && childOpen && !collapsed
+												? `sider-submenu-${isChat ? "chat" : "settings"}`
+												: undefined
+										}
 										title={item.label}
 										onClick={() => {
 											if (!hasChildren) {
-												onNavigate(item.page);
+												navigate(item.page);
 												return;
 											}
 											const setOpen = isChat ? setSessionsOpen : setSettingsOpen;
+											if (collapsed) {
+												onToggleCollapse();
+												setOpen(true);
+												onNavigate(item.page);
+												return;
+											}
 											// Clicking the row of the page you are on collapses it;
 											// clicking it from anywhere else opens it and goes there.
 											if (active && childOpen) {
@@ -563,7 +620,7 @@ export function AppSider({
 										isChat ? (
 											sessionRows()
 										) : (
-											<div className="menu-sub">
+											<div className="menu-sub" id="sider-submenu-settings">
 												{SETTINGS_CHILDREN.map((child) => {
 													const ChildIcon = child.icon;
 													return (
@@ -571,7 +628,8 @@ export function AppSider({
 															key={child.page}
 															type="button"
 															className={`menu-sub-item ${activePage === child.page ? "active" : ""}`}
-															onClick={() => onNavigate(child.page)}
+															aria-current={activePage === child.page ? "page" : undefined}
+															onClick={() => navigate(child.page)}
 														>
 															<span className="menu-sub-dot" />
 															<span className="menu-sub-name">{child.label}</span>
@@ -591,9 +649,10 @@ export function AppSider({
 										key={entry.page}
 										type="button"
 										className={`menu-item plugin-menu-item ${activePage === entry.page ? "active" : ""}`}
+										aria-current={activePage === entry.page ? "page" : undefined}
 										disabled={entry.disabled}
 										title={entry.title}
-										onClick={() => onNavigate(entry.page)}
+										onClick={() => navigate(entry.page)}
 									>
 										{entry.iconUrl ? (
 											<img className="menu-plugin-icon" src={entry.iconUrl} alt="" />
@@ -649,7 +708,7 @@ export function AppSider({
 					</button>
 				</div>
 			</div>
-			{hoverCard && cardSession ? (
+			{!inert && hoverCard && cardSession ? (
 				<SessionHoverCard
 					data={{ session: cardSession, top: hoverCard.top, left: hoverCard.left }}
 					engines={engines}

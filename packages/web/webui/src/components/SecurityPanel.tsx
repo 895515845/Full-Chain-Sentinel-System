@@ -47,48 +47,54 @@ export function SecurityPanel({ username }: { username: string | null }) {
 	};
 
 	return (
-		<div className="settings settings--wide">
-			<h3 className="settings-section">{t("修改密码")}</h3>
-			<p className="settings-hint">
-				{t("当前登录：{user}。退出登录在侧栏底部；修改后其他已登录的会话（包括别的浏览器）会全部退出。", { user: username ?? t("未知") })}
-			</p>
-			<p className="settings-hint">{t("至少 8 个字符。修改后其他已登录的会话（包括别的浏览器）会全部退出。")}</p>
-			<form className="security-form" onSubmit={submit}>
-				<label>
-					{t("当前密码")}
-					<input
-						type="password"
-						value={current}
-						autoComplete="current-password"
-						onChange={(event) => setCurrent(event.target.value)}
-					/>
-				</label>
-				<label>
-					{t("新密码")}
-					<input
-						type="password"
-						value={next}
-						autoComplete="new-password"
-						onChange={(event) => setNext(event.target.value)}
-					/>
-				</label>
-				<label>
-					{t("确认新密码")}
-					<input
-						type="password"
-						value={confirm}
-						autoComplete="new-password"
-						onChange={(event) => setConfirm(event.target.value)}
-					/>
-				</label>
-				{error ? <p className="page-error">{error}</p> : null}
-				{saved ? <p className="settings-hint ok-text">{t("密码已修改。")}</p> : null}
-				<div>
-					<button type="submit" disabled={busy || !current || !next}>
-						{busy ? t("保存中…") : t("修改密码")}
-					</button>
-				</div>
-			</form>
+		<div className="security-layout">
+			<section className="settings settings-section-card">
+				<h3 className="settings-section">{t("修改密码")}</h3>
+				<p className="settings-hint">{t("至少 8 个字符。修改后其他已登录的会话（包括别的浏览器）会全部退出。")}</p>
+				<form className="security-form" onSubmit={submit}>
+					<label>
+						{t("当前密码")}
+						<input
+							type="password"
+							value={current}
+							autoComplete="current-password"
+							onChange={(event) => setCurrent(event.target.value)}
+						/>
+					</label>
+					<label>
+						{t("新密码")}
+						<input
+							type="password"
+							value={next}
+							autoComplete="new-password"
+							onChange={(event) => setNext(event.target.value)}
+						/>
+					</label>
+					<label>
+						{t("确认新密码")}
+						<input
+							type="password"
+							value={confirm}
+							autoComplete="new-password"
+							onChange={(event) => setConfirm(event.target.value)}
+						/>
+					</label>
+					{error ? <p className="page-error">{error}</p> : null}
+					{saved ? <p className="settings-hint ok-text">{t("密码已修改。")}</p> : null}
+					<div className="security-form__actions">
+						<button type="submit" className="primary" disabled={busy || !current || !next}>
+							{busy ? t("保存中…") : t("修改密码")}
+						</button>
+					</div>
+				</form>
+			</section>
+			<aside className="security-account">
+				<span>{t("当前登录")}</span>
+				<strong>{username ?? t("未知")}</strong>
+				<p className="settings-hint">
+					{t("当前登录：{user}。退出登录在侧栏底部；修改后其他已登录的会话（包括别的浏览器）会全部退出。", { user: username ?? t("未知") })}
+				</p>
+			</aside>
 		</div>
 	);
 }
