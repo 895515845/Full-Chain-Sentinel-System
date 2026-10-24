@@ -53,11 +53,16 @@ test("rebuilding replaces the container with the stored network and keeps the pr
 	expect(recreated.project).toEqual(project);
 	expect(listProjects(agentDir).projects).toEqual([project]);
 
-	const last = calls(logPath).slice(-2);
+	const last = calls(logPath).slice(-3);
+	// A rebuild clears the proxy sidecar as well. A project without a proxy has
+	// none, so the call is a no-op — but doing it unconditionally is what keeps a
+	// sidecar from surviving a switch back to a direct network and then quietly
+	// serving a node the operator has moved on from.
 	expect(last[0]).toContain(`rm -f ${project.container}`);
-	expect(last[1]).toContain("--network bridge");
-	expect(last[1]).toContain("NET_ADMIN");
-	expect(last[1]).toContain(`-v ${project.workDir}:/work`);
+	expect(last[1]).toContain(`rm -f sentinel-sb-${project.id.slice(0, 12)}`);
+	expect(last[2]).toContain("--network bridge");
+	expect(last[2]).toContain("NET_ADMIN");
+	expect(last[2]).toContain(`-v ${project.workDir}:/work`);
 });
 
 test("an unknown project fails before docker is invoked", async () => {

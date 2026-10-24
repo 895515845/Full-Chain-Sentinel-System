@@ -11,9 +11,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import type { SentinelProjectInfo } from "../types.ts";
+import { EMPTY_PROXY_CONFIG, type SentinelProjectInfo } from "../types.ts";
 import { ProjectsPage } from "./ProjectsPage.tsx";
 import { deleteConfirmMatches, PROJECT_REMOVE_OPTIONS } from "./ProjectDeleteDialog.tsx";
+import { projectProxyId } from "./ProjectProxyDialog.tsx";
 
 function project(overrides: Partial<SentinelProjectInfo> = {}): SentinelProjectInfo {
 	return {
@@ -36,12 +37,14 @@ function render(projects: SentinelProjectInfo[], activeId: string | null = proje
 			projects,
 			activeProject: projects.find((entry) => entry.id === activeId) ?? null,
 			busy: false,
+			proxyConfig: EMPTY_PROXY_CONFIG,
 			onCreate: async () => null,
 			onSwitch: () => {},
 			onRecreate: async () => null,
 			onRemove: async () => null,
 			onStop: async () => null,
 			onStart: async () => null,
+			onSaveProxy: async () => null,
 		}),
 	);
 }
@@ -126,4 +129,20 @@ test("the delete dialog offers both scopes, the data one as the dangerous one", 
 	expect(withData?.label).toBe("删除项目数据");
 	expect(withData?.danger).toBe(true);
 	expect(withData?.danger).toBe(true);
+});
+
+test("a proxied project carries the profile's name in the row", () => {
+	const proxied = render([project({ name: "走代理的项目", proxyName: "香港节点" })], null);
+	expect(proxied).toContain("香港节点");
+	const direct = render([project({ name: "直连的项目", proxyName: null })], null);
+	expect(direct).not.toContain("香港节点");
+});
+
+test("the project dialog's choices become the stored pointer", () => {
+	// Following the default is the absence of a choice, not a copy of it: a copy
+	// would stop tracking a later change to the default.
+	expect(projectProxyId({ kind: "inherit" })).toBeUndefined();
+	// Off is an explicit choice, and it survives a deleted profile.
+	expect(projectProxyId({ kind: "off" })).toBeNull();
+	expect(projectProxyId({ kind: "proxy", id: "p1" })).toBe("p1");
 });

@@ -73,3 +73,22 @@ export function containerNetworkFlags(network: SentinelContainerNetwork): string
 	}
 	return ["--network", "host", "--cap-add", "NET_RAW", "--add-host", "host.docker.internal:127.0.0.1"];
 }
+
+/**
+ * `docker run` flags for a container that takes its network from a sing-box
+ * sidecar. Every packet then enters the sidecar's tunnel.
+ *
+ * NET_ADMIN is not granted: the tunnel interface belongs to the sidecar, which is
+ * the only container that has to create and route it. NET_RAW stays, because raw
+ * sockets are what the scanners need.
+ *
+ * There is no `--add-host` here, and there cannot be: Docker refuses a custom
+ * host mapping together with a container network mode ("conflicting options").
+ * `host.docker.internal` therefore comes from Docker's embedded DNS, which
+ * resolves it on Docker Desktop; on a plain Linux engine the console adds the
+ * line to the container's `/etc/hosts` after every start instead, because Docker
+ * rewrites that file each time the container starts.
+ */
+export function sidecarNetworkFlags(sidecar: string): string[] {
+	return ["--network", `container:${sidecar}`, "--cap-add", "NET_RAW"];
+}

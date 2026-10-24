@@ -11,6 +11,7 @@
 import {
 	Apple,
 	Bell,
+	Waypoints,
 	Bot,
 	Bug,
 	Check,
@@ -150,6 +151,11 @@ export function FileIcon(props: IconProps) {
 /** Sider menu: the conversation. */
 export function ChatIcon(props: IconProps) {
 	return <MessageSquare size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
+}
+
+/** Sider menu: proxy profiles. */
+export function ProxyIcon(props: IconProps) {
+	return <Waypoints size={NAV_SIZE} strokeWidth={NAV_STROKE} {...props} />;
 }
 
 /** Sider menu: projects. */

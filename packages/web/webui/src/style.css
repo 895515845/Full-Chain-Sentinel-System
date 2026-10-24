@@ -2325,6 +2325,353 @@ button.ghost.small.on {
 	gap: 8px;
 }
 
+/* The picker's own field, so the proxy choice is labelled like the name above it. */
+.project-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 12px;
+	color: var(--nav-text-dim);
+}
+
+.project-field select {
+	width: 100%;
+	background: rgba(255, 255, 255, 0.08);
+	border: 1px solid var(--nav-border);
+	border-radius: 6px;
+	color: #e5edf5;
+	padding: 7px 10px;
+	font-size: 12px;
+}
+
+/*
+ * Each project row plus the proxy list it can open. The list is a sibling of the
+ * row so it can span the full width of the dropdown.
+ */
+.project-row-group {
+	display: flex;
+	flex-direction: column;
+}
+
+.project-proxy {
+	flex-shrink: 0;
+	max-width: 72px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	background: transparent;
+	border: 1px solid var(--nav-border);
+	border-radius: 999px;
+	color: var(--nav-text-dim);
+	font-size: 11px;
+	padding: 2px 8px;
+	cursor: pointer;
+}
+
+.project-proxy:hover,
+.project-proxy.open {
+	color: #fff;
+	border-color: var(--accent);
+}
+
+.project-proxy-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 2px 0 6px 10px;
+	padding-left: 8px;
+	border-left: 1px solid var(--nav-border);
+}
+
+.project-proxy-list button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: transparent;
+	border: none;
+	border-radius: 6px;
+	color: var(--nav-text);
+	font-size: 12px;
+	text-align: left;
+	padding: 5px 8px;
+	cursor: pointer;
+}
+
+.project-proxy-list button:hover {
+	background: var(--nav-hover);
+	color: #fff;
+}
+
+.project-proxy-list button.on {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.project-proxy-note {
+	margin-left: auto;
+	color: var(--nav-text-dim);
+	font-size: 11px;
+}
+
+/* A profile row plus the node list it expands into, inside the same dropdown. */
+.project-proxy-group {
+	display: flex;
+	flex-direction: column;
+}
+
+.project-proxy-nodes {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 2px 0 4px 14px;
+	padding-left: 8px;
+	border-left: 1px solid var(--nav-border);
+	max-height: 220px;
+	overflow-y: auto;
+}
+
+.project-proxy-nodes button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: transparent;
+	border: none;
+	border-radius: 6px;
+	color: var(--nav-text);
+	font-size: 12px;
+	text-align: left;
+	padding: 4px 8px;
+	cursor: pointer;
+}
+
+.project-proxy-nodes button:hover {
+	background: var(--nav-hover);
+	color: #fff;
+}
+
+.project-proxy-nodes button.on {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+/* The dialog's per-profile node picker, indented under the radio it belongs to. */
+.project-proxy-option {
+	display: flex;
+	flex-direction: column;
+}
+
+.project-proxy-node {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 2px 0 6px 26px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.project-proxy-node select {
+	flex: 1;
+	min-width: 0;
+	padding: 4px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-size: 12px;
+}
+
+.project-proxy-hint {
+	color: var(--nav-text-dim);
+	font-size: 11px;
+	line-height: 1.5;
+	padding: 4px 8px 0;
+}
+
+/* ---------- 代理 page ---------- */
+
+.proxy-settings-row {
+	display: flex;
+	align-items: flex-end;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+.proxy-field {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	font-size: 12px;
+	color: var(--dim);
+	min-width: 180px;
+}
+
+.proxy-field--wide {
+	flex: 1;
+	min-width: 260px;
+}
+
+.proxy-field input,
+.proxy-field select {
+	width: 100%;
+	min-width: 0;
+	padding: 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.proxy-field input:focus,
+.proxy-field select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.proxy-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.proxy-table .data-row {
+	grid-template-columns: minmax(160px, 1.4fr) minmax(120px, 1fr) 56px 72px minmax(140px, auto);
+}
+
+.proxy-cell {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.proxy-cell__name {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+}
+
+.proxy-cell__sub,
+.proxy-kind,
+.proxy-flag {
+	color: var(--dim);
+	font-size: 12px;
+}
+
+.proxy-num {
+	text-align: right;
+}
+
+.env-note.warn {
+	color: var(--warn);
+}
+
+/*
+ * The node list of one subscription: it is the whole interaction, so it scrolls
+ * instead of paginating, and each row keeps the protocol visible — the same name
+ * from two providers is otherwise indistinguishable.
+ */
+.proxy-node-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 320px;
+	overflow-y: auto;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.proxy-node-list label {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 9px;
+	border-radius: var(--radius);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.proxy-node-list label:hover {
+	background: var(--raised);
+}
+
+.proxy-node-list label.selected {
+	background: var(--raised);
+	outline: 1px solid var(--accent);
+}
+
+.proxy-node__name {
+	color: var(--text);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.proxy-node__protocol {
+	color: var(--dim);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+/* The measured round trip: green enough to scan, red when it timed out. */
+.proxy-node__meta {
+	display: flex;
+	justify-content: flex-end;
+	min-width: 56px;
+}
+
+.proxy-node-list label {
+	grid-template-columns: auto 1fr auto;
+}
+
+.proxy-latency {
+	color: var(--ok);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.proxy-latency.slow {
+	color: var(--warn);
+}
+
+.proxy-latency.bad {
+	color: var(--danger);
+}
+
+.proxy-test-url {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.proxy-test-url input {
+	flex: 1;
+	min-width: 0;
+	padding: 4px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.proxy-skipped {
+	margin: 0;
+	padding-left: 18px;
+	color: var(--dim);
+	font-size: 12px;
+	line-height: 1.6;
+	max-height: 120px;
+	overflow-y: auto;
+}
+
 /* ---------- Branch modal ---------- */ .branch-modal {
 	width: min(720px, calc(100vw - 48px));
 	height: min(640px, calc(100vh - 96px));
@@ -4598,7 +4945,23 @@ svg.lucide {
 	margin-top: 4px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
-	overflow: hidden;
+	/*
+	 * Deliberately not `overflow: hidden`: a row's ⋯ menu is absolutely positioned
+	 * inside the row, so clipping the table hid the whole menu for the last row —
+	 * the operator saw a button that opened nothing. The corners are rounded on the
+	 * first and last children instead, which is what the clipping was there for.
+	 */
+}
+
+.data-table > .data-head:first-child,
+.data-table > .data-row:first-child {
+	border-top-left-radius: calc(var(--radius) - 1px);
+	border-top-right-radius: calc(var(--radius) - 1px);
+}
+
+.data-table > .data-row:last-child {
+	border-bottom-left-radius: calc(var(--radius) - 1px);
+	border-bottom-right-radius: calc(var(--radius) - 1px);
 }
 
 .data-row {
@@ -6299,6 +6662,79 @@ button.link {
 .env-network-detail {
 	grid-column: 2;
 	line-height: 1.5;
+}
+
+/*
+ * Proxy form fields. The grid reuses the sources form's shape so the two forms
+ * read as one page; the JSON box is the one field wide enough to need its own row.
+ */
+.env-proxy-fields {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 6px 12px;
+}
+
+.env-proxy-fields label {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.env-proxy-fields input,
+.env-proxy-fields select {
+	width: 100%;
+	min-width: 0;
+	padding: 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.env-proxy-fields input:focus,
+.env-proxy-fields select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.env-proxy-wide {
+	grid-column: 1 / -1;
+}
+
+.env-proxy-fields .env-proxy-check,
+.env-proxy-check {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 6px;
+	grid-column: 1 / -1;
+}
+
+.env-proxy-check input {
+	width: auto;
+}
+
+.env-proxy-json {
+	width: 100%;
+	min-width: 0;
+	padding: 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.env-proxy-json:focus {
+	outline: none;
+	border-color: var(--accent);
 }
 
 .env-build h3,

@@ -19,8 +19,18 @@ import { DEFAULT_CONTAINER_NETWORK, readContainerNetwork } from "./container-net
 import { runDocker, SENTINEL_IMAGE } from "./docker.ts";
 import { t } from "./i18n.ts";
 import { resolveLibraryRole } from "./model-library.ts";
-import { listProjects } from "./projects.ts";
-import type { SentinelEnvItem, SentinelEnvReport } from "./protocol.ts";
+import { DEFAULT_TEST_URL } from "./node-test.ts";
+import { listProjects, projectSidecarName } from "./projects.ts";
+import type { SentinelEnvItem, SentinelEnvReport, SentinelProxyConfigView } from "./protocol.ts";
+import {
+	DEFAULT_SINGBOX_IMAGE,
+	projectProxyConfigPath,
+	proxyConfigView,
+	proxyEnabled,
+	readProxies,
+	resolveProjectProxy,
+} from "./proxy.ts";
+import { checkSidecar, hasSingboxImage, singboxState } from "./singbox.ts";
 import { DEFAULT_BASE_IMAGE, EMPTY_SOURCES, effectiveSources, readSources } from "./sources.ts";
 
 const GROUP_RUNTIME = "Docker 运行时";
@@ -276,6 +286,20 @@ async function checkContainerRun(): Promise<SentinelEnvItem> {
 	);
 }
 
+/**
+ * What a container's network should be, as one word, for comparison with what
+ * Docker reports. `proxy` covers every `container:<id>` mode: the sidecar's
+ * namespace is a different thing from either of the two built-in modes, and a
+ * container built under the wrong one needs the same fix.
+ */
+type NetworkKind = "host" | "bridge" | "proxy";
+
+function networkKind(mode: string): NetworkKind | undefined {
+	if (mode === "host") return "host";
+	if (mode === "bridge" || mode === "default") return "bridge";
+	return mode.startsWith("container:") ? "proxy" : undefined;
+}
+
 async function checkProjectContainers(agentDir: string | undefined): Promise<SentinelEnvItem> {
 	if (!agentDir) {
 		return skipped("project-containers", GROUP_CONTAINER, t("项目容器"), t("未配置配置目录"));
@@ -284,13 +308,22 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 	if (projects.length === 0) {
 		return passed("project-containers", GROUP_CONTAINER, t("项目容器"), t("尚未创建项目"));
 	}
-	// The network mode only reaches a container when it is created, so report what
-	// the running containers actually use: without this, changing the setting and
-	// forgetting to rebuild looks exactly like the setting having no effect.
+	// The network mode and the proxy only reach a container when it is created, so
+	// report what the running containers actually use: without this, changing a
+	// setting and forgetting to rebuild looks exactly like the setting having no
+	// effect. The namespace check is separate because a sidecar that was restarted
+	// leaves the container running with no interfaces at all, which no inspect
+	// field reveals.
 	const wanted = readContainerNetwork(agentDir);
 	const stale: string[] = [];
 	const wrongNetwork: string[] = [];
+	const staleNamespace: string[] = [];
+	const staleConfig: string[] = [];
+	let proxied = 0;
 	for (const project of projects) {
+		const settings = resolveProjectProxy(agentDir, project.proxyId);
+		const wantsProxy = proxyEnabled(settings);
+		if (wantsProxy) proxied += 1;
 		const inspect = await runDocker(
 			["inspect", "-f", "{{.State.Status}} {{.HostConfig.NetworkMode}}", project.container],
 			{ timeoutMs: 15000 },
@@ -301,13 +334,23 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 			continue;
 		}
 		if (status !== "running") stale.push(t("{name}（{status}）", { name: project.name, status }));
-		// `default` is how Docker reports a container that took the default bridge.
-		const actual = mode === "host" ? "host" : mode === "bridge" || mode === "default" ? "bridge" : "";
-		if (actual && actual !== wanted) wrongNetwork.push(project.name);
+		const actual = networkKind(mode);
+		if (actual && actual !== (wantsProxy ? "proxy" : wanted)) wrongNetwork.push(project.name);
+		if (wantsProxy && actual === "proxy") {
+			const health = await checkSidecar(
+				project.container,
+				projectSidecarName(project),
+				projectProxyConfigPath(agentDir, project.id),
+			);
+			if (health.netnsStale) staleNamespace.push(project.name);
+			else if (health.configStale) staleConfig.push(project.name);
+		}
 	}
-	if (stale.length > 0 || wrongNetwork.length > 0) {
-		// Both can be true at once (a stopped project and a container built under the
-		// old network), and each has its own fix, so report them together.
+	if (stale.length > 0 || wrongNetwork.length > 0 || staleNamespace.length > 0 || staleConfig.length > 0) {
+		// All four can be true at once (a stopped project, a container built under
+		// the old network, one whose sidecar was restarted, and one still serving a
+		// configuration the operator has replaced), and each has its own fix, so
+		// report them together.
 		const parts: string[] = [];
 		const hints: string[] = [];
 		if (stale.length > 0) {
@@ -321,16 +364,36 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 			hints.push(t("在「项目」页重新创建或启动这些项目"));
 		}
 		if (wrongNetwork.length > 0) {
-			const other = wanted === "host" ? "bridge" : "host";
 			parts.push(
-				t("{wrong}/{total} 个容器仍在 {network} 网络（设置是 {wanted}）", {
+				t("{wrong}/{total} 个容器的网络与当前设置不一致：{names}", {
 					wrong: wrongNetwork.length,
 					total: projects.length,
-					network: other,
-					wanted,
+					names: wrongNetwork.join(t("、")),
 				}),
 			);
 			hints.push(t("在「项目」页点「重建容器」切换网络，容器内 /work 之外的文件会丢、工作目录不受影响"));
+		}
+		if (staleNamespace.length > 0) {
+			parts.push(
+				t("{count} 个代理容器的网络命名空间已失效：{names}", {
+					count: staleNamespace.length,
+					names: staleNamespace.join(t("、")),
+				}),
+			);
+			hints.push(t("代理容器被重启过，容器已经连不上网；在「项目」页重建这些项目的容器即可恢复"));
+		}
+		if (staleConfig.length > 0) {
+			parts.push(
+				t("{count} 个容器还在用改之前的代理配置：{names}", {
+					count: staleConfig.length,
+					names: staleConfig.join(t("、")),
+				}),
+			);
+			hints.push(
+				t(
+					"代理容器要重启才会重新读配置，而这会让挂在它上面的容器失去网络，所以只能成对重建；在「项目」页点「重建容器」即可",
+				),
+			);
 		}
 		return warned("project-containers", GROUP_CONTAINER, t("项目容器"), parts.join(t("；")), hints.join(t("；")));
 	}
@@ -338,8 +401,83 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 		"project-containers",
 		GROUP_CONTAINER,
 		t("项目容器"),
-		t("全部运行中（{count} 个，网络 {network}）", { count: projects.length, network: wanted }),
+		proxied > 0
+			? t("全部运行中（{count} 个，其中 {proxied} 个走代理）", { count: projects.length, proxied })
+			: t("全部运行中（{count} 个，网络 {network}）", { count: projects.length, network: wanted }),
 	);
+}
+
+/**
+ * Whether the sing-box image the proxy sidecars run is present, plus what the 代理
+ * page holds. Informational: only a project that actually uses a proxy needs the
+ * image, and a project reports its own missing image when it is started.
+ */
+function checkProxyImage(view: SentinelProxyConfigView, present: boolean): SentinelEnvItem {
+	if (view.proxies.length === 0) {
+		return skipped("proxy-image", GROUP_IMAGE, t("代理镜像"), t("尚未在「代理」页添加代理"));
+	}
+	const label = t("代理镜像 {image}", { image: view.image });
+	const summary = t("{count} 个代理 · 默认：{name}", {
+		count: view.proxies.length,
+		name: view.proxies.find((entry) => entry.id === view.defaultId)?.name ?? t("不使用"),
+	});
+	if (!present) {
+		return warned(
+			"proxy-image",
+			GROUP_IMAGE,
+			label,
+			t("本地不存在该镜像"),
+			t("在「代理」页点「拉取镜像」；国内网络拉不动时把镜像名换成可达的镜像源"),
+		);
+	}
+	return passed("proxy-image", GROUP_IMAGE, label, `${t("已存在")} · ${summary}`);
+}
+
+/**
+ * Whether every project that asked for a proxy still has its sidecar. A stopped
+ * one is normal for a project the operator stopped by hand; a missing one means
+ * the next start recreates it.
+ */
+async function checkProxySidecars(agentDir: string | undefined): Promise<SentinelEnvItem> {
+	if (!agentDir) {
+		return skipped("proxy-containers", GROUP_CONTAINER, t("代理容器"), t("未配置配置目录"));
+	}
+	const { projects } = listProjects(agentDir);
+	const proxied = projects.filter((project) => proxyEnabled(resolveProjectProxy(agentDir, project.proxyId)));
+	if (proxied.length === 0) {
+		return passed(
+			"proxy-containers",
+			GROUP_CONTAINER,
+			t("代理容器"),
+			readProxies(agentDir).proxies.length === 0 ? t("尚未在「代理」页添加代理") : t("尚无项目使用代理"),
+		);
+	}
+	const stopped: string[] = [];
+	const missing: string[] = [];
+	for (const project of proxied) {
+		const state = await singboxState(projectSidecarName(project));
+		if (state === "missing") missing.push(project.name);
+		else if (state === "stopped") stopped.push(project.name);
+	}
+	if (stopped.length === 0 && missing.length === 0) {
+		return passed(
+			"proxy-containers",
+			GROUP_CONTAINER,
+			t("代理容器"),
+			t("{count} 个项目使用代理，sidecar 全部运行中", { count: proxied.length }),
+		);
+	}
+	const parts: string[] = [];
+	const hints: string[] = [];
+	if (stopped.length > 0) {
+		parts.push(t("{count} 个已停止：{names}", { count: stopped.length, names: stopped.join(t("、")) }));
+		hints.push(t("项目停止时 sidecar 一起停，启动项目时会自动拉起"));
+	}
+	if (missing.length > 0) {
+		parts.push(t("{count} 个不存在：{names}", { count: missing.length, names: missing.join(t("、")) }));
+		hints.push(t("启动或重建这些项目时会按当前代理设置重新创建 sidecar"));
+	}
+	return warned("proxy-containers", GROUP_CONTAINER, t("代理容器"), parts.join(t("；")), hints.join(t("；")));
 }
 
 /**
@@ -509,6 +647,11 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 	const runtime = await checkDockerRuntime();
 	const dockerReady = runtime.item.status === "ok";
 	const items: SentinelEnvItem[] = [runtime.item];
+	const image = options.agentDir ? readProxies(options.agentDir).image : DEFAULT_SINGBOX_IMAGE;
+	const singboxImagePresent = dockerReady ? await hasSingboxImage(image) : false;
+	const proxies: SentinelProxyConfigView = options.agentDir
+		? proxyConfigView(options.agentDir, singboxImagePresent)
+		: { proxies: [], defaultId: null, image, imagePresent: false, testUrl: DEFAULT_TEST_URL };
 
 	const imageItems = dockerReady
 		? await checkImage(runtime.hostPlatform)
@@ -526,6 +669,7 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 		...imageItems,
 		skipped("build-network", GROUP_IMAGE, t("构建镜像需要网络"), t("构建镜像时验证（apt 需要访问配置的软件源）")),
 		checkBuildSources(options.agentDir),
+		checkProxyImage(proxies, singboxImagePresent),
 	);
 
 	const imageReady = imageItems[0]?.status === "ok";
@@ -540,6 +684,7 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 					true,
 				),
 		await checkProjectContainers(options.agentDir),
+		await checkProxySidecars(options.agentDir),
 		await checkProjectMounts(options.agentDir),
 		checkProjectsDir(),
 		checkAgentDir(options.agentDir),
@@ -554,5 +699,6 @@ export async function checkEnvironment(options: EnvCheckOptions): Promise<Sentin
 		url: options.url,
 		sources: options.agentDir ? readSources(options.agentDir) : { ...EMPTY_SOURCES },
 		containerNetwork: options.agentDir ? readContainerNetwork(options.agentDir) : DEFAULT_CONTAINER_NETWORK,
+		proxies,
 	};
 }

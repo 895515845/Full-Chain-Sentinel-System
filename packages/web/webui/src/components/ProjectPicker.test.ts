@@ -12,7 +12,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import type { SentinelProjectInfo } from "../types.ts";
+import { EMPTY_PROXY_CONFIG, type SentinelProjectInfo } from "../types.ts";
 import { ProjectPicker } from "./ProjectPicker.tsx";
 
 function project(id: string, name: string): SentinelProjectInfo {
@@ -25,9 +25,11 @@ function render(streaming: boolean): string {
 			projects: [project("a", "项目 A"), project("b", "项目 B")],
 			activeProject: project("a", "项目 A"),
 			streaming,
+			proxyConfig: EMPTY_PROXY_CONFIG,
 			onSwitch: () => {},
 			onAdd: async () => null,
 			onRemove: async () => null,
+			onSetProxy: async () => null,
 		}),
 	);
 }

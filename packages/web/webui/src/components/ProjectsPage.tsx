@@ -12,9 +12,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n.ts";
-import type { SentinelProjectInfo } from "../types.ts";
-import { ConfirmDialog } from "./ConfirmDialog.tsx";
-import { ProjectDeleteDialog } from "./ProjectDeleteDialog.tsx";
+import type { SentinelProjectInfo, SentinelProxyConfigView } from "../types.ts";
+import { ProjectRowDialogs, type ProjectRowAction, projectRowActionLabel } from "./ProjectRowDialogs.tsx";
 
 function formatWhen(value: string): string {
 	const date = new Date(value);
@@ -109,33 +108,62 @@ export function ProjectsPage({
 	projects,
 	activeProject,
 	busy,
+	proxyConfig,
 	onCreate,
 	onSwitch,
 	onRecreate,
 	onRemove,
 	onStop,
 	onStart,
+	onSaveProxy,
 }: {
 	projects: SentinelProjectInfo[];
 	activeProject: SentinelProjectInfo | null;
 	busy: boolean;
+	/** Proxy profiles and the default, for the row dialog. */
+	proxyConfig: SentinelProxyConfigView;
 	onCreate: (name: string) => Promise<string | null>;
 	onSwitch: (id: string) => void;
 	onRecreate: (id: string) => Promise<string | null>;
 	onRemove: (id: string, confirmName: string, scope: "container" | "data") => Promise<string | null>;
 	onStop: (id: string) => Promise<string | null>;
 	onStart: (id: string) => Promise<string | null>;
+	onSaveProxy: (id: string, proxyId: string | null | undefined, proxyNode?: string) => Promise<string | null>;
 }) {
 	/** Same reason as the sidebar picker: an older server's payload must not blank the page. */
 	const list = Array.isArray(projects) ? projects : [];
 	const [name, setName] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-	const [pendingRecreate, setPendingRecreate] = useState<string | null>(null);
-	const [pendingStop, setPendingStop] = useState<string | null>(null);
-	const pendingStopProject = list.find((project) => project.id === pendingStop) ?? null;
-	const pendingRecreateProject = list.find((project) => project.id === pendingRecreate) ?? null;
-	const pendingDeleteProject = list.find((project) => project.id === pendingDelete) ?? null;
+	/**
+	 * Which row action is waiting for confirmation. One value, not four: the menu
+	 * can only ever have one dialog open, and four parallel states is how the
+	 * dialogs went missing while the menu still set them.
+	 */
+	const [pending, setPending] = useState<{ action: ProjectRowAction; id: string } | null>(null);
+	const pendingProject = pending ? (list.find((project) => project.id === pending.id) ?? null) : null;
+	const openDialog = (action: ProjectRowAction, id: string) => setPending({ action, id });
+	/**
+	 * Whether a row action is in flight. Deliberately not the streaming flag: a
+	 * conversation being open is a reason the server refuses a stop, and it says so
+	 * — a button that is disabled for an unstated reason reads as broken.
+	 */
+	const [actionBusy, setActionBusy] = useState(false);
+
+	/**
+	 * Run one row action and close its dialog.
+	 *
+	 * A refusal closes the dialog and puts the reason in the page banner: the
+	 * banner is behind the modal, so leaving the dialog open would hide the one
+	 * thing the operator needs to see.
+	 */
+	const runAction = async (run: () => Promise<string | null>): Promise<void> => {
+		setActionBusy(true);
+		setError(null);
+		const message = await run();
+		setActionBusy(false);
+		setPending(null);
+		if (message) setError(message);
+	};
 
 	const create = async () => {
 		const trimmed = name.trim();
@@ -146,32 +174,21 @@ export function ProjectsPage({
 		else setName("");
 	};
 
-	const remove = async (project: SentinelProjectInfo, scope: "container" | "data") => {
-		setError(null);
-		const message = await onRemove(project.id, project.name, scope);
-		if (message) setError(message);
-		else setPendingDelete(null);
-	};
+	const remove = (project: SentinelProjectInfo, scope: "container" | "data") =>
+		runAction(() => onRemove(project.id, project.name, scope));
 
-	const recreate = async (project: SentinelProjectInfo) => {
-		setError(null);
-		const message = await onRecreate(project.id);
-		if (message) setError(message);
-		else setPendingRecreate(null);
-	};
+	const recreate = (project: SentinelProjectInfo) => runAction(() => onRecreate(project.id));
 
-	const stop = async (project: SentinelProjectInfo) => {
-		setError(null);
-		const message = await onStop(project.id);
-		if (message) setError(message);
-		else setPendingStop(null);
-	};
+	const stop = (project: SentinelProjectInfo) => runAction(() => onStop(project.id));
 
 	const start = async (project: SentinelProjectInfo) => {
 		setError(null);
 		const message = await onStart(project.id);
 		if (message) setError(message);
 	};
+
+	const saveProxy = (project: SentinelProjectInfo, proxyId: string | null | undefined, proxyNode?: string) =>
+		runAction(() => onSaveProxy(project.id, proxyId, proxyNode));
 
 	return (
 		<div className="page-card">
@@ -225,6 +242,23 @@ export function ProjectsPage({
 										<span className="project-cell__name">
 											{project.name}
 											{active ? <span className="tag tag-primary">{t("当前")}</span> : null}
+											{project.proxyName ? (
+												<span
+													className="tag"
+													title={
+														// The profile and the node are two facts; a pinned node is the one
+														// that decides where the traffic actually leaves.
+														project.proxyNodeName
+															? t("容器挂在自己的 sing-box 上，出网走代理「{name}」的节点「{node}」", {
+																	name: project.proxyName,
+																	node: project.proxyNodeName,
+																})
+															: t("容器挂在自己的 sing-box 上，出网走代理「{name}」", { name: project.proxyName })
+													}
+												>
+													{project.proxyNodeName ?? project.proxyName}
+												</span>
+											) : null}
 										</span>
 										<span className="project-cell__sub" title={project.container ?? undefined}>
 											<span className={`project-state ${stateDot(project)}`} title={stateHint(project)}>
@@ -259,32 +293,24 @@ export function ProjectsPage({
 												...(running
 													? [
 															{
-																label: t("停止容器"),
-																onSelect: () => {
-																	setPendingStop(project.id);
-																	setPendingRecreate(null);
-																	setPendingDelete(null);
-																},
+																label: projectRowActionLabel("stop"),
+																onSelect: () => openDialog("stop", project.id),
 															},
 														]
 													: []),
 												{
-													label: t("重建容器"),
-													onSelect: () => {
-														setPendingRecreate(project.id);
-														setPendingStop(null);
-														setPendingDelete(null);
-													},
+													label: projectRowActionLabel("proxy"),
+													onSelect: () => openDialog("proxy", project.id),
 												},
 												{
-													label: t("删除项目…"),
+													label: projectRowActionLabel("recreate"),
+													onSelect: () => openDialog("recreate", project.id),
+												},
+												{
+													label: projectRowActionLabel("delete"),
 													danger: true,
 													separatorBefore: true,
-													onSelect: () => {
-														setPendingDelete(project.id);
-														setPendingStop(null);
-														setPendingRecreate(null);
-													},
+													onSelect: () => openDialog("delete", project.id),
 												},
 											]}
 										/>
@@ -299,9 +325,21 @@ export function ProjectsPage({
 					{t("，bash 与「文件」页看到的都是它。")}
 				</p>
 				<p className="ws-panel__hint">
-					{t("容器的网络模式等创建期设置改完（设置 → 环境）后，用「重建容器」让已有项目生效；删除项目不可恢复。")}
+					{t("容器的网络模式、代理等创建期设置改完（设置 → 环境 / 「代理设置…」）后，用「重建容器」让已有项目生效；删除项目不可恢复。")}
 				</p>
 			</div>
+
+			<ProjectRowDialogs
+				action={pending?.action ?? null}
+				project={pendingProject}
+				config={proxyConfig}
+				busy={actionBusy}
+				onStop={(project) => void stop(project)}
+				onRecreate={(project) => void recreate(project)}
+				onRemove={(project, scope) => void remove(project, scope)}
+				onSaveProxy={(project, proxyId, proxyNode) => void saveProxy(project, proxyId, proxyNode)}
+				onCancel={() => setPending(null)}
+			/>
 		</div>
 	);
 }

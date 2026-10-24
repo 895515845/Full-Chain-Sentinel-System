@@ -34,6 +34,7 @@ import {
 	NotifyIcon,
 	PocIcon,
 	ProjectsIcon,
+	ProxyIcon,
 	PluginIcon,
 	RefreshIcon,
 	RenameIcon,
@@ -86,6 +87,7 @@ const MENU: { group: string; items: MenuEntry[] }[] = [
 	{
 		group: "系统",
 		items: [
+			{ page: "proxies", label: t("代理"), icon: ProxyIcon },
 			{ page: "settings.model", label: t("设置"), icon: SettingsIcon },
 			{ page: "about", label: t("关于"), icon: AboutIcon },
 		],

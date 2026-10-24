@@ -11,7 +11,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { SentinelContainerNetwork, SentinelEnvItem, SentinelEnvReport, SentinelSources } from "../types.ts";
+import type {
+	SentinelContainerNetwork,
+	SentinelEnvItem,
+	SentinelEnvReport,
+	SentinelProxyConfigView,
+	SentinelSources,
+} from "../types.ts";
 import { t } from "../i18n.ts";
 import { RefreshIcon } from "./icons.tsx";
 
@@ -126,42 +132,63 @@ const NETWORK_OPTIONS: Array<{ value: SentinelContainerNetwork; label: string; d
 ];
 
 /**
- * Network mode for new and rebuilt containers. Mounted with a key derived from the
- * saved value, like the sources form, so a save or a refresh re-seeds the choice.
+ * Container network and proxy defaults, in one card.
+ *
+ * They are one decision: a project container either uses the host/bridge network
+ * or a sidecar, and which sidecar it gets — and which image that sidecar runs —
+ * is the other half of the same question. Two cards meant two saves and two
+ * places to look when a container came up on the wrong network.
+ *
+ * The proxy fields are part of the same draft, so one 保存 commits the lot; the
+ * pull button stays separate because it is an action, not a setting.
  */
-function NetworkForm({
+function NetworkAndProxyForm({
 	initial,
 	savedAt,
+	config,
 	busy,
+	pulling,
 	onSave,
+	onPull,
 }: {
 	initial: SentinelContainerNetwork;
 	savedAt: number | null;
+	config: SentinelProxyConfigView;
 	busy: boolean;
-	onSave: (network: SentinelContainerNetwork) => void;
+	pulling: boolean;
+	onSave: (network: SentinelContainerNetwork, defaultId: string | null, image: string) => void;
+	onPull: () => void;
 }) {
-	const [draft, setDraft] = useState<SentinelContainerNetwork>(initial);
-	const dirty = draft !== initial;
+	const [network, setNetwork] = useState<SentinelContainerNetwork>(initial);
+	const [defaultId, setDefaultId] = useState<string | null>(config?.defaultId ?? null);
+	const [image, setImage] = useState(config?.image ?? "");
+	const list = Array.isArray(config?.proxies) ? config.proxies : [];
+	const dirty = network !== initial || defaultId !== (config?.defaultId ?? null) || image !== (config?.image ?? "");
 
 	return (
 		<section className="env-sources">
 			<div className="env-sources-head">
-				<h3>{t("容器网络")}</h3>
+				<h3>{t("容器网络与代理")}</h3>
 				<span className="composer-spacer" />
+				{config?.imagePresent ? (
+					<span className="env-note">{t("镜像已在本地")}</span>
+				) : (
+					<span className="env-note warn">{t("镜像不在本地")}</span>
+				)}
 				{!dirty && savedAt !== null ? <span className="env-note">{t("已保存，重建容器后生效")}</span> : null}
 				{dirty ? <span className="env-note">{t("有未保存的修改")}</span> : null}
 			</div>
 			<p className="settings-hint">
-				{t("新建项目和重建的容器用这个模式；已经在跑的容器保持原样，要到「项目」页点「重建容器」才会切换（上面「项目容器」那一项会写明它们现在用的是哪个）。")}
+				{t("新建项目和重建的容器用这里的设置；已经在跑的容器保持原样，要到「项目」页点「重建容器」才会切换（下面「项目容器」那一项会写明它们现在用的是哪个）。")}
 			</p>
 			<div className="env-network-options">
 				{NETWORK_OPTIONS.map((option) => (
-					<label key={option.value} className={draft === option.value ? "selected" : undefined}>
+					<label key={option.value} className={network === option.value ? "selected" : undefined}>
 						<input
 							type="radio"
 							name="container-network"
-							checked={draft === option.value}
-							onChange={() => setDraft(option.value)}
+							checked={network === option.value}
+							onChange={() => setNetwork(option.value)}
 							disabled={busy}
 						/>
 						<span className="env-network-label">{option.label}</span>
@@ -169,9 +196,40 @@ function NetworkForm({
 					</label>
 				))}
 			</div>
+			<p className="settings-hint">
+				{t("没有单独选过代理的项目跟这里选的走；新建项目时也可以单独指定。选「不使用」时容器直接用宿主机的网络。")}
+			</p>
+			<div className="proxy-settings-row">
+				<label className="proxy-field">
+					<span>{t("默认代理")}</span>
+					<select value={defaultId ?? ""} onChange={(event) => setDefaultId(event.target.value || null)}>
+						<option value="">{t("不使用（新项目默认直连）")}</option>
+						{list.map((proxy) => (
+							<option key={proxy.id} value={proxy.id}>
+								{proxy.name}
+							</option>
+						))}
+					</select>
+				</label>
+				<label className="proxy-field proxy-field--wide">
+					<span>{t("sidecar 镜像")}</span>
+					<input value={image} spellCheck={false} onChange={(event) => setImage(event.target.value)} />
+				</label>
+				<button type="button" className="ghost small" disabled={busy || pulling} onClick={onPull}>
+					{pulling ? t("拉取中…") : t("拉取镜像")}
+				</button>
+			</div>
+			<p className="settings-hint">
+				{t("镜像名国内拉不动 ghcr.io 时换成可达的镜像源；改完要重新拉取一次。")}
+			</p>
 			<div className="env-source-actions">
 				<span className="composer-spacer" />
-				<button type="button" className="primary" onClick={() => onSave(draft)} disabled={busy || !dirty}>
+				<button
+					type="button"
+					className="primary"
+					onClick={() => onSave(network, defaultId, image)}
+					disabled={busy || !dirty}
+				>
 					{t("保存")}
 				</button>
 			</div>
@@ -223,8 +281,11 @@ export function EnvironmentPanel({
 	onAbortBuild,
 	onSaveSources,
 	sourcesSavedAt,
-	onSaveContainerNetwork,
-	containerNetworkSavedAt,
+	networkSavedAt,
+	proxyConfig,
+	pullingImage,
+	onSaveNetworkAndProxy,
+	onPullProxyImage,
 }: {
 	report: SentinelEnvReport | null;
 	building: boolean;
@@ -234,8 +295,13 @@ export function EnvironmentPanel({
 	onAbortBuild: () => void;
 	onSaveSources: (sources: SentinelSources) => void;
 	sourcesSavedAt: number | null;
-	onSaveContainerNetwork: (network: SentinelContainerNetwork) => void;
-	containerNetworkSavedAt: number | null;
+	/** When the network/proxy settings were last saved, for the "saved" note. */
+	networkSavedAt: number | null;
+	/** Profiles and the sidecar image, which the same card edits. */
+	proxyConfig: SentinelProxyConfigView;
+	pullingImage: boolean;
+	onSaveNetworkAndProxy: (network: SentinelContainerNetwork, defaultId: string | null, image: string) => void;
+	onPullProxyImage: () => void;
 }) {
 	const [confirming, setConfirming] = useState(false);
 	const [copyNote, setCopyNote] = useState<string | null>(null);
@@ -344,12 +410,15 @@ export function EnvironmentPanel({
 				onSave={onSaveSources}
 			/>
 
-			<NetworkForm
-				key={report.containerNetwork}
+			<NetworkAndProxyForm
+				key={`${report.containerNetwork}|${proxyConfig?.defaultId ?? ""}|${proxyConfig?.image ?? ""}`}
 				initial={report.containerNetwork}
-				savedAt={containerNetworkSavedAt}
+				savedAt={networkSavedAt}
+				config={proxyConfig}
 				busy={building}
-				onSave={onSaveContainerNetwork}
+				pulling={pullingImage}
+				onSave={onSaveNetworkAndProxy}
+				onPull={onPullProxyImage}
 			/>
 
 			{building || buildLog.length > 0 ? (

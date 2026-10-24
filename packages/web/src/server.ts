@@ -39,6 +39,7 @@ import { guessMimeType } from "./files.ts";
 import { getServerLanguage, setServerLanguage, t } from "./i18n.ts";
 import { IosGateway } from "./ios-gateway.ts";
 import { readProviderModelConfig } from "./model-config.ts";
+import { DEFAULT_TEST_URL } from "./node-test.ts";
 import {
 	deletePreset,
 	exportFileName,
@@ -51,12 +52,14 @@ import {
 } from "./presets.ts";
 import {
 	addProject,
+	clearProxyFromProjects,
 	ensureProjectReady,
 	listProjects,
 	recreateProject,
 	removeProject,
 	resolveStartupProject,
 	setLastActiveProject,
+	setProjectProxy,
 	startProject,
 	stopProject,
 } from "./projects.ts";
@@ -64,9 +67,13 @@ import type {
 	SentinelClientMessage,
 	SentinelEnvReport,
 	SentinelProjectInfo,
+	SentinelProxy,
+	SentinelProxyConfigView,
 	SentinelServerMessage,
 } from "./protocol.ts";
+import { switchProjectNode } from "./proxy-switch.ts";
 import { VulnReviewer } from "./reviewer.ts";
+import { SubscriptionScheduler } from "./subscription-scheduler.ts";
 import { readUiConfig, writeUiConfig } from "./ui-config.ts";
 import type { WorkerSession } from "./worker.ts";
 
@@ -94,7 +101,22 @@ import { getOfficialPlugin, listOfficialPlugins } from "./official-plugins.ts";
 import { readPluginPackage } from "./plugin-package.ts";
 import { effectivePluginHosts } from "./plugin-store.ts";
 import { POC_IMPORT_MAX_BYTES, PocImportManager } from "./poc-import.ts";
+import {
+	buildSingboxConfig,
+	DEFAULT_SINGBOX_IMAGE,
+	deleteProxy,
+	proxyConfigView,
+	readProxies,
+	refreshProxySubscription,
+	resolveProjectProxy,
+	saveProxy,
+	setDefaultProxy,
+	setProxyImage,
+	setProxyNode,
+	testProxyNodes,
+} from "./proxy.ts";
 import { SentinelRuntime } from "./sentinel-session.ts";
+import { checkProxyProfile, hasSingboxImage, pullSingboxImage } from "./singbox.ts";
 import { EMPTY_SOURCES, normalizeSources, readSources, writeSources } from "./sources.ts";
 import { storeUpload } from "./upload.ts";
 
@@ -438,6 +460,17 @@ export async function startSentinelServer(
 	const pocImports = new PocImportManager((file, onProgress, signal) =>
 		runtime.importPocBytes([file], { onProgress, signal }),
 	);
+	/**
+	 * Refreshes subscriptions whose interval has elapsed. It pushes the new config
+	 * with `push: true`: the page did not ask for it, so it must not release a form
+	 * that is waiting for its own answer.
+	 */
+	const subscriptionScheduler = agentDir
+		? new SubscriptionScheduler(agentDir, () => {
+				void proxyView().then((config) => broadcast({ type: "proxy_config", config, push: true }));
+			})
+		: undefined;
+	subscriptionScheduler?.start();
 
 	/**
 	 * Docker environment state. The check runs once at startup and on demand; every
@@ -655,17 +688,32 @@ export async function startSentinelServer(
 	async function projectInfos(): Promise<SentinelProjectInfo[]> {
 		if (!agentDir) return [];
 		const states = await containerStates();
-		return listProjects(agentDir).projects.map(({ id, name, workDir, container, manualStop }) => ({
-			id,
-			name,
-			cwd: workDir,
-			container,
-			state: states.get(container) ?? "missing",
-			manualStop: manualStop === true,
-			sessionCount: runtime.countProjectSessions(workDir),
-			vulnCount: runtime.countProjectVulns(id),
-			gateCount: runtime.countProjectGates(id),
-		}));
+		const proxies = readProxies(agentDir);
+		return listProjects(agentDir).projects.map(({ id, name, workDir, container, manualStop, proxyId, proxyNode }) => {
+			const wanted = proxyId === undefined ? proxies.defaultId : proxyId;
+			const profile = proxies.proxies.find((entry) => entry.id === wanted);
+			// The node the row shows is the one that will actually be used: a pinned
+			// node the subscription dropped resolves to the profile's own choice, the
+			// same way the sidecar's configuration resolves it.
+			const nodes = profile?.mode === "subscription" ? profile.nodes : [];
+			const chosen =
+				nodes.find((node) => node.tag === proxyNode) ?? nodes.find((node) => node.tag === profile?.nodeTag);
+			return {
+				id,
+				name,
+				cwd: workDir,
+				container,
+				state: states.get(container) ?? "missing",
+				manualStop: manualStop === true,
+				sessionCount: runtime.countProjectSessions(workDir),
+				vulnCount: runtime.countProjectVulns(id),
+				gateCount: runtime.countProjectGates(id),
+				proxyId,
+				proxyName: profile?.name ?? null,
+				proxyNode,
+				proxyNodeName: nodes.length > 0 ? (chosen?.name ?? null) : null,
+			};
+		});
 	}
 
 	/**
@@ -697,6 +745,44 @@ export async function startSentinelServer(
 		const view = { type: "sessions", sessions } satisfies SentinelServerMessage;
 		if (socket) sendTo(socket, view);
 		else broadcast(view);
+	}
+
+	/** The 代理 page's view, with the image's local presence resolved. */
+	async function proxyView(): Promise<SentinelProxyConfigView> {
+		if (!agentDir) {
+			return {
+				proxies: [],
+				defaultId: null,
+				image: DEFAULT_SINGBOX_IMAGE,
+				imagePresent: false,
+				testUrl: DEFAULT_TEST_URL,
+			};
+		}
+		return proxyConfigView(agentDir, await hasSingboxImage(readProxies(agentDir).image));
+	}
+
+	/**
+	 * `sing-box check` on one saved profile, or undefined when it passes. Skipped
+	 * when the image is not local: "could not check" is not a failure, and the page
+	 * already reports the missing image.
+	 */
+	async function validateProfile(profile: SentinelProxy): Promise<string | undefined> {
+		if (!agentDir) return undefined;
+		const settings = resolveProjectProxy(agentDir, profile.id);
+		if (!settings) return undefined;
+		const built = buildSingboxConfig(settings);
+		if (built.error) return built.error;
+		if (!built.config) return t("配置生成失败");
+		if (!(await hasSingboxImage(settings.image))) return undefined;
+		const checked = await checkProxyProfile(settings.image, built.config, agentDir);
+		return checked.ok ? undefined : t("sing-box 校验未通过：{error}", { error: checked.error ?? "" });
+	}
+
+	/** Everything a proxy change touches: the page, the project rows, the checks. */
+	async function afterProxyChange(): Promise<void> {
+		await broadcastProjects();
+		await ensureEnvironment(true);
+		broadcastEnvironment();
 	}
 
 	async function broadcastProjects(): Promise<void> {
@@ -1173,6 +1259,11 @@ export async function startSentinelServer(
 		if (agentDir) sendTo(socket, { type: "asset_config", config: runtime.getAssetConfig() });
 		if (agentDir) sendTo(socket, { type: "websearch_config", config: runtime.getWebSearchConfig() });
 		if (agentDir) sendTo(socket, { type: "mcp_servers", config: runtime.getMcpServers() });
+		// The 代理 page reads this rather than the environment report, so it is pushed
+		// on connect like the other pages that own their configuration.
+		if (agentDir) {
+			void proxyView().then((config) => sendTo(socket, { type: "proxy_config", config }));
+		}
 	});
 
 	async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -1542,6 +1633,214 @@ export async function startSentinelServer(
 						return;
 					}
 					sendTo(socket, { type: "container_network_saved", network } satisfies SentinelServerMessage);
+					await ensureEnvironment(true);
+					broadcastEnvironment();
+					return;
+				}
+				case "get_proxy_config": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法读取代理"));
+						return;
+					}
+					sendTo(socket, { type: "proxy_config", config: await proxyView() } satisfies SentinelServerMessage);
+					return;
+				}
+				case "save_proxy": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法保存代理"));
+						return;
+					}
+					const saved = saveProxy(agentDir, message.proxy);
+					if (saved.error || !saved.proxy) {
+						sendTo(socket, {
+							type: "proxy_config",
+							config: await proxyView(),
+							error: saved.error ?? t("代理保存失败"),
+						} satisfies SentinelServerMessage);
+						return;
+					}
+					// A subscription is read once, here, so that writing a sidecar never
+					// depends on the provider being reachable. A URL that was just entered
+					// or changed has no nodes yet, which is what `updatedAt === 0` says.
+					let fetched: string | undefined;
+					if (saved.proxy.mode === "subscription" && saved.proxy.subscription?.updatedAt === 0) {
+						fetched = (await refreshProxySubscription(agentDir, saved.proxy.id)).error;
+					}
+					// A node sing-box refuses is worth catching here rather than at the
+					// first container rebuild, when the operator has moved on. The profile
+					// stays saved either way: the point is to say what to fix.
+					const stored = readProxies(agentDir).proxies.find((entry) => entry.id === saved.proxy?.id);
+					const error = fetched ?? (stored ? await validateProfile(stored) : undefined);
+					sendTo(socket, {
+						type: "proxy_config",
+						config: await proxyView(),
+						error,
+					} satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "delete_proxy": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法删除代理"));
+						return;
+					}
+					const removed = deleteProxy(agentDir, message.id);
+					if (removed.error) {
+						sendTo(socket, {
+							type: "proxy_config",
+							config: await proxyView(),
+							error: removed.error,
+						} satisfies SentinelServerMessage);
+						return;
+					}
+					// Projects that pointed at it follow the default again; keeping the id
+					// would leave them proxied by nothing at all.
+					clearProxyFromProjects(agentDir, message.id);
+					sendTo(socket, { type: "proxy_config", config: await proxyView() } satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "refresh_proxy_subscription": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法刷新订阅"));
+						return;
+					}
+					const refreshed = await refreshProxySubscription(agentDir, message.id);
+					const error = refreshed.error ?? (refreshed.proxy ? await validateProfile(refreshed.proxy) : undefined);
+					sendTo(socket, {
+						type: "proxy_config",
+						config: await proxyView(),
+						error,
+					} satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "set_proxy_node": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法切换节点"));
+						return;
+					}
+					const switched = setProxyNode(agentDir, message.id, message.nodeTag);
+					if (switched.error || !switched.proxy) {
+						sendTo(socket, {
+							type: "proxy_config",
+							config: await proxyView(),
+							error: switched.error ?? t("节点不存在"),
+						} satisfies SentinelServerMessage);
+						return;
+					}
+					sendTo(socket, { type: "proxy_config", config: await proxyView() } satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "test_proxy_nodes": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法测速"));
+						return;
+					}
+					// The measurement runs in a throwaway container and takes seconds per
+					// node; the reply carries the results, so the page keeps its busy
+					// state until it arrives.
+					const tested = await testProxyNodes(agentDir, message.id, message.url);
+					sendTo(socket, {
+						type: "proxy_config",
+						config: await proxyView(),
+						error: tested.error,
+					} satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "switch_project_node": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法切换节点"));
+						return;
+					}
+					const target = listProjects(agentDir).projects.find((project) => project.id === message.projectId);
+					if (!target) {
+						sendError(socket, t("项目不存在"));
+						return;
+					}
+					// The switch is what makes this different from `set_project_proxy`: it
+					// talks to the running sidecar, so it takes effect now. The choice is
+					// recorded either way, so a rebuild starts on the same node.
+					const switched = await switchProjectNode(agentDir, target, message.nodeTag);
+					if (switched.error) {
+						sendError(socket, switched.error);
+						return;
+					}
+					const stored = setProjectProxy(agentDir, message.projectId, target.proxyId, message.nodeTag);
+					if (stored.error) {
+						sendError(socket, stored.error);
+						return;
+					}
+					sendTo(socket, {
+						type: "project_proxy_saved",
+						projectId: message.projectId,
+						applied: switched.applied,
+					} satisfies SentinelServerMessage);
+					await broadcastProjects();
+					return;
+				}
+				case "set_default_proxy": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法保存默认代理"));
+						return;
+					}
+					const applied = setDefaultProxy(agentDir, message.id);
+					if (applied.error) {
+						sendTo(socket, {
+							type: "proxy_config",
+							config: await proxyView(),
+							error: applied.error,
+						} satisfies SentinelServerMessage);
+						return;
+					}
+					sendTo(socket, { type: "proxy_config", config: await proxyView() } satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "set_proxy_image": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法保存代理镜像"));
+						return;
+					}
+					setProxyImage(agentDir, message.image);
+					sendTo(socket, { type: "proxy_config", config: await proxyView() } satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "pull_singbox_image": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法拉取代理镜像"));
+						return;
+					}
+					const image = readProxies(agentDir).image;
+					const result = await pullSingboxImage(image, {
+						onOutput: (chunk) => sendTo(socket, { type: "image_build_log", line: chunk.trimEnd() }),
+					});
+					sendTo(socket, {
+						type: "singbox_pull_result",
+						ok: result.ok,
+						error: result.error,
+					} satisfies SentinelServerMessage);
+					await afterProxyChange();
+					return;
+				}
+				case "set_project_proxy": {
+					if (!agentDir) {
+						sendError(socket, t("未配置配置目录，无法保存项目代理"));
+						return;
+					}
+					const saved = setProjectProxy(agentDir, message.projectId, message.proxyId, message.proxyNode);
+					if (saved.error) {
+						sendError(socket, saved.error);
+						return;
+					}
+					sendTo(socket, {
+						type: "project_proxy_saved",
+						projectId: message.projectId,
+					} satisfies SentinelServerMessage);
+					await broadcastProjects();
 					await ensureEnvironment(true);
 					broadcastEnvironment();
 					return;
@@ -1933,7 +2232,11 @@ export async function startSentinelServer(
 						sendError(socket, t("内部错误：agentDir 未初始化"));
 						return;
 					}
-					const result = await addProject(agentDir, { name: message.name });
+					const result = await addProject(agentDir, {
+						name: message.name,
+						proxyId: message.proxyId,
+						proxyNode: message.proxyNode,
+					});
 					if (result.error) {
 						sendError(socket, result.error);
 						return;
@@ -2987,6 +3290,13 @@ export async function startSentinelServer(
 						url: consoleUrl(),
 						sources: { ...EMPTY_SOURCES },
 						containerNetwork: agentDir ? readContainerNetwork(agentDir) : DEFAULT_CONTAINER_NETWORK,
+						proxies: {
+							proxies: [],
+							defaultId: null,
+							image: agentDir ? readProxies(agentDir).image : DEFAULT_SINGBOX_IMAGE,
+							imagePresent: false,
+							testUrl: DEFAULT_TEST_URL,
+						},
 					};
 				},
 			);
@@ -2994,6 +3304,7 @@ export async function startSentinelServer(
 				url: consoleUrl(),
 				environment,
 				close: () => {
+					subscriptionScheduler?.stop();
 					pocImports.close();
 					iosGateway.close();
 					engines?.dispose();

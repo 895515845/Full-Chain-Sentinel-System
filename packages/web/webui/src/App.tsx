@@ -33,6 +33,7 @@ import { type PresetImportNotice, PresetPanel } from "./components/PresetPanel.t
 import { ProjectGate } from "./components/ProjectGate.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { ProjectsPage } from "./components/ProjectsPage.tsx";
+import { ProxyPage } from "./components/ProxyPage.tsx";
 import { RunFold } from "./components/RunFold.tsx";
 import { SecurityPanel } from "./components/SecurityPanel.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
@@ -88,6 +89,8 @@ import type {
 	SentinelPocImportOutcome,
 	SentinelPocSource,
 	SentinelPocSourceSave,
+	SentinelProxyConfigView,
+	SentinelProxyInput,
 	SentinelPocStats,
 	SentinelPocSummary,
 	SentinelMcpConfigView,
@@ -123,7 +126,7 @@ import type {
 	SentinelVulnSummary,
 	SentinelVulnUpdate,
 } from "./types.ts";
-import { SENTINEL_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
+import { EMPTY_PROXY_CONFIG, SENTINEL_OFFICIAL_POC_SOURCE_ID } from "./types.ts";
 import {
 	mergePocImportOutcomes,
 	POC_UPLOAD_MAX_BYTES,
@@ -342,6 +345,22 @@ export function App() {
 	const [buildLog, setBuildLog] = useState<string[]>([]);
 	const [sourcesSavedAt, setSourcesSavedAt] = useState<number | null>(null);
 	const [containerNetworkSavedAt, setContainerNetworkSavedAt] = useState<number | null>(null);
+	const [proxyConfig, setProxyConfig] = useState<SentinelProxyConfigView | null>(null);
+	/**
+	 * The 代理 page's own action slot. Every proxy mutation answers with exactly one
+	 * `proxy_config` — carrying `error` when it was refused — so the page's form is
+	 * released by that message and not by an unrelated projects broadcast.
+	 */
+	const [proxyAction] = useState(() => new ProjectAction());
+	/** The profile whose subscription is being re-read, for the picker's button. */
+	const [refreshingProxyId, setRefreshingProxyId] = useState<string | null>(null);
+	/** The profile whose nodes are being measured, for the node dialog's button. */
+	const [testingProxyId, setTestingProxyId] = useState<string | null>(null);
+	// The page's own messages arrive before the environment check they trigger, so
+	// whichever landed last is what the 代理 page shows.
+	const proxyView = proxyConfig ?? envReport?.proxies ?? EMPTY_PROXY_CONFIG;
+	/** A `docker pull` of the sing-box image is in flight. */
+	const [pullingSingboxImage, setPullingSingboxImage] = useState(false);
 	/** Messages sent from this console, shown optimistically until the snapshot absorbs them. */
 	const [optimisticUserMessages, setOptimisticUserMessages] = useState<
 		{ text: string; imageCount: number; userCountAtSend: number }[]
@@ -863,6 +882,19 @@ export function App() {
 					if (message.building) setBuildLog([]);
 					return;
 				}
+				case "proxy_config": {
+					setProxyConfig(message.config);
+					// A scheduled refresh is a change nobody asked for: it updates the
+					// view but must not release a form that is waiting for its own answer.
+					if (message.push) return;
+					setRefreshingProxyId(null);
+					setTestingProxyId(null);
+					// The page shows the reason next to the form it came from; the action
+					// slot is what releases the button that is waiting.
+					if (message.error) proxyAction.failed(message.error);
+					else proxyAction.succeeded();
+					return;
+				}
 				case "sources_saved": {
 					if (message.error) {
 						pushError(t("构建源保存失败：{error}", { error: message.error }));
@@ -877,6 +909,23 @@ export function App() {
 						return;
 					}
 					setContainerNetworkSavedAt(Date.now());
+					return;
+				}
+
+				case "singbox_pull_result": {
+					setPullingSingboxImage(false);
+					if (!message.ok) {
+						pushError(t("代理镜像拉取失败：{error}", { error: message.error ?? t("未知错误") }));
+						return;
+					}
+					pushError(t("代理镜像已就绪"));
+					return;
+				}
+				case "project_proxy_saved": {
+					if (message.error) {
+						pushError(t("项目代理保存失败：{error}", { error: message.error }));
+						return;
+					}
 					return;
 				}
 				case "image_build_log":
@@ -1422,7 +1471,8 @@ export function App() {
 
 	/** Create a project and resolve with the server's error message, if any. */
 	const addProject = useCallback(
-		(name: string): Promise<string | null> => projectAction.run(() => send({ type: "add_project", name })),
+		(name: string, proxyId?: string | null, proxyNode?: string): Promise<string | null> =>
+			projectAction.run(() => send({ type: "add_project", name, proxyId, proxyNode })),
 		[projectAction, send],
 	);
 
@@ -1445,6 +1495,33 @@ export function App() {
 	const startProject = useCallback(
 		(id: string): Promise<string | null> => projectAction.run(() => send({ type: "start_project", id })),
 		[projectAction, send],
+	);
+
+	/**
+	 * Store a project's proxy choice, switching the running sidecar when only the
+	 * node changed.
+	 *
+	 * A different profile means a different configuration and therefore a new
+	 * sidecar, which the project only gets on a rebuild; the same profile with a
+	 * different node is a `PUT` to the sidecar's control port, so it takes effect
+	 * without touching the container.
+	 */
+	const saveProjectProxy = useCallback(
+		(id: string, proxyId: string | null | undefined, proxyNode?: string): Promise<string | null> => {
+			const project = projects.find((entry) => entry.id === id);
+			const sameProfile = project !== undefined && project.proxyId === proxyId;
+			if (sameProfile && typeof proxyId === "string" && proxyNode !== undefined) {
+				return projectAction.run(() => send({ type: "switch_project_node", projectId: id, nodeTag: proxyNode }));
+			}
+			return projectAction.run(() => send({ type: "set_project_proxy", projectId: id, proxyId, proxyNode }));
+		},
+		[projectAction, projects, send],
+	);
+
+	/** The proxy page's own actions all answer with the whole config. */
+	const runProxyAction = useCallback(
+		(run: () => void, timeoutMs = 60000): Promise<string | null> => proxyAction.run(run, timeoutMs),
+		[proxyAction],
 	);
 
 	const pluginPages = useMemo<PluginNavEntry[]>(() => {
@@ -1691,6 +1768,11 @@ export function App() {
 			case "projects":
 				send({ type: "list_projects" });
 				send({ type: "list_sessions" });
+				break;
+			case "proxies":
+				// The page's own view, not the environment report: opening it must not
+				// depend on a Docker check having run.
+				send({ type: "get_proxy_config" });
 				break;
 			case "vulns":
 				send({ type: "list_vulns", filters: vulnFilters });
@@ -2136,9 +2218,11 @@ export function App() {
 						projects={projects}
 						activeProject={snapshot?.project ?? null}
 						streaming={streaming}
+						proxyConfig={proxyView}
 						onSwitch={(id) => send({ type: "switch_project", id })}
 						onAdd={addProject}
 						onRemove={removeProject}
+						onSetProxy={saveProjectProxy}
 					/>
 				}
 			/>
@@ -2539,12 +2623,33 @@ export function App() {
 							projects={projects}
 							activeProject={snapshot?.project ?? null}
 							busy={streaming}
+							proxyConfig={proxyView}
 							onCreate={addProject}
 							onSwitch={(id) => send({ type: "switch_project", id })}
 							onRecreate={recreateProject}
 							onRemove={removeProject}
 							onStop={stopProject}
 							onStart={startProject}
+							onSaveProxy={saveProjectProxy}
+						/>
+					) : page === "proxies" ? (
+						<ProxyPage
+							config={proxyView}
+							projects={projects}
+							busy={streaming}
+							onSave={(input) => runProxyAction(() => send({ type: "save_proxy", proxy: input }))}
+							onDelete={(id) => runProxyAction(() => send({ type: "delete_proxy", id }))}
+							onTestNodes={(id, url) => {
+								setTestingProxyId(id);
+								return runProxyAction(() => send({ type: "test_proxy_nodes", id, url }), 180000);
+							}}
+							refreshingId={refreshingProxyId}
+							onRefreshSubscription={(id) => {
+								setRefreshingProxyId(id);
+								return runProxyAction(() => send({ type: "refresh_proxy_subscription", id }), 60000);
+							}}
+							onSetNode={(id, nodeTag) => runProxyAction(() => send({ type: "set_proxy_node", id, nodeTag }))}
+							testingId={testingProxyId}
 						/>
 					) : page === "vulns" ? (
 						<VulnPage
@@ -2923,8 +3028,20 @@ export function App() {
 									buildLog={buildLog}
 									sourcesSavedAt={sourcesSavedAt}
 									onSaveSources={(sources) => send({ type: "set_sources", sources })}
-									containerNetworkSavedAt={containerNetworkSavedAt}
-									onSaveContainerNetwork={(network) => send({ type: "set_container_network", network })}
+									networkSavedAt={containerNetworkSavedAt}
+									onSaveNetworkAndProxy={(network, defaultId, image) => {
+										// One button, three settings, and only the ones that changed:
+										// each is a separate message so a failure names one thing.
+										if (network !== envReport?.containerNetwork) {
+											send({ type: "set_container_network", network });
+										}
+										if (defaultId !== proxyView.defaultId) {
+											send({ type: "set_default_proxy", id: defaultId });
+										}
+										if (image !== proxyView.image) {
+											send({ type: "set_proxy_image", image });
+										}
+									}}
 									onRefresh={() => send({ type: "check_environment" })}
 									onBuild={() => {
 										setBuildLog([]);
@@ -2932,6 +3049,12 @@ export function App() {
 										send({ type: "build_image" });
 									}}
 									onAbortBuild={() => send({ type: "abort_image_build" })}
+									proxyConfig={proxyView}
+									pullingImage={pullingSingboxImage}
+									onPullProxyImage={() => {
+										setPullingSingboxImage(true);
+										send({ type: "pull_singbox_image" });
+									}}
 								/>
 							</div>
 						</div>

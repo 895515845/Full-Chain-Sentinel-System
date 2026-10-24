@@ -536,6 +536,20 @@ export interface SentinelProjectInfo {
 	vulnCount?: number;
 	/** Gatekeeper judgments recorded for this project, for the same reason. */
 	gateCount?: number;
+	/**
+	 * Proxy this project's container is created with: absent follows the default
+	 * on the 代理 page, `null` means no proxy, an id names a profile.
+	 */
+	proxyId?: string | null;
+	/** Name of the profile that id resolves to, for the row's tag. */
+	proxyName?: string | null;
+	/**
+	 * The node of that profile's subscription, when the project pins one. Absent
+	 * follows the profile's own choice, which is what most projects do.
+	 */
+	proxyNode?: string;
+	/** Name of the node that will actually be used, resolved; null when there is none. */
+	proxyNodeName?: string | null;
 }
 
 /** One directory entry in the container work directory. */
@@ -1549,7 +1563,8 @@ export type SentinelClientMessage =
 	| { type: "test_notify"; config: SentinelNotifyConfig; channel?: SentinelNotifyChannel }
 	| { type: "get_stats" }
 	| { type: "list_projects" }
-	| { type: "add_project"; name: string }
+	/** `proxyId` absent follows the default on the 代理 page, `null` means none. */
+	| { type: "add_project"; name: string; proxyId?: string | null; proxyNode?: string }
 	/** What a removal covers: the container only, or the project and its data. */
 	| { type: "remove_project"; id: string; confirmName: string; scope: "container" | "data" }
 	/** Stop the container deliberately: it stays, but using the project needs an explicit start. */
@@ -1597,6 +1612,26 @@ export type SentinelClientMessage =
 	| { type: "abort_image_build" }
 	| { type: "set_sources"; sources: SentinelSources }
 	| { type: "set_container_network"; network: SentinelContainerNetwork }
+	| { type: "get_proxy_config" }
+	/** Create or update one profile; `id` absent creates. */
+	| { type: "save_proxy"; proxy: SentinelProxyInput }
+	/** Re-read one profile's subscription: fetch, parse, cache. */
+	| { type: "refresh_proxy_subscription"; id: string }
+	/** Which node a subscription profile should use. */
+	| { type: "set_proxy_node"; id: string; nodeTag: string }
+	/** Measure every node of one subscription against a URL. */
+	| { type: "test_proxy_nodes"; id: string; url: string }
+	| { type: "delete_proxy"; id: string }
+	/** Which profile a project without a choice of its own follows; null = none. */
+	| { type: "set_default_proxy"; id: string | null }
+	/** The sing-box image every sidecar runs. */
+	| { type: "set_proxy_image"; image: string }
+	/** Pull that image. */
+	| { type: "pull_singbox_image" }
+	/** Set or clear one project's proxy; `proxyId` absent clears it. */
+	| { type: "set_project_proxy"; projectId: string; proxyId?: string | null; proxyNode?: string }
+	/** Move a running project's node now, and record the choice for later. */
+	| { type: "switch_project_node"; projectId: string; nodeTag: string }
 	| { type: "get_asset_config" }
 	/** Save one platform's switch and key; the key is write-only. */
 	| { type: "save_asset_platform"; platform: SentinelAssetPlatformInput }
@@ -1894,6 +1929,18 @@ export type SentinelServerMessage =
 	| { type: "image_build_result"; ok: boolean; error?: string }
 	| { type: "sources_saved"; sources: SentinelSources; error?: string }
 	| { type: "container_network_saved"; network: SentinelContainerNetwork; error?: string }
+	/**
+	 * The whole proxy configuration. `error` is the reason the request that
+	 * produced it was refused; `push` marks a change the console did not ask for
+	 * (a scheduled subscription refresh), which must not release a pending form.
+	 */
+	| { type: "proxy_config"; config: SentinelProxyConfigView; error?: string; push?: boolean }
+	| { type: "singbox_pull_result"; ok: boolean; error?: string }
+	/**
+	 * A project's proxy choice was stored. `applied` says whether a running
+	 * sidecar took it now, as opposed to it waiting for the next rebuild.
+	 */
+	| { type: "project_proxy_saved"; projectId: string; error?: string; applied?: boolean }
 	| { type: "asset_config"; config: SentinelAssetConfigView }
 	| { type: "asset_test_result"; platform: SentinelAssetPlatform; result: SentinelTestResult }
 	| { type: "websearch_config"; config: SentinelWebSearchConfigView }
@@ -2300,14 +2347,156 @@ export interface SentinelEnvReport {
 	sources: SentinelSources;
 	/** Network mode new and rebuilt project containers are created with. */
 	containerNetwork: SentinelContainerNetwork;
+	/** Proxy profiles as configured, for the environment page's summary. */
+	proxies: SentinelProxyConfigView;
 }
 
 /**
  * How a project container joins the network. `host` shares the host's namespace,
  * so listeners inside the container are reachable from the target and `127.0.0.1`
  * means the host; `bridge` keeps Docker's own address and publishes nothing.
+ *
+ * A project with a proxy gets neither: its container shares the network namespace
+ * of that project's sing-box sidecar, so every packet takes the tunnel.
  */
 export type SentinelContainerNetwork = "host" | "bridge";
+
+/**
+ * How the proxy is described. `off` runs no sidecar at all; `simple` covers a
+ * SOCKS5 or HTTP endpoint (a local Clash, a VPS); `json` takes a sing-box
+ * outbound pasted by the operator; `subscription` takes a URL whose nodes are
+ * fetched, parsed and cached.
+ */
+export type SentinelProxyMode = "off" | "simple" | "json" | "subscription";
+
+/** A SOCKS5 or HTTP endpoint, the whole of what `simple` mode needs. */
+export interface SentinelSimpleProxy {
+	type: "socks5" | "http";
+	server: string;
+	port: number;
+	username: string;
+	password: string;
+	/** HTTPS upstream for `http`; ignored by SOCKS5. */
+	tls: boolean;
+}
+
+/**
+ * One node of a subscription, already translated into a sing-box outbound.
+ *
+ * Stored, not recomputed: the console must be able to write a sidecar
+ * configuration on a machine that cannot reach the provider, and the parse is a
+ * guess that the operator may want to correct by hand later.
+ */
+export interface SentinelProxyNode {
+	/** Unique inside the profile; it is what the selector and the route name. */
+	tag: string;
+	/** What the provider called it, for the picker. */
+	name: string;
+	/** The sing-box outbound type, for the picker. */
+	protocol: string;
+	/** The outbound itself, already tagged. */
+	outbound: Record<string, unknown>;
+	/**
+	 * Round trip through this node to the test URL, in milliseconds; null when the
+	 * request did not come back. Absent until the node has been tested.
+	 */
+	latencyMs?: number | null;
+	/** When `latencyMs` was measured. */
+	testedAt?: number;
+}
+
+/** Where a subscription profile's nodes come from, and how the last read went. */
+export interface SentinelProxySubscription {
+	url: string;
+	/** Sent as `User-Agent`; providers switch format on it. */
+	userAgent: string;
+	/** When the nodes were last read successfully; 0 means never. */
+	updatedAt: number;
+	/** Why the last read failed, or null when it did not. */
+	error: string | null;
+	/** Re-read every N hours; 0 turns the timer off. */
+	intervalHours: number;
+}
+
+/**
+ * Effective proxy settings for one project: what the sing-box configuration is
+ * generated from. Never stored — a project points at a profile, and the console
+ * resolves the two together.
+ */
+export interface SentinelProxySettings {
+	mode: SentinelProxyMode;
+	simple: SentinelSimpleProxy;
+	/** sing-box outbound JSON: one object, or an array with one tagged `proxy`. */
+	outbound: string;
+	/** Cached nodes of a subscription profile. */
+	nodes: SentinelProxyNode[];
+	/** Which of `nodes` the generated selector defaults to. */
+	nodeTag: string;
+	/** Image the sidecar runs; empty means the built-in default. */
+	image: string;
+	/** URL the generated `urltest` group uses to rank nodes. */
+	testUrl: string;
+	/**
+	 * Send private destinations (RFC1918, loopback, link-local) out the direct
+	 * path. On by default: a LAN target is not reachable through a remote exit.
+	 */
+	routePrivateDirect: boolean;
+}
+
+/**
+ * One named proxy, managed on the 代理 page. A profile always describes something
+ * that runs — "no proxy" is a project's choice, not a profile.
+ */
+export interface SentinelProxy {
+	id: string;
+	name: string;
+	mode: Exclude<SentinelProxyMode, "off">;
+	simple: SentinelSimpleProxy;
+	outbound: string;
+	/** Present when `mode` is `subscription`. */
+	subscription: SentinelProxySubscription | null;
+	/** Cached nodes; only a subscription profile has any. */
+	nodes: SentinelProxyNode[];
+	/** Which node the generated selector defaults to. */
+	nodeTag: string;
+	/** Why the nodes of the last parse were skipped, for the picker. */
+	skipped: { name: string; reason: string }[];
+	routePrivateDirect: boolean;
+	createdAt: number;
+}
+
+/** Everything the 代理 page renders. */
+export interface SentinelProxyConfigView {
+	proxies: SentinelProxy[];
+	/**
+	 * Proxy a project follows when it has no choice of its own; null means new
+	 * projects start without one.
+	 */
+	defaultId: string | null;
+	/** Image every sidecar runs, whatever profile it uses. */
+	image: string;
+	/** Whether that image is present locally. */
+	imagePresent: boolean;
+	/** URL the batch latency test fetches through each node. */
+	testUrl: string;
+}
+
+/** One profile as the page saves it; `id` absent creates a new one. */
+export interface SentinelProxyInput {
+	id?: string;
+	name: string;
+	mode: Exclude<SentinelProxyMode, "off">;
+	simple: SentinelSimpleProxy;
+	outbound: string;
+	/** Subscription URL and user agent; the nodes themselves are fetched here. */
+	subscriptionUrl: string;
+	subscriptionUserAgent: string;
+	/** Re-read every N hours; 0 turns the timer off. */
+	subscriptionIntervalHours: number;
+	/** Which cached node the profile should use; empty picks the first. */
+	nodeTag: string;
+	routePrivateDirect: boolean;
+}
 
 /** A doctrine as the wire shows it (same shape as the stored one). */
 export interface SentinelDoctrineView {

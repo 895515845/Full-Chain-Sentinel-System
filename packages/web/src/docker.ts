@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { embeddedDockerfile } from "./assets.ts";
-import { containerNetworkFlags } from "./container-network.ts";
+import { containerNetworkFlags, sidecarNetworkFlags } from "./container-network.ts";
 import { t } from "./i18n.ts";
 import type { SentinelContainerNetwork, SentinelSources } from "./protocol.ts";
 import { buildArgs } from "./sources.ts";
@@ -214,11 +214,16 @@ export function execInContainer(
  * Create the project container: detached, mounted, and joined to the network the
  * operator picked on the environment page (host by default, so listeners inside it
  * are reachable and the real LAN is what the tools see).
+ *
+ * `sidecar` names a sing-box container whose network namespace this container
+ * takes instead. The sidecar has to be running first — Docker refuses to create
+ * or start a container against a namespace that is not up.
  */
 export async function createContainer(
 	containerName: string,
 	workDir: string,
 	network: SentinelContainerNetwork,
+	sidecar?: string,
 ): Promise<{ ok: boolean; error?: string }> {
 	const mounts = ["-v", `${workDir}:/work`];
 	// The system prompt hands the model the host working directory (the session cwd),
@@ -238,13 +243,43 @@ export async function createContainer(
 		"-d",
 		"--name",
 		containerName,
-		...containerNetworkFlags(network),
+		...(sidecar ? sidecarNetworkFlags(sidecar) : containerNetworkFlags(network)),
 		...mounts,
 		"-w",
 		"/work",
 		SENTINEL_IMAGE,
 	]);
-	return result.code === 0 ? { ok: true } : { ok: false, error: result.stderr.trim() };
+	if (result.code !== 0) return { ok: false, error: result.stderr.trim() };
+	if (sidecar) await alignHostAlias(containerName, sidecar);
+	return { ok: true };
+}
+
+/**
+ * Make `host.docker.internal` resolvable inside a proxied container.
+ *
+ * Docker rejects `--add-host` together with `--network container:` ("conflicting
+ * options: custom host-to-IP mapping and the network mode"), so the alias cannot
+ * be baked into the container's configuration the way the host and bridge modes do
+ * it. Docker Desktop's embedded DNS answers the name on its own; on a plain Linux
+ * engine nothing does, and the frida tunnel would have no name to dial. The line
+ * is appended only when the name does not already resolve, and has to be appended
+ * again after every start, because Docker rewrites `/etc/hosts` each time.
+ */
+export async function alignHostAlias(containerName: string, sidecar: string): Promise<void> {
+	const gateway = await runDocker([
+		"inspect",
+		"-f",
+		"{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}",
+		sidecar,
+	]);
+	const address = gateway.stdout.trim();
+	if (gateway.code !== 0 || !address) return;
+	await execInContainer(
+		containerName,
+		'getent hosts host.docker.internal >/dev/null 2>&1 || printf "%s host.docker.internal\\n" "$1" >> /etc/hosts',
+		[address],
+		{ timeoutMs: 20000 },
+	);
 }
 
 /** Start the container if it is not running (idempotent). */
@@ -268,23 +303,30 @@ export async function stopContainer(containerName: string): Promise<{ ok: boolea
  * "Gone" is a normal state now: removing just the container (or rebuilding it)
  * leaves the project registered with its work directory, and the next explicit
  * start recreates the container from the current settings.
+ *
+ * A sidecar has to be up before this is called: Docker cannot start a container
+ * against a network namespace that is not running, so the caller starts the
+ * sidecar first.
  */
 export async function ensureContainer(
 	containerName: string,
 	workDir: string,
 	network: SentinelContainerNetwork,
+	sidecar?: string,
 ): Promise<{ ok: boolean; created: boolean; error?: string }> {
 	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
 	if (state.code !== 0) {
 		if (!(await hasImage())) {
 			return { ok: false, created: false, error: t("工具镜像尚未构建，请先构建镜像后再启动容器") };
 		}
-		const created = await createContainer(containerName, workDir, network);
+		const created = await createContainer(containerName, workDir, network, sidecar);
 		return { ok: created.ok, created: true, error: created.error };
 	}
 	if (state.stdout.trim() === "true") return { ok: true, created: false };
 	const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
-	return { ok: start.code === 0, created: false, error: start.code === 0 ? undefined : start.stderr.trim() };
+	if (start.code !== 0) return { ok: false, created: false, error: start.stderr.trim() };
+	if (sidecar) await alignHostAlias(containerName, sidecar);
+	return { ok: true, created: false };
 }
 
 /**

@@ -23,12 +23,22 @@ const SCRIPT = `#!/bin/sh
 # what the console asked for (e.g. the flags a container was created with).
 [ -n "\${SENTINEL_FAKE_DOCKER_LOG:-}" ] && printf '%s\\n' "$*" >> "$SENTINEL_FAKE_DOCKER_LOG"
 state_dir="\${SENTINEL_FAKE_DOCKER_STATE:-}"
+# What run/start recorded beyond the state itself: the network a container was
+# created on and when it last started. Kept in a dot directory so \`ps\` (which
+# globs the state directory) never mistakes them for containers.
+meta="$state_dir/.meta"
 
 # Record a container's state: running, stopped, or removed.
 mark() {
 	[ -n "$state_dir" ] || return 0
 	mkdir -p "$state_dir"
 	printf '%s' "$1" > "$state_dir/$2"
+	# Docker reports the last start time, so it only moves when it starts.
+	if [ "$1" = "running" ]; then
+		mkdir -p "$meta"
+		date -u +%Y-%m-%dT%H:%M:%SZ > "$meta/$2.started"
+	fi
+	return 0
 }
 
 # The container name is the last argument of start/stop/rm/inspect.
@@ -43,14 +53,24 @@ shift
 case "$cmd" in
 	image|build) exit 0 ;;
 	run)
-		# docker run -d --name <name> ...: remember the new container as running.
+		# docker run -d --name <name> --network <mode> ...: remember the new container
+		# as running, with the network it was created on. A container's network mode
+		# is fixed at creation, which is exactly what the console inspects for.
 		name=""
+		network=""
 		prev=""
 		for arg in "$@"; do
 			[ "$prev" = "--name" ] && name="$arg"
+			[ "$prev" = "--network" ] && network="$arg"
 			prev="$arg"
 		done
-		[ -n "$name" ] && mark running "$name"
+		if [ -n "$name" ]; then
+			mark running "$name"
+			if [ -n "$network" ]; then
+				mkdir -p "$meta"
+				printf '%s' "$network" > "$meta/$name.network"
+			fi
+		fi
 		exit 0
 		;;
 	start) mark running "$(last_arg "$@")"; exit 0 ;;
@@ -60,6 +80,53 @@ case "$cmd" in
 		target="$(last_arg "$@")"
 		state=""
 		[ -n "$state_dir" ] && [ -f "$state_dir/$target" ] && state=$(cat "$state_dir/$target")
+		format=""
+		for arg in "$@"; do
+			case "$arg" in *"{{"*) format="$arg" ;; esac
+		done
+		# The fields the console asks about that Docker answers from its own record
+		# rather than from the container's run state. Like Docker, they are only
+		# answered for a container that exists.
+		case "$format" in
+			*NetworkMode*|*StartedAt*|*".Id"*)
+				case "$state" in
+					""|removed) echo "Error: No such container: $target" >&2; exit 1 ;;
+				esac
+				;;
+		esac
+		case "$format" in
+			*NetworkMode*)
+				network="default"
+				[ -f "$meta/$target.network" ] && network=$(cat "$meta/$target.network")
+				case "$format" in
+					*"State.Status"*)
+						case "$state" in
+							stopped) printf 'exited %s\\n' "$network" ;;
+							removed|"") printf ' %s\\n' "$network" ;;
+							*) printf 'running %s\\n' "$network" ;;
+						esac
+						;;
+					*) printf '%s\\n' "$network" ;;
+				esac
+				exit 0
+				;;
+			*StartedAt*)
+				if [ -f "$meta/$target.started" ]; then
+					cat "$meta/$target.started"
+					printf '\\n'
+				else
+					printf '0001-01-01T00:00:00Z\\n'
+				fi
+				exit 0
+				;;
+			*".Id"*)
+				# The name stands in for the id: inspect of the owner and the network
+				# mode of the container that joined it then agree, the way Docker's
+				# full ids do.
+				printf '%s\\n' "$target"
+				exit 0
+				;;
+		esac
 		case "$state" in
 			running) echo "true"; exit 0 ;;
 			stopped) echo "false"; exit 0 ;;
@@ -97,6 +164,10 @@ case "$cmd" in
 		# it can be tested without touching the host's /opt.
 		sentinel="\${SENTINEL_FAKE_SENTINEL_DIR:-/opt/sentinel}"
 		script=$(printf '%s' "$script" | sed "s#/opt/sentinel#\${sentinel}#g")
+		# A proxied container has host.docker.internal appended to /etc/hosts; on the
+		# host that is a real system file, so the path is redirected as well.
+		hosts="\${SENTINEL_FAKE_HOSTS:-/etc/hosts}"
+		script=$(printf '%s' "$script" | sed "s#/etc/hosts#\${hosts}#g")
 		# Rotate the positional parameters, rewriting each one.
 		count=$#
 		i=0
@@ -115,6 +186,8 @@ esac
 export interface FakeDocker {
 	/** Directory holding the fake executable. */
 	dir: string;
+	/** Where the fake records container lifecycle, for tests that need to seed it. */
+	stateDir: string;
 	/** Restores PATH and the environment variables this helper set. */
 	restore(): void;
 }
@@ -124,8 +197,9 @@ export interface FakeDocker {
  * `SENTINEL_PROJECTS_DIR` keeps project creation out of the operator's home,
  * `SENTINEL_FAKE_WORKDIR` is what the fake rewrites `/work` to, and
  * `SENTINEL_FAKE_SENTINEL_DIR` does the same for `/opt/sentinel` (where the
- * container-side tooling lives). Passing `logPath` records every invocation there,
- * one command line per call.
+ * container-side tooling lives) and `SENTINEL_FAKE_HOSTS` for `/etc/hosts` (which a
+ * proxied container appends `host.docker.internal` to). Passing `logPath` records
+ * every invocation there, one command line per call.
  */
 export function installFakeDocker(root: string, workDir: string, logPath?: string): FakeDocker {
 	const dir = join(root, "fake-docker");
@@ -140,15 +214,18 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 	const previousLog = process.env.SENTINEL_FAKE_DOCKER_LOG;
 	const previousState = process.env.SENTINEL_FAKE_DOCKER_STATE;
 	const previousSentinel = process.env.SENTINEL_FAKE_SENTINEL_DIR;
+	const previousHosts = process.env.SENTINEL_FAKE_HOSTS;
 	process.env.PATH = `${dir}:${previousPath ?? ""}`;
 	process.env.SENTINEL_PROJECTS_DIR = join(root, "projects");
 	process.env.SENTINEL_FAKE_WORKDIR = workDir;
 	process.env.SENTINEL_FAKE_DOCKER_STATE = join(root, "fake-docker-state");
 	process.env.SENTINEL_FAKE_SENTINEL_DIR = join(root, "fake-opt-sentinel");
+	process.env.SENTINEL_FAKE_HOSTS = join(root, "fake-etc-hosts");
 	if (logPath) process.env.SENTINEL_FAKE_DOCKER_LOG = logPath;
 
 	return {
 		dir,
+		stateDir: process.env.SENTINEL_FAKE_DOCKER_STATE,
 		restore() {
 			if (previousPath === undefined) delete process.env.PATH;
 			else process.env.PATH = previousPath;
@@ -162,6 +239,8 @@ export function installFakeDocker(root: string, workDir: string, logPath?: strin
 			else process.env.SENTINEL_FAKE_DOCKER_STATE = previousState;
 			if (previousSentinel === undefined) delete process.env.SENTINEL_FAKE_SENTINEL_DIR;
 			else process.env.SENTINEL_FAKE_SENTINEL_DIR = previousSentinel;
+			if (previousHosts === undefined) delete process.env.SENTINEL_FAKE_HOSTS;
+			else process.env.SENTINEL_FAKE_HOSTS = previousHosts;
 		},
 	};
 }
