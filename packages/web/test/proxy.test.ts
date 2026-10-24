@@ -89,6 +89,25 @@ Endpoint = vpn.example.com:51820
 AllowedIPs = 0.0.0.0/0
 `;
 
+/** What an OpenVPN provider hands out: one file, certificates inlined. */
+const OPENVPN_CONFIG = `client
+dev tun
+remote vpn.example.com 1194
+auth-user-pass
+dhcp-option DNS 10.8.0.1
+<ca>
+-----BEGIN CERTIFICATE-----
+MIIB
+-----END CERTIFICATE-----
+</ca>
+<key>
+-----BEGIN PRIVATE KEY-----
+MIIE
+-----END PRIVATE KEY-----
+</key>
+redirect-gateway def1
+`;
+
 /** The parsed configuration, as an object, for assertions about its shape. */
 function configOf(settings: Parameters<typeof buildSingboxConfig>[0]): Record<string, never> {
 	const built = buildSingboxConfig(settings);
@@ -109,6 +128,7 @@ function settingsOf(
 		mode: "simple",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false, ...simple },
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		nodes: [],
 		nodeTag: "",
 		image: DEFAULT_SINGBOX_IMAGE,
@@ -134,6 +154,7 @@ function addProfile(
 		name: "香港节点",
 		mode: "simple",
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		subscriptionUrl: input.subscriptionUrl ?? "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -208,6 +229,7 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			simple: clash,
 			routePrivateDirect: true,
 			wireguard: { config: "", dns: "", killSwitch: true },
+			openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
@@ -223,6 +245,7 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			simple: clash,
 			routePrivateDirect: true,
 			wireguard: { config: "", dns: "", killSwitch: true },
+			openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
@@ -237,6 +260,7 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 		simple: { ...clash, server: "9.9.9.9", port: 1080 },
 		routePrivateDirect: false,
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
@@ -508,6 +532,7 @@ test("a tunneled container gets the tunnel resolver as a mounted resolv.conf", a
 		mode: "wireguard",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
 		wireguard: { config: WIREGUARD_CONFIG, dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -527,6 +552,59 @@ test("a tunneled container gets the tunnel resolver as a mounted resolv.conf", a
 	expect(containerRun).not.toContain("--dns");
 	// The file is what that mount serves, and it carries the profile's DNS.
 	expect(readFileSync(resolver, "utf-8")).toBe("nameserver 10.66.0.1\n");
+});
+
+test("an OpenVPN project starts its own sidecar and mounts the tunnel resolver", async () => {
+	const { agentDir, logPath, stateDir } = setup();
+	const saved = saveProxy(agentDir, {
+		name: "实验室 OpenVPN",
+		mode: "openvpn",
+		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: OPENVPN_CONFIG, dns: "", username: "ops", password: "s3cret", killSwitch: true },
+		subscriptionUrl: "",
+		subscriptionUserAgent: "",
+		subscriptionIntervalHours: 0,
+		nodeTag: "",
+		routePrivateDirect: true,
+	});
+	expect(saved.error).toBeUndefined();
+	expect(describeProxy(resolveProjectProxy(agentDir, saved.proxy?.id ?? ""))).toBe("OpenVPN vpn.example.com:1194");
+	setDefaultProxy(agentDir, saved.proxy?.id ?? "");
+	const added = await addProject(agentDir, { name: "demo" });
+	expect(added.error).toBeUndefined();
+	const project = listProjects(agentDir).projects[0];
+	if (!project) throw new Error("项目未创建");
+	const sidecar = singboxContainerNameFor(project.id);
+
+	const containerRun = calls(logPath).find((line) => line.startsWith("run") && line.includes(project.container));
+	expect(containerRun).toContain(`--network container:${sidecar}`);
+	// The resolver in the pasted file is what the container gets, as a mount.
+	const resolver = join(agentDir, "proxy", `${project.id}.resolv.conf`);
+	expect(containerRun).toContain(`-v ${resolver}:/etc/resolv.conf:ro`);
+	expect(readFileSync(resolver, "utf-8")).toBe("nameserver 10.8.0.1\n");
+	// The credentials live in the profile, never in the pasted configuration.
+	expect(readFileSync(join(agentDir, "proxy", `${project.id}.ovpn`), "utf-8")).not.toContain("s3cret");
+	expect(readFileSync(join(agentDir, "proxy", `${project.id}.ovpn.auth`), "utf-8")).toBe("ops\ns3cret\n");
+
+	// The fake treats a container it never saw as running, so the sidecar's own flags
+	// are asserted after it is really created — the same shape a rebuild takes.
+	writeFileSync(join(stateDir, sidecar), "removed");
+	const before = calls(logPath).length;
+	expect((await startProject(agentDir, project.id)).error).toBeUndefined();
+	const sidecarRun = calls(logPath)
+		.slice(before)
+		.find((line) => line.startsWith("run") && line.includes(sidecar));
+	// The tunnel is a real interface, so the sidecar is the one with NET_ADMIN.
+	expect(sidecarRun).toContain("--cap-add NET_ADMIN");
+	expect(sidecarRun).toContain(":/etc/openvpn/client/client.ovpn:ro");
+	expect(sidecarRun).toContain(":/etc/openvpn/client/auth.txt:ro");
+	// The hook is the only script the client may run, and it writes the pushed
+	// resolvers to a file the console can read.
+	expect(sidecarRun).toContain(":/etc/openvpn/client/hook.sh:ro");
+	expect(sidecarRun).toContain(":/etc/openvpn/client/pushed-dns.conf");
+	expect(sidecarRun).toContain("exec openvpn");
+	expect(sidecarRun).toContain("--auth-user-pass auth.txt");
 });
 
 test("a proxied container without a tunnel keeps Docker's own resolver", async () => {

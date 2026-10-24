@@ -114,6 +114,7 @@ function input(overrides: Partial<SentinelProxyInput> = {}): SentinelProxyInput 
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -237,6 +238,7 @@ test("a saved profile comes back with its id, and a broken one is refused", asyn
 			name: "坏节点",
 			simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
 			wireguard: { config: "", dns: "", killSwitch: true },
+			openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		}),
 	);
 	expect(broken.error).toContain("地址");
@@ -245,6 +247,47 @@ test("a saved profile comes back with its id, and a broken one is refused", asyn
 
 	// Names are the handle the operator uses, so they are unique.
 	expect((await save(input({ name: "坏节点" }))).error).toContain("同名");
+});
+
+test("an OpenVPN profile is saved, validated, and read back like any other", async () => {
+	const pasted = `client
+dev tun
+remote vpn.example.com 1194
+<ca>
+-----BEGIN CERTIFICATE-----
+MIIB
+-----END CERTIFICATE-----
+</ca>
+`;
+	// The console checks the pasted file where it is saved, not at the first
+	// container rebuild: a configuration it cannot mount is refused with the reason.
+	const broken = await save(
+		input({
+			name: "缺证书",
+			mode: "openvpn",
+			openvpn: {
+				config: pasted.replace(/<ca>[\s\S]*?<\/ca>\n/, ""),
+				dns: "",
+				username: "",
+				password: "",
+				killSwitch: true,
+			},
+		}),
+	);
+	expect(broken.error).toContain("ca");
+
+	const saved = await save(
+		input({
+			name: "实验室 OpenVPN",
+			mode: "openvpn",
+			openvpn: { config: pasted, dns: "", username: "", password: "", killSwitch: true },
+		}),
+	);
+	expect(saved.error).toBeUndefined();
+	const stored = saved.proxies.find((entry) => entry.name === "实验室 OpenVPN");
+	expect(stored?.mode).toBe("openvpn");
+	// The pasted configuration survives a round trip through the file.
+	expect(stored?.openvpn.config).toContain("remote vpn.example.com 1194");
 });
 
 test("the default is one profile, and a new project with no choice follows it", async () => {

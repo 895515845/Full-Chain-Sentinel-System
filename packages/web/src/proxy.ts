@@ -19,7 +19,9 @@ import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import { t } from "./i18n.ts";
 import { DEFAULT_TEST_URL, measureNodes } from "./node-test.ts";
+import { describeOpenVpn } from "./openvpn.ts";
 import type {
+	SentinelOpenVpn,
 	SentinelProxy,
 	SentinelProxyConfigView,
 	SentinelProxyInput,
@@ -104,6 +106,32 @@ export function projectResolvConfPath(agentDir: string, projectId: string): stri
 }
 
 /**
+ * Where an OpenVPN profile's generated files are written: the stripped `.ovpn`,
+ * the credentials it must not carry, the hook the client runs after every
+ * connection, and the resolvers that hook writes back.
+ *
+ * Four files rather than one because each is mounted at a different path with a
+ * different mode — the configuration and the credentials read-only, the hook
+ * read-only, the pushed-resolver file writable by the sidecar. None of them is
+ * visible from the job container, which shares only the network namespace.
+ */
+export function projectOpenVpnConfigPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.ovpn`);
+}
+
+export function projectOpenVpnAuthPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.ovpn.auth`);
+}
+
+export function projectOpenVpnHookPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.ovpn.hook.sh`);
+}
+
+export function projectOpenVpnPushedDnsPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.ovpn.pushed-dns`);
+}
+
+/**
  * The nameservers in a profile's DNS value.
  *
  * `DNS = 10.66.0.1, 1.1.1.1` is how a provider writes a pair, and only an IP can
@@ -172,8 +200,14 @@ function normalizeSimpleProxy(value: unknown): SentinelSimpleProxy {
  * silently cannot build a configuration.
  */
 export function normalizeProxyMode(value: unknown): SentinelProxySettings["mode"] {
-	if (value === "simple" || value === "subscription" || value === "wireguard") return value;
+	if (value === "simple" || value === "subscription" || value === "wireguard" || value === "openvpn") return value;
 	return "off";
+}
+
+/** A profile is never `off`: a stored value that says so reads back as `simple`. */
+function profileMode(value: unknown): SentinelProxy["mode"] {
+	const mode = normalizeProxyMode(value);
+	return mode === "off" ? "simple" : mode;
 }
 
 /** A node as it was cached: the outbound is opaque to everything but sing-box. */
@@ -210,6 +244,19 @@ export function normalizeWireGuard(value: unknown): SentinelWireGuard {
 	};
 }
 
+/** An OpenVPN tunnel as stored: the pasted `.ovpn`, its credentials and two switches. */
+export function normalizeOpenVpn(value: unknown): SentinelOpenVpn {
+	const input = (value ?? {}) as Partial<SentinelOpenVpn>;
+	return {
+		config: asString(input.config).trim(),
+		dns: asString(input.dns).trim(),
+		username: asString(input.username).trim(),
+		// Not trimmed: a password may end in a space, and only the provider knows.
+		password: asString(input.password),
+		killSwitch: asBool(input.killSwitch, true),
+	};
+}
+
 function normalizeSubscription(value: unknown): SentinelProxySubscription | null {
 	if (!value || typeof value !== "object") return null;
 	const input = value as Partial<SentinelProxySubscription>;
@@ -235,10 +282,11 @@ function normalizeProfile(value: unknown): SentinelProxy | undefined {
 	return {
 		id,
 		name,
-		mode: mode === "subscription" || mode === "wireguard" ? mode : "simple",
+		mode: profileMode(mode),
 		simple: normalizeSimpleProxy(input.simple),
 		subscription: normalizeSubscription(input.subscription),
 		wireguard: normalizeWireGuard(input.wireguard),
+		openvpn: normalizeOpenVpn(input.openvpn),
 		nodes: (Array.isArray(input.nodes) ? input.nodes : [])
 			.map(normalizeNode)
 			.filter((entry): entry is SentinelProxyNode => entry !== undefined),
@@ -301,13 +349,13 @@ export function proxyConfigView(agentDir: string, imagePresent: boolean): Sentin
 
 function proxyInput(value: SentinelProxyInput): SentinelProxyInput {
 	const input = (value ?? {}) as Partial<SentinelProxyInput>;
-	const mode = normalizeProxyMode(input.mode);
 	return {
 		id: asString(input.id).trim() || undefined,
 		name: asString(input.name).trim(),
-		mode: mode === "subscription" || mode === "wireguard" ? mode : "simple",
+		mode: profileMode(input.mode),
 		simple: normalizeSimpleProxy(input.simple),
 		wireguard: normalizeWireGuard(input.wireguard),
+		openvpn: normalizeOpenVpn(input.openvpn),
 		subscriptionUrl: asString(input.subscriptionUrl).trim(),
 		subscriptionUserAgent: asString(input.subscriptionUserAgent).trim() || DEFAULT_SUBSCRIPTION_USER_AGENT,
 		subscriptionIntervalHours: normalizeIntervalHours(input.subscriptionIntervalHours),
@@ -349,6 +397,7 @@ export function saveProxy(
 		mode: normalized.mode,
 		simple: normalized.simple,
 		wireguard: normalized.wireguard,
+		openvpn: normalized.openvpn,
 		subscription:
 			normalized.mode === "subscription"
 				? {
@@ -542,6 +591,7 @@ export function resolveProjectProxy(
 		nodes: profile.nodes,
 		nodeTag: profile.nodeTag,
 		wireguard: profile.wireguard,
+		openvpn: profile.openvpn,
 		image: file.image,
 		testUrl: file.testUrl,
 		routePrivateDirect: profile.routePrivateDirect,
@@ -551,6 +601,19 @@ export function resolveProjectProxy(
 /** Whether a project container should be created on the sidecar's network. */
 export function proxyEnabled(settings: SentinelProxySettings | null): settings is SentinelProxySettings {
 	return settings !== null && settings.mode !== "off";
+}
+
+/**
+ * Whether a mode is a tunnel rather than a proxy.
+ *
+ * A tunnel runs its own sidecar instead of sing-box, has one exit and no nodes, and
+ * reaches the container as a real interface with real routes rather than as an
+ * outbound. Everything the console does per mode — which sidecar to start, which
+ * generated file a project is compared against, whether the sing-box image is needed
+ * at all — keys off this.
+ */
+export function isTunnelMode(mode: SentinelProxySettings["mode"]): boolean {
+	return mode === "wireguard" || mode === "openvpn";
 }
 
 interface Outbound {
@@ -572,6 +635,9 @@ export function proxyOutbounds(
 ): { outbounds: Outbound[]; tag: string } | { error: string } {
 	if (settings.mode === "wireguard") {
 		return { error: t("WireGuard 档案不走 sing-box，不能生成出站配置") };
+	}
+	if (settings.mode === "openvpn") {
+		return { error: t("OpenVPN 档案不走 sing-box，不能生成出站配置") };
 	}
 	if (settings.mode === "subscription") {
 		if (settings.nodes.length === 0) return { error: t("订阅里没有可用节点，先在「代理」页拉取一次") };
@@ -687,12 +753,15 @@ export function buildSingboxConfig(
  * project rows. Never includes the password.
  */
 export function describeProxy(
-	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "nodes" | "nodeTag" | "wireguard"> | null,
+	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "nodes" | "nodeTag" | "wireguard" | "openvpn"> | null,
 ): string {
 	if (!proxy) return t("关闭");
 	if (proxy.mode === "wireguard") {
 		const endpoint = /^\s*endpoint\s*=\s*(.+)$/im.exec(proxy.wireguard.config)?.[1]?.trim();
 		return endpoint ? `WireGuard ${endpoint}` : t("未配置");
+	}
+	if (proxy.mode === "openvpn") {
+		return describeOpenVpn(proxy.openvpn);
 	}
 	if (proxy.mode === "simple") {
 		const { type, server, port } = proxy.simple;

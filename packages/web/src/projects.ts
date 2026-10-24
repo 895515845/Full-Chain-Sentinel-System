@@ -28,6 +28,11 @@ import { t } from "./i18n.ts";
 import type { SentinelProxySettings } from "./protocol.ts";
 import {
 	AUTO_NODE_TAG,
+	isTunnelMode,
+	projectOpenVpnAuthPath,
+	projectOpenVpnConfigPath,
+	projectOpenVpnHookPath,
+	projectOpenVpnPushedDnsPath,
 	projectProxyConfigPath,
 	projectResolvConfPath,
 	projectWireGuardConfigPath,
@@ -37,12 +42,15 @@ import {
 import {
 	checkSidecar,
 	checkSingboxConfig,
+	ensureOpenVpnRunning,
 	ensureSingboxRunning,
 	ensureWireGuardRunning,
 	hasSingboxImage,
+	readPushedDnsWhenReady,
 	removeSingboxContainer,
 	singboxContainerNameFor,
 	stopSingboxContainer,
+	writeProjectOpenVpnFiles,
 	writeProjectProxyConfig,
 	writeProjectResolvConf,
 	writeProjectWireGuardConfig,
@@ -161,6 +169,22 @@ async function prepareSidecar(
 		return { ok: true, sidecar, configPath: written.path, resolvConfPath: resolver.path };
 	}
 
+	// OpenVPN is the other tunnel: the same shared namespace, but the sidecar stays in
+	// the foreground, and the resolver may only become known once the server pushes it.
+	if (settings.mode === "openvpn") {
+		const written = writeProjectOpenVpnFiles(agentDir, project.id, settings.openvpn);
+		if (!written.ok) return { ok: false, error: t("代理配置无法生成：{error}", { error: written.error }) };
+		const up = await ensureOpenVpnRunning(sidecar, written.files, SENTINEL_IMAGE);
+		if (!up.ok) return { ok: false, error: t("代理容器启动失败：{error}", { error: up.error ?? "" }) };
+		// The profile's own resolver wins; what the server pushed is the fallback, and
+		// it is only known now that the tunnel is up.
+		const dns = written.dns.length > 0 ? written.dns : await readPushedDnsWhenReady(written.files.pushedDnsPath);
+		if (dns.length === 0) return { ok: true, sidecar, configPath: written.files.configPath };
+		const resolver = writeProjectResolvConf(agentDir, project.id, dns.join(", "));
+		if (!resolver.ok) return { ok: false, error: t("隧道 DNS 无法写入：{error}", { error: resolver.error }) };
+		return { ok: true, sidecar, configPath: written.files.configPath, resolvConfPath: resolver.path };
+	}
+
 	const written = await writeProjectProxyConfig(agentDir, project.id, settings);
 	if (!written.ok) return { ok: false, error: t("代理配置无法生成：{error}", { error: written.error }) };
 	const up = await ensureSingboxRunning(sidecar, written.path, settings.image);
@@ -240,9 +264,9 @@ export async function addProject(
 	if (input.proxyId !== undefined) project.proxyId = input.proxyId;
 	if (input.proxyNode?.trim()) project.proxyNode = input.proxyNode.trim();
 	const settings = projectProxySettings(agentDir, project);
-	// A tunnel runs wg-quick in the toolbox image, so none of this applies to it;
-	// `prepareSidecar` writes its configuration and starts it.
-	if (proxyEnabled(settings) && settings.mode !== "wireguard") {
+	// A tunnel runs its own client in the toolbox image, so none of this applies to
+	// it; `prepareSidecar` writes its configuration and starts it.
+	if (proxyEnabled(settings) && !isTunnelMode(settings.mode)) {
 		// A project that cannot get its sidecar must not be registered: the
 		// container would come up without the network the operator asked for.
 		if (!(await hasSingboxImage(settings.image))) {
@@ -360,6 +384,13 @@ export async function removeProject(
 	rmSync(projectProxyConfigPath(agentDir, id), { force: true });
 	rmSync(projectWireGuardConfigPath(agentDir, id), { force: true });
 	rmSync(projectResolvConfPath(agentDir, id), { force: true });
+	// An OpenVPN project's four files: the configuration carries the private key, the
+	// credentials file the password, and the hook and pushed resolvers mean nothing
+	// without them.
+	rmSync(projectOpenVpnConfigPath(agentDir, id), { force: true });
+	rmSync(projectOpenVpnAuthPath(agentDir, id), { force: true });
+	rmSync(projectOpenVpnHookPath(agentDir, id), { force: true });
+	rmSync(projectOpenVpnPushedDnsPath(agentDir, id), { force: true });
 	return { removed: project };
 }
 

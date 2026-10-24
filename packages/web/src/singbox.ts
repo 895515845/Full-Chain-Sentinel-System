@@ -32,10 +32,24 @@ import { dirname, join } from "node:path";
 import { containerPrefix, runDocker } from "./docker.ts";
 import { t } from "./i18n.ts";
 import { freePort } from "./node-test.ts";
-import type { SentinelProxySettings, SentinelWireGuard } from "./protocol.ts";
+import {
+	buildOpenVpnProfile,
+	OPENVPN_AUTH_FILE,
+	OPENVPN_CLIENT_DIR,
+	OPENVPN_CONFIG_FILE,
+	OPENVPN_HOOK_FILE,
+	OPENVPN_PUSHED_DNS_FILE,
+	openVpnEntrypoint,
+	openVpnHookScript,
+} from "./openvpn.ts";
+import type { SentinelOpenVpn, SentinelProxySettings, SentinelWireGuard } from "./protocol.ts";
 import {
 	buildSingboxConfig,
 	parseNameservers,
+	projectOpenVpnAuthPath,
+	projectOpenVpnConfigPath,
+	projectOpenVpnHookPath,
+	projectOpenVpnPushedDnsPath,
 	projectProxyConfigPath,
 	projectResolvConfPath,
 	projectWireGuardConfigPath,
@@ -87,15 +101,6 @@ export async function ensureProxyNetwork(): Promise<{ ok: boolean; error?: strin
 	return recheck.code === 0 ? { ok: true } : { ok: false, error: created.stderr.trim() || `exit ${created.code}` };
 }
 
-/**
- * Write one project's generated configuration. Returns the path to mount, or the
- * reason the settings cannot become a configuration — the caller reports that
- * instead of creating a sidecar that would fail at startup.
- *
- * An unchanged configuration is not rewritten: the file's timestamp is what says
- * whether a running sidecar still serves what the console generated, and a write
- * on every use would make every sidecar look out of date.
- */
 /**
  * Write a generated file, unless it already holds exactly this.
  *
@@ -401,6 +406,282 @@ export async function ensureWireGuardRunning(
 	if (state.stdout.trim() === "true") return { ok: true, created: false };
 	const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
 	return { ok: start.code === 0, created: false, error: start.code === 0 ? undefined : start.stderr.trim() };
+}
+
+/** The four files one project's OpenVPN sidecar mounts. */
+export interface OpenVpnFiles {
+	configPath: string;
+	/** Present only when the profile carries a username. */
+	authPath?: string;
+	hookPath: string;
+	pushedDnsPath: string;
+}
+
+/**
+ * Write an OpenVPN profile's files, and clear the resolver file the hook writes.
+ *
+ * The pushed-resolver file is truncated on every call: what it holds has to describe
+ * the connection being established now, and a value left over from the previous one
+ * would be mounted as the project container's resolver.
+ */
+export function writeProjectOpenVpnFiles(
+	agentDir: string,
+	projectId: string,
+	openvpn: SentinelOpenVpn,
+): { ok: true; files: OpenVpnFiles; dns: string[] } | { ok: false; error: string } {
+	const built = buildOpenVpnProfile(openvpn);
+	if (built.error || !built.config) return { ok: false, error: built.error ?? t("配置生成失败") };
+	const configPath = projectOpenVpnConfigPath(agentDir, projectId);
+	const authPath = projectOpenVpnAuthPath(agentDir, projectId);
+	const hookPath = projectOpenVpnHookPath(agentDir, projectId);
+	const pushedDnsPath = projectOpenVpnPushedDnsPath(agentDir, projectId);
+	// 0600: the configuration carries the private key, and the credentials file the
+	// password. The hook and the pushed resolvers hold nothing secret.
+	writeIfChanged(configPath, built.config, 0o600);
+	if (built.credentials === undefined) rmSync(authPath, { force: true });
+	else writeIfChanged(authPath, built.credentials, 0o600);
+	writeIfChanged(hookPath, openVpnHookScript(openvpn.killSwitch), 0o600);
+	mkdirSync(dirname(pushedDnsPath), { recursive: true });
+	writeFileSync(pushedDnsPath, "", { mode: 0o600 });
+	return {
+		ok: true,
+		dns: built.dns ?? [],
+		files: {
+			configPath,
+			authPath: built.credentials === undefined ? undefined : authPath,
+			hookPath,
+			pushedDnsPath,
+		},
+	};
+}
+
+/**
+ * The resolvers the sidecar's hook last saw the server push.
+ *
+ * Read after the tunnel is up, and only when the profile names none of its own: it is
+ * what makes "paste the .ovpn and go" work for the common server that pushes its own
+ * resolver, which the console cannot know before connecting.
+ */
+export function readPushedDns(path: string): string[] {
+	try {
+		const lines = readFileSync(path, "utf-8").split("\n");
+		return parseNameservers(lines.map((line) => line.replace(/^nameserver\s+/i, "")).join(" "));
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * The pushed resolvers, giving the hook a moment to write them.
+ *
+ * The interface exists a moment before `--route-up` runs, so a probe that says "the
+ * tunnel is up" can still be a moment too early for the file. This is only paid when
+ * the profile names no resolver of its own.
+ */
+export async function readPushedDnsWhenReady(path: string, timeoutMs = 2000): Promise<string[]> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const found = readPushedDns(path);
+		if (found.length > 0 || Date.now() >= deadline) return found;
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+}
+
+/**
+ * Start the OpenVPN sidecar.
+ *
+ * It runs the toolbox image, which carries `openvpn` and `iproute2`; the tunnel is a
+ * real interface with real routes, which is the whole point of not making it a
+ * sing-box outbound. `--cap-add NET_ADMIN` and the tun device node are what the
+ * client needs to create it.
+ */
+export async function createOpenVpnContainer(
+	containerName: string,
+	files: OpenVpnFiles,
+	image: string,
+): Promise<{ ok: boolean; error?: string }> {
+	const network = await ensureProxyNetwork();
+	if (!network.ok) return { ok: false, error: network.error };
+	const mount = (source: string, target: string, mode: string): string[] => ["-v", `${source}:${target}${mode}`];
+	const result = await runDocker([
+		"run",
+		"-d",
+		"--name",
+		containerName,
+		"--network",
+		proxyNetworkName(),
+		"--cap-add",
+		"NET_ADMIN",
+		...hostTunDevice(),
+		...mount(files.configPath, `${OPENVPN_CLIENT_DIR}/${OPENVPN_CONFIG_FILE}`, ":ro"),
+		...(files.authPath ? mount(files.authPath, `${OPENVPN_CLIENT_DIR}/${OPENVPN_AUTH_FILE}`, ":ro") : []),
+		...mount(files.hookPath, `${OPENVPN_CLIENT_DIR}/${OPENVPN_HOOK_FILE}`, ":ro"),
+		// Writable: the hook writes the pushed resolvers there and the console reads
+		// them to build the project container's resolver file. Nothing else can reach
+		// it — the job container shares the network namespace, not the file system.
+		...mount(files.pushedDnsPath, `${OPENVPN_CLIENT_DIR}/${OPENVPN_PUSHED_DNS_FILE}`, ""),
+		"--entrypoint",
+		"sh",
+		image,
+		"-c",
+		openVpnEntrypoint({ credentials: files.authPath !== undefined }),
+	]);
+	return result.code === 0 ? { ok: true } : { ok: false, error: result.stderr.trim() };
+}
+
+/** How long a tunnel that was just created or started gets to come up. */
+const OPENVPN_TIMEOUT_MS = 60000;
+
+/**
+ * Lines that mean the client will never connect without a change.
+ *
+ * A configuration that cannot be used fails at startup and the process exits; a
+ * remote that is unreachable or a handshake that is refused does not — the client
+ * retries forever with the container still `running`, which is why readiness cannot
+ * be decided from the log alone.
+ */
+const OPENVPN_FATAL_LINES = [
+	"please correct this error",
+	"exiting due to fatal error",
+	"auth_failed",
+	"cannot ioctl tunsetiff",
+	"cannot open tun/tap dev",
+	"openvpn: not found",
+];
+
+function openVpnFatalLine(lines: string[]): string | undefined {
+	return lines.find((line) => OPENVPN_FATAL_LINES.some((fatal) => line.toLowerCase().includes(fatal)));
+}
+
+/**
+ * The reason a tunnel did not come up, in the order an operator can act on it.
+ *
+ * A retrying client logs several kinds of line, and the last one is not the most
+ * useful: `SIGUSR1[...] received, process restarting` follows the line that says why.
+ * Each pattern is tried in turn, and the last line matching the first one that occurs
+ * anywhere is the answer.
+ */
+const OPENVPN_REASONS = [
+	/resolve:/i,
+	/tls error/i,
+	/auth_failed/i,
+	/cannot (ioctl|open)/i,
+	/options error/i,
+	/warning/i,
+	/error/i,
+	/sigusr1/i,
+];
+
+function openVpnReason(lines: string[]): string | undefined {
+	for (const pattern of OPENVPN_REASONS) {
+		for (let index = lines.length - 1; index >= 0; index -= 1) {
+			const line = lines[index] ?? "";
+			if (pattern.test(line)) return line;
+		}
+	}
+	return lines[lines.length - 1];
+}
+
+async function openVpnLogTail(containerName: string): Promise<string[]> {
+	const logs = await runDocker(["logs", "--tail", "80", containerName], { timeoutMs: 20000 });
+	return `${logs.stdout}\n${logs.stderr}`
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+}
+
+/**
+ * Whether the tunnel is up right now, asked of the interface rather than the log: the
+ * ready line is printed again after every reconnect, so it says nothing about the
+ * current state.
+ *
+ * A sidecar whose image has no `iproute2` cannot answer at all, and that deserves its
+ * own answer: the tunnel may well be up while the kill switch silently did nothing.
+ */
+async function openVpnTunnelProbe(containerName: string): Promise<{ up: boolean; missingTools?: boolean }> {
+	const probe = await runDocker(["exec", containerName, "ip", "-o", "addr", "show"], { timeoutMs: 15000 });
+	if (probe.code !== 0) return { up: false, missingTools: /not found|executable file/i.test(probe.stderr) };
+	return { up: /\btun\d*\b/.test(probe.stdout) };
+}
+
+/** The answer a sidecar missing `iproute2` gets, in both call paths. */
+function missingTunnelTools(): string {
+	return t("代理容器里没有 ip 命令（工具镜像缺少 iproute2），kill-switch 无法生效；请重建工具镜像");
+}
+
+/**
+ * Wait for a fresh tunnel to come up, or report why it did not.
+ *
+ * The two failure shapes are checked separately: a process that exited is asked for
+ * its log, and a process that keeps retrying is given the whole timeout before its
+ * last line is reported.
+ */
+async function waitForOpenVpnTunnel(containerName: string): Promise<{ ok: true } | { ok: false; error: string }> {
+	const seconds = Math.round(OPENVPN_TIMEOUT_MS / 1000);
+	const deadline = Date.now() + OPENVPN_TIMEOUT_MS;
+	let detail = t("隧道没有在 {seconds} 秒内建立", { seconds });
+	while (Date.now() < deadline) {
+		const state = await runDocker(["inspect", "-f", "{{.State.Status}}", containerName], { timeoutMs: 15000 });
+		const status = state.stdout.trim();
+		const lines = await openVpnLogTail(containerName);
+		const fatal = openVpnFatalLine(lines);
+		if (fatal) return { ok: false, error: fatal };
+		if (status === "exited" || status === "dead") {
+			return { ok: false, error: openVpnReason(lines) ?? t("代理容器已退出") };
+		}
+		const probe = await openVpnTunnelProbe(containerName);
+		if (probe.missingTools) return { ok: false, error: missingTunnelTools() };
+		if (probe.up) return { ok: true };
+		detail = openVpnReason(lines) ?? detail;
+		await new Promise((resolve) => setTimeout(resolve, 500));
+	}
+	return { ok: false, error: detail };
+}
+
+/**
+ * Start the OpenVPN sidecar if it is not running, creating it when it is gone, and
+ * wait for the tunnel.
+ *
+ * Waiting is why this is not the WireGuard shape: an OpenVPN client that cannot
+ * connect keeps retrying with the container up, and a project container created onto
+ * that namespace looks healthy while nothing is proxied. A tunnel that was already up
+ * when the call arrived is only probed, not waited for.
+ */
+export async function ensureOpenVpnRunning(
+	containerName: string,
+	files: OpenVpnFiles,
+	image: string,
+): Promise<{ ok: boolean; created: boolean; error?: string }> {
+	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
+	if (state.code !== 0) {
+		if (!(await hasSingboxImage(image))) {
+			return { ok: false, created: false, error: t("镜像 {image} 不存在", { image }) };
+		}
+		const created = await createOpenVpnContainer(containerName, files, image);
+		if (!created.ok) return { ok: false, created: true, error: created.error };
+		const up = await waitForOpenVpnTunnel(containerName);
+		return up.ok ? { ok: true, created: true } : { ok: false, created: true, error: up.error };
+	}
+	if (state.stdout.trim() !== "true") {
+		const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
+		if (start.code !== 0) return { ok: false, created: false, error: start.stderr.trim() };
+		const up = await waitForOpenVpnTunnel(containerName);
+		return up.ok ? { ok: true, created: false } : { ok: false, created: false, error: up.error };
+	}
+	// Already running: the tunnel either is up or is reconnecting. One probe keeps a
+	// project from starting onto a namespace nothing is routing, without paying the
+	// full timeout for a healthy tunnel.
+	const probe = await openVpnTunnelProbe(containerName);
+	if (probe.up) return { ok: true, created: false };
+	if (probe.missingTools) return { ok: false, created: false, error: missingTunnelTools() };
+	const lines = await openVpnLogTail(containerName);
+	return {
+		ok: false,
+		created: false,
+		error: t("代理容器里的隧道没有建立（可能正在重连）：{reason}", {
+			reason: openVpnReason(lines) ?? t("没有可用日志"),
+		}),
+	};
 }
 
 export async function stopSingboxContainer(containerName: string): Promise<{ ok: boolean; error?: string }> {

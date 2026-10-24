@@ -2364,10 +2364,11 @@ export type SentinelContainerNetwork = "host" | "bridge";
 /**
  * How the proxy is described. `off` runs no sidecar at all; `simple` covers a
  * SOCKS5 or HTTP endpoint (a local Clash, a VPS); `subscription` takes a URL
- * whose nodes are fetched, parsed and cached; `wireguard` is a tunnel rather than
- * a proxy, and its sidecar runs `wg-quick` instead of sing-box.
+ * whose nodes are fetched, parsed and cached; `wireguard` and `openvpn` are
+ * tunnels rather than proxies, and their sidecars run `wg-quick` and the OpenVPN
+ * client instead of sing-box.
  */
-export type SentinelProxyMode = "off" | "simple" | "subscription" | "wireguard";
+export type SentinelProxyMode = "off" | "simple" | "subscription" | "wireguard" | "openvpn";
 
 /** A SOCKS5 or HTTP endpoint, the whole of what `simple` mode needs. */
 export interface SentinelSimpleProxy {
@@ -2424,6 +2425,28 @@ export interface SentinelWireGuard {
 	killSwitch: boolean;
 }
 
+/**
+ * One OpenVPN tunnel.
+ *
+ * The configuration is pasted whole — a provider hands out a single `.ovpn` with
+ * the certificates inlined, and that file already carries the cipher, the remote
+ * and the routes. The console adds what a file cannot say: the credentials for
+ * `auth-user-pass` (kept out of the pasted text and mounted as their own file),
+ * the resolver the container should use when the pasted file names none, and
+ * whether to drop the direct default route once the tunnel is up.
+ */
+export interface SentinelOpenVpn {
+	/** The `.ovpn` as pasted, inline certificates and all. */
+	config: string;
+	/** Resolver for the container; empty falls back to the `dhcp-option DNS` the server pushes. */
+	dns: string;
+	/** Username for `auth-user-pass`; empty means the configuration needs none. */
+	username: string;
+	password: string;
+	/** Remove the direct default route after the tunnel is up. */
+	killSwitch: boolean;
+}
+
 /** Where a subscription profile's nodes come from, and how the last read went. */
 export interface SentinelProxySubscription {
 	url: string;
@@ -2451,6 +2474,8 @@ export interface SentinelProxySettings {
 	nodeTag: string;
 	/** The tunnel, when `mode` is `wireguard`. */
 	wireguard: SentinelWireGuard;
+	/** The tunnel, when `mode` is `openvpn`. */
+	openvpn: SentinelOpenVpn;
 	/** Image the sidecar runs; empty means the built-in default. */
 	image: string;
 	/** URL the generated `urltest` group uses to rank nodes. */
@@ -2475,6 +2500,8 @@ export interface SentinelProxy {
 	subscription: SentinelProxySubscription | null;
 	/** Present when `mode` is `wireguard`. */
 	wireguard: SentinelWireGuard;
+	/** Present when `mode` is `openvpn`. */
+	openvpn: SentinelOpenVpn;
 	/** Cached nodes; only a subscription profile has any. */
 	nodes: SentinelProxyNode[];
 	/** Which node the generated selector defaults to. */
@@ -2509,6 +2536,8 @@ export interface SentinelProxyInput {
 	simple: SentinelSimpleProxy;
 	/** The tunnel, when `mode` is `wireguard`. */
 	wireguard: SentinelWireGuard;
+	/** The tunnel, when `mode` is `openvpn`. */
+	openvpn: SentinelOpenVpn;
 	/** Subscription URL and user agent; the nodes themselves are fetched here. */
 	subscriptionUrl: string;
 	subscriptionUserAgent: string;

@@ -10,7 +10,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { EMPTY_WIREGUARD } from "../types.ts";
+import { EMPTY_OPENVPN, EMPTY_WIREGUARD } from "../types.ts";
 import type { SentinelEnvReport, SentinelProxyConfigView } from "../types.ts";
 import { EnvironmentPanel } from "./EnvironmentPanel.tsx";
 
@@ -24,6 +24,7 @@ function proxyConfig(overrides: Partial<SentinelProxyConfigView> = {}): Sentinel
 				simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
 						subscription: null,
 				wireguard: { ...EMPTY_WIREGUARD },
+				openvpn: { ...EMPTY_OPENVPN },
 				nodes: [],
 				nodeTag: "",
 				skipped: [],

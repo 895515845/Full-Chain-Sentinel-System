@@ -54,6 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		# tunnel (a proxy engine cannot carry ICMP). wg-quick needs iproute2.
 		wireguard-tools \
 		iproute2 \
+		# OpenVPN: the same argument, for a userspace client instead of a kernel
+		# module — the sidecar's main process is the tunnel, and iproute2 is what its
+		# kill switch uses. iputils-ping is here because "ping goes through the
+		# tunnel" is the whole point of a tunnel profile and has to be checkable from
+		# inside the job container.
+		openvpn \
+		iputils-ping \
 		iptables \
 		# recon & enumeration
 		nmap \

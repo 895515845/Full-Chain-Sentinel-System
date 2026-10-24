@@ -25,8 +25,24 @@ import {
 } from "../types.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 
-/** How a profile's traffic leaves, in one line, for the table. */
-function describe(proxy: SentinelProxy): string {
+/**
+ * Whether a profile is a tunnel rather than a proxy.
+ *
+ * A tunnel has one exit and no nodes, so the node picker and the private-direct
+ * switch do not apply to it. For OpenVPN there is a second consequence: two
+ * connections with the same client certificate are the same client to the server,
+ * and unless it runs with `duplicate-cn` they knock each other offline — which the
+ * table warns about when more than one project picks the profile.
+ */
+function isTunnel(mode: SentinelProxy["mode"]): boolean {
+	return mode === "wireguard" || mode === "openvpn";
+}
+
+/**
+ * How a profile's traffic leaves, in one line, for the table and the project
+ * dialog. Never includes a password.
+ */
+export function describeProfile(proxy: SentinelProxy): string {
 	if (proxy.mode === "simple") {
 		const { type, server, port } = proxy.simple;
 		if (!server || port <= 0) return t("未配置");
@@ -35,6 +51,12 @@ function describe(proxy: SentinelProxy): string {
 	if (proxy.mode === "wireguard") {
 		const endpoint = /^\s*endpoint\s*=\s*(.+)$/im.exec(proxy.wireguard.config)?.[1]?.trim();
 		return endpoint ? `WireGuard ${endpoint}` : t("未配置");
+	}
+	if (proxy.mode === "openvpn") {
+		// Only for display: the console parses the file properly when it is saved.
+		const remote = /^\s*remote\s+(\S+)(?:\s+(\d{1,5}))?/im.exec(proxy.openvpn.config);
+		if (!remote?.[1]) return t("未配置");
+		return `OpenVPN ${remote[1]}:${remote[2] ?? "1194"}`;
 	}
 	if (proxy.mode === "subscription") {
 		if (proxy.nodes.length === 0) return proxy.subscription?.url ? t("订阅未拉取") : t("未配置订阅");
@@ -61,6 +83,7 @@ function profileOf(proxy: SentinelProxy): SentinelProxyInput {
 		mode: proxy.mode,
 		simple: proxy.simple,
 		wireguard: proxy.wireguard,
+		openvpn: proxy.openvpn,
 		subscriptionUrl: proxy.subscription?.url ?? "",
 		subscriptionUserAgent: proxy.subscription?.userAgent ?? "",
 		subscriptionIntervalHours: proxy.subscription?.intervalHours ?? 0,
@@ -91,6 +114,9 @@ function ProxyEditor({
 	const patch = (next: Partial<SentinelProxyInput>) => setDraft((prev) => ({ ...prev, ...next }));
 	const patchWireGuard = (changes: Partial<SentinelProxyInput["wireguard"]>) => {
 		setDraft((prev) => (prev ? { ...prev, wireguard: { ...prev.wireguard, ...changes } } : prev));
+	};
+	const patchOpenVpn = (changes: Partial<SentinelProxyInput["openvpn"]>) => {
+		setDraft((prev) => (prev ? { ...prev, openvpn: { ...prev.openvpn, ...changes } } : prev));
 	};
 
 	const patchSimple = (next: Partial<SentinelProxyInput["simple"]>) =>
@@ -156,6 +182,18 @@ function ProxyEditor({
 						<span className="env-network-label">WireGuard</span>
 						<span className="env-network-detail">
 							{t("一条隧道而不是一个代理：容器里的一切（含 ping、UDP、原始套接字）都走它，但只有这一个出口，没有节点可切。")}
+						</span>
+					</label>
+					<label className={draft.mode === "openvpn" ? "selected" : undefined}>
+						<input
+							type="radio"
+							name="proxy-kind"
+							checked={draft.mode === "openvpn"}
+							onChange={() => patch({ mode: "openvpn" })}
+						/>
+						<span className="env-network-label">OpenVPN</span>
+						<span className="env-network-detail">
+							{t("同样是一条隧道，配置换成 .ovpn：粘贴内联证书的配置，账号密码单独填；服务器推送的 DNS 会自动用上。")}
 						</span>
 					</label>
 				</div>
@@ -248,6 +286,56 @@ function ProxyEditor({
 							<span>{t("断线即断网（kill-switch）：隧道起来后删掉直连的默认路由，隧道掉了不会漏回宿主机网络")}</span>
 						</label>
 					</div>
+				) : draft.mode === "openvpn" ? (
+					<div className="env-proxy-fields">
+						<label className="env-proxy-wide">
+							<span>{t("OpenVPN 配置（直接粘贴 .ovpn，证书要内联）")}</span>
+							<textarea
+								className="env-proxy-json"
+								rows={14}
+								value={draft.openvpn.config}
+								placeholder={OPENVPN_PLACEHOLDER}
+								spellCheck={false}
+								onChange={(event) => patchOpenVpn({ config: event.target.value })}
+							/>
+						</label>
+						<label>
+							<span>{t("用户名")}</span>
+							<input
+								value={draft.openvpn.username}
+								placeholder={t("配置要求 auth-user-pass 时填")}
+								spellCheck={false}
+								onChange={(event) => patchOpenVpn({ username: event.target.value })}
+							/>
+						</label>
+						<label>
+							<span>{t("密码")}</span>
+							<input
+								type="password"
+								value={draft.openvpn.password}
+								onChange={(event) => patchOpenVpn({ password: event.target.value })}
+							/>
+						</label>
+						<label className="env-proxy-wide">
+							<span>{t("DNS（留空则用配置里的，或服务器推送的）")}</span>
+							<input
+								value={draft.openvpn.dns}
+								placeholder="10.8.0.1"
+								spellCheck={false}
+								onChange={(event) => patchOpenVpn({ dns: event.target.value })}
+							/>
+						</label>
+						<label className="env-proxy-check env-proxy-wide">
+							<input
+								type="checkbox"
+								checked={draft.openvpn.killSwitch}
+								onChange={(event) => patchOpenVpn({ killSwitch: event.target.checked })}
+							/>
+							<span>
+								{t("断线即断网（kill-switch）：隧道起来后删掉直连的默认路由，隧道掉了不会漏回宿主机网络")}
+							</span>
+						</label>
+					</div>
 				) : (
 					<div className="env-proxy-fields">
 						<label className="env-proxy-wide">
@@ -286,7 +374,7 @@ function ProxyEditor({
 					</div>
 				)}
 
-				{draft.mode === "wireguard" ? null : (
+				{draft.mode === "wireguard" || draft.mode === "openvpn" ? null : (
 					<label className="env-proxy-check">
 						<input
 							type="checkbox"
@@ -302,7 +390,9 @@ function ProxyEditor({
 						? t("保存时拉取一次订阅（换地址才会重拉），拉完用 sing-box 校验选中的节点；之后用行内的「节点」换节点、「刷新」重拉。")
 						: draft.mode === "wireguard"
 							? t("WireGuard 档案的容器跑 wg-quick 而不是 sing-box：隧道是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道；只有这一个出口，没有节点可切。要走哪些网段由配置里的 AllowedIPs 决定（写 0.0.0.0/0 就是全部），没有内网直连这个开关。DNS 必填——Docker 自己的解析在隧道外。")
-							: t("保存时会用 sing-box 校验一次（镜像已在本地时），不通过的配置会带着报错退回，不会等到重建容器才发现。")}
+							: draft.mode === "openvpn"
+								? t("OpenVPN 档案的容器跑 openvpn 客户端而不是 sing-box：同样是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道。配置里的证书必须内联（引用 ca.crt 这类外部文件会被拒绝），daemon、log 与 up/down/route-up 这些脚本选项会被剥掉——控制台只运行自己的 hook。DNS 可以留空：服务器推送的解析器会自动用上。同一份证书同时只能有一个连接，要给每个项目单独一份证书就分别建档案。")
+								: t("保存时会用 sing-box 校验一次（镜像已在本地时），不通过的配置会带着报错退回，不会等到重建容器才发现。")}
 				</p>
 				{error ? <div className="page-error">{error}</div> : null}
 			</div>
@@ -321,6 +411,27 @@ PublicKey = ...
 Endpoint = vpn.example.com:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
+
+/**
+ * What a provider hands out, so the box shows the shape it expects: one file with
+ * the certificates inlined, which is the only shape the console can mount.
+ */
+const OPENVPN_PLACEHOLDER = `client
+dev tun
+remote vpn.example.com 1194 udp
+remote-cert-tls server
+<ca>
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+</ca>
+<cert>
+...
+</cert>
+<key>
+...
+</key>
+redirect-gateway def1`;
 
 /** Refresh intervals the operator can pick. 0 is "only when I press refresh". */
 const INTERVAL_OPTIONS: ReadonlyArray<{ hours: number; label: string }> = [
@@ -621,18 +732,30 @@ export function ProxyPage({
 										{proxy.name}
 										{proxy.id === config?.defaultId ? <span className="tag tag-primary">{t("默认")}</span> : null}
 									</span>
-									<span className="proxy-cell__sub">{describe(proxy)}</span>
+									<span className="proxy-cell__sub">{describeProfile(proxy)}</span>
 								</span>
 								<span className="proxy-kind">
 									{proxy.mode === "subscription"
 										? t("订阅")
 										: proxy.mode === "wireguard"
 											? "WireGuard"
-											: t("普通代理")}
+											: proxy.mode === "openvpn"
+												? "OpenVPN"
+												: t("普通代理")}
 								</span>
-								<span className="data-mono proxy-num">{uses.get(proxy.id) ?? 0}</span>
+								<span className="data-mono proxy-num">
+									{uses.get(proxy.id) ?? 0}
+									{isTunnel(proxy.mode) && (uses.get(proxy.id) ?? 0) > 1 ? (
+										<span
+											className="tag proxy-shared"
+											title={t("同一份证书同时只能有一个连接：除非服务器开了 duplicate-cn，两个项目一起用会被互相踢下线。要给每个项目单独一份证书，请分别建档案。")}
+										>
+											{t("证书共用")}
+										</span>
+									) : null}
+								</span>
 								<span className="proxy-flag">
-									{proxy.mode === "wireguard" ? "—" : proxy.routePrivateDirect ? t("是") : t("否")}
+									{isTunnel(proxy.mode) ? "—" : proxy.routePrivateDirect ? t("是") : t("否")}
 								</span>
 								<span className="data-actions">
 									{proxy.mode === "subscription" ? (

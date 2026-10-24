@@ -55,6 +55,7 @@ function settingsOf(overrides: Partial<SentinelProxySettings> = {}): SentinelPro
 		mode: "subscription",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		nodes: NODES,
 		nodeTag: "香港",
 		image: "",
@@ -75,6 +76,7 @@ function projectWithProfile(agentDir: string): { projectId: string; proxyId: str
 		nodeTag: "香港",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		routePrivateDirect: true,
 	});
 	if (!saved.proxy) throw new Error(saved.error ?? "未保存");
@@ -193,6 +195,7 @@ test("only a subscription with more than one choice can switch", async () => {
 		mode: "simple",
 		simple: { type: "socks5", server: "127.0.0.1", port: 7890, username: "", password: "", tls: false },
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -214,6 +217,7 @@ test("auto is a choice, a stale node is not", () => {
 		simple: { type: "socks5" as const, server: "", port: 0, username: "", password: "", tls: false },
 		subscription: null,
 		wireguard: { config: "", dns: "", killSwitch: true },
+		openvpn: { config: "", dns: "", username: "", password: "", killSwitch: true },
 		nodes: NODES,
 		nodeTag: "香港",
 		skipped: [],

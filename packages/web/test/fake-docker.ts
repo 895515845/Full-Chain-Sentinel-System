@@ -149,6 +149,15 @@ case "$cmd" in
 		exit 0
 		;;
 	exec)
+		# The console asks a tunnel sidecar for its interfaces (ip -o addr show),
+		# because a container that shares the namespace has to be checked for a tunnel
+		# rather than asked about one. The host has no ip command, so the fake answers
+		# the way a connected sidecar does.
+		if [ "$1" != "-i" ] && [ "$2" = "ip" ]; then
+			printf '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536\\n'
+			printf '2: tun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1400\\n'
+			exit 0
+		fi
 		[ "$1" = "-i" ] && shift
 		# dockerBashOperations passes the session cwd as the exec working dir.
 		[ "$1" = "-w" ] && shift 2

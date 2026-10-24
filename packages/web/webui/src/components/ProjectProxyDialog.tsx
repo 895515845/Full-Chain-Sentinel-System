@@ -17,6 +17,7 @@ import { useState } from "react";
 import { t } from "../i18n.ts";
 import { AUTO_NODE_TAG, type SentinelProjectInfo, type SentinelProxyConfigView } from "../types.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { describeProfile } from "./ProxyPage.tsx";
 
 /** A project's stored choice, as the dialog's three states. */
 export type ProjectProxyChoice =
@@ -124,15 +125,11 @@ export function ProjectProxyDialog({
 								/>
 								<span className="env-network-label">{proxy.name}</span>
 								<span className="env-network-detail">
-									{proxy.mode === "simple"
-										? t("{type} {server}:{port}", {
-												type: proxy.simple.type === "http" ? "HTTP" : "SOCKS5",
-												server: proxy.simple.server || t("未配置"),
-												port: String(proxy.simple.port || ""),
-											})
-										: nodes.length > 0
+									{proxy.mode === "subscription"
+										? nodes.length > 0
 											? t("{count} 个节点，可以只给这个项目指定一个", { count: nodes.length })
-											: t("订阅未拉取")}
+											: t("订阅未拉取")
+										: describeProfile(proxy)}
 								</span>
 							</label>
 							{selected && nodes.length > 0 ? (

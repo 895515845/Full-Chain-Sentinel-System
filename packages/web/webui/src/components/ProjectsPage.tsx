@@ -249,11 +249,11 @@ export function ProjectsPage({
 														// The profile and the node are two facts; a pinned node is the one
 														// that decides where the traffic actually leaves.
 														project.proxyNodeName
-															? t("容器挂在自己的 sing-box 上，出网走代理「{name}」的节点「{node}」", {
+															? t("容器挂在自己的代理容器上，出网走代理「{name}」的节点「{node}」", {
 																	name: project.proxyName,
 																	node: project.proxyNodeName,
 																})
-															: t("容器挂在自己的 sing-box 上，出网走代理「{name}」", { name: project.proxyName })
+															: t("容器挂在自己的代理容器上，出网走代理「{name}」", { name: project.proxyName })
 													}
 												>
 													{project.proxyNodeName ?? project.proxyName}

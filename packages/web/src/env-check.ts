@@ -24,6 +24,8 @@ import { listProjects, projectSidecarName } from "./projects.ts";
 import type { SentinelEnvItem, SentinelEnvReport, SentinelProxyConfigView } from "./protocol.ts";
 import {
 	DEFAULT_SINGBOX_IMAGE,
+	isTunnelMode,
+	projectOpenVpnConfigPath,
 	projectProxyConfigPath,
 	projectWireGuardConfigPath,
 	proxyConfigView,
@@ -338,7 +340,7 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 		const actual = networkKind(mode);
 		if (actual && actual !== (wantsProxy ? "proxy" : wanted)) wrongNetwork.push(project.name);
 		if (wantsProxy && actual === "proxy") {
-			// A tunnel profile writes wg0.conf instead of the JSON configuration, and
+			// A tunnel profile writes its own configuration instead of the JSON one, and
 			// the staleness rule is the same: the file moved on after the sidecar
 			// started, so a rebuild is what applies it.
 			const health = await checkSidecar(
@@ -346,7 +348,9 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 				projectSidecarName(project),
 				settings?.mode === "wireguard"
 					? projectWireGuardConfigPath(agentDir, project.id)
-					: projectProxyConfigPath(agentDir, project.id),
+					: settings?.mode === "openvpn"
+						? projectOpenVpnConfigPath(agentDir, project.id)
+						: projectProxyConfigPath(agentDir, project.id),
 			);
 			if (health.netnsStale) staleNamespace.push(project.name);
 			else if (health.configStale) staleConfig.push(project.name);
@@ -424,9 +428,9 @@ function checkProxyImage(view: SentinelProxyConfigView, present: boolean): Senti
 	}
 	// A tunnel profile runs the toolbox image, not sing-box, so it does not need
 	// this one at all.
-	const needsSingbox = view.proxies.some((entry) => entry.mode !== "wireguard");
+	const needsSingbox = view.proxies.some((entry) => !isTunnelMode(entry.mode));
 	if (!needsSingbox) {
-		return skipped("proxy-image", GROUP_IMAGE, t("代理镜像"), t("只有 WireGuard 档案，用不到 sing-box 镜像"));
+		return skipped("proxy-image", GROUP_IMAGE, t("代理镜像"), t("只有隧道档案，用不到 sing-box 镜像"));
 	}
 	const label = t("代理镜像 {image}", { image: view.image });
 	const summary = t("{count} 个代理 · 默认：{name}", {

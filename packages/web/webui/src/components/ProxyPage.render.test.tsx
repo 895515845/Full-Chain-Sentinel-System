@@ -10,7 +10,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { EMPTY_WIREGUARD } from "../types.ts";
+import { EMPTY_OPENVPN, EMPTY_WIREGUARD } from "../types.ts";
 import type { SentinelProjectInfo, SentinelProxy, SentinelProxyConfigView } from "../types.ts";
 import { ProxyNodeDialog, ProxyPage } from "./ProxyPage.tsx";
 
@@ -22,6 +22,7 @@ function profile(overrides: Partial<SentinelProxy> = {}): SentinelProxy {
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
 		subscription: null,
 		wireguard: { ...EMPTY_WIREGUARD },
+				openvpn: { ...EMPTY_OPENVPN },
 		nodes: [],
 		nodeTag: "",
 		skipped: [],
@@ -202,4 +203,35 @@ test("a tunnel profile has no private-direct column value and no node picker", (
 	expect(html).toContain("WireGuard vpn.example.com:51820");
 	expect(html).toContain(">—</span>");
 	expect(html).not.toContain(">节点</button>");
+});
+
+test("an OpenVPN profile shows its remote, warns when two projects share one certificate", () => {
+	const openvpn = profile({
+		id: "ovpn1",
+		name: "实验室隧道",
+		mode: "openvpn",
+		openvpn: {
+			config: "client\ndev tun\nremote vpn.example.com 1194\n<ca>\nx\n</ca>",
+			dns: "",
+			username: "",
+			password: "",
+			killSwitch: true,
+		},
+	});
+	// Two projects on one profile: one client certificate, which the server treats as
+	// one client unless it runs with duplicate-cn.
+	const html = render(config({ proxies: [openvpn] }), [
+		project({ id: "pr1", proxyId: "ovpn1" }),
+		project({ id: "pr2", name: "另一台", proxyId: "ovpn1" }),
+	]);
+	expect(html).toContain("OpenVPN vpn.example.com:1194");
+	expect(html).toContain("证书共用");
+	expect(html).not.toContain(">节点</button>");
+
+	// One project is the normal case: no warning.
+	const alone = render(config({ proxies: [openvpn] }), [
+		project({ id: "pr1", proxyId: "ovpn1" }),
+		project({ id: "pr2", name: "另一台", proxyId: null }),
+	]);
+	expect(alone).not.toContain("证书共用");
 });

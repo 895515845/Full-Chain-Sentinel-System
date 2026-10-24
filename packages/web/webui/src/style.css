@@ -2564,6 +2564,17 @@ button.ghost.small.on {
 	text-align: right;
 }
 
+/*
+ * A tunnel profile shared by more than one project: the server sees one client
+ * certificate, so the second connection knocks the first one offline unless it runs
+ * with duplicate-cn. A warning, not a refusal — the console cannot ask the server.
+ */
+.proxy-shared {
+	background: var(--raised);
+	color: var(--warn);
+	cursor: help;
+}
+
 .env-note.warn {
 	color: var(--warn);
 }

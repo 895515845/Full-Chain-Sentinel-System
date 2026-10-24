@@ -3270,7 +3270,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"内网与回环地址直连，其余走代理": "Private and loopback addresses stay direct, everything else takes the proxy",
 	"拉取中…": "Pulling…",
 	拉取镜像: "Pull image",
-	"容器挂在自己的 sing-box 上，出网走代理": "The container joins its own sing-box; outbound traffic takes the proxy",
+	"容器挂在自己的代理容器上，出网走代理":
+		"The container joins its own proxy sidecar; outbound traffic takes the proxy",
 	"代理设置…": "Proxy settings…",
 	"容器的网络模式、代理等创建期设置改完（设置 → 环境 / 「代理设置…」）后，用「重建容器」让已有项目生效；删除项目不可恢复。":
 		"After changing creation-time settings such as the network mode or the proxy (设置 → 环境, or 代理设置…), use 重建容器 to apply them to existing projects. Deleting a project cannot be undone.",
@@ -3349,8 +3350,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"跟随档案默认（{name}）": "Follow the profile's node ({name})",
 	第一个节点: "the first node",
 	"{count} 个节点，可以只给这个项目指定一个": "{count} nodes; this project can pin one of them",
-	"容器挂在自己的 sing-box 上，出网走代理「{name}」的节点「{node}」":
-		"The container joins its own sing-box; outbound traffic takes node 「{node}」 of proxy 「{name}」",
+	"容器挂在自己的代理容器上，出网走代理「{name}」的节点「{node}」":
+		"The container joins its own proxy sidecar; outbound traffic takes node 「{node}」 of proxy 「{name}」",
 	"换节点或刷新后，用到这个代理的项目要重建容器才会走新的节点。":
 		"After switching a node or refreshing, projects using this proxy take the new node at their next container rebuild.",
 	"WireGuard 缺少本端私钥": "WireGuard has no private key for this side",
@@ -3363,8 +3364,6 @@ export const EN_MESSAGES: Record<string, string> = {
 		"A WireGuard profile does not run sing-box, so it has no outbound to generate",
 	"WireGuard 档案需要填写 DNS，否则容器里的域名解析不会走隧道":
 		"A WireGuard profile needs a DNS server, otherwise name lookups in the container leave the tunnel",
-	"DNS 要填 IP 地址，多个用逗号分隔": "DNS has to be an IP address; separate several with commas",
-	"隧道 DNS 无法写入：{error}": "The tunnel resolver could not be written: {error}",
 	"镜像 {image} 不存在": "The image {image} is not present",
 	"只有 WireGuard 档案，用不到 sing-box 镜像": "Only WireGuard profiles exist, so the sing-box image is not needed",
 	"一条隧道而不是一个代理：容器里的一切（含 ping、UDP、原始套接字）都走它，但只有这一个出口，没有节点可切。":
@@ -3379,6 +3378,40 @@ export const EN_MESSAGES: Record<string, string> = {
 	"DNS（配置里没有 DNS = 时填这里）": "DNS (fill this in when the configuration has no DNS =)",
 	"WireGuard 档案的容器跑 wg-quick 而不是 sing-box：隧道是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道；只有这一个出口，没有节点可切。要走哪些网段由配置里的 AllowedIPs 决定（写 0.0.0.0/0 就是全部），没有内网直连这个开关。DNS 必填——Docker 自己的解析在隧道外。":
 		"A WireGuard profile runs wg-quick instead of sing-box: the tunnel is a real interface with a real default route, so ping, UDP and raw sockets all go through it. There is one exit and no node switching. What the tunnel carries is decided by AllowedIPs in the configuration (0.0.0.0/0 is everything) — there is no private-direct switch. DNS is required: Docker's own resolver sits outside the tunnel.",
+	"粘贴 OpenVPN 配置（.ovpn，内联证书）": "Paste an OpenVPN configuration (.ovpn with inline certificates)",
+	"OpenVPN 只支持 tun 模式，配置里是 dev {dev}": "Only tun mode is supported; the configuration says dev {dev}",
+	"配置里没有 remote 服务器地址": "The configuration has no remote server",
+	"remote 的端口要在 1-65535 之间": "The remote port has to be between 1 and 65535",
+	"配置用 {name} {file} 引用外部文件；请粘贴内联证书的完整 .ovpn":
+		"The configuration references the external file {name} {file}; paste a complete .ovpn with inline certificates",
+	"配置缺少内联的 <ca> 证书；分开的证书文件请先合并进一份 .ovpn":
+		"The configuration has no inline <ca> certificate; merge separate certificate files into one .ovpn first",
+	"配置要求动态口令（static-challenge），控制台只支持静态用户名密码":
+		"The configuration asks for a one-time password (static-challenge); the console supports static credentials only",
+	"配置要求用户名密码（auth-user-pass），请在上面的用户名与密码里填上":
+		"The configuration requires a username and password (auth-user-pass); fill them in above",
+	"OpenVPN 档案不走 sing-box，不能生成出站配置":
+		"An OpenVPN profile does not run sing-box, so it has no outbound to generate",
+	"代理容器里没有 ip 命令（工具镜像缺少 iproute2），kill-switch 无法生效；请重建工具镜像":
+		"The sidecar has no ip command (the toolbox image lacks iproute2), so the kill switch cannot work; rebuild the toolbox image",
+	"隧道没有在 {seconds} 秒内建立": "The tunnel did not come up within {seconds} seconds",
+	代理容器已退出: "The sidecar exited",
+	"代理容器里的隧道没有建立（可能正在重连）：{reason}":
+		"The sidecar has no tunnel right now (it may be reconnecting): {reason}",
+	没有可用日志: "no usable log",
+	"隧道 DNS 无法写入：{error}": "The tunnel resolver could not be written: {error}",
+	"只有隧道档案，用不到 sing-box 镜像": "Only tunnel profiles exist, so the sing-box image is not needed",
+	"同样是一条隧道，配置换成 .ovpn：粘贴内联证书的配置，账号密码单独填；服务器推送的 DNS 会自动用上。":
+		"Also a tunnel, configured with an .ovpn instead: paste a configuration with inline certificates, fill in the credentials separately, and the DNS the server pushes is picked up automatically.",
+	"OpenVPN 配置（直接粘贴 .ovpn，证书要内联）": "OpenVPN configuration (paste the .ovpn; certificates must be inline)",
+	"配置要求 auth-user-pass 时填": "Fill this in when the configuration uses auth-user-pass",
+	"DNS（留空则用配置里的，或服务器推送的）":
+		"DNS (leave empty to use the one in the configuration, or the one the server pushes)",
+	"同一份证书同时只能有一个连接：除非服务器开了 duplicate-cn，两个项目一起用会被互相踢下线。要给每个项目单独一份证书，请分别建档案。":
+		"One certificate supports one connection at a time: unless the server runs with duplicate-cn, two projects using it knock each other offline. Give each project its own certificate in its own profile.",
+	证书共用: "Certificate shared",
+	"OpenVPN 档案的容器跑 openvpn 客户端而不是 sing-box：同样是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道。配置里的证书必须内联（引用 ca.crt 这类外部文件会被拒绝），daemon、log 与 up/down/route-up 这些脚本选项会被剥掉——控制台只运行自己的 hook。DNS 可以留空：服务器推送的解析器会自动用上。同一份证书同时只能有一个连接，要给每个项目单独一份证书就分别建档案。":
+		"An OpenVPN profile runs the OpenVPN client instead of sing-box: again a real interface with a real default route, so ping, UDP and raw sockets all go through it. Certificates must be inline (a reference to an external file such as ca.crt is refused), and daemon, log and the up/down/route-up script options are stripped — the console runs only its own hook. DNS may be left empty: the resolver the server pushes is picked up automatically. One certificate supports one connection at a time, so give each project its own profile if it needs its own certificate.",
 	"停止后这个项目的工具调用与对话都无法进行，需要点「启动容器」才能继续。":
 		"While it is stopped, tools and conversations for this project cannot run: start the container to continue.",
 	"容器里用 apt 装的包与启动的进程状态会丢失，":
@@ -3502,8 +3535,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"改完要重建容器才生效；代理本身在侧栏「代理」页管理":
 		"A rebuild applies the change; the proxies themselves are managed on the 代理 page",
 	"跟随默认（{name}）": "Follow the default ({name})",
-	"容器挂在自己的 sing-box 上，出网走代理「{name}」":
-		"The container joins its own sing-box; outbound traffic takes 代理「{name}」",
+	"容器挂在自己的代理容器上，出网走代理「{name}」":
+		"The container joins its own proxy sidecar; outbound traffic takes proxy 「{name}」",
 	配置有误: "The configuration is invalid",
 	地址: "Address",
 	镜像: "Image",

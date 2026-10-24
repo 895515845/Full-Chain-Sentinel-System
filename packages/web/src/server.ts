@@ -40,6 +40,7 @@ import { getServerLanguage, setServerLanguage, t } from "./i18n.ts";
 import { IosGateway } from "./ios-gateway.ts";
 import { readProviderModelConfig } from "./model-config.ts";
 import { DEFAULT_TEST_URL } from "./node-test.ts";
+import { buildOpenVpnProfile } from "./openvpn.ts";
 import {
 	deletePreset,
 	exportFileName,
@@ -771,10 +772,14 @@ export async function startSentinelServer(
 		if (!agentDir) return undefined;
 		const settings = resolveProjectProxy(agentDir, profile.id);
 		if (!settings) return undefined;
-		// A tunnel does not go through sing-box: its configuration is the wg0.conf
-		// `wg-quick` will read, so the check is whether it can be written at all.
+		// A tunnel does not go through sing-box: its configuration is the file the
+		// sidecar's own client reads, so the check is whether it can be written at all.
 		if (settings.mode === "wireguard") {
 			const built = buildWireGuardConfig(settings.wireguard);
+			return built.error;
+		}
+		if (settings.mode === "openvpn") {
+			const built = buildOpenVpnProfile(settings.openvpn);
 			return built.error;
 		}
 		const built = buildSingboxConfig(settings);
