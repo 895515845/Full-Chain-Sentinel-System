@@ -66,7 +66,7 @@ export function AboutPage({
 	];
 
 	return (
-		<div className="page-card">
+		<div className="page-card about-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("关于")}

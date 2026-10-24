@@ -76,8 +76,8 @@ export function IosPage({
 	const staleCount = devices.filter((device) => device.stale).length;
 
 	return (
-		<div className="page-card droid-page">
-			<div className="ws-panel__head">
+		<div className="page-card droid-page ios-page">
+			<div className="ws-panel__head device-page__head">
 				<div className="ws-panel__title">
 					{t("iOS 设备")}
 					<span className="ws-panel__sub">
@@ -93,7 +93,7 @@ export function IosPage({
 				</div>
 			</div>
 
-			<div className="ws-panel__body">
+			<div className="ws-panel__body device-page__body">
 				<div className="droid-layout">
 					{/* 左栏：反连地址 + 令牌 */}
 					<div className="droid-col">

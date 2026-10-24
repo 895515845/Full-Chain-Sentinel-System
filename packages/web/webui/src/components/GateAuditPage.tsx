@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import "../styles/workspace-pages.css";
 import { getLanguage, t } from "../i18n.ts";
 import type {
 	SentinelGateApproval,
@@ -165,7 +166,7 @@ export function GateAuditPage({
 	);
 
 	return (
-		<div className="page-card">
+		<div className="page-card gate-audit-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("审批")}

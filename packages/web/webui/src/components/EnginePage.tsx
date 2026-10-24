@@ -292,7 +292,7 @@ export function EnginePage(props: EnginePageProps) {
 
 	if (view === "create") {
 		return (
-			<div className="page-card">
+			<div className="page-card engine-page">
 				<CreateEngineForm
 					doctrines={props.doctrines}
 					presets={props.presets}
@@ -310,7 +310,7 @@ export function EnginePage(props: EnginePageProps) {
 
 	if (view === "doctrines") {
 		return (
-			<div className="page-card">
+			<div className="page-card engine-page">
 				<DoctrineManager
 					doctrines={props.doctrines}
 					onClose={() => setView("list")}
@@ -523,7 +523,7 @@ export function EnginePage(props: EnginePageProps) {
 
 	// list view
 	return (
-		<div className="page-card">
+		<div className="page-card engine-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("工程")}

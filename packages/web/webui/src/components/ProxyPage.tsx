@@ -576,7 +576,7 @@ export function ProxyPage({
 	};
 
 	return (
-		<div className="page-card">
+		<div className="page-card proxy-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("代理")}

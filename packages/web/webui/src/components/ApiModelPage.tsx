@@ -325,7 +325,7 @@ export function ApiModelPage({
 	}
 
 	return (
-		<div className="page-card">
+		<div className="page-card business-model-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("业务建模")}

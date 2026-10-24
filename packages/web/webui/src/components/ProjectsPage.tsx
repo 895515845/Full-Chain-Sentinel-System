@@ -191,7 +191,7 @@ export function ProjectsPage({
 		runAction(() => onSaveProxy(project.id, proxyId, proxyNode));
 
 	return (
-		<div className="page-card">
+		<div className="page-card projects-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("项目")}

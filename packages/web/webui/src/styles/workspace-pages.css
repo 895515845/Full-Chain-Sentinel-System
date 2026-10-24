@@ -1,0 +1,510 @@
+/* Shared polish for operational pages. Keep the existing data flows and
+   component vocabulary; this layer improves hierarchy and narrow layouts. */
+.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) {
+	--page-accent-wash: color-mix(in srgb, var(--accent) 4%, var(--card));
+	box-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 8px 24px rgb(16 24 40 / 3%);
+}
+
+.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) > .ws-panel__head {
+	min-height: 56px;
+	padding: 12px 16px;
+	margin: calc(-1 * var(--gutter));
+	margin-bottom: 0;
+	border-bottom-color: var(--border);
+	background: linear-gradient(105deg, var(--page-accent-wash), var(--card) 52%);
+}
+
+.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) .ws-panel__title {
+	color: var(--text-bright);
+	font-size: 15px;
+	letter-spacing: -0.01em;
+}
+
+.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) .ws-panel__sub {
+	padding-left: 10px;
+	border-left: 1px solid var(--border-strong);
+	font-size: 12px;
+}
+
+.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) > .ws-panel__body {
+	padding: 16px 2px 2px;
+}
+
+.app-content :is(.vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+	.droid-page, .supervisor-audit-page, .business-model-page, .about-page) .ws-panel__actions {
+	gap: 8px;
+}
+
+/* Data ledgers */
+.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-table {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+	box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+}
+
+.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-head {
+	min-height: 38px;
+	background: #f5f7fa;
+	color: var(--dim);
+	font-size: 11px;
+	font-weight: 650;
+	letter-spacing: 0.035em;
+	text-transform: uppercase;
+}
+
+.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-row:not(.data-head) {
+	min-height: 52px;
+	transition: background 120ms ease;
+}
+
+.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-row:not(.data-head):hover {
+	background: var(--page-accent-wash);
+}
+
+.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-row:focus-visible {
+	position: relative;
+	z-index: 1;
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+
+/* Project, Android and iOS device operations */
+.droid-page .device-page__head {
+	margin-bottom: 0;
+}
+
+.droid-page .device-page__body {
+	gap: 16px;
+}
+
+.droid-page .droid-layout {
+	grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.45fr);
+	gap: 16px;
+	align-items: stretch;
+}
+
+.droid-page .droid-col {
+	gap: 16px;
+}
+
+.droid-page .droid-card {
+	padding: 16px;
+	border-color: var(--border);
+	border-radius: 9px;
+	box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+}
+
+.droid-page .droid-card__title {
+	min-height: 28px;
+	margin-bottom: 14px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--border);
+	font-size: 13px;
+}
+
+.droid-page .droid-field {
+	margin-bottom: 14px;
+}
+
+.droid-page .droid-field label {
+	margin-bottom: 5px;
+	color: var(--text);
+	font-size: 12px;
+	font-weight: 550;
+}
+
+.droid-page :is(.droid-field input, .droid-field select, .droid-inline input) {
+	min-height: 34px;
+	border-radius: 6px;
+	background: var(--card);
+}
+
+.droid-page .droid-device {
+	padding: 14px;
+	border-radius: 8px;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.droid-page .droid-device:hover {
+	border-color: var(--border-strong);
+	box-shadow: 0 2px 8px rgb(16 24 40 / 5%);
+}
+
+.droid-page .droid-steps {
+	display: grid;
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: setup-step;
+}
+
+.droid-page .droid-steps li {
+	position: relative;
+	min-height: 30px;
+	padding: 3px 0 3px 40px;
+	line-height: 1.65;
+	counter-increment: setup-step;
+}
+
+.droid-page .droid-steps li::before {
+	position: absolute;
+	left: 0;
+	top: 0;
+	display: grid;
+	width: 26px;
+	height: 26px;
+	place-items: center;
+	border: 1px solid var(--accent-border);
+	border-radius: 50%;
+	background: var(--accent-dim);
+	color: var(--accent);
+	content: counter(setup-step, decimal-leading-zero);
+	font-family: var(--mono);
+	font-size: 10px;
+	font-weight: 650;
+}
+
+.droid-page .droid-steps .mono {
+	margin-top: 7px;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--raised);
+	overflow-wrap: anywhere;
+}
+
+/* POC templates and API business models */
+.poc-page .poc-toolbar {
+	padding-block: 12px;
+}
+
+.poc-page .poc-search,
+.poc-page .poc-select {
+	height: 34px;
+	border-radius: 6px;
+}
+
+.poc-page .poc-tablewrap {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+.poc-page .poc-table thead th {
+	padding-block: 10px;
+	background: #f5f7fa;
+	font-size: 11px;
+	font-weight: 650;
+	letter-spacing: 0.025em;
+}
+
+.poc-page .poc-row:hover {
+	background: var(--page-accent-wash);
+}
+
+.business-model-page .api-model-list {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+/* Project and proxy form surfaces */
+.projects-page .ws-panel__actions .inline-input {
+	min-width: 210px;
+	min-height: 34px;
+}
+
+.proxy-page .proxy-editor,
+.proxy-page .proxy-table {
+	border-radius: 8px;
+}
+
+.proxy-page .proxy-settings-row {
+	gap: 14px;
+}
+
+/* About page reads as a small system inventory rather than a long key/value list. */
+.about-page .kv-table {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0 24px;
+	padding: 4px 16px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+.about-page .kv-row {
+	min-height: 46px;
+	border-bottom: 1px solid var(--border);
+}
+
+.about-page .kv-label {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.025em;
+	text-transform: uppercase;
+}
+
+.about-page .kv-value {
+	max-width: min(70%, 640px);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Approval is a high-attention action; keep the command and decision controls
+   visually grouped while preserving the existing approval semantics. */
+.approval-backdrop {
+	backdrop-filter: blur(2px);
+}
+
+.approval-modal {
+	width: min(760px, calc(100vw - 32px));
+	max-height: min(88dvh, 900px);
+	padding: 22px;
+	border-color: var(--border-strong);
+	border-radius: 12px;
+	box-shadow: 0 24px 72px rgb(16 24 40 / 24%);
+}
+
+.approval-modal h2 {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 16px;
+	font-size: 16px;
+}
+
+.approval-modal .approval-count {
+	margin: 0;
+	padding: 3px 8px;
+	border-radius: 999px;
+	background: var(--danger-dim);
+	font-size: 11px;
+}
+
+.approval-modal .approval-list {
+	max-height: min(58dvh, 620px);
+	overflow: auto;
+	padding: 1px 3px 2px 1px;
+}
+
+.approval-modal .approval-row {
+	position: relative;
+	padding: 14px;
+	border-radius: 8px;
+	background: var(--card);
+	box-shadow: 0 1px 3px rgb(16 24 40 / 5%);
+}
+
+.approval-row__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.approval-row__head > div {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+}
+
+.approval-row__head strong {
+	color: var(--text-bright);
+	font-size: 12px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+}
+
+.approval-row__head > div > span {
+	padding: 2px 8px;
+	border: 1px solid var(--accent-border);
+	border-radius: 999px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-size: 11px;
+}
+
+.approval-edited {
+	flex: none;
+	padding: 3px 8px;
+	border-radius: 4px;
+	background: var(--warn-dim);
+	color: var(--warn);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.approval-command-label {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--dim);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.025em;
+	text-transform: uppercase;
+}
+
+.approval-modal .command-editor {
+	min-height: 58px;
+	border-color: #263a53;
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+.approval-modal .approval-row-meta {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 10px;
+	margin-top: 12px;
+}
+
+.approval-cwd {
+	display: grid;
+	grid-template-columns: 72px minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+	color: var(--dim);
+	font-size: 11px;
+}
+
+.approval-cwd code {
+	min-width: 0;
+	overflow: hidden;
+	padding: 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: var(--raised);
+	color: var(--text);
+	font-family: var(--mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.approval-auto-allow {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0;
+	padding: 9px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--raised);
+	color: var(--dim);
+	font-size: 11px;
+	line-height: 1.55;
+}
+
+.approval-auto-allow input {
+	flex: none;
+	margin: 2px 0 0;
+	accent-color: var(--accent);
+}
+
+.approval-auto-allow span {
+	min-width: 0;
+}
+
+.approval-auto-allow code {
+	margin-left: 4px;
+	color: var(--text);
+	font-family: var(--mono);
+	font-weight: 600;
+	word-break: break-all;
+}
+
+.approval-modal .modal-hint {
+	margin: 14px 0 0;
+	padding: 9px 11px;
+	border-left: 3px solid var(--warn);
+	border-radius: 4px;
+	background: var(--warn-dim);
+	font-size: 11px;
+}
+
+.approval-modal .modal-actions button {
+	min-height: 34px;
+	padding-inline: 14px;
+}
+
+@media (max-width: 760px) {
+	.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+		.droid-page, .supervisor-audit-page, .business-model-page, .about-page) > .ws-panel__head {
+		margin-inline: calc(-1 * var(--gutter));
+		padding-inline: 12px;
+	}
+
+	.app-content :is(.gate-audit-page, .vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+		.droid-page, .supervisor-audit-page, .business-model-page, .about-page) .ws-panel__title {
+		flex-wrap: wrap;
+		gap: 5px 8px;
+	}
+
+	.app-content :is(.vuln-page, .poc-page, .projects-page, .engine-page, .proxy-page,
+		.droid-page, .supervisor-audit-page, .business-model-page, .about-page) .ws-panel__sub {
+		padding-left: 0;
+		border-left: 0;
+		flex-basis: 100%;
+	}
+
+	.droid-page .droid-layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.droid-page .droid-card {
+		padding: 13px;
+	}
+
+	.about-page .kv-table {
+		grid-template-columns: minmax(0, 1fr);
+		padding-inline: 12px;
+	}
+
+	.approval-modal {
+		width: calc(100vw - 20px);
+		max-height: calc(100dvh - 24px);
+		padding: 16px;
+	}
+
+	.approval-modal .approval-bulk,
+	.approval-modal .approval-row .modal-actions {
+		flex-wrap: wrap;
+	}
+
+	.approval-row__head {
+		align-items: flex-start;
+	}
+
+	.approval-row__head > div {
+		flex-wrap: wrap;
+	}
+
+	.approval-cwd {
+		grid-template-columns: 1fr;
+		gap: 4px;
+	}
+
+	.approval-modal .approval-bulk button,
+	.approval-modal .approval-row .modal-actions button {
+		flex: 1 1 140px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.app-content :is(.projects-page, .engine-page, .proxy-page, .vuln-page) .data-row,
+	.droid-page .droid-device {
+		transition: none;
+	}
+}

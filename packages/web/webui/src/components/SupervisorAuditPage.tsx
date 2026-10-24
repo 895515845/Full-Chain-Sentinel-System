@@ -371,7 +371,7 @@ export function SupervisorAuditPage({
 	);
 
 	return (
-		<div className="page-card sva-page">
+		<div className="page-card sva-page supervisor-audit-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("监督")}

@@ -305,7 +305,7 @@ export function VulnPage({
 
 	if (!hasProject) {
 		return (
-			<div className="page-card">
+			<div className="page-card vuln-page">
 				<div className="ws-panel__head">
 					<div className="ws-panel__title">{t("漏洞中枢")}</div>
 				</div>
@@ -319,7 +319,7 @@ export function VulnPage({
 		);
 	}
 	return (
-		<div className="page-card">
+		<div className="page-card vuln-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("漏洞中枢")}

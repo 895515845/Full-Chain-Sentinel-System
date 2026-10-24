@@ -81,7 +81,7 @@ export function DroidPage({
 
 	return (
 		<div className="page-card droid-page">
-			<div className="ws-panel__head">
+			<div className="ws-panel__head device-page__head">
 				<div className="ws-panel__title">
 					{t("安卓设备")}
 					<span className="ws-panel__sub">
@@ -97,7 +97,7 @@ export function DroidPage({
 				</div>
 			</div>
 
-			<div className="ws-panel__body">
+			<div className="ws-panel__body device-page__body">
 				<div className="droid-layout">
 					{/* 左栏：反连服务 + 令牌 */}
 					<div className="droid-col">

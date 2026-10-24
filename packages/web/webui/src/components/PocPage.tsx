@@ -228,7 +228,7 @@ export function PocPage({
 	};
 
 	return (
-		<div className="page-card">
+		<div className="page-card poc-page">
 			<div className="ws-panel__head">
 				<div className="ws-panel__title">
 					{t("POC 库")}

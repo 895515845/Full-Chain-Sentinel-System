@@ -10,9 +10,13 @@ function commandPrefix(command: string): string {
 
 function ApprovalRow({
 	request,
+	index,
+	total,
 	onDecide,
 }: {
 	request: SentinelApprovalRequest;
+	index: number;
+	total: number;
 	onDecide: (id: string, approved: boolean, command: string, alwaysAllowPrefix: boolean) => void;
 }) {
 	const [command, setCommand] = useState(request.command);
@@ -22,29 +26,39 @@ function ApprovalRow({
 
 	return (
 		<div className="approval-row">
+			<div className="approval-row__head">
+				<div>
+					<strong>{t("请求 {index} / {total}", { index, total })}</strong>
+					<span>{request.source ? approvalSource(request.source) : t("未知来源")}</span>
+				</div>
+				{edited ? <span className="approval-edited">{t("命令已修改")}</span> : null}
+			</div>
+			<label className="approval-command-label" htmlFor={`approval-command-${request.id}`}>
+				{edited ? t("将要执行的命令（已编辑）") : t("将要执行的命令")}
+			</label>
 			<textarea
+				id={`approval-command-${request.id}`}
 				className="command-editor"
 				value={command}
 				onChange={(event) => setCommand(event.target.value)}
-				rows={Math.min(8, Math.max(2, command.split("\n").length + 1))}
+				rows={Math.min(8, Math.max(3, command.split("\n").length + 1))}
 				spellCheck={false}
 			/>
 			<div className="approval-row-meta">
-				<span>
-					{request.source && request.source !== "主代理" ? (
-						<span className="source-badge">{approvalSource(request.source)}</span>
-					) : null}
-					{edited ? t("已修改（将按修改后执行）") : t("在 {cwd} 执行", { cwd: request.cwd })}
-				</span>
-				<label className="behavior">
+				<div className="approval-cwd">
+					<span>{t("执行目录")}</span>
+					<code title={request.cwd}>{request.cwd}</code>
+				</div>
+				<label className="behavior approval-auto-allow">
 					<input
 						type="checkbox"
 						checked={alwaysAllow}
 						onChange={(event) => setAlwaysAllow(event.target.checked)}
 					/>
-					{t("本会话内自动放行")}
-					{prefix ? t("「{prefix}」", { prefix }) : t("同类")}
-					{t("开头的命令")}
+					<span>
+						{t("本会话自动放行以此开头的命令")}
+						<code>{prefix || t("空命令")}</code>
+					</span>
 				</label>
 			</div>
 			<div className="modal-actions">
@@ -76,9 +90,9 @@ export function ApprovalQueue({
 	onDecideAll: (approved: boolean) => void;
 }) {
 	return (
-		<div className="modal-backdrop">
-			<div className="modal approval">
-				<h2>
+		<div className="modal-backdrop approval-backdrop">
+			<div className="modal approval approval-modal" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+				<h2 id="approval-title">
 					{t("命令审批")}
 					<span className="approval-count">{t("{count} 条待审", { count: requests.length })}</span>
 				</h2>
@@ -93,8 +107,14 @@ export function ApprovalQueue({
 					</div>
 				) : null}
 				<div className="approval-list">
-					{requests.map((request) => (
-						<ApprovalRow key={request.id} request={request} onDecide={onDecide} />
+					{requests.map((request, index) => (
+						<ApprovalRow
+							key={request.id}
+							request={request}
+							index={index + 1}
+							total={requests.length}
+							onDecide={onDecide}
+						/>
 					))}
 				</div>
 				<p className="modal-hint">
