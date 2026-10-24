@@ -2364,9 +2364,10 @@ export type SentinelContainerNetwork = "host" | "bridge";
 /**
  * How the proxy is described. `off` runs no sidecar at all; `simple` covers a
  * SOCKS5 or HTTP endpoint (a local Clash, a VPS); `subscription` takes a URL
- * whose nodes are fetched, parsed and cached.
+ * whose nodes are fetched, parsed and cached; `wireguard` is a tunnel rather than
+ * a proxy, and its sidecar runs `wg-quick` instead of sing-box.
  */
-export type SentinelProxyMode = "off" | "simple" | "subscription";
+export type SentinelProxyMode = "off" | "simple" | "subscription" | "wireguard";
 
 /** A SOCKS5 or HTTP endpoint, the whole of what `simple` mode needs. */
 export interface SentinelSimpleProxy {
@@ -2404,6 +2405,25 @@ export interface SentinelProxyNode {
 	testedAt?: number;
 }
 
+/**
+ * One WireGuard tunnel.
+ *
+ * The configuration is pasted whole — that is what a provider hands out, and it
+ * carries keys, address, MTU, keepalive and the peer in the spelling `wg-quick`
+ * already understands. The console adds only the two decisions that are not in
+ * the file: the resolver the container should use (Docker's own resolver runs
+ * outside the tunnel, so leaving it unset would leak every lookup) and whether to
+ * drop the direct default route once the tunnel is up.
+ */
+export interface SentinelWireGuard {
+	/** `wg0.conf` as pasted. */
+	config: string;
+	/** Resolver for the container; empty uses the file's own `DNS =` line. */
+	dns: string;
+	/** Remove the direct default route after the tunnel is up. */
+	killSwitch: boolean;
+}
+
 /** Where a subscription profile's nodes come from, and how the last read went. */
 export interface SentinelProxySubscription {
 	url: string;
@@ -2429,6 +2449,8 @@ export interface SentinelProxySettings {
 	nodes: SentinelProxyNode[];
 	/** Which of `nodes` the generated selector defaults to. */
 	nodeTag: string;
+	/** The tunnel, when `mode` is `wireguard`. */
+	wireguard: SentinelWireGuard;
 	/** Image the sidecar runs; empty means the built-in default. */
 	image: string;
 	/** URL the generated `urltest` group uses to rank nodes. */
@@ -2451,6 +2473,8 @@ export interface SentinelProxy {
 	simple: SentinelSimpleProxy;
 	/** Present when `mode` is `subscription`. */
 	subscription: SentinelProxySubscription | null;
+	/** Present when `mode` is `wireguard`. */
+	wireguard: SentinelWireGuard;
 	/** Cached nodes; only a subscription profile has any. */
 	nodes: SentinelProxyNode[];
 	/** Which node the generated selector defaults to. */
@@ -2483,6 +2507,8 @@ export interface SentinelProxyInput {
 	name: string;
 	mode: Exclude<SentinelProxyMode, "off">;
 	simple: SentinelSimpleProxy;
+	/** The tunnel, when `mode` is `wireguard`. */
+	wireguard: SentinelWireGuard;
 	/** Subscription URL and user agent; the nodes themselves are fetched here. */
 	subscriptionUrl: string;
 	subscriptionUserAgent: string;

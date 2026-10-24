@@ -32,8 +32,9 @@ import { dirname, join } from "node:path";
 import { containerPrefix, runDocker } from "./docker.ts";
 import { t } from "./i18n.ts";
 import { freePort } from "./node-test.ts";
-import type { SentinelProxySettings } from "./protocol.ts";
-import { buildSingboxConfig, projectProxyConfigPath } from "./proxy.ts";
+import type { SentinelProxySettings, SentinelWireGuard } from "./protocol.ts";
+import { buildSingboxConfig, projectProxyConfigPath, projectWireGuardConfigPath } from "./proxy.ts";
+import { buildWireGuardConfig, wireGuardEntrypoint } from "./wireguard.ts";
 
 /** Container name of one project's sidecar. */
 export function singboxContainerNameFor(projectId: string): string {
@@ -89,6 +90,33 @@ export async function ensureProxyNetwork(): Promise<{ ok: boolean; error?: strin
  * whether a running sidecar still serves what the console generated, and a write
  * on every use would make every sidecar look out of date.
  */
+/**
+ * Write a tunnel's `wg0.conf`.
+ *
+ * Same rule as the sing-box configuration: an identical rewrite is skipped so the
+ * file's modification time keeps meaning "this changed", which is what the
+ * environment check uses to decide whether a running sidecar is stale.
+ */
+export function writeProjectWireGuardConfig(
+	agentDir: string,
+	projectId: string,
+	wireguard: SentinelWireGuard,
+): { ok: true; path: string; dns: string } | { ok: false; error: string } {
+	const built = buildWireGuardConfig(wireguard);
+	if (built.error || !built.config) return { ok: false, error: built.error ?? t("配置生成失败") };
+	const path = projectWireGuardConfigPath(agentDir, projectId);
+	const dns = built.dns ?? "";
+	try {
+		if (readFileSync(path, "utf-8") === built.config) return { ok: true, path, dns };
+	} catch {
+		// Missing or unreadable: written below.
+	}
+	mkdirSync(dirname(path), { recursive: true });
+	// 0600: the file holds the private key.
+	writeFileSync(path, built.config, { mode: 0o600 });
+	return { ok: true, path, dns };
+}
+
 export async function writeProjectProxyConfig(
 	agentDir: string,
 	projectId: string,
@@ -267,6 +295,71 @@ export async function ensureSingboxRunning(
 			return { ok: false, created: false, error: t("代理镜像 {image} 不存在", { image }) };
 		}
 		const created = await createSingboxContainer(containerName, configPath, image);
+		return { ok: created.ok, created: true, error: created.error };
+	}
+	if (state.stdout.trim() === "true") return { ok: true, created: false };
+	const start = await runDocker(["start", containerName], { timeoutMs: 60000 });
+	return { ok: start.code === 0, created: false, error: start.code === 0 ? undefined : start.stderr.trim() };
+}
+
+/**
+ * The sidecar of a WireGuard profile.
+ *
+ * It is not a sing-box container at all: `wg-quick` creates a real interface and
+ * installs a real default route, which is what makes ICMP and UDP work — a proxy
+ * engine's outbound can only carry TCP and UDP. It runs the toolbox image, which
+ * already has `wireguard-tools` and `iproute2`, so a tunnel needs no second image
+ * to pull.
+ *
+ * It still joins the console's proxy network: that is what gives the sidecar a
+ * working resolver for the peer's hostname, and the same `/etc/hosts` treatment
+ * for `host.docker.internal`.
+ */
+export async function createWireGuardContainer(
+	containerName: string,
+	configPath: string,
+	image: string,
+	killSwitch: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+	const network = await ensureProxyNetwork();
+	if (!network.ok) return { ok: false, error: network.error };
+	const result = await runDocker([
+		"run",
+		"-d",
+		"--name",
+		containerName,
+		"--network",
+		proxyNetworkName(),
+		"--cap-add",
+		"NET_ADMIN",
+		// wg-quick sets this for its kill switch, and /proc/sys is read-only in a
+		// container unless the key is granted here.
+		"--sysctl",
+		"net.ipv4.conf.all.src_valid_mark=1",
+		"-v",
+		`${configPath}:/etc/wireguard/wg0.conf:ro`,
+		"--entrypoint",
+		"sh",
+		image,
+		"-c",
+		wireGuardEntrypoint(killSwitch),
+	]);
+	return result.code === 0 ? { ok: true } : { ok: false, error: result.stderr.trim() };
+}
+
+/** Start the tunnel sidecar if it is not running, creating it when it is gone. */
+export async function ensureWireGuardRunning(
+	containerName: string,
+	configPath: string,
+	image: string,
+	killSwitch: boolean,
+): Promise<{ ok: boolean; created: boolean; error?: string }> {
+	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
+	if (state.code !== 0) {
+		if (!(await hasSingboxImage(image))) {
+			return { ok: false, created: false, error: t("镜像 {image} 不存在", { image }) };
+		}
+		const created = await createWireGuardContainer(containerName, configPath, image, killSwitch);
 		return { ok: created.ok, created: true, error: created.error };
 	}
 	if (state.stdout.trim() === "true") return { ok: true, created: false };

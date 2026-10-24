@@ -96,6 +96,7 @@ function settingsOf(
 	return {
 		mode: "simple",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false, ...simple },
+		wireguard: { config: "", dns: "", killSwitch: true },
 		nodes: [],
 		nodeTag: "",
 		image: DEFAULT_SINGBOX_IMAGE,
@@ -120,6 +121,7 @@ function addProfile(
 	const saved = saveProxy(agentDir, {
 		name: "香港节点",
 		mode: "simple",
+		wireguard: { config: "", dns: "", killSwitch: true },
 		subscriptionUrl: input.subscriptionUrl ?? "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -193,6 +195,8 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			mode: "simple",
 			simple: clash,
 			routePrivateDirect: true,
+			wireguard: { config: "", dns: "", killSwitch: true },
+
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
 			subscriptionIntervalHours: 0,
@@ -206,6 +210,8 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			mode: "simple",
 			simple: clash,
 			routePrivateDirect: true,
+			wireguard: { config: "", dns: "", killSwitch: true },
+
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
 			subscriptionIntervalHours: 0,
@@ -218,6 +224,8 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 		mode: "simple",
 		simple: { ...clash, server: "9.9.9.9", port: 1080 },
 		routePrivateDirect: false,
+		wireguard: { config: "", dns: "", killSwitch: true },
+
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,

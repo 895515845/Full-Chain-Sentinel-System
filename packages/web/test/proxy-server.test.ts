@@ -113,6 +113,7 @@ function input(overrides: Partial<SentinelProxyInput> = {}): SentinelProxyInput 
 		name: "香港节点",
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
+		wireguard: { config: "", dns: "", killSwitch: true },
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -235,6 +236,7 @@ test("a saved profile comes back with its id, and a broken one is refused", asyn
 		input({
 			name: "坏节点",
 			simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+			wireguard: { config: "", dns: "", killSwitch: true },
 		}),
 	);
 	expect(broken.error).toContain("地址");

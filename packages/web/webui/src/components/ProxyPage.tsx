@@ -32,6 +32,10 @@ function describe(proxy: SentinelProxy): string {
 		if (!server || port <= 0) return t("未配置");
 		return `${type === "http" ? "HTTP" : "SOCKS5"} ${server}:${port}`;
 	}
+	if (proxy.mode === "wireguard") {
+		const endpoint = /^\s*endpoint\s*=\s*(.+)$/im.exec(proxy.wireguard.config)?.[1]?.trim();
+		return endpoint ? `WireGuard ${endpoint}` : t("未配置");
+	}
 	if (proxy.mode === "subscription") {
 		if (proxy.nodes.length === 0) return proxy.subscription?.url ? t("订阅未拉取") : t("未配置订阅");
 		const chosen = proxy.nodes.find((node) => node.tag === proxy.nodeTag) ?? proxy.nodes[0];
@@ -56,6 +60,7 @@ function profileOf(proxy: SentinelProxy): SentinelProxyInput {
 		name: proxy.name,
 		mode: proxy.mode,
 		simple: proxy.simple,
+		wireguard: proxy.wireguard,
 		subscriptionUrl: proxy.subscription?.url ?? "",
 		subscriptionUserAgent: proxy.subscription?.userAgent ?? "",
 		subscriptionIntervalHours: proxy.subscription?.intervalHours ?? 0,
@@ -84,6 +89,10 @@ function ProxyEditor({
 }) {
 	const [draft, setDraft] = useState<SentinelProxyInput>(initial);
 	const patch = (next: Partial<SentinelProxyInput>) => setDraft((prev) => ({ ...prev, ...next }));
+	const patchWireGuard = (changes: Partial<SentinelProxyInput["wireguard"]>) => {
+		setDraft((prev) => (prev ? { ...prev, wireguard: { ...prev.wireguard, ...changes } } : prev));
+	};
+
 	const patchSimple = (next: Partial<SentinelProxyInput["simple"]>) =>
 		setDraft((prev) => ({ ...prev, simple: { ...prev.simple, ...next } }));
 	const named = draft.name.trim().length > 0;
@@ -135,6 +144,18 @@ function ProxyEditor({
 						<span className="env-network-label">{t("订阅链接")}</span>
 						<span className="env-network-detail">
 							{t("贴机场或自建面板的订阅地址，保存时拉取一次，解析出多个节点后在这里选一个。支持 base64 分享链接、Clash 与 sing-box 配置。")}
+						</span>
+					</label>
+					<label className={draft.mode === "wireguard" ? "selected" : undefined}>
+						<input
+							type="radio"
+							name="proxy-kind"
+							checked={draft.mode === "wireguard"}
+							onChange={() => patch({ mode: "wireguard" })}
+						/>
+						<span className="env-network-label">WireGuard</span>
+						<span className="env-network-detail">
+							{t("一条隧道而不是一个代理：容器里的一切（含 ping、UDP、原始套接字）都走它，但只有这一个出口，没有节点可切。")}
 						</span>
 					</label>
 				</div>
@@ -196,6 +217,37 @@ function ProxyEditor({
 							</label>
 						) : null}
 					</div>
+				) : draft.mode === "wireguard" ? (
+					<div className="env-proxy-fields">
+						<label className="env-proxy-wide">
+							<span>{t("WireGuard 配置（直接粘贴 wg0.conf）")}</span>
+							<textarea
+								className="env-proxy-json"
+								rows={12}
+								value={draft.wireguard.config}
+								placeholder={WIREGUARD_PLACEHOLDER}
+								spellCheck={false}
+								onChange={(event) => patchWireGuard({ config: event.target.value })}
+							/>
+						</label>
+						<label className="env-proxy-wide">
+							<span>{t("DNS（配置里没有 DNS = 时填这里）")}</span>
+							<input
+								value={draft.wireguard.dns}
+								placeholder="10.66.0.1"
+								spellCheck={false}
+								onChange={(event) => patchWireGuard({ dns: event.target.value })}
+							/>
+						</label>
+						<label className="env-proxy-check env-proxy-wide">
+							<input
+								type="checkbox"
+								checked={draft.wireguard.killSwitch}
+								onChange={(event) => patchWireGuard({ killSwitch: event.target.checked })}
+							/>
+							<span>{t("断线即断网（kill-switch）：隧道起来后删掉直连的默认路由，隧道掉了不会漏回宿主机网络")}</span>
+						</label>
+					</div>
 				) : (
 					<div className="env-proxy-fields">
 						<label className="env-proxy-wide">
@@ -234,25 +286,41 @@ function ProxyEditor({
 					</div>
 				)}
 
-				<label className="env-proxy-check">
-					<input
-						type="checkbox"
-						checked={draft.routePrivateDirect}
-						onChange={(event) => patch({ routePrivateDirect: event.target.checked })}
-					/>
-					<span>{t("内网与回环地址直连，其余走代理")}</span>
-				</label>
+				{draft.mode === "wireguard" ? null : (
+					<label className="env-proxy-check">
+						<input
+							type="checkbox"
+							checked={draft.routePrivateDirect}
+							onChange={(event) => patch({ routePrivateDirect: event.target.checked })}
+						/>
+						<span>{t("内网与回环地址直连，其余走代理")}</span>
+					</label>
+				)}
 
 				<p className="settings-hint">
 					{draft.mode === "subscription"
 						? t("保存时拉取一次订阅（换地址才会重拉），拉完用 sing-box 校验选中的节点；之后用行内的「节点」换节点、「刷新」重拉。")
-						: t("保存时会用 sing-box 校验一次（镜像已在本地时），不通过的配置会带着报错退回，不会等到重建容器才发现。")}
+						: draft.mode === "wireguard"
+							? t("WireGuard 档案的容器跑 wg-quick 而不是 sing-box：隧道是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道；只有这一个出口，没有节点可切。要走哪些网段由配置里的 AllowedIPs 决定（写 0.0.0.0/0 就是全部），没有内网直连这个开关。DNS 必填——Docker 自己的解析在隧道外。")
+							: t("保存时会用 sing-box 校验一次（镜像已在本地时），不通过的配置会带着报错退回，不会等到重建容器才发现。")}
 				</p>
 				{error ? <div className="page-error">{error}</div> : null}
 			</div>
 		</ConfirmDialog>
 	);
 }
+
+/** What a provider hands out, so the box shows the shape it expects. */
+const WIREGUARD_PLACEHOLDER = `[Interface]
+PrivateKey = ...
+Address = 10.66.0.2/32
+DNS = 10.66.0.1
+
+[Peer]
+PublicKey = ...
+Endpoint = vpn.example.com:51820
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25`;
 
 /** Refresh intervals the operator can pick. 0 is "only when I press refresh". */
 const INTERVAL_OPTIONS: ReadonlyArray<{ hours: number; label: string }> = [
@@ -556,10 +624,16 @@ export function ProxyPage({
 									<span className="proxy-cell__sub">{describe(proxy)}</span>
 								</span>
 								<span className="proxy-kind">
-									{proxy.mode === "subscription" ? t("订阅") : t("普通代理")}
+									{proxy.mode === "subscription"
+										? t("订阅")
+										: proxy.mode === "wireguard"
+											? "WireGuard"
+											: t("普通代理")}
 								</span>
 								<span className="data-mono proxy-num">{uses.get(proxy.id) ?? 0}</span>
-								<span className="proxy-flag">{proxy.routePrivateDirect ? t("是") : t("否")}</span>
+								<span className="proxy-flag">
+									{proxy.mode === "wireguard" ? "—" : proxy.routePrivateDirect ? t("是") : t("否")}
+								</span>
 								<span className="data-actions">
 									{proxy.mode === "subscription" ? (
 										<button

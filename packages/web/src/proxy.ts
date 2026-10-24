@@ -26,6 +26,7 @@ import type {
 	SentinelProxySettings,
 	SentinelProxySubscription,
 	SentinelSimpleProxy,
+	SentinelWireGuard,
 } from "./protocol.ts";
 import { DEFAULT_SUBSCRIPTION_USER_AGENT, downloadSubscription, parseSubscription } from "./subscription.ts";
 import { normalizeIntervalHours } from "./subscription-scheduler.ts";
@@ -74,6 +75,17 @@ export function proxiesPath(agentDir: string): string {
  */
 export function projectProxyConfigPath(agentDir: string, projectId: string): string {
 	return join(agentDir, "proxy", `${projectId}.json`);
+}
+
+/**
+ * Where a WireGuard profile's `wg0.conf` is written.
+ *
+ * A separate file rather than the JSON one: `wg-quick` reads an ini, and the
+ * environment check compares modification times per path, so the two kinds of
+ * sidecar must not share one.
+ */
+export function projectWireGuardConfigPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.wg.conf`);
 }
 
 function asString(value: unknown): string {
@@ -134,7 +146,7 @@ function normalizeSimpleProxy(value: unknown): SentinelSimpleProxy {
  * silently cannot build a configuration.
  */
 export function normalizeProxyMode(value: unknown): SentinelProxySettings["mode"] {
-	if (value === "simple" || value === "subscription") return value;
+	if (value === "simple" || value === "subscription" || value === "wireguard") return value;
 	return "off";
 }
 
@@ -157,6 +169,18 @@ function normalizeNode(value: unknown): SentinelProxyNode | undefined {
 					? null
 					: undefined,
 		testedAt: typeof input.testedAt === "number" && Number.isFinite(input.testedAt) ? input.testedAt : undefined,
+	};
+}
+
+/** A tunnel as stored: the pasted configuration plus two switches. */
+export function normalizeWireGuard(value: unknown): SentinelWireGuard {
+	const input = (value ?? {}) as Partial<SentinelWireGuard>;
+	return {
+		config: asString(input.config).trim(),
+		dns: asString(input.dns).trim(),
+		// On by default: a tunnel that silently falls back to the host network is
+		// the failure mode this switch exists to prevent.
+		killSwitch: asBool(input.killSwitch, true),
 	};
 }
 
@@ -185,9 +209,10 @@ function normalizeProfile(value: unknown): SentinelProxy | undefined {
 	return {
 		id,
 		name,
-		mode: mode === "subscription" ? mode : "simple",
+		mode: mode === "subscription" || mode === "wireguard" ? mode : "simple",
 		simple: normalizeSimpleProxy(input.simple),
 		subscription: normalizeSubscription(input.subscription),
+		wireguard: normalizeWireGuard(input.wireguard),
 		nodes: (Array.isArray(input.nodes) ? input.nodes : [])
 			.map(normalizeNode)
 			.filter((entry): entry is SentinelProxyNode => entry !== undefined),
@@ -254,8 +279,9 @@ function proxyInput(value: SentinelProxyInput): SentinelProxyInput {
 	return {
 		id: asString(input.id).trim() || undefined,
 		name: asString(input.name).trim(),
-		mode: mode === "subscription" ? mode : "simple",
+		mode: mode === "subscription" || mode === "wireguard" ? mode : "simple",
 		simple: normalizeSimpleProxy(input.simple),
+		wireguard: normalizeWireGuard(input.wireguard),
 		subscriptionUrl: asString(input.subscriptionUrl).trim(),
 		subscriptionUserAgent: asString(input.subscriptionUserAgent).trim() || DEFAULT_SUBSCRIPTION_USER_AGENT,
 		subscriptionIntervalHours: normalizeIntervalHours(input.subscriptionIntervalHours),
@@ -296,6 +322,7 @@ export function saveProxy(
 		name: normalized.name,
 		mode: normalized.mode,
 		simple: normalized.simple,
+		wireguard: normalized.wireguard,
 		subscription:
 			normalized.mode === "subscription"
 				? {
@@ -488,6 +515,7 @@ export function resolveProjectProxy(
 		simple: profile.simple,
 		nodes: profile.nodes,
 		nodeTag: profile.nodeTag,
+		wireguard: profile.wireguard,
 		image: file.image,
 		testUrl: file.testUrl,
 		routePrivateDirect: profile.routePrivateDirect,
@@ -516,6 +544,9 @@ interface Outbound {
 export function proxyOutbounds(
 	settings: SentinelProxySettings,
 ): { outbounds: Outbound[]; tag: string } | { error: string } {
+	if (settings.mode === "wireguard") {
+		return { error: t("WireGuard 档案不走 sing-box，不能生成出站配置") };
+	}
 	if (settings.mode === "subscription") {
 		if (settings.nodes.length === 0) return { error: t("订阅里没有可用节点，先在「代理」页拉取一次") };
 		const tags = settings.nodes.map((node) => node.tag);
@@ -630,9 +661,13 @@ export function buildSingboxConfig(
  * project rows. Never includes the password.
  */
 export function describeProxy(
-	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "nodes" | "nodeTag"> | null,
+	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "nodes" | "nodeTag" | "wireguard"> | null,
 ): string {
 	if (!proxy) return t("关闭");
+	if (proxy.mode === "wireguard") {
+		const endpoint = /^\s*endpoint\s*=\s*(.+)$/im.exec(proxy.wireguard.config)?.[1]?.trim();
+		return endpoint ? `WireGuard ${endpoint}` : t("未配置");
+	}
 	if (proxy.mode === "simple") {
 		const { type, server, port } = proxy.simple;
 		if (!server || port <= 0) return t("未配置");

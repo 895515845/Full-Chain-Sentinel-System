@@ -59,6 +59,7 @@ function subscriptionProfile(agentDir: string, options: { intervalHours?: number
 		subscriptionIntervalHours: options.intervalHours ?? 0,
 		nodeTag: "香港",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+		wireguard: { config: "", dns: "", killSwitch: true },
 		routePrivateDirect: true,
 	});
 	if (!saved.proxy) throw new Error(saved.error ?? "未保存");
@@ -131,6 +132,7 @@ test("only subscription profiles with a schedule are due", () => {
 			name: "p",
 			mode: "subscription",
 			simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+			wireguard: { config: "", dns: "", killSwitch: true },
 			nodes: [],
 			nodeTag: "",
 			skipped: [],
@@ -177,6 +179,7 @@ test("the interval survives a save and shows up in the stored profile", () => {
 		subscriptionIntervalHours: 12,
 		nodeTag: "香港",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+		wireguard: { config: "", dns: "", killSwitch: true },
 		routePrivateDirect: true,
 	});
 	expect(saved.proxy?.subscription?.intervalHours).toBe(12);

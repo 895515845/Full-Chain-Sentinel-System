@@ -25,6 +25,7 @@ import type { SentinelEnvItem, SentinelEnvReport, SentinelProxyConfigView } from
 import {
 	DEFAULT_SINGBOX_IMAGE,
 	projectProxyConfigPath,
+	projectWireGuardConfigPath,
 	proxyConfigView,
 	proxyEnabled,
 	readProxies,
@@ -337,10 +338,15 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 		const actual = networkKind(mode);
 		if (actual && actual !== (wantsProxy ? "proxy" : wanted)) wrongNetwork.push(project.name);
 		if (wantsProxy && actual === "proxy") {
+			// A tunnel profile writes wg0.conf instead of the JSON configuration, and
+			// the staleness rule is the same: the file moved on after the sidecar
+			// started, so a rebuild is what applies it.
 			const health = await checkSidecar(
 				project.container,
 				projectSidecarName(project),
-				projectProxyConfigPath(agentDir, project.id),
+				settings?.mode === "wireguard"
+					? projectWireGuardConfigPath(agentDir, project.id)
+					: projectProxyConfigPath(agentDir, project.id),
 			);
 			if (health.netnsStale) staleNamespace.push(project.name);
 			else if (health.configStale) staleConfig.push(project.name);
@@ -415,6 +421,12 @@ async function checkProjectContainers(agentDir: string | undefined): Promise<Sen
 function checkProxyImage(view: SentinelProxyConfigView, present: boolean): SentinelEnvItem {
 	if (view.proxies.length === 0) {
 		return skipped("proxy-image", GROUP_IMAGE, t("代理镜像"), t("尚未在「代理」页添加代理"));
+	}
+	// A tunnel profile runs the toolbox image, not sing-box, so it does not need
+	// this one at all.
+	const needsSingbox = view.proxies.some((entry) => entry.mode !== "wireguard");
+	if (!needsSingbox) {
+		return skipped("proxy-image", GROUP_IMAGE, t("代理镜像"), t("只有 WireGuard 档案，用不到 sing-box 镜像"));
 	}
 	const label = t("代理镜像 {image}", { image: view.image });
 	const summary = t("{count} 个代理 · 默认：{name}", {

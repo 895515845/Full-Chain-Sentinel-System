@@ -75,6 +75,7 @@ import { switchProjectNode } from "./proxy-switch.ts";
 import { VulnReviewer } from "./reviewer.ts";
 import { SubscriptionScheduler } from "./subscription-scheduler.ts";
 import { readUiConfig, writeUiConfig } from "./ui-config.ts";
+import { buildWireGuardConfig } from "./wireguard.ts";
 import type { WorkerSession } from "./worker.ts";
 
 interface AcquiredTaskSession {
@@ -770,6 +771,12 @@ export async function startSentinelServer(
 		if (!agentDir) return undefined;
 		const settings = resolveProjectProxy(agentDir, profile.id);
 		if (!settings) return undefined;
+		// A tunnel does not go through sing-box: its configuration is the wg0.conf
+		// `wg-quick` will read, so the check is whether it can be written at all.
+		if (settings.mode === "wireguard") {
+			const built = buildWireGuardConfig(settings.wireguard);
+			return built.error;
+		}
 		const built = buildSingboxConfig(settings);
 		if (built.error) return built.error;
 		if (!built.config) return t("配置生成失败");

@@ -9,6 +9,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
+import { EMPTY_WIREGUARD } from "../types.ts";
 import type { SentinelProjectInfo, SentinelProxy, SentinelProxyConfigView } from "../types.ts";
 import { ProjectProxyDialog, projectProxyChoice, projectProxyNode } from "./ProjectProxyDialog.tsx";
 
@@ -19,6 +20,7 @@ function profile(overrides: Partial<SentinelProxy> = {}): SentinelProxy {
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
 		subscription: null,
+		wireguard: { ...EMPTY_WIREGUARD },
 		nodes: [],
 		nodeTag: "",
 		skipped: [],

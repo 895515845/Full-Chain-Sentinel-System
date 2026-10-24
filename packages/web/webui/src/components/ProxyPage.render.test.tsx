@@ -10,6 +10,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
+import { EMPTY_WIREGUARD } from "../types.ts";
 import type { SentinelProjectInfo, SentinelProxy, SentinelProxyConfigView } from "../types.ts";
 import { ProxyNodeDialog, ProxyPage } from "./ProxyPage.tsx";
 
@@ -20,6 +21,7 @@ function profile(overrides: Partial<SentinelProxy> = {}): SentinelProxy {
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
 		subscription: null,
+		wireguard: { ...EMPTY_WIREGUARD },
 		nodes: [],
 		nodeTag: "",
 		skipped: [],
@@ -180,4 +182,24 @@ test("the node dialog shows measured latency, a timeout, and the test controls",
 	expect(html).toContain("测速地址");
 	expect(html).toContain("https://www.gstatic.com/generate_204");
 	expect(html).toContain("批量测速");
+});
+
+test("a tunnel profile has no private-direct column value and no node picker", () => {
+	const html = render(
+		config({
+			proxies: [
+				profile({
+					id: "wg1",
+					name: "隧道",
+					mode: "wireguard",
+					wireguard: { config: "[Interface]\nPrivateKey = x\n\n[Peer]\nEndpoint = vpn.example.com:51820", dns: "", killSwitch: true },
+				}),
+			],
+		}),
+	);
+	// The split is expressed by AllowedIPs in the pasted file, so the column is
+	// not a yes/no — showing one would promise a switch that does not exist.
+	expect(html).toContain("WireGuard vpn.example.com:51820");
+	expect(html).toContain(">—</span>");
+	expect(html).not.toContain(">节点</button>");
 });

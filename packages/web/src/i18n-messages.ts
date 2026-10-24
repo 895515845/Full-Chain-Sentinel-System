@@ -3353,6 +3353,30 @@ export const EN_MESSAGES: Record<string, string> = {
 		"The container joins its own sing-box; outbound traffic takes node 「{node}」 of proxy 「{name}」",
 	"换节点或刷新后，用到这个代理的项目要重建容器才会走新的节点。":
 		"After switching a node or refreshing, projects using this proxy take the new node at their next container rebuild.",
+	"WireGuard 缺少本端私钥": "WireGuard has no private key for this side",
+	"WireGuard 缺少隧道内地址": "WireGuard has no address inside the tunnel",
+	"WireGuard 缺少对端公钥": "WireGuard has no peer public key",
+	"WireGuard 缺少对端地址（host:port）": "WireGuard has no peer endpoint (host:port)",
+	"WireGuard 对端地址要写成 host:port，端口不能省":
+		"The WireGuard endpoint has to be host:port; the port is not optional",
+	"WireGuard 档案不走 sing-box，不能生成出站配置":
+		"A WireGuard profile does not run sing-box, so it has no outbound to generate",
+	"WireGuard 档案需要填写 DNS，否则容器里的域名解析不会走隧道":
+		"A WireGuard profile needs a DNS server, otherwise name lookups in the container leave the tunnel",
+	"镜像 {image} 不存在": "The image {image} is not present",
+	"只有 WireGuard 档案，用不到 sing-box 镜像": "Only WireGuard profiles exist, so the sing-box image is not needed",
+	"一条隧道而不是一个代理：容器里的一切（含 ping、UDP、原始套接字）都走它，但只有这一个出口，没有节点可切。":
+		"A tunnel rather than a proxy: everything in the container (ping, UDP, raw sockets) goes through it, but it is the only exit — there are no nodes to switch between.",
+	本端私钥: "Private key",
+	隧道内地址: "Address in the tunnel",
+	对端公钥: "Peer public key",
+	对端地址: "Peer endpoint",
+	"断线即断网（kill-switch）：隧道起来后删掉直连的默认路由，隧道掉了不会漏回宿主机网络":
+		"Kill switch: drop the direct default route once the tunnel is up, so a dead tunnel cannot leak back to the host network",
+	"WireGuard 配置（直接粘贴 wg0.conf）": "WireGuard configuration (paste wg0.conf)",
+	"DNS（配置里没有 DNS = 时填这里）": "DNS (fill this in when the configuration has no DNS =)",
+	"WireGuard 档案的容器跑 wg-quick 而不是 sing-box：隧道是真实网卡加默认路由，所以 ping、UDP、原始套接字都走隧道；只有这一个出口，没有节点可切。要走哪些网段由配置里的 AllowedIPs 决定（写 0.0.0.0/0 就是全部），没有内网直连这个开关。DNS 必填——Docker 自己的解析在隧道外。":
+		"A WireGuard profile runs wg-quick instead of sing-box: the tunnel is a real interface with a real default route, so ping, UDP and raw sockets all go through it. There is one exit and no node switching. What the tunnel carries is decided by AllowedIPs in the configuration (0.0.0.0/0 is everything) — there is no private-direct switch. DNS is required: Docker's own resolver sits outside the tunnel.",
 	"停止后这个项目的工具调用与对话都无法进行，需要点「启动容器」才能继续。":
 		"While it is stopped, tools and conversations for this project cannot run: start the container to continue.",
 	"容器里用 apt 装的包与启动的进程状态会丢失，":

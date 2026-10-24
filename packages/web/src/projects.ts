@@ -21,20 +21,29 @@ import {
 	hasImage,
 	projectWorkDir,
 	removeContainer,
+	SENTINEL_IMAGE,
 	stopContainer,
 } from "./docker.ts";
 import { t } from "./i18n.ts";
 import type { SentinelProxySettings } from "./protocol.ts";
-import { AUTO_NODE_TAG, projectProxyConfigPath, proxyEnabled, resolveProjectProxy } from "./proxy.ts";
+import {
+	AUTO_NODE_TAG,
+	projectProxyConfigPath,
+	projectWireGuardConfigPath,
+	proxyEnabled,
+	resolveProjectProxy,
+} from "./proxy.ts";
 import {
 	checkSidecar,
 	checkSingboxConfig,
 	ensureSingboxRunning,
+	ensureWireGuardRunning,
 	hasSingboxImage,
 	removeSingboxContainer,
 	singboxContainerNameFor,
 	stopSingboxContainer,
 	writeProjectProxyConfig,
+	writeProjectWireGuardConfig,
 } from "./singbox.ts";
 
 export interface SentinelProject {
@@ -128,12 +137,26 @@ export function projectSidecarName(project: SentinelProject): string {
 async function prepareSidecar(
 	agentDir: string,
 	project: SentinelProject,
-): Promise<{ ok: true; sidecar?: string; configPath?: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; sidecar?: string; configPath?: string; dns?: string } | { ok: false; error: string }> {
 	const settings = projectProxySettings(agentDir, project);
 	if (!proxyEnabled(settings)) return { ok: true };
+	const sidecar = projectSidecarName(project);
+
+	// A tunnel is a different sidecar, not a different outbound: it runs
+	// `wg-quick`, and the container gets the tunnel's resolver so lookups do not
+	// escape through Docker's own DNS.
+	if (settings.mode === "wireguard") {
+		const written = writeProjectWireGuardConfig(agentDir, project.id, settings.wireguard);
+		if (!written.ok) return { ok: false, error: t("代理配置无法生成：{error}", { error: written.error }) };
+		const up = await ensureWireGuardRunning(sidecar, written.path, SENTINEL_IMAGE, settings.wireguard.killSwitch);
+		if (!up.ok) {
+			return { ok: false, error: t("代理容器启动失败：{error}", { error: up.error ?? "" }) };
+		}
+		return { ok: true, sidecar, configPath: written.path, dns: written.dns };
+	}
+
 	const written = await writeProjectProxyConfig(agentDir, project.id, settings);
 	if (!written.ok) return { ok: false, error: t("代理配置无法生成：{error}", { error: written.error }) };
-	const sidecar = projectSidecarName(project);
 	const up = await ensureSingboxRunning(sidecar, written.path, settings.image);
 	if (!up.ok) {
 		return { ok: false, error: t("代理容器启动失败：{error}", { error: up.error ?? "" }) };
@@ -169,7 +192,7 @@ async function bringProjectUp(
 	if (!prepared.ok) return { ok: false, created: false, error: prepared.error };
 	const network = readContainerNetwork(agentDir);
 	if (!prepared.sidecar || !prepared.configPath) {
-		return ensureContainer(project.container, project.workDir, network);
+		return ensureContainer(project.container, project.workDir, network, undefined, prepared.dns);
 	}
 	let sidecar = prepared.sidecar;
 	const health = await checkSidecar(project.container, sidecar, prepared.configPath);
@@ -187,7 +210,7 @@ async function bringProjectUp(
 		const removed = await removeContainer(project.container);
 		if (!removed.ok) return { ok: false, created: false, error: removed.error };
 	}
-	return ensureContainer(project.container, project.workDir, network, sidecar);
+	return ensureContainer(project.container, project.workDir, network, sidecar, prepared.dns);
 }
 
 /** Register a project: creates the container and its host work directory. */
@@ -211,7 +234,9 @@ export async function addProject(
 	if (input.proxyId !== undefined) project.proxyId = input.proxyId;
 	if (input.proxyNode?.trim()) project.proxyNode = input.proxyNode.trim();
 	const settings = projectProxySettings(agentDir, project);
-	if (proxyEnabled(settings)) {
+	// A tunnel runs wg-quick in the toolbox image, so none of this applies to it;
+	// `prepareSidecar` writes its configuration and starts it.
+	if (proxyEnabled(settings) && settings.mode !== "wireguard") {
 		// A project that cannot get its sidecar must not be registered: the
 		// container would come up without the network the operator asked for.
 		if (!(await hasSingboxImage(settings.image))) {
@@ -317,9 +342,10 @@ export async function removeProject(
 	file.projects.splice(index, 1);
 	if (file.lastActiveProjectId === id) delete file.lastActiveProjectId;
 	writeProjects(agentDir, file);
-	// The generated configuration carries the node credentials; a deleted project
-	// does not keep them on disk.
+	// The generated configuration carries the node credentials — and a tunnel's
+	// private key — so a deleted project does not keep either on disk.
 	rmSync(projectProxyConfigPath(agentDir, id), { force: true });
+	rmSync(projectWireGuardConfigPath(agentDir, id), { force: true });
 	return { removed: project };
 }
 

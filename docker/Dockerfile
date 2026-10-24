@@ -49,6 +49,12 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 
 # Core toolchain: recon/enumeration, web exploitation, brute force / intranet.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+		# WireGuard: the console runs a project's WireGuard sidecar from this same
+		# image, because a real interface is what makes ping and UDP go through the
+		# tunnel (a proxy engine cannot carry ICMP). wg-quick needs iproute2.
+		wireguard-tools \
+		iproute2 \
+		iptables \
 		# recon & enumeration
 		nmap \
 		masscan \
