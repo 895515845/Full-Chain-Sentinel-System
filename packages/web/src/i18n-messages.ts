@@ -3233,14 +3233,8 @@ export const EN_MESSAGES: Record<string, string> = {
 	"；": "; ",
 	代理服务器地址为空: "The proxy server address is empty",
 	"代理端口未填写或不在 1-65535 之间": "The proxy port is missing or outside 1-65535",
-	"出站配置不是合法 JSON：{error}": "The outbound configuration is not valid JSON: {error}",
-	出站配置为空: "The outbound configuration is empty",
-	"每个出站都必须是一个带 type 字段的对象": "Every outbound must be an object with a type field",
-	"出站配置里不能占用 direct 这个 tag，它由控制台生成":
-		"The outbound configuration cannot use the direct tag; the console generates it",
 	代理未启用: "The proxy is not enabled",
 	配置生成失败: "The configuration could not be generated",
-	"自定义出站（{tag}）": "Custom outbound ({tag})",
 	"代理镜像 {image} 不存在": "The proxy image {image} does not exist",
 	"代理配置无法生成：{error}": "The proxy configuration could not be generated: {error}",
 	"代理容器启动失败：{error}": "The proxy container failed to start: {error}",
@@ -3271,9 +3265,6 @@ export const EN_MESSAGES: Record<string, string> = {
 	"SOCKS5 / HTTP 代理": "SOCKS5 / HTTP proxy",
 	"填一个代理地址，容器里所有出网流量都从它走。适合本机 Clash、VPS 上的 socks5/http 代理。":
 		"Give one proxy address and everything the container sends out goes through it. Fits a local Clash or a socks5/http proxy on a VPS.",
-	"自定义 sing-box 出站": "Custom sing-box outbound",
-	"直接贴 sing-box 的 outbound JSON（一个对象，或带 proxy tag 的数组），vmess / vless / trojan / hysteria2 都能用。":
-		"Paste a sing-box outbound as JSON (one object, or an array with a proxy tag). vmess, vless, trojan and hysteria2 all work.",
 	容器代理: "Container proxy",
 	"HTTPS 上游（tls）": "HTTPS upstream (tls)",
 	"内网与回环地址直连，其余走代理": "Private and loopback addresses stay direct, everything else takes the proxy",
@@ -3396,6 +3387,8 @@ export const EN_MESSAGES: Record<string, string> = {
 		"Each node fetches this URL for real — a 204 endpoint measures the round trip best — rather than only opening a socket. Results appear next to each node.",
 	超时: "timeout",
 	按延迟排序: "Sort by latency",
+	这个代理没有配置出口: "This proxy has no exit configured",
+	订阅: "Subscription",
 	这个项目没有使用代理: "This project does not use a proxy",
 	"这个代理只有一个出口，没有可切换的节点": "This proxy has a single exit, so there is no node to switch to",
 	"代理容器不认识这个节点，请重建容器": "The proxy container does not know that node; rebuild the container",
@@ -3459,7 +3452,6 @@ export const EN_MESSAGES: Record<string, string> = {
 	"新建一个之后，项目才能把出网流量交给它": "Create one before a project can send its traffic through it",
 	出口: "Exit",
 	内网直连: "Private direct",
-	自定义出站: "Custom outbound",
 	普通代理: "Plain proxy",
 	"项目只记住代理的名字；在这里改一次，用到它的项目下次重建容器就会生效。":
 		"A project only remembers which proxy it uses; editing one here reaches every project that picked it at its next rebuild.",

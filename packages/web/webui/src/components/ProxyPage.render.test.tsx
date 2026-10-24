@@ -19,7 +19,6 @@ function profile(overrides: Partial<SentinelProxy> = {}): SentinelProxy {
 		name: "香港节点",
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
-		outbound: "",
 		subscription: null,
 		nodes: [],
 		nodeTag: "",
@@ -91,10 +90,25 @@ test("an empty page says what to do", () => {
 	expect(empty).toContain("新建一个之后");
 });
 
-test("a json profile is described as a custom outbound, not as an address", () => {
-	const html = render(config({ proxies: [profile({ mode: "json", outbound: '{"type":"trojan"}' })] }));
-	expect(html).toContain("自定义 sing-box 出站");
-	expect(html).not.toContain("SOCKS5");
+test("the table says which kind of profile each row is", () => {
+	const html = render(
+		config({
+			proxies: [
+				profile(),
+				profile({
+					id: "p2",
+					name: "机场",
+					mode: "subscription",
+					subscription: { url: "https://example.com/sub", userAgent: "sing-box", updatedAt: 0, error: null, intervalHours: 0 },
+					nodes: [{ tag: "香港", name: "香港", protocol: "trojan", outbound: {} }],
+					nodeTag: "香港",
+				}),
+			],
+		}),
+	);
+	// An address is a plain proxy; a URL-backed profile is a subscription.
+	expect(html).toContain("普通代理");
+	expect(html).toContain(">订阅<");
 });
 
 test("a subscription profile shows its node count and the node it uses", () => {

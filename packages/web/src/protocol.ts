@@ -2363,11 +2363,10 @@ export type SentinelContainerNetwork = "host" | "bridge";
 
 /**
  * How the proxy is described. `off` runs no sidecar at all; `simple` covers a
- * SOCKS5 or HTTP endpoint (a local Clash, a VPS); `json` takes a sing-box
- * outbound pasted by the operator; `subscription` takes a URL whose nodes are
- * fetched, parsed and cached.
+ * SOCKS5 or HTTP endpoint (a local Clash, a VPS); `subscription` takes a URL
+ * whose nodes are fetched, parsed and cached.
  */
-export type SentinelProxyMode = "off" | "simple" | "json" | "subscription";
+export type SentinelProxyMode = "off" | "simple" | "subscription";
 
 /** A SOCKS5 or HTTP endpoint, the whole of what `simple` mode needs. */
 export interface SentinelSimpleProxy {
@@ -2426,8 +2425,6 @@ export interface SentinelProxySubscription {
 export interface SentinelProxySettings {
 	mode: SentinelProxyMode;
 	simple: SentinelSimpleProxy;
-	/** sing-box outbound JSON: one object, or an array with one tagged `proxy`. */
-	outbound: string;
 	/** Cached nodes of a subscription profile. */
 	nodes: SentinelProxyNode[];
 	/** Which of `nodes` the generated selector defaults to. */
@@ -2452,7 +2449,6 @@ export interface SentinelProxy {
 	name: string;
 	mode: Exclude<SentinelProxyMode, "off">;
 	simple: SentinelSimpleProxy;
-	outbound: string;
 	/** Present when `mode` is `subscription`. */
 	subscription: SentinelProxySubscription | null;
 	/** Cached nodes; only a subscription profile has any. */
@@ -2487,7 +2483,6 @@ export interface SentinelProxyInput {
 	name: string;
 	mode: Exclude<SentinelProxyMode, "off">;
 	simple: SentinelSimpleProxy;
-	outbound: string;
 	/** Subscription URL and user agent; the nodes themselves are fetched here. */
 	subscriptionUrl: string;
 	subscriptionUserAgent: string;

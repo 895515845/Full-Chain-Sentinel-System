@@ -130,11 +130,9 @@ export function ProjectProxyDialog({
 												server: proxy.simple.server || t("未配置"),
 												port: String(proxy.simple.port || ""),
 											})
-										: proxy.mode === "subscription"
-											? nodes.length > 0
-												? t("{count} 个节点，可以只给这个项目指定一个", { count: nodes.length })
-												: t("订阅未拉取")
-											: t("自定义 sing-box 出站")}
+										: nodes.length > 0
+											? t("{count} 个节点，可以只给这个项目指定一个", { count: nodes.length })
+											: t("订阅未拉取")}
 								</span>
 							</label>
 							{selected && nodes.length > 0 ? (

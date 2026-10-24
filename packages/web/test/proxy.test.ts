@@ -96,7 +96,6 @@ function settingsOf(
 	return {
 		mode: "simple",
 		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false, ...simple },
-		outbound: "",
 		nodes: [],
 		nodeTag: "",
 		image: DEFAULT_SINGBOX_IMAGE,
@@ -111,7 +110,7 @@ function addProfile(
 	agentDir: string,
 	input: {
 		name?: string;
-		mode?: "simple" | "json" | "subscription";
+		mode?: "simple" | "subscription";
 		simple?: Partial<SentinelSimpleProxy>;
 		outbound?: string;
 		subscriptionUrl?: string;
@@ -134,7 +133,6 @@ function addProfile(
 			tls: false,
 			...input.simple,
 		},
-		outbound: input.outbound ?? "",
 		routePrivateDirect: input.routePrivateDirect ?? true,
 		...(input.mode ? { mode: input.mode } : {}),
 		...(input.name ? { name: input.name } : {}),
@@ -194,7 +192,6 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			name: "香港节点",
 			mode: "simple",
 			simple: clash,
-			outbound: "",
 			routePrivateDirect: true,
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
@@ -208,7 +205,6 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 			name: "x",
 			mode: "simple",
 			simple: clash,
-			outbound: "",
 			routePrivateDirect: true,
 			subscriptionUrl: "",
 			subscriptionUserAgent: "",
@@ -221,7 +217,6 @@ test("names are unique, and a rename keeps the id so projects stay attached", ()
 		name: "香港节点-2",
 		mode: "simple",
 		simple: { ...clash, server: "9.9.9.9", port: 1080 },
-		outbound: "",
 		routePrivateDirect: false,
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
@@ -281,51 +276,17 @@ test("an incomplete simple proxy is refused with the field it is missing", () =>
 	expect(buildSingboxConfig(settingsOf({ server: "1.2.3.4" })).error).toContain("端口");
 });
 
-test("json mode keeps the operator's outbounds and routes through the tagged one", () => {
-	const settings = settingsOf(
-		{},
-		{
-			mode: "json",
-			outbound: JSON.stringify([
-				{ type: "direct", tag: "helper" },
-				{ type: "vless", tag: "proxy", server: "example.com", server_port: 443 },
-			]),
-		},
-	);
-	const config = configOf(settings);
-	expect((config.outbounds as Array<Record<string, unknown>>).map((entry) => entry.tag)).toEqual([
-		"helper",
-		"proxy",
-		"direct",
-	]);
-	expect((config.route as Record<string, unknown>).final).toBe("proxy");
-});
-
-test("a single pasted outbound is tagged and routed, an array without a tag uses the last one", () => {
-	const single = configOf(
-		settingsOf({}, { mode: "json", outbound: '{"type":"trojan","server":"a.example","server_port":443}' }),
-	);
-	expect((single.outbounds as Array<Record<string, unknown>>)[0]).toMatchObject({ tag: "proxy" });
-	const last = configOf(
-		settingsOf(
-			{},
-			{
-				mode: "json",
-				outbound:
-					'[{"type":"socks","tag":"a","server":"x","server_port":1},{"type":"socks","tag":"b","server":"y","server_port":2}]',
-			},
-		),
-	);
-	expect((last.route as Record<string, unknown>).final).toBe("b");
-});
-
-test("json mode refuses what it cannot route", () => {
-	const bad = (outbound: string) => buildSingboxConfig(settingsOf({}, { mode: "json", outbound })).error;
-	expect(bad("{ not json")).toContain("JSON");
-	expect(bad("[]")).toContain("空");
-	expect(bad('["nope"]')).toContain("type");
-	// `direct` is the console's own tag; a second one would make the rules ambiguous.
-	expect(bad('{"type":"socks","tag":"direct","server":"x","server_port":1}')).toContain("direct");
+test("a profile with no usable exit is refused instead of routing nowhere", () => {
+	// `off` never reaches here in practice; the generator still has to answer.
+	expect(buildSingboxConfig(settingsOf({}, { mode: "off" })).error).toContain("没有配置出口");
+	// A stored profile from before the pasted-outbound mode was removed reads back
+	// as a simple one with no address, which is a state the operator can fix.
+	const legacy = JSON.parse('{"mode":"json","outbound":"{\\"type\\":\\"trojan\\"}"}') as {
+		mode: string;
+	};
+	expect(normalizeProxyMode(legacy.mode)).toBe("off");
+	expect(normalizeProxyMode("simple")).toBe("simple");
+	expect(normalizeProxyMode("subscription")).toBe("subscription");
 });
 
 test("the route keeps DNS and private destinations off the tunnel", () => {

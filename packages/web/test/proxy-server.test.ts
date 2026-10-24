@@ -113,7 +113,6 @@ function input(overrides: Partial<SentinelProxyInput> = {}): SentinelProxyInput 
 		name: "香港节点",
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
-		outbound: "",
 		subscriptionUrl: "",
 		subscriptionUserAgent: "",
 		subscriptionIntervalHours: 0,
@@ -230,10 +229,16 @@ test("a saved profile comes back with its id, and a broken one is refused", asyn
 	const id = await addProxy();
 	expect(id).not.toBe("");
 
-	const broken = await save(input({ name: "坏节点", mode: "json", outbound: "{ not json" }));
-	// The profile stays saved — the point of the error is to say what to fix — and
-	// the message is the one sing-box or the generator produced.
-	expect(broken.error).toContain("JSON");
+	// A profile whose address is empty cannot build a configuration; the save is
+	// refused with the field that is missing, not with a broken sidecar later.
+	const broken = await save(
+		input({
+			name: "坏节点",
+			simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+		}),
+	);
+	expect(broken.error).toContain("地址");
+	// The profile stays saved — the point of the error is to say what to fix.
 	expect(broken.proxies.map((entry) => entry.name)).toContain("坏节点");
 
 	// Names are the handle the operator uses, so they are unique.

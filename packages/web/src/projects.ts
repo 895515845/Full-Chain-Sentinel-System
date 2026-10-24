@@ -221,7 +221,10 @@ export async function addProject(
 		}
 		const written = await writeProjectProxyConfig(agentDir, id, settings);
 		if (!written.ok) return { error: t("代理配置无法生成：{error}", { error: written.error }) };
-		if (settings.mode === "json") {
+		// A subscription's nodes are generated here rather than pasted, so they get
+		// the same check the 代理 page runs on save: a node this sing-box refuses
+		// should surface at the rebuild, not as a sidecar that starts and exits.
+		if (settings.mode === "subscription") {
 			const checked = await checkSingboxConfig(settings.image, written.path);
 			if (!checked.ok) {
 				return { error: t("代理配置未通过 sing-box 校验：{error}", { error: checked.error ?? "" }) };

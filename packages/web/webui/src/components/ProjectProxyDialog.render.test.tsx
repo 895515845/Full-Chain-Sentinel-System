@@ -18,7 +18,6 @@ function profile(overrides: Partial<SentinelProxy> = {}): SentinelProxy {
 		name: "机场",
 		mode: "simple",
 		simple: { type: "socks5", server: "1.2.3.4", port: 1080, username: "", password: "", tls: false },
-		outbound: "",
 		subscription: null,
 		nodes: [],
 		nodeTag: "",

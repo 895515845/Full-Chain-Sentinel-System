@@ -2,7 +2,7 @@
  * The 代理 page: named proxies, and the sing-box image their sidecars run.
  *
  * A profile is the whole description of one node — a SOCKS5/HTTP endpoint, or a
- * sing-box outbound pasted by the operator — and projects point at it by id. That
+ * subscription whose nodes are fetched — and projects point at it by id. That
  * is why editing a profile here reaches every project that uses it, and why the
  * page says how many do: deleting one is the only action on this page that
  * changes what a running engagement will do next.
@@ -40,7 +40,7 @@ function describe(proxy: SentinelProxy): string {
 			: "";
 		return t("{count} 个节点 · {name}", { count: proxy.nodes.length, name: chosen?.name ?? "" }) + every;
 	}
-	return t("自定义 sing-box 出站");
+	return t("未配置");
 }
 
 /** `2026-10-24 09:30` in the operator's locale, or a word for "never". */
@@ -56,7 +56,6 @@ function profileOf(proxy: SentinelProxy): SentinelProxyInput {
 		name: proxy.name,
 		mode: proxy.mode,
 		simple: proxy.simple,
-		outbound: proxy.outbound,
 		subscriptionUrl: proxy.subscription?.url ?? "",
 		subscriptionUserAgent: proxy.subscription?.userAgent ?? "",
 		subscriptionIntervalHours: proxy.subscription?.intervalHours ?? 0,
@@ -138,18 +137,6 @@ function ProxyEditor({
 							{t("贴机场或自建面板的订阅地址，保存时拉取一次，解析出多个节点后在这里选一个。支持 base64 分享链接、Clash 与 sing-box 配置。")}
 						</span>
 					</label>
-					<label className={draft.mode === "json" ? "selected" : undefined}>
-						<input
-							type="radio"
-							name="proxy-kind"
-							checked={draft.mode === "json"}
-							onChange={() => patch({ mode: "json" })}
-						/>
-						<span className="env-network-label">{t("自定义 sing-box 出站")}</span>
-						<span className="env-network-detail">
-							{t("直接贴 sing-box 的 outbound JSON（一个对象，或带 proxy tag 的数组），vmess / vless / trojan / hysteria2 都能用。")}
-						</span>
-					</label>
 				</div>
 
 				{draft.mode === "simple" ? (
@@ -209,7 +196,7 @@ function ProxyEditor({
 							</label>
 						) : null}
 					</div>
-				) : draft.mode === "subscription" ? (
+				) : (
 					<div className="env-proxy-fields">
 						<label className="env-proxy-wide">
 							<span>{t("订阅地址")}</span>
@@ -245,15 +232,6 @@ function ProxyEditor({
 							</select>
 						</label>
 					</div>
-				) : (
-					<textarea
-						className="env-proxy-json"
-						rows={10}
-						value={draft.outbound}
-						placeholder={OUTBOUND_PLACEHOLDER}
-						onChange={(event) => patch({ outbound: event.target.value })}
-						spellCheck={false}
-					/>
 				)}
 
 				<label className="env-proxy-check">
@@ -286,14 +264,7 @@ const INTERVAL_OPTIONS: ReadonlyArray<{ hours: number; label: string }> = [
 	{ hours: 72, label: t("每 3 天") },
 ];
 
-const OUTBOUND_PLACEHOLDER = `{
-  "type": "vless",
-  "tag": "proxy",
-  "server": "example.com",
-  "server_port": 443,
-  "uuid": "00000000-0000-0000-0000-000000000000",
-  "tls": { "enabled": true, "server_name": "example.com" }
-}`;
+
 
 /**
  * The nodes of one subscription, and which of them the profile routes through.
@@ -584,7 +555,9 @@ export function ProxyPage({
 									</span>
 									<span className="proxy-cell__sub">{describe(proxy)}</span>
 								</span>
-								<span className="proxy-kind">{proxy.mode === "json" ? t("自定义出站") : t("普通代理")}</span>
+								<span className="proxy-kind">
+									{proxy.mode === "subscription" ? t("订阅") : t("普通代理")}
+								</span>
 								<span className="data-mono proxy-num">{uses.get(proxy.id) ?? 0}</span>
 								<span className="proxy-flag">{proxy.routePrivateDirect ? t("是") : t("否")}</span>
 								<span className="data-actions">

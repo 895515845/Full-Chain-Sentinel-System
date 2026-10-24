@@ -125,9 +125,16 @@ function normalizeSimpleProxy(value: unknown): SentinelSimpleProxy {
 	};
 }
 
-/** A JSON file can hold anything; only the known modes are accepted. */
+/**
+ * A JSON file can hold anything; only the known modes are accepted.
+ *
+ * The pasted-outbound mode was removed before release. A profile that still says
+ * `json` reads back as a `simple` one with an empty address, which surfaces as
+ * "代理服务器地址为空" — a visible, fixable state rather than a profile that
+ * silently cannot build a configuration.
+ */
 export function normalizeProxyMode(value: unknown): SentinelProxySettings["mode"] {
-	if (value === "simple" || value === "json" || value === "subscription") return value;
+	if (value === "simple" || value === "subscription") return value;
 	return "off";
 }
 
@@ -178,9 +185,8 @@ function normalizeProfile(value: unknown): SentinelProxy | undefined {
 	return {
 		id,
 		name,
-		mode: mode === "json" || mode === "subscription" ? mode : "simple",
+		mode: mode === "subscription" ? mode : "simple",
 		simple: normalizeSimpleProxy(input.simple),
-		outbound: asString(input.outbound).trim(),
 		subscription: normalizeSubscription(input.subscription),
 		nodes: (Array.isArray(input.nodes) ? input.nodes : [])
 			.map(normalizeNode)
@@ -248,9 +254,8 @@ function proxyInput(value: SentinelProxyInput): SentinelProxyInput {
 	return {
 		id: asString(input.id).trim() || undefined,
 		name: asString(input.name).trim(),
-		mode: mode === "json" || mode === "subscription" ? mode : "simple",
+		mode: mode === "subscription" ? mode : "simple",
 		simple: normalizeSimpleProxy(input.simple),
-		outbound: asString(input.outbound).trim(),
 		subscriptionUrl: asString(input.subscriptionUrl).trim(),
 		subscriptionUserAgent: asString(input.subscriptionUserAgent).trim() || DEFAULT_SUBSCRIPTION_USER_AGENT,
 		subscriptionIntervalHours: normalizeIntervalHours(input.subscriptionIntervalHours),
@@ -291,7 +296,6 @@ export function saveProxy(
 		name: normalized.name,
 		mode: normalized.mode,
 		simple: normalized.simple,
-		outbound: normalized.outbound,
 		subscription:
 			normalized.mode === "subscription"
 				? {
@@ -482,7 +486,6 @@ export function resolveProjectProxy(
 	return {
 		mode: profile.mode,
 		simple: profile.simple,
-		outbound: profile.outbound,
 		nodes: profile.nodes,
 		nodeTag: profile.nodeTag,
 		image: file.image,
@@ -500,15 +503,6 @@ interface Outbound {
 	type: string;
 	tag?: string;
 	[key: string]: unknown;
-}
-
-function isOutbound(value: unknown): value is Outbound {
-	return (
-		Boolean(value) &&
-		typeof value === "object" &&
-		!Array.isArray(value) &&
-		typeof (value as Outbound).type === "string"
-	);
 }
 
 /**
@@ -571,27 +565,7 @@ export function proxyOutbounds(
 		if (tls && type === "http") outbound.tls = { enabled: true };
 		return { outbounds: [outbound], tag: PROXY_OUTBOUND_TAG };
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(settings.outbound);
-	} catch (error) {
-		return {
-			error: t("出站配置不是合法 JSON：{error}", { error: error instanceof Error ? error.message : String(error) }),
-		};
-	}
-	const list = Array.isArray(parsed) ? parsed : [parsed];
-	if (list.length === 0) return { error: t("出站配置为空") };
-	for (const entry of list) {
-		if (!isOutbound(entry)) return { error: t("每个出站都必须是一个带 type 字段的对象") };
-	}
-	const outbounds = list as Outbound[];
-	if (outbounds.some((entry) => entry.tag === "direct")) {
-		return { error: t("出站配置里不能占用 direct 这个 tag，它由控制台生成") };
-	}
-	// The last one wins when nothing is tagged: people paste the node they mean.
-	const chosen = outbounds.find((entry) => entry.tag === PROXY_OUTBOUND_TAG) ?? outbounds[outbounds.length - 1]!;
-	if (!chosen.tag) chosen.tag = PROXY_OUTBOUND_TAG;
-	return { outbounds, tag: chosen.tag };
+	return { error: t("这个代理没有配置出口") };
 }
 
 /**
@@ -656,7 +630,7 @@ export function buildSingboxConfig(
  * project rows. Never includes the password.
  */
 export function describeProxy(
-	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "outbound" | "nodes" | "nodeTag"> | null,
+	proxy: Pick<SentinelProxySettings, "mode" | "simple" | "nodes" | "nodeTag"> | null,
 ): string {
 	if (!proxy) return t("关闭");
 	if (proxy.mode === "simple") {
@@ -669,7 +643,5 @@ export function describeProxy(
 		const chosen = proxy.nodes.find((node) => node.tag === proxy.nodeTag) ?? proxy.nodes[0];
 		return t("订阅 {count} 个节点 · 当前：{name}", { count: proxy.nodes.length, name: chosen?.name ?? "" });
 	}
-	const resolved = proxyOutbounds({ ...proxy, image: "", testUrl: "", routePrivateDirect: true });
-	if ("error" in resolved) return t("配置有误");
-	return t("自定义出站（{tag}）", { tag: resolved.tag });
+	return t("未配置");
 }
