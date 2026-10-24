@@ -7,13 +7,13 @@
  * what happens to the operator's file — the two lines taken out, the ones that
  * make it unusable when missing — and the shell that brings it up.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { SentinelWireGuard } from "../src/protocol.ts";
 import { normalizeWireGuard } from "../src/proxy.ts";
-import { writeProjectWireGuardConfig } from "../src/singbox.ts";
+import { writeProjectResolvConf, writeProjectWireGuardConfig } from "../src/singbox.ts";
 import { buildWireGuardConfig, parseWireGuardConfig, wireGuardEntrypoint } from "../src/wireguard.ts";
 
 const roots: string[] = [];
@@ -81,10 +81,31 @@ test("a configuration that cannot be brought up says which part is missing", () 
 test("the resolver comes from the file, and an explicit one wins", () => {
 	expect(buildWireGuardConfig(tunnel()).dns).toBe("10.66.0.1");
 	expect(buildWireGuardConfig(tunnel({ dns: "1.1.1.1" })).dns).toBe("1.1.1.1");
+	// A pair, as a provider writes it, is kept whole; the container's resolv.conf
+	// gets one line per address.
+	expect(buildWireGuardConfig(tunnel({ dns: "10.66.0.1, 1.1.1.1" })).dns).toBe("10.66.0.1, 1.1.1.1");
 	// Without either there is nothing to give the container, and Docker's own
 	// resolver sits outside the tunnel.
 	const noDns = PASTED.replace("DNS = 10.66.0.1\n", "");
 	expect(buildWireGuardConfig({ config: noDns, dns: "", killSwitch: true }).error).toContain("DNS");
+	// A name is not a resolver: mounting one would leave the container resolving
+	// nothing while looking configured.
+	expect(buildWireGuardConfig({ config: noDns, dns: "vpn-dns", killSwitch: true }).error).toContain("IP");
+});
+
+test("the resolver file holds one nameserver line per address", () => {
+	const agentDir = setup();
+	const written = writeProjectResolvConf(agentDir, "p1", "10.66.0.1, 1.1.1.1");
+	expect(written.ok).toBe(true);
+	const path = (written as { path: string }).path;
+	expect(readFileSync(path, "utf-8")).toBe("nameserver 10.66.0.1\nnameserver 1.1.1.1\n");
+	// The same rule as the tunnel's own file: no write, no new mtime.
+	const again = writeProjectResolvConf(agentDir, "p1", "10.66.0.1,1.1.1.1");
+	expect((again as { path: string }).path).toBe(path);
+	expect(readFileSync(path, "utf-8")).toBe("nameserver 10.66.0.1\nnameserver 1.1.1.1\n");
+	// Nothing usable in the value is an error, not an empty resolver file.
+	expect(writeProjectResolvConf(agentDir, "p2", "").ok).toBe(false);
+	expect(existsSync(join(agentDir, "proxy", "p2.resolv.conf"))).toBe(false);
 });
 
 test("the kill switch drops the direct default route after the tunnel is up", () => {

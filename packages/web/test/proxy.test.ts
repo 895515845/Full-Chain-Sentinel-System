@@ -77,6 +77,18 @@ function calls(logPath: string): string[] {
 	return readFileSync(logPath, "utf-8").trim().split("\n");
 }
 
+/** What a WireGuard provider hands out, for the tunnel tests here. */
+const WIREGUARD_CONFIG = `[Interface]
+PrivateKey = cHJpdmF0ZQ==
+Address = 10.66.0.2/32
+DNS = 10.66.0.1
+
+[Peer]
+PublicKey = cHVibGlj
+Endpoint = vpn.example.com:51820
+AllowedIPs = 0.0.0.0/0
+`;
+
 /** The parsed configuration, as an object, for assertions about its shape. */
 function configOf(settings: Parameters<typeof buildSingboxConfig>[0]): Record<string, never> {
 	const built = buildSingboxConfig(settings);
@@ -485,6 +497,48 @@ test("creating a proxied project starts the sidecar before the container that jo
 	expect(containerRun).toContain(`-v ${project.workDir}:/work`);
 	// The generated configuration is on disk, ready for the sidecar to mount.
 	expect(existsSync(join(agentDir, "proxy", `${project.id}.json`))).toBe(true);
+});
+
+test("a tunneled container gets the tunnel resolver as a mounted resolv.conf", async () => {
+	const { agentDir, logPath } = setup();
+	// `--dns` cannot be used here: Docker rejects it together with the container
+	// network mode a tunnel requires, so the resolver arrives as a file mount.
+	const saved = saveProxy(agentDir, {
+		name: "实验室隧道",
+		mode: "wireguard",
+		simple: { type: "socks5", server: "", port: 0, username: "", password: "", tls: false },
+		wireguard: { config: WIREGUARD_CONFIG, dns: "", killSwitch: true },
+		subscriptionUrl: "",
+		subscriptionUserAgent: "",
+		subscriptionIntervalHours: 0,
+		nodeTag: "",
+		routePrivateDirect: true,
+	});
+	expect(saved.error).toBeUndefined();
+	setDefaultProxy(agentDir, saved.proxy?.id ?? "");
+	const added = await addProject(agentDir, { name: "demo" });
+	expect(added.error).toBeUndefined();
+	const project = listProjects(agentDir).projects[0];
+	if (!project) throw new Error("项目未创建");
+
+	const containerRun = calls(logPath).find((line) => line.startsWith("run") && line.includes(project.container));
+	const resolver = join(agentDir, "proxy", `${project.id}.resolv.conf`);
+	expect(containerRun).toContain(`-v ${resolver}:/etc/resolv.conf:ro`);
+	expect(containerRun).not.toContain("--dns");
+	// The file is what that mount serves, and it carries the profile's DNS.
+	expect(readFileSync(resolver, "utf-8")).toBe("nameserver 10.66.0.1\n");
+});
+
+test("a proxied container without a tunnel keeps Docker's own resolver", async () => {
+	const { agentDir, logPath } = setup();
+	setDefaultProxy(agentDir, addProfile(agentDir, {}).id);
+	await addProject(agentDir, { name: "demo" });
+	const project = listProjects(agentDir).projects[0];
+	if (!project) throw new Error("项目未创建");
+
+	const containerRun = calls(logPath).find((line) => line.startsWith("run") && line.includes(project.container));
+	expect(containerRun).not.toContain("resolv.conf");
+	expect(containerRun).not.toContain("--dns");
 });
 
 test("a project can turn the proxy off without touching the default", async () => {

@@ -3363,6 +3363,8 @@ export const EN_MESSAGES: Record<string, string> = {
 		"A WireGuard profile does not run sing-box, so it has no outbound to generate",
 	"WireGuard 档案需要填写 DNS，否则容器里的域名解析不会走隧道":
 		"A WireGuard profile needs a DNS server, otherwise name lookups in the container leave the tunnel",
+	"DNS 要填 IP 地址，多个用逗号分隔": "DNS has to be an IP address; separate several with commas",
+	"隧道 DNS 无法写入：{error}": "The tunnel resolver could not be written: {error}",
 	"镜像 {image} 不存在": "The image {image} is not present",
 	"只有 WireGuard 档案，用不到 sing-box 镜像": "Only WireGuard profiles exist, so the sing-box image is not needed",
 	"一条隧道而不是一个代理：容器里的一切（含 ping、UDP、原始套接字）都走它，但只有这一个出口，没有节点可切。":

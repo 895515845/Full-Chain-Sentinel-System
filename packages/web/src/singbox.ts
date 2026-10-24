@@ -33,7 +33,13 @@ import { containerPrefix, runDocker } from "./docker.ts";
 import { t } from "./i18n.ts";
 import { freePort } from "./node-test.ts";
 import type { SentinelProxySettings, SentinelWireGuard } from "./protocol.ts";
-import { buildSingboxConfig, projectProxyConfigPath, projectWireGuardConfigPath } from "./proxy.ts";
+import {
+	buildSingboxConfig,
+	parseNameservers,
+	projectProxyConfigPath,
+	projectResolvConfPath,
+	projectWireGuardConfigPath,
+} from "./proxy.ts";
 import { buildWireGuardConfig, wireGuardEntrypoint } from "./wireguard.ts";
 
 /** Container name of one project's sidecar. */
@@ -91,6 +97,24 @@ export async function ensureProxyNetwork(): Promise<{ ok: boolean; error?: strin
  * on every use would make every sidecar look out of date.
  */
 /**
+ * Write a generated file, unless it already holds exactly this.
+ *
+ * The modification time is what says whether a running sidecar still serves what the
+ * console generated, so a write on every use would make every sidecar look out of
+ * date. Every generated file follows this rule: writing one returns the path to
+ * mount, or the reason the settings cannot become a configuration at all.
+ */
+function writeIfChanged(path: string, body: string, mode: number): void {
+	try {
+		if (readFileSync(path, "utf-8") === body) return;
+	} catch {
+		// Missing or unreadable: written below.
+	}
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, body, { mode });
+}
+
+/**
  * Write a tunnel's `wg0.conf`.
  *
  * Same rule as the sing-box configuration: an identical rewrite is skipped so the
@@ -105,16 +129,34 @@ export function writeProjectWireGuardConfig(
 	const built = buildWireGuardConfig(wireguard);
 	if (built.error || !built.config) return { ok: false, error: built.error ?? t("配置生成失败") };
 	const path = projectWireGuardConfigPath(agentDir, projectId);
-	const dns = built.dns ?? "";
-	try {
-		if (readFileSync(path, "utf-8") === built.config) return { ok: true, path, dns };
-	} catch {
-		// Missing or unreadable: written below.
-	}
-	mkdirSync(dirname(path), { recursive: true });
 	// 0600: the file holds the private key.
-	writeFileSync(path, built.config, { mode: 0o600 });
-	return { ok: true, path, dns };
+	writeIfChanged(path, built.config, 0o600);
+	return { ok: true, path, dns: built.dns ?? "" };
+}
+
+/**
+ * Write the `/etc/resolv.conf` a tunneled project container mounts.
+ *
+ * It exists because neither of the two obvious answers works: Docker's embedded
+ * resolver sits outside the tunnel's routes, and `--dns` is rejected together with
+ * the container network mode the tunnel requires. Same rule as the other generated
+ * files: an identical rewrite is skipped, so the file's modification time keeps
+ * meaning "this changed"; the mount itself is live, so a changed resolver reaches
+ * a running container on its next lookup.
+ */
+export function writeProjectResolvConf(
+	agentDir: string,
+	projectId: string,
+	dns: string,
+): { ok: true; path: string } | { ok: false; error: string } {
+	const nameservers = parseNameservers(dns);
+	if (nameservers.length === 0) return { ok: false, error: t("DNS 要填 IP 地址，多个用逗号分隔") };
+	const body = `${nameservers.map((server) => `nameserver ${server}`).join("\n")}\n`;
+	const path = projectResolvConfPath(agentDir, projectId);
+	// 0644: the container reads it as any user, and it holds no credential — only the
+	// address of the tunnel's resolver.
+	writeIfChanged(path, body, 0o644);
+	return { ok: true, path };
 }
 
 export async function writeProjectProxyConfig(
@@ -129,13 +171,7 @@ export async function writeProjectProxyConfig(
 	const existing = readClashApi(path) ?? (await allocateClashApi());
 	const built = buildSingboxConfig(settings, existing);
 	if (built.error || !built.config) return { ok: false, error: built.error ?? t("配置生成失败") };
-	try {
-		if (readFileSync(path, "utf-8") === built.config) return { ok: true, path };
-	} catch {
-		// Missing or unreadable: written below.
-	}
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, built.config, { mode: 0o600 });
+	writeIfChanged(path, built.config, 0o600);
 	return { ok: true, path };
 }
 

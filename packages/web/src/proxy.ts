@@ -15,6 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import { t } from "./i18n.ts";
 import { DEFAULT_TEST_URL, measureNodes } from "./node-test.ts";
@@ -86,6 +87,31 @@ export function projectProxyConfigPath(agentDir: string, projectId: string): str
  */
 export function projectWireGuardConfigPath(agentDir: string, projectId: string): string {
 	return join(agentDir, "proxy", `${projectId}.wg.conf`);
+}
+
+/**
+ * Where the resolver a tunnel hands to its project container is written.
+ *
+ * A file rather than `docker run --dns`: Docker refuses that flag together with a
+ * container network mode ("conflicting options: dns and the network mode"), which
+ * is the mode every tunneled container is created with. The file is mounted over
+ * `/etc/resolv.conf`, so it is part of the container's configuration and survives
+ * a start, and its content is live — editing it reaches a running container
+ * without a rebuild.
+ */
+export function projectResolvConfPath(agentDir: string, projectId: string): string {
+	return join(agentDir, "proxy", `${projectId}.resolv.conf`);
+}
+
+/**
+ * The nameservers in a profile's DNS value.
+ *
+ * `DNS = 10.66.0.1, 1.1.1.1` is how a provider writes a pair, and only an IP can
+ * go into a `nameserver` line: everything else is dropped here rather than written
+ * into a resolver file glibc would ignore line by line.
+ */
+export function parseNameservers(value: string): string[] {
+	return value.split(/[\s,]+/).filter((entry) => isIP(entry) !== 0);
 }
 
 function asString(value: unknown): string {

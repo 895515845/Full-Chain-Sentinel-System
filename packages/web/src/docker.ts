@@ -225,11 +225,13 @@ export async function createContainer(
 	network: SentinelContainerNetwork,
 	sidecar?: string,
 	/**
-	 * Resolver for the container. A WireGuard profile passes the tunnel's DNS:
-	 * Docker's own resolver runs outside the tunnel, so leaving it unset would leak
-	 * every lookup.
+	 * File to mount over the container's `/etc/resolv.conf`. A tunnel passes the
+	 * generated one: Docker's own resolver runs outside the tunnel, so leaving it
+	 * unset would leak every lookup. It cannot be `--dns` instead — Docker rejects
+	 * that flag together with the container network mode a tunnel requires
+	 * ("conflicting options: dns and the network mode").
 	 */
-	dns?: string,
+	resolvConfPath?: string,
 ): Promise<{ ok: boolean; error?: string }> {
 	const mounts = ["-v", `${workDir}:/work`];
 	// The system prompt hands the model the host working directory (the session cwd),
@@ -250,7 +252,7 @@ export async function createContainer(
 		"--name",
 		containerName,
 		...(sidecar ? sidecarNetworkFlags(sidecar) : containerNetworkFlags(network)),
-		...(dns ? ["--dns", dns] : []),
+		...(resolvConfPath ? ["-v", `${resolvConfPath}:/etc/resolv.conf:ro`] : []),
 		...mounts,
 		"-w",
 		"/work",
@@ -320,14 +322,14 @@ export async function ensureContainer(
 	workDir: string,
 	network: SentinelContainerNetwork,
 	sidecar?: string,
-	dns?: string,
+	resolvConfPath?: string,
 ): Promise<{ ok: boolean; created: boolean; error?: string }> {
 	const state = await runDocker(["inspect", "-f", "{{.State.Running}}", containerName], { timeoutMs: 15000 });
 	if (state.code !== 0) {
 		if (!(await hasImage())) {
 			return { ok: false, created: false, error: t("工具镜像尚未构建，请先构建镜像后再启动容器") };
 		}
-		const created = await createContainer(containerName, workDir, network, sidecar, dns);
+		const created = await createContainer(containerName, workDir, network, sidecar, resolvConfPath);
 		return { ok: created.ok, created: true, error: created.error };
 	}
 	if (state.stdout.trim() === "true") return { ok: true, created: false };

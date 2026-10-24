@@ -20,6 +20,7 @@
 
 import { t } from "./i18n.ts";
 import type { SentinelWireGuard } from "./protocol.ts";
+import { parseNameservers } from "./proxy.ts";
 
 /** The interface name `wg-quick` derives from the configuration's file name. */
 export const WIREGUARD_INTERFACE = "wg0";
@@ -124,6 +125,12 @@ export function buildWireGuardConfig(wireguard: SentinelWireGuard): {
 	const dns = wireguard.dns.trim() || parsed.dns || "";
 	if (!dns) {
 		return { error: t("配置里没有 DNS，请补一行 DNS = 10.66.0.1，或在上面的 DNS 里填一个") };
+	}
+	// The value becomes the container's resolv.conf. A string with no IP in it would
+	// be mounted as a resolver glibc cannot use, and the container would resolve
+	// nothing while looking correctly configured.
+	if (parseNameservers(dns).length === 0) {
+		return { error: t("DNS 要填 IP 地址，多个用逗号分隔") };
 	}
 	return { config: parsed.config, dns };
 }
