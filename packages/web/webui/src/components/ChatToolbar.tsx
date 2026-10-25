@@ -11,9 +11,15 @@
 import { useEffect, useState } from "react";
 
 import { t } from "../i18n.ts";
-import type { SentinelMode, SentinelSessionPresetView, SentinelSessionStatus, SentinelThinkingLevel } from "../types.ts";
+import type {
+	SentinelMode,
+	SentinelProjectInfo,
+	SentinelSessionPresetView,
+	SentinelSessionStatus,
+	SentinelThinkingLevel,
+} from "../types.ts";
 import { SENTINEL_MODE_LABELS, SENTINEL_MODES } from "../types.ts";
-import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon } from "./icons.tsx";
+import { BranchIcon, CloseIcon, CompactIcon, FilesIcon, SubagentIcon, TerminalIcon } from "./icons.tsx";
 import { SessionStatusControl } from "./SessionStatusControl.tsx";
 
 /** Elapsed time of a compaction, so a slow model is visible as a wait, not a hang. */
@@ -48,12 +54,16 @@ export function ChatToolbar({
 	branchOpen,
 	filesOpen,
 	subagentsOpen,
+	terminalOpen,
+	/** The active project; the terminal only exists inside its container. */
+	project,
 	allowedPrefixes,
 	sessionStatus,
 	preset,
 	onSetSessionStatus,
 	onToggleFiles,
 	onToggleSubagents,
+	onToggleTerminal,
 	onSetMode,
 	onSetThinkingLevel,
 	onToggleBranch,
@@ -76,6 +86,8 @@ export function ChatToolbar({
 	branchOpen: boolean;
 	filesOpen: boolean;
 	subagentsOpen: boolean;
+	terminalOpen: boolean;
+	project: SentinelProjectInfo | null;
 	allowedPrefixes: string[];
 	/** The active session's operator status, shown as a chip at the right end. */
 	sessionStatus: SentinelSessionStatus | null;
@@ -84,6 +96,7 @@ export function ChatToolbar({
 	onSetSessionStatus: (status: SentinelSessionStatus | null) => void;
 	onToggleFiles: () => void;
 	onToggleSubagents: () => void;
+	onToggleTerminal: () => void;
 	onSetMode: (mode: SentinelMode | null) => void;
 	onSetThinkingLevel: (level: SentinelThinkingLevel) => void;
 	onToggleBranch: () => void;
@@ -237,6 +250,20 @@ export function ChatToolbar({
 				<SubagentIcon />
 				{t("子代理")}
 				{subagentRunning > 0 ? <span className="toolbar-count">{subagentRunning}</span> : null}
+			</button>
+			<button
+				type="button"
+				className={`toolbar-btn ${terminalOpen ? "on" : ""}`}
+				onClick={onToggleTerminal}
+				disabled={!project}
+				title={
+					project
+						? t("在项目容器里开一个自己的 shell：不过审批，不进会话记录")
+						: t("先选择项目，终端只连项目容器")
+				}
+			>
+				<TerminalIcon />
+				{t("终端")}
 			</button>
 			<span className="toolbar-status">
 				<SessionStatusControl variant="toolbar" status={sessionStatus} onPick={onSetSessionStatus} />

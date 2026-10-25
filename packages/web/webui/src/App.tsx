@@ -15,6 +15,8 @@ import { IosPage } from "./components/IosPage.tsx";
 import { EnginePage } from "./components/EnginePage.tsx";
 import { EnvironmentPanel } from "./components/EnvironmentPanel.tsx";
 import { FilePanel, type FilePanelState, saveDownload } from "./components/FilePanel.tsx";
+import { TerminalPanel } from "./components/TerminalPanel.tsx";
+import { publishTerminal } from "./terminal-bus.ts";
 import { GateAuditPage } from "./components/GateAuditPage.tsx";
 import { GatekeeperPanel } from "./components/GatekeeperPanel.tsx";
 import { GoalBar } from "./components/GoalBar.tsx";
@@ -324,6 +326,7 @@ export function App() {
 	/** Overlays opened from the chat toolbar. */
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [subagentsOpen, setSubagentsOpen] = useState(false);
+	const [terminalOpen, setTerminalOpen] = useState(false);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sentinel-sidebar-collapsed") === "1");
 	// The branch tree is a modal now, so it starts closed.
 	const [branchOpen, setBranchOpen] = useState(() => localStorage.getItem("sentinel-branch-open") === "1");
@@ -1096,6 +1099,22 @@ export function App() {
 					// Any mutation changes the listing; re-read it and refresh the snapshot.
 					connectionRef.current?.send({ type: "list_files", path: filePathRef.current });
 					connectionRef.current?.send({ type: "get_state" });
+					break;
+				case "terminal_state":
+					publishTerminal({
+						kind: "state",
+						projectId: message.projectId,
+						outcome: message.outcome,
+						...(message.session ? { session: message.session } : {}),
+						...(message.replay ? { replay: message.replay } : {}),
+						...(message.error ? { error: message.error } : {}),
+					});
+					break;
+				case "terminal_output":
+					publishTerminal({ kind: "output", projectId: message.projectId, data: message.data });
+					break;
+				case "terminal_exit":
+					publishTerminal({ kind: "exit", projectId: message.projectId, code: message.code });
 					break;
 				case "subagent_run":
 					setSubagentTranscripts((prev) => ({ ...prev, [message.run.id]: message.run.events ?? [] }));
@@ -2360,12 +2379,15 @@ export function App() {
 								branchOpen={branchOpen}
 								filesOpen={filesOpen}
 								subagentsOpen={subagentsOpen}
+								terminalOpen={terminalOpen}
+								project={snapshot?.project ?? null}
 								allowedPrefixes={snapshot?.allowedPrefixes ?? []}
 								sessionStatus={snapshot?.sessionStatus ?? null}
 								preset={snapshot?.preset ?? null}
 								onSetSessionStatus={(status) => send({ type: "set_session_status", status })}
 								onToggleFiles={() => setFilesOpen((prev) => !prev)}
 								onToggleSubagents={() => setSubagentsOpen((prev) => !prev)}
+								onToggleTerminal={() => setTerminalOpen((prev) => !prev)}
 								onSetMode={(next) => send({ type: "set_mode", mode: next })}
 								onSetThinkingLevel={(level) => send({ type: "set_thinking_level", level })}
 								onToggleBranch={() => {
@@ -3344,6 +3366,17 @@ export function App() {
 						}}
 					/>
 				</Overlay>
+			) : null}
+			{terminalOpen ? (
+				<TerminalPanel
+					key={snapshot?.project?.id ?? "none"}
+					projectId={snapshot?.project?.id ?? ""}
+					projectName={snapshot?.project?.name ?? t("未选择项目")}
+					onOpen={(projectId, cols, rows) => send({ type: "terminal_open", projectId, cols, rows })}
+					onInput={(projectId, data) => send({ type: "terminal_input", projectId, data })}
+					onClose={(projectId) => send({ type: "terminal_close", projectId })}
+					onClosePanel={() => setTerminalOpen(false)}
+				/>
 			) : null}
 			{subagentsOpen ? (
 				<Overlay

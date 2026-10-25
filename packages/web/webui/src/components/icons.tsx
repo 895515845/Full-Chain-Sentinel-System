@@ -52,6 +52,7 @@ import {
 	ShieldCheck,
 	SlidersHorizontal,
 	Smartphone,
+	SquareTerminal,
 	Tag,
 	Target,
 	Trash,
@@ -97,6 +98,11 @@ export function FilesIcon(props: IconProps) {
 /** Sub-agent: the sub-agent runs page. */
 export function SubagentIcon(props: IconProps) {
 	return <Bot size={SIZE} strokeWidth={STROKE} {...props} />;
+}
+
+/** The operator's own shell in the project container. */
+export function TerminalIcon(props: IconProps) {
+	return <SquareTerminal size={SIZE} strokeWidth={STROKE} {...props} />;
 }
 
 /** Image attachment. */

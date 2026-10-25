@@ -67,6 +67,20 @@ export interface SentinelFileEntry {
 }
 
 /** Bounded inline view of one file. */
+/**
+ * The operator's shell in a project container, kept alive when its panel closes.
+ */
+export interface SentinelTerminalSession {
+	status: "running" | "exited";
+	projectId: string;
+	projectName: string;
+	container: string;
+	cols: number;
+	rows: number;
+	startedAt: number;
+	code: number | null;
+}
+
 export interface SentinelFilePreview {
 	path: string;
 	kind: "text" | "image" | "binary";
@@ -1381,6 +1395,9 @@ export type SentinelClientMessage =
 	| { type: "delete_path"; path: string }
 	| { type: "rename_path"; from: string; to: string }
 	| { type: "make_directory"; path: string }
+	| { type: "terminal_open"; projectId: string; cols: number; rows: number }
+	| { type: "terminal_input"; projectId: string; data: string }
+	| { type: "terminal_close"; projectId: string }
 	| { type: "list_subagents"; offset?: number; limit?: number }
 	| { type: "get_subagent"; id: string }
 	| { type: "abort_subagent"; id: string }
@@ -1648,6 +1665,16 @@ export type SentinelServerMessage =
 	| { type: "file_preview"; preview: SentinelFilePreview }
 	| { type: "file_download"; path: string; size: number; data: string; mimeType: string }
 	| { type: "file_result"; action: string; path: string; ok: boolean; error?: string }
+	| {
+			type: "terminal_state";
+			projectId: string;
+			outcome: "opened" | "failed" | "closed";
+			session?: SentinelTerminalSession;
+			replay?: string;
+			error?: string;
+	  }
+	| { type: "terminal_output"; projectId: string; data: string }
+	| { type: "terminal_exit"; projectId: string; code: number | null }
 	| { type: "official_plugins"; plugins: SentinelOfficialPluginView[] }
 	| { type: "plugin_build_log"; hostId: string; pluginId: string; log: string }
 	| { type: "subagents"; runs: SentinelSubagentRun[]; offset: number; total: number }

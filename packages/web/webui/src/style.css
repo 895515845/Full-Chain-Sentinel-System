@@ -1877,6 +1877,65 @@ button.ghost.small.on {
 	overflow: auto;
 }
 
+/*
+ * The terminal panel: the shell owns the space, so the body does not scroll — the
+ * xterm host fills what the status strip leaves, and xterm itself scrolls its
+ * scrollback.
+ */
+.terminal-panel .modal__body {
+	padding-top: 0;
+	overflow: hidden;
+}
+
+.terminal-shell {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.terminal-host {
+	flex: 1;
+	min-height: 240px;
+	padding: 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	/* xterm renders at the pty's geometry; a narrower panel scrolls instead of
+	   reflowing text the shell already laid out. */
+	overflow: auto;
+}
+
+.terminal-host .xterm {
+	height: 100%;
+}
+
+.terminal-actions {
+	display: flex;
+	gap: 6px;
+}
+
+.terminal-notice {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 8px 10px;
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius);
+	background: var(--accent-dim);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.terminal-hint {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--faint);
+}
+
 .modal h2 {
 	margin: 0 0 6px;
 	font-size: 15px;

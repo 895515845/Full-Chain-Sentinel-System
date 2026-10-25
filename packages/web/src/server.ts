@@ -75,6 +75,7 @@ import type {
 import { switchProjectNode } from "./proxy-switch.ts";
 import { VulnReviewer } from "./reviewer.ts";
 import { SubscriptionScheduler } from "./subscription-scheduler.ts";
+import { createTerminal } from "./terminal.ts";
 import { readUiConfig, writeUiConfig } from "./ui-config.ts";
 import { buildWireGuardConfig } from "./wireguard.ts";
 import type { WorkerSession } from "./worker.ts";
@@ -424,6 +425,13 @@ export async function startSentinelServer(
 	// account that accepts it, so a console with no account has nothing to record.
 	const consentEnabled = options.consent ?? (options.auth !== false && Boolean(agentDir));
 	const startup = agentDir ? await resolveStartupProject(agentDir) : {};
+	// The operator's own shell. It is not a tool call: it is never gated and never
+	// audited, and it outlives the panel that opened it — a listener started there has
+	// to keep running while the operator does something else.
+	const terminal = createTerminal({
+		onOutput: (projectId, data) => broadcast({ type: "terminal_output", projectId, data }),
+		onExit: (projectId, code) => broadcast({ type: "terminal_exit", projectId, code }),
+	});
 	const runtime = new SentinelRuntime({
 		cwd: startup.project?.workDir ?? startupCwd,
 		agentDir,
@@ -2464,6 +2472,69 @@ export async function startSentinelServer(
 				case "make_directory":
 					await runFileAction(socket, "新建目录", message.path, () => runtime.makeDirectory(message.path));
 					return;
+				case "terminal_open": {
+					const project = runtime.snapshot().project;
+					if (!project) {
+						sendTo(socket, {
+							type: "terminal_state",
+							projectId: message.projectId,
+							outcome: "failed",
+							error: t("未选择项目，终端不可用"),
+						});
+						return;
+					}
+					if (!project.container) {
+						sendTo(socket, {
+							type: "terminal_state",
+							projectId: message.projectId,
+							outcome: "failed",
+							error: t("项目没有容器，终端不可用"),
+						});
+						return;
+					}
+					if (project.id !== message.projectId) {
+						sendTo(socket, {
+							type: "terminal_state",
+							projectId: message.projectId,
+							outcome: "failed",
+							error: t("终端项目与当前项目不匹配"),
+						});
+						return;
+					}
+					const opened = await terminal.open({
+						projectId: project.id,
+						projectName: project.name,
+						container: project.container,
+						cols: message.cols,
+						rows: message.rows,
+					});
+					if (opened.outcome === "failed") {
+						sendTo(socket, {
+							type: "terminal_state",
+							projectId: project.id,
+							outcome: "failed",
+							error: opened.error,
+						});
+						return;
+					}
+					sendTo(socket, {
+						type: "terminal_state",
+						projectId: project.id,
+						outcome: opened.outcome,
+						session: opened.session,
+						...(opened.outcome === "opened" ? { replay: opened.replay } : {}),
+					});
+					return;
+				}
+				case "terminal_input":
+					terminal.write(message.projectId, message.data);
+					return;
+				case "terminal_close":
+					// Broadcast, so every open panel drops its shell view rather than
+					// keeping a terminal that no longer exists.
+					terminal.close(message.projectId);
+					broadcast({ type: "terminal_state", projectId: message.projectId, outcome: "closed" });
+					return;
 				case "list_subagents": {
 					const requested = message.limit ?? 100;
 					const limit = Number.isFinite(requested) ? Math.min(100, Math.max(1, Math.round(requested))) : 100;
@@ -3320,6 +3391,7 @@ export async function startSentinelServer(
 					pocImports.close();
 					iosGateway.close();
 					engines?.dispose();
+					terminal.dispose();
 					runtime.dispose();
 					for (const client of clients) client.terminate();
 					wss.close();
