@@ -1,6 +1,6 @@
 {
 	"name": "@earendil-works/sentinel-web",
-	"version": "1.1.0",
+	"version": "2.2.2",
 	"private": true,
 	"type": "module",
 	"description": "Full Chain Sentinel web console: HTTP + WebSocket server and browser UI for the penetration testing agent",
