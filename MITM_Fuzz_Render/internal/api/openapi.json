@@ -1397,6 +1397,10 @@
                   "evidenceDetails": {
                     "type": "boolean",
                     "description": "截图时是否展开取证详情（来源/模式/抓取时间/flowId），默认 true——界面默认收起，证据图需要它"
+                  },
+                  "upstreamProxy": {
+                    "type": "string",
+                    "description": "本次发送走这个 SOCKS5 出口（socks5://[user:password@]host:port）。只作用于这一次发送，不是系统代理；目标站只有经代理可达、或域名只能由代理解析时用。地址是容器视角：host 网络下 127.0.0.1 就是宿主机，bridge 下用 host.docker.internal。非 socks5 协议返回 400。"
                   }
                 }
               }

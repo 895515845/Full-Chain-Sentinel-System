@@ -210,7 +210,7 @@ Query：`host` `method` `status` `q`（host/path 子串）、`from` `to`（Unix 
 
 | 端点 | 说明 |
 |---|---|
-| `POST /api/capture` | 无头浏览器打开**本工具的 Repeater 页**（`?token=` 自动登录），按 `raw` 填包 → 点发送 → 等响应与取证面板 → **整窗截图**。返回 `statusLine`/`responseHeaders`/`evidenceWatermark`（从界面回读的文本）+ `screenshots.viewport`（PNG 产物）+ `timings` + `flowId`。`evidenceMode` 默认 `snapshot`（同源快照必然画得出来），可选 `direct`（真站点直嵌，首屏约 1–3s，默认多等 4s 绘制）；`send=false` 则只截图不代发。 |
+| `POST /api/capture` | 无头浏览器打开**本工具的 Repeater 页**（`?token=` 自动登录），按 `raw` 填包 → 点发送 → 等响应与取证面板 → **整窗截图**。返回 `statusLine`/`responseHeaders`/`evidenceWatermark`（从界面回读的文本）+ `screenshots.viewport`（PNG 产物）+ `timings` + `flowId`。`evidenceMode` 默认 `snapshot`（同源快照必然画得出来），可选 `direct`（真站点直嵌，首屏约 1–3s，默认多等 4s 绘制）；`send=false` 则只截图不代发。  `upstreamProxy`（可选）指定这次发送的 SOCKS5 出口（`socks5://[user:password@]host:port`，仅 socks5，其它协议 400）：它被填进界面的「上游代理」框，随发送一起交给引擎，因此截图里能看到出口；地址是容器视角（host 网络下 127.0.0.1 是宿主机，bridge 下用 host.docker.internal）。 |
 
 取证详情（来源/模式/抓取时间/flowId）在界面上**收进面板头的 ⓘ**；截图时由 `evidenceDetails`（默认 `true`）自动展开，
 因为无头截图无法体现"悬停/点击展开"。`evidenceWatermark` 字段改为从 ⓘ 的 `data-summary` 回读，仍是一行完整摘要。

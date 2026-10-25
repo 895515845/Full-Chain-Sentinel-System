@@ -62,6 +62,11 @@ type Spec struct {
 	IncludeContent bool `json:"includeContent,omitempty"`
 	// Send=false 时只截图不代发（保存当前界面状态）
 	Send *bool `json:"send,omitempty"`
+
+	// UpstreamProxy：这次发送的 SOCKS5 出口（socks5://[user:pass@]host:port）。
+	// 它被填进界面的「上游代理」框，再由界面随发送一起交给引擎——代理只作用于
+	// 这一次发送的 TCP 连接，不改系统代理，也不影响截图用的浏览器上下文。
+	UpstreamProxy string `json:"upstreamProxy,omitempty"`
 }
 
 // HighlightSpec 用文本匹配打高亮（比字符偏移对调用方友好得多）。
@@ -297,8 +302,12 @@ func (c *Capturer) Capture(ctx context.Context, spec Spec) (*Result, error) {
 	}
 
 	// ---- 填包 ----
-	if _, err := c.eval(ctx, client, session, fillScript(spec)); err != nil {
+	filled, err := c.eval(ctx, client, session, fillScript(spec))
+	if err != nil {
 		return nil, fmt.Errorf("capture: 填写请求失败: %w", err)
+	}
+	if spec.UpstreamProxy != "" && !strings.Contains(filled, "proxy:true") {
+		return nil, errors.New("capture: 界面没有「上游代理」输入框（replayd 界面版本过旧），已中止，未发送")
 	}
 
 	// ---- 取证面板配置 + 刷新 ----
@@ -713,8 +722,21 @@ func fillScript(spec Spec) string {
 	  steps.push('host:' + setValue(q('[data-testid="repeater-host"]'), %q));
 	  steps.push('raw:' + setValue(q('[data-testid="repeater-request-editor"]'), %q));
 	  %s
+	  %s
 	  return steps.join(' ');
-	})()`, spec.Scheme, host, spec.Raw, scriptSelect(spec))
+	})()`, spec.Scheme, host, spec.Raw, scriptSelect(spec), proxyStep(spec))
+}
+
+// proxyStep 把上游代理填进界面的「上游代理」框。
+//
+// 填不进去就是错，不能继续：调用方要求经代理发送，静默直连会把数据包发到
+// 操作员没打算走的线路上，截图也会变成"看起来成功"的假证据。
+func proxyStep(spec Spec) string {
+	if spec.UpstreamProxy == "" {
+		return "steps.push('proxy:skipped');"
+	}
+	return fmt.Sprintf(`steps.push('proxy:' + setValue(q('[data-testid="repeater-upstream-proxy"]'), %q));`,
+		spec.UpstreamProxy)
 }
 
 func scriptSelect(spec Spec) string {

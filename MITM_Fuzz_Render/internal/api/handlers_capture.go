@@ -38,6 +38,10 @@ type captureRequest struct {
 	SettleMS       int   `json:"settleMs,omitempty"`
 	IncludeContent bool  `json:"includeContent,omitempty"`
 	Send           *bool `json:"send,omitempty"`
+
+	// UpstreamProxy：这次发送走这个 SOCKS5 出口（socks5://[user:pass@]host:port）。
+	// 只作用于这一次发送，不是系统代理，也不经过截图用的浏览器。
+	UpstreamProxy string `json:"upstreamProxy,omitempty"`
 }
 
 type captureTimings struct {
@@ -62,6 +66,9 @@ type captureResponse struct {
 	HighlightsApplied []string `json:"highlightsApplied,omitempty"`
 	HighlightsMissing []string `json:"highlightsMissing,omitempty"`
 
+	// UpstreamProxy：回显实际生效的出口（规范化之后），便于审计与排查。
+	UpstreamProxy string `json:"upstreamProxy,omitempty"`
+
 	Screenshots map[string]artifactView `json:"screenshots,omitempty"`
 	Timings     captureTimings          `json:"timings"`
 	Width       int                     `json:"width,omitempty"`
@@ -77,6 +84,12 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "bad_request", "请求体不合法: "+err.Error(), nil)
 		return
 	}
+	proxy, err := normalizeSocks5Proxy(in.UpstreamProxy)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "bad_request", err.Error(), nil)
+		return
+	}
+	in.UpstreamProxy = proxy
 	if strings.TrimSpace(in.Raw) == "" {
 		s.writeError(w, http.StatusBadRequest, "bad_request", "raw 不能为空（需要要发送的原始请求报文）", nil)
 		return
@@ -119,6 +132,7 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		Width:           in.Width, Height: in.Height, FullPage: in.FullPage,
 		WaitTimeoutMS: in.WaitTimeoutMS, SettleMS: in.SettleMS,
 		IncludeContent: in.IncludeContent, Send: in.Send, Highlight: in.Highlight,
+		UpstreamProxy: in.UpstreamProxy,
 	}
 	res, err := s.capture.Capture(ctx, spec)
 	if err != nil {
@@ -147,6 +161,7 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		SendError:         res.SendError,
 		HighlightsApplied: res.HighlightsApplied,
 		HighlightsMissing: res.HighlightsMissing,
+		UpstreamProxy:     in.UpstreamProxy,
 		Width:             res.Width,
 		Height:            res.Height,
 		Timings: captureTimings{

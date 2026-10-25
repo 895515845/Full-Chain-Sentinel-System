@@ -228,6 +228,8 @@ func (s *Server) mcpTools() []map[string]any {
 					"include_content":  map[string]any{"type": "boolean", "description": "文本里是否带上响应体预览"},
 					"send":             map[string]any{"type": "boolean", "description": "false 则只截当前界面、不代发"},
 					"wait_timeout_ms":  map[string]any{"type": "integer", "description": "等待响应与取证面板的超时，默认 20000"},
+					"upstream_proxy": map[string]any{"type": "string",
+						"description": "这次发送走这个 SOCKS5 出口：socks5://[user:password@]host:port。目标站只有经代理可达时用；只作用于这次发送，不改系统代理。地址是容器视角（host 网络下 127.0.0.1 就是宿主机）"},
 					"highlight_request": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 						"description": "要在请求包里框出来的文本片段（按文本匹配，无需偏移），如 [\"Host:\", \"uid=10100\"]"},
 					"highlight_response": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
@@ -257,6 +259,8 @@ func (s *Server) mcpTools() []map[string]any {
 					"port":         map[string]any{"type": "integer", "description": "目标端口"},
 					"insecure_tls": map[string]any{"type": "boolean", "description": "跳过上游证书校验"},
 					"body_limit":   map[string]any{"type": "integer", "description": "返回响应体文本的长度上限，默认 65536"},
+					"upstream_proxy": map[string]any{"type": "string",
+						"description": "这次发送走这个 SOCKS5 出口：socks5://[user:password@]host:port（只作用于这次发送）"},
 				},
 				"required": []string{"raw"},
 			},
@@ -497,6 +501,7 @@ func (s *Server) mcpCaptureRepeater(ctx context.Context, args json.RawMessage) m
 		IncludeContent    bool     `json:"include_content"`
 		Send              *bool    `json:"send"`
 		WaitTimeoutMS     int      `json:"wait_timeout_ms"`
+		UpstreamProxy     string   `json:"upstream_proxy"`
 		HighlightRequest  []string `json:"highlight_request"`
 		HighlightResponse []string `json:"highlight_response"`
 		HighlightColor    string   `json:"highlight_color"`
@@ -510,6 +515,10 @@ func (s *Server) mcpCaptureRepeater(ctx context.Context, args json.RawMessage) m
 	if s.capture == nil {
 		return mcpCallResult{Content: []mcpContent{textContent("本实例未启用界面截图")}, IsError: true}
 	}
+	proxy, err := normalizeSocks5Proxy(a.UpstreamProxy)
+	if err != nil {
+		return mcpCallResult{Content: []mcpContent{textContent(err.Error())}, IsError: true}
+	}
 
 	spec := capture.Spec{
 		Raw:    strings.ReplaceAll(a.Raw, `\r\n`, "\r\n"),
@@ -519,6 +528,7 @@ func (s *Server) mcpCaptureRepeater(ctx context.Context, args json.RawMessage) m
 		EvidenceDetails: a.EvidenceDetails,
 		Width:           a.Width, Height: a.Height, FullPage: a.FullPage,
 		IncludeContent: a.IncludeContent, Send: a.Send, WaitTimeoutMS: a.WaitTimeoutMS,
+		UpstreamProxy: proxy,
 	}
 	if len(a.HighlightRequest) > 0 || len(a.HighlightResponse) > 0 {
 		color := a.HighlightColor
@@ -611,12 +621,13 @@ func (s *Server) mcpRenderStatus(ctx context.Context) mcpCallResult {
 
 func (s *Server) mcpReplay(ctx context.Context, args json.RawMessage) mcpCallResult {
 	var a struct {
-		Raw         string `json:"raw"`
-		Scheme      string `json:"scheme"`
-		Host        string `json:"host"`
-		Port        int    `json:"port"`
-		InsecureTLS bool   `json:"insecure_tls"`
-		BodyLimit   int    `json:"body_limit"`
+		Raw           string `json:"raw"`
+		Scheme        string `json:"scheme"`
+		Host          string `json:"host"`
+		Port          int    `json:"port"`
+		InsecureTLS   bool   `json:"insecure_tls"`
+		BodyLimit     int    `json:"body_limit"`
+		UpstreamProxy string `json:"upstream_proxy"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return mcpCallResult{Content: []mcpContent{textContent("参数不合法: " + err.Error())}, IsError: true}
@@ -624,12 +635,16 @@ func (s *Server) mcpReplay(ctx context.Context, args json.RawMessage) mcpCallRes
 	if strings.TrimSpace(a.Raw) == "" {
 		return mcpCallResult{Content: []mcpContent{textContent("raw 不能为空")}, IsError: true}
 	}
+	proxy, err := normalizeSocks5Proxy(a.UpstreamProxy)
+	if err != nil {
+		return mcpCallResult{Content: []mcpContent{textContent(err.Error())}, IsError: true}
+	}
 	in := replayRequest{
 		Raw: strings.ReplaceAll(a.Raw, `\r\n`, "\r\n"),
 		Target: replayTarget{
 			Scheme: a.Scheme, Host: a.Host, Port: a.Port,
 		},
-		Opts: replayOptions{InsecureTLS: a.InsecureTLS},
+		Opts: replayOptions{InsecureTLS: a.InsecureTLS, UpstreamProxy: proxy},
 	}
 	out := s.doReplay(ctx, in, nil)
 

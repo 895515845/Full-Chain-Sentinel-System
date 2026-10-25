@@ -75,6 +75,17 @@ function normalizeLineEndings(raw: string): { raw: string; normalized: boolean }
 	return { raw: raw.replace(/\n/g, "\r\n"), normalized: true };
 }
 
+/**
+ * `socks5://alice:s3cret@h:1080` → `socks5://alice:***@h:1080`.
+ *
+ * The approval card and the audit row name the exit the packet will take; the
+ * password is not part of that, and the audit is read later by people who do not
+ * need it.
+ */
+function maskProxyCredentials(url: string): string {
+	return url.replace(/^(socks5h?:\/\/)([^:@/]+):([^@/]*)@/i, "$1$2:***@");
+}
+
 function failure(text: string): AgentToolResult<{ ok: boolean }> {
 	return { content: [{ type: "text", text }], details: { ok: false }, isError: true };
 }
@@ -90,6 +101,9 @@ function truncate(text: string | undefined, max = 16_000): string {
  * failure that is not the agent's fault is a container image without a browser.
  */
 function actionable(error: string): string {
+	if (/upstream_(auth|connect)|SOCKS|socks5/i.test(error)) {
+		return `${error}\n（代理不可达或认证失败：确认地址是容器视角的——host 网络下 127.0.0.1 是宿主机，bridge 下要写 host.docker.internal 或把代理放进容器；带认证时写成 socks5://user:password@host:port）`;
+	}
 	if (error.includes("浏览器")) {
 		return `${error}\n（容器镜像里没有 Chromium，截图需要它：请操作员在「设置 → 环境」重建镜像，或先在容器内执行 POST /api/render/browser/install 下载 headless shell）`;
 	}
@@ -151,6 +165,8 @@ interface CaptureResponseView {
 	highlightsApplied?: string[];
 	highlightsMissing?: string[];
 	sendError?: string;
+	/** The SOCKS5 exit this send went through, echoed back by replayd. */
+	upstreamProxy?: string;
 	screenshots?: Record<string, { artifactId?: string; size?: number }>;
 	timings?: { sentMs?: number; evidenceMs?: number; totalMs?: number };
 	flowId?: string;
@@ -190,6 +206,7 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 			"`purpose` is required and is shown to the operator on the approval card: write what the image proves, e.g. 「未授权访问 /admin 的留证（返回 role=admin）」.",
 			'Highlight the payload and the echo so the screenshot proves the finding: pass highlightResponse: ["token="] and highlightRequest: ["Host:"].',
 			'Use evidenceMode "snapshot" (default) when the time source refuses to be embedded, "direct" to show the live site clock.',
+			"When the target is only reachable through a SOCKS5 proxy, pass `proxy`: the send goes out through it (the operator sees the proxy on the approval card), and the screenshot shows the exchange as it happened.",
 			"Look at the image you get back: if the time panel still reads 加载中, call again with evidenceSettleMs: 4000 so the panel is painted before the shot.",
 		],
 		parameters: Type.Object({
@@ -223,6 +240,12 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 			includeContent: Type.Optional(Type.Boolean({ description: "同时回读响应正文预览，默认 true" })),
 			width: Type.Optional(Type.Integer({ description: "截图宽度，默认 1600" })),
 			height: Type.Optional(Type.Integer({ description: "截图高度，默认 1000" })),
+			proxy: Type.Optional(
+				Type.String({
+					description:
+						"SOCKS5 出口，只影响这一次发送：socks5://[user:password@]host:port。目标站只有经代理可达、或域名只能由代理解析时用。地址是容器视角（host 网络下 127.0.0.1 就是宿主机；bridge 下用 host.docker.internal）",
+				}),
+			),
 		}),
 		async execute(
 			_toolCallId,
@@ -237,6 +260,16 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 					"purpose 不能为空：写明这张截图要证明什么（会显示在审批卡与审计里），例如「未授权访问 /admin 的留证」",
 				);
 			}
+			// Validated before the service is started: a typo in the proxy must not push
+			// a 20 MB binary into the container, and must not look like a target failure.
+			let proxy: string | undefined;
+			const rawProxy = (params.proxy ?? "").trim();
+			if (rawProxy !== "") {
+				if (!/^socks5h?:\/\//i.test(rawProxy)) {
+					return failure("proxy 只支持 SOCKS5：socks5://[user:password@]host:port（收到 " + rawProxy + "）");
+				}
+				proxy = rawProxy;
+			}
 			const ready = await service(ctx);
 			if ("error" in ready) return failure(ready.error);
 			const normalized = normalizeLineEndings(params.raw);
@@ -244,7 +277,7 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 			try {
 				raw = await ctx.guard(
 					"replay_capture",
-					`报告留证截图（${purpose}）${describeTarget(normalized.raw, params.host, params.port, params.scheme)}`,
+					`报告留证截图（${purpose}）${describeTarget(normalized.raw, params.host, params.port, params.scheme)}${proxy ? `（经 ${maskProxyCredentials(proxy)}）` : ""}`,
 					normalized.raw,
 				);
 			} catch (error) {
@@ -274,6 +307,7 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 					...(highlight === undefined ? {} : { highlight }),
 					...(params.width === undefined ? {} : { width: params.width }),
 					...(params.height === undefined ? {} : { height: params.height }),
+					...(proxy === undefined ? {} : { upstreamProxy: proxy }),
 				},
 				timeoutMs: 240_000,
 				signal,
@@ -297,10 +331,13 @@ export function createReplayTools(ctx: ReplayToolContext): ToolDefinition[] {
 				"",
 				truncate(view.responseHeaders ?? "（无响应头）", 4000),
 			];
+			if (view.upstreamProxy) lines.push(`出口：${view.upstreamProxy}`);
 			if (view.evidenceWatermark) lines.push("", `取证：${view.evidenceWatermark}`);
 			if (view.highlightsApplied?.length) lines.push(`已高亮：${view.highlightsApplied.join("、")}`);
 			if (view.highlightsMissing?.length) lines.push(`未找到的片段：${view.highlightsMissing.join("、")}`);
-			if (view.sendError) lines.push(`发送异常：${view.sendError}`);
+			// A proxy that cannot be reached surfaces here (the page's send fails), so the
+			// actionable hint belongs on this line, not only on the service error path.
+			if (view.sendError) lines.push(`发送异常：${actionable(view.sendError)}`);
 			const timings = view.timings;
 			if (timings)
 				lines.push(

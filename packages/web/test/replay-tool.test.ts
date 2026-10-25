@@ -125,6 +125,65 @@ test("replay_capture asks the approval chain first, with the stated purpose", as
 	expect(blocks(result).text).toContain("留证用途：未授权访问 /admin 的留证（返回 role=admin）");
 });
 
+test("a SOCKS5 proxy is on the approval card and reaches replayd", async () => {
+	// The operator has to see where the packet will leave from: a proxy changes the
+	// path it takes, and the screenshot is evidence of that path.
+	replaydRequest.mockResolvedValue(captureOk({ upstreamProxy: "socks5://alice:s3cret@127.0.0.1:1080" }));
+	const result = await tool(context(), "replay_capture").execute(
+		"id",
+		{
+			purpose: "经代理访问 /admin 的留证",
+			raw: "GET /admin HTTP/1.1\r\nHost: 10.0.0.5\r\n\r\n",
+			proxy: "socks5://alice:s3cret@127.0.0.1:1080",
+		},
+		undefined,
+		undefined,
+		{} as never,
+	);
+	expect(guarded).toHaveLength(1);
+	// The card names the exit but not the password: the audit is read later, by
+	// people who do not need the credential.
+	expect(guarded[0].summary).toContain("socks5://alice:***@127.0.0.1:1080");
+	expect(guarded[0].summary).not.toContain("s3cret");
+	const body = replaydRequest.mock.calls[0]?.[0] as { body: { upstreamProxy?: string } };
+	expect(body.body.upstreamProxy).toBe("socks5://alice:s3cret@127.0.0.1:1080");
+	expect(blocks(result).text).toContain("出口：socks5://alice:s3cret@127.0.0.1:1080");
+});
+
+test("a non-SOCKS5 proxy is refused before the service or the approval chain", async () => {
+	// A typo must not start replayd, must not ask the operator to approve a packet
+	// that cannot be sent the way it was asked for, and must not look like a target
+	// failure.
+	const result = await tool(context(), "replay_capture").execute(
+		"id",
+		{ purpose: "留证", raw: "GET / HTTP/1.1\r\nHost: 10.0.0.5\r\n\r\n", proxy: "http://127.0.0.1:8080" },
+		undefined,
+		undefined,
+		{} as never,
+	);
+	expect(result.isError).toBe(true);
+	expect(blocks(result).text).toContain("只支持 SOCKS5");
+	expect(ensured).toBe(0);
+	expect(guarded).toHaveLength(0);
+	expect(replaydRequest).not.toHaveBeenCalled();
+});
+
+test("a proxy failure is reported as a proxy problem, not a target one", async () => {
+	replaydRequest.mockResolvedValue(
+		captureOk({ upstreamProxy: "socks5://127.0.0.1:1080", sendError: "upstream_connect: 连接代理失败" }),
+	);
+	const result = await tool(context(), "replay_capture").execute(
+		"id",
+		{ purpose: "留证", raw: "GET / HTTP/1.1\r\nHost: 10.0.0.5\r\n\r\n", proxy: "socks5://127.0.0.1:1080" },
+		undefined,
+		undefined,
+		{} as never,
+	);
+	expect(blocks(result).text).toContain("发送异常：upstream_connect");
+	// The hint names the container-relative address, which is the usual mistake.
+	expect(blocks(result).text).toContain("host.docker.internal");
+});
+
 test("an edited approval is what actually goes on the wire", async () => {
 	replaydRequest.mockResolvedValue(captureOk());
 	const edited = "GET /admin2 HTTP/1.1\r\nHost: 10.0.0.5\r\nX-Operator: yes\r\n\r\n";

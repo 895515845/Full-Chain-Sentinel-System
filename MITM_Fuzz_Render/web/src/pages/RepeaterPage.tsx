@@ -175,6 +175,8 @@ export default function RepeaterPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tabSaving, setTabSaving] = useState(false);
   const [target, setTarget] = useState(readStoredTarget);
+  // 上游代理不落盘：它可能带凭据，而且是"这一次发送"的设置。
+  const [upstreamProxy, setUpstreamProxy] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -352,9 +354,11 @@ export default function RepeaterPage() {
         isOriginForm && parsed.host !== ""
           ? { scheme: target.scheme, host: parsed.host, port }
           : null;
+      const proxy = upstreamProxy.trim();
       const response = await sendReplay(tab.rawRequest, {
         target: targetValue,
         ...(tab.scriptId === "" ? {} : { scriptId: tab.scriptId }),
+        ...(proxy === "" ? {} : { upstreamProxy: proxy }),
       });
       setResult(response);
     } catch (error) {
@@ -364,7 +368,7 @@ export default function RepeaterPage() {
     } finally {
       setSending(false);
     }
-  }, [target]);
+  }, [target, upstreamProxy]);
 
   // Ctrl/Cmd+Enter 发送
   useEffect(() => {
@@ -642,6 +646,19 @@ export default function RepeaterPage() {
           placeholder="example.com:8443（仅 origin-form 请求生效）"
           value={target.host}
           onChange={(event) => setTarget((prev) => ({ ...prev, host: event.target.value }))}
+        />
+        <label htmlFor="repeater-upstream-proxy" className="sr-only">
+          上游代理
+        </label>
+        <input
+          id="repeater-upstream-proxy"
+          data-testid="repeater-upstream-proxy"
+          type="text"
+          className="field w-[220px] font-mono"
+          placeholder="socks5://127.0.0.1:1080"
+          title="这次发送走这个 SOCKS5 出口（可带 user:password）；只影响本次发送，不是系统代理"
+          value={upstreamProxy}
+          onChange={(event) => setUpstreamProxy(event.target.value)}
         />
         <span className="font-mono text-[10px] text-muted/50">
           请求行为 absolute-form（GET http://…）时以请求行中的目标为准

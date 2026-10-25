@@ -43,17 +43,32 @@ func classifyError(err error, phase string) *Error {
 		return errCode("canceled", "已取消", true)
 	}
 
+	// 代理分支的错误要说"代理"：目标拒绝连接和代理连不上，对操作员是两件完全
+	// 不同的事（改目标 or 改代理），共用一句话会把人指错方向。
+	viaProxy := phase == "proxy"
+
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
+		if viaProxy {
+			return errCode("upstream_connect", "上游代理地址解析失败: "+dnsErr.Name, true)
+		}
 		return errCode("dns_failed", "域名解析失败: "+dnsErr.Name, true)
 	}
 	if errors.Is(err, errConnRefused()) {
+		if viaProxy {
+			return errCode("upstream_connect", "连接上游代理失败（端口未开放或代理未启动）: "+err.Error(), true)
+		}
 		return errCode("conn_refused", "目标拒绝连接（端口未开放或被防火墙拦截）", true)
+	}
+	if viaProxy && strings.Contains(strings.ToLower(err.Error()), "authentication") {
+		return errCode("upstream_auth", "SOCKS5 认证失败（用户名或密码不对）: "+err.Error(), false)
 	}
 
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		switch phase {
+		case "proxy":
+			return errCode("upstream_connect", "连接上游代理超时", true)
 		case "connect":
 			return errCode("conn_timeout", "连接超时", true)
 		case "tls":

@@ -65,6 +65,13 @@ export interface ReplayOptions {
   insecureTLS?: boolean;
   /** 挂载到本次发送的脚本（来自 tab 的 scriptId）。 */
   scriptId?: string;
+  /**
+   * 这次发送的 SOCKS5 出口（socks5://[user:password@]host:port）。
+   *
+   * 只作用于这一次发送的 TCP 连接：目标站只有经代理可达、或者域名只能由代理
+   * 解析时用它。不是系统代理，也不影响界面本身怎么加载。
+   */
+  upstreamProxy?: string;
 }
 
 /**
@@ -80,9 +87,13 @@ export function normalizePacketLineEndings(raw: string): string {
 
 /** POST /api/replay：引擎错误也包装在 200 响应体内返回。 */
 export async function sendReplay(raw: string, options: ReplayOptions): Promise<ReplayResult> {
+  const proxy = options.upstreamProxy?.trim() ?? "";
   const body: Record<string, unknown> = {
     raw: normalizePacketLineEndings(raw),
-    options: { insecureTLS: options.insecureTLS ?? false },
+    options: {
+      insecureTLS: options.insecureTLS ?? false,
+      ...(proxy === "" ? {} : { upstreamProxy: proxy }),
+    },
     save: true,
   };
   if (options.target !== null) {
