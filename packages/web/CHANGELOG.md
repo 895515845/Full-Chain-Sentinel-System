@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Windows 控制台只发布一个资产：删掉裸的 `sentinel-web-windows-x64.exe`，只留 `sentinel-web-windows-x64.zip`（exe + 容器用的 `replayd/`），与另外四个平台「一个平台一个归档」对齐。裸 exe 就是 zip 里那个可执行文件，唯一多给的只是省一次解压，代价是发布页多一个看名字看不出差别、下载后要到第一次「发包」才发现缺二进制的资产；而 release 正文由 `--generate-notes` 生成，从不解释这两个资产怎么选。构建脚本本地仍产出 exe（它是 zip 的内容，也是 workflow 里 `--version` 冒烟测试跑的那个），只是不再单独上传。
 - 工程列表去掉「目标 / 任务」列，新建工程向导不再显示按输入行数识别的目标数量；目标清单仍按原文交给指挥官，避免用户输入的长任务被误算成目标条数。
 - 指挥端点改为普通模型角色，与主模型、守门模型、漏洞评审、监督模型同排，点击「更换」直接从模型库选择已有模型或跟随主模型；不再单独维护 Base URL 和 API Key，旧的指挥端点会迁移为模型库条目。
 - 新建工程改为三步向导：目标 → 指挥 → 执行。每步独立校验，左侧步骤轨可回看已完成步骤；定时计划、执行上限和命令守门集中在最后一步确认，提交前再统一校验一次。
@@ -167,7 +168,7 @@
 - 审批（原「守门审计」，侧边栏改名为「审批」）拆成两个标签页：「AI 审批」是守门模型的判定流水，「自动审批」是没有人判定的调用流水——自动执行模式、审批模式的人工放行与人工拦截、以及守门没覆盖的工具（read / edit / write、MCP 开关关闭时）都会各留一条。判定入口从 bash 一个扩到全部工具：新增挂在 `pi.on("tool_call")` 上的两个扩展，`mcp__*` 调用在 AI 审批模式下送守门模型判定（与 bash 共用同一套模型和拦截回执，两个开关：默认判定 MCP、默认不纳入插件），判定失败仍放行并记「请求失败」；其余调用只写流水不拦截。每条记录带 `approval` 字段（ai / human / auto），两个标签页合起来覆盖每次调用且只记一次。审计页新增「会话」筛选下拉，表格在自动审批标签页改显示会话名
 - 自定义 MCP 服务器（设置 → MCP）：在控制台里增删改查 MCP 服务器并逐个「测试连接」，不再需要手写 JSON。**配置由哨兵自己拥有**，存 `<配置目录>/mcp-servers.json`（0600），会话通过给 `createMcpExtension` 传自定义 `loadConfig` 只读这一份文件，pi 原生的 `mcp.json` 一概不读——因此列表里没有的服务器对 Agent 就不存在，手写的文件不会偷偷加进一个操作员看不见的工具。支持三种传输：`http`（远程 streamable HTTP，可配请求头）、`sse`（旧版 HTTP+SSE，服务器在首个 `endpoint` 事件里给出消息地址）与 `stdio`（`command` + 参数 + 环境变量 + 工作目录）。SSE 与 HTTP 共用 `url` / `headers`，由 pi 的 `createDefaultTransport` 按 `type` 选择传输，因此 CLI、`/mcp` 管理器与「测试连接」走的是同一条实现。**stdio 是这套容器隔离里唯一的例外**：它在控制台宿主机上直接 spawn 进程，不在 Kali 容器内、不经过 bash 审批、不进守门审计，所以 stdio 条目必须勾选「我确认该命令会在控制台宿主机上直接执行」才能保存（挂载时再校验一次，手改文件清掉该标记同样不会连接），页面上有醒目的风险提示。暴露方式可选 codemode（默认）/ tool_search / direct / hidden，另有单次请求超时；工具以 `mcp__<服务器>__<工具>` 注册，仍受「设置 → 权限」的 `mcp` 总开关约束。**测试连接**走与真实会话相同的 `McpServerConnection`（同一套 `${VAR}` / `!cmd` 解析、`~` 展开与 cwd 解析），一次连接读取工具列表后关闭，不保存、不影响运行中的会话，结果（成功 / 需要 OAuth 登录 / 失败，含 stdio 的 stderr 尾部）记在页面上；本页不做 OAuth，需要登录的服务器提示去终端跑 `sentinel mcp login`。保存与删除会重建活动会话（有会话在跑时拒绝），页面不显示会话内的实时连接状态。「设置 → 权限」的 `mcp` 总开关下逐个列出这些服务器，每行一个开关：它写的就是本页的「启用」，两个页面是同一个开关的两个视图，因此不会互相矛盾；协议只传 `enabled` 一个字段，避免把某个页面里陈旧的 URL / token 覆盖回文件
 
-- Windows x64 发布：`scripts/build-web-binaries.sh` 新增 `--platform windows-x64`，产出 `sentinel-web.exe`；Release 工作流在 `windows-latest` 上原生编译，直接发布裸 `.exe`（`sentinel-web-windows-x64.exe`），不需要解压。项目容器在 Windows 上不再追加「宿主路径挂到同一路径」的挂载——Docker 不接受盘符路径作为容器内目标，`/work` 仍然挂着项目目录
+- Windows x64 发布：`scripts/build-web-binaries.sh` 新增 `--platform windows-x64`，产出 `sentinel-web.exe`；Release 工作流在 `windows-latest` 上原生编译（发布形式后来改成只发 zip，见「Changed」）。项目容器在 Windows 上不再追加「宿主路径挂到同一路径」的挂载——Docker 不接受盘符路径作为容器内目标，`/work` 仍然挂着项目目录
 - 发布矩阵补齐 Linux arm64 与 Intel macOS：Release 工作流在 `ubuntu-24.04-arm` 与 `macos-15-intel` 上原生编译，新增 `sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`，与 linux-x64、darwin-arm64、windows-x64 和 APK 一起共 6 个资产
 - 项目的容器现在可以单独停止与启动：项目管理页显示每个项目的容器状态（运行中 / 已停止 / 无容器）并给出对应动作。停止是显式的——被停止的项目不会因为进入项目或跑工具而被自动拉起，必须先点「启动容器」；该项目有运行中的工程任务或会话时服务端拒绝停止并说明原因。
 

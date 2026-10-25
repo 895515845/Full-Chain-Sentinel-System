@@ -18,7 +18,8 @@
 #
 # Output:
 #   <out>/sentinel-web-<platform>.tar.gz   Unix platforms
-#   <out>/windows-x64/sentinel-web.exe     Windows (published as a direct .exe)
+#   <out>/sentinel-web-windows-x64.zip     Windows (the published asset: exe + replayd/)
+#   <out>/windows-x64/sentinel-web.exe     Windows executable (the zip's content)
 
 set -euo pipefail
 
@@ -226,10 +227,11 @@ echo "==> Creating archives..."
 cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
 	if [[ "$platform" == windows-* ]]; then
-		# The .exe stays a direct download, but the replay toolset needs the Linux
-		# binaries that go into the containers, and those have to sit next to the
-		# executable — so the same folder is offered as a zip. Unpacking the zip is
-		# enough; a bare .exe keeps working and reports how to add the binaries.
+		# Windows publishes one asset, and it is this zip: the replay toolset needs the
+		# Linux binaries that go into the containers, and those have to sit next to the
+		# executable. The .exe stays on disk because it is the zip's content (and what
+		# the workflow smoke-tests), but it is not uploaded on its own — a bare .exe
+		# looked complete and only reported the missing binaries at first use.
 		if [[ -d "$platform/replayd" ]]; then
 			rm -f "sentinel-web-$platform.zip"
 			if command -v zip >/dev/null 2>&1; then
@@ -247,7 +249,7 @@ for platform in "${PLATFORMS[@]}"; do
 				echo "  sentinel-web-$platform.zip (exe + replayd/)"
 			fi
 		fi
-		echo "Leaving sentinel-web-$platform.exe unarchived"
+		echo "  sentinel-web-$platform.exe (zip content, not published on its own)"
 		continue
 	fi
 	echo "Creating sentinel-web-$platform.tar.gz..."

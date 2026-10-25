@@ -63,17 +63,17 @@ root@VM-0-11-ubuntu:~/sentinel-web# ./sentinel-web
 ```
 Windows（需要 Docker Desktop，PowerShell 中运行）：
 
-在 Releases 下载 `sentinel-web-windows-x64.zip`（推荐）或单文件的 `sentinel-web-windows-x64.exe`。zip 解压后目录里是控制台 `sentinel-web.exe` 加一个 `replayd/` 文件夹（发布资产名带平台后缀，包内的可执行文件叫 `sentinel-web.exe`）：
+在 Releases 下载 `sentinel-web-windows-x64.zip`。解压后目录里是控制台 `sentinel-web.exe` 加一个 `replayd/` 文件夹（发布资产名带平台后缀，包内的可执行文件叫 `sentinel-web.exe`）：
 
 ```powershell
 .\sentinel-web.exe
 ```
 
-`replayd/` 里是发包重放服务给容器用的 Linux 二进制：控制台首次在项目容器里用到「发包」时会把它下发进容器，所以要放在可执行文件旁边。只想要单文件时下载裸 `.exe` 也行，但发包功能会提示找不到二进制——这时把 `replayd/` 放到 exe 同级目录，或用 `SENTINEL_REPLAYD_DIR` 指向它的所在目录。
+`replayd/` 里是发包重放服务给容器用的 Linux 二进制：控制台首次在项目容器里用到「发包」时会把它下发进容器，所以要放在可执行文件旁边（把 exe 单独拷到别处时，用 `SENTINEL_REPLAYD_DIR` 指向 `replayd/` 所在目录即可）。Windows 不再单独发布裸 `.exe`：它只是这个 zip 的内容，缺了 `replayd/` 会在第一次「发包」时才报错。
 
 该文件未签名，SmartScreen 可能拦一次，选择「更多信息 → 仍要运行」即可。Windows 默认没有 `openssl`，首次启动会回退到明文 HTTP 并在日志里提示；要保留 HTTPS，安装 OpenSSL，或用 `--tls-cert/--tls-key` 指定证书。容器默认用 host 网络，如果本机 Docker Desktop 不支持 host 网络，在「设置 → 环境」切到桥接后重建容器。
 
-控制台的 Release 资产：`sentinel-web-linux-x64.tar.gz`、`sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`、`sentinel-web-windows-x64.zip`、`sentinel-web-windows-x64.exe`（仅为控制台，不含容器二进制），另有 DroidBridge APK。四个 tar.gz 与 Windows 的 zip 都带 `replayd/`（linux amd64/arm64），供容器内发包重放使用。
+控制台的 Release 资产：`sentinel-web-linux-x64.tar.gz`、`sentinel-web-linux-arm64.tar.gz`、`sentinel-web-darwin-arm64.tar.gz`、`sentinel-web-darwin-x64.tar.gz`、`sentinel-web-windows-x64.zip`，另有 DroidBridge APK。五个归档都带 `replayd/`（linux amd64/arm64），供容器内发包重放使用。
 
 首次运行访问需要设置账号密码
 

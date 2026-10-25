@@ -122,7 +122,7 @@ npm --prefix packages/web run start
 ./scripts/build-web-binaries.sh --skip-build            # 复用已有 dist
 ```
 
-产物在 `packages/web/binaries/`。Unix 平台是 `sentinel-web-<平台>.tar.gz`，解压后是 `sentinel-web/` 目录（可执行文件 + 容器用的 `replayd/`）；Windows 是 `windows-x64/sentinel-web.exe`（裸 exe，可直接跑），旁边另出一个 `sentinel-web-windows-x64.zip`（exe + `replayd/`）：
+产物在 `packages/web/binaries/`。Unix 平台是 `sentinel-web-<平台>.tar.gz`，解压后是 `sentinel-web/` 目录（可执行文件 + 容器用的 `replayd/`）；Windows 本地同样产出 `windows-x64/sentinel-web.exe`（zip 的内容，也是冒烟测试跑的那个），但**发布出去的资产只有 `sentinel-web-windows-x64.zip`**（exe + `replayd/`），跟另外四个平台一样一个平台一个归档：
 
 ```bash
 ./sentinel-web --check          # 只跑 Docker 环境检查，未通过时退出码 1
